@@ -899,7 +899,9 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             /*
              * We haven't - does this message require reassembly?
              */
-            if (!pinfo->fd->flags.visited) {
+            /**** HACK RCC 20121016: Make packet dissection work ****/
+            // if (!pinfo->fd->flags.visited) {
+            if (1) {
               /*
                * This is the first time we've looked at this frame,
                * so it wouldn't have any remembered information.
@@ -958,6 +960,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 packet_state = wmem_new(wmem_file_scope(), frame_state_t);
                 packet_state->info = eap_reass_cookie;
                 p_add_proto_data(wmem_file_scope(), pinfo, proto_eap, 0, packet_state);
+                pinfo->fd->flags.visited = 0; /**** HACK RCC 20121016: forced it to say it is not visited ****/
               }
             }
           } else {

@@ -203,6 +203,13 @@ extern GHashTable *zbee_table_link_keyring;
 #define ZBEE_IP_BEACON_TLV_TYPE_MASK           0xf0
 #define ZBEE_IP_BEACON_TLV_TYPE_LFDI           0x0
 
+/* Thread beacons */
+#define THREAD_BEACON_PROTOCOL_ID              0x03
+#define THREAD_BEACON_JOINING                  0x01
+#define THREAD_BEACON_NATIVE                   0x08
+#define THREAD_BEACON_PROTOCOL_VERSION         0xf0
+#define THREAD_BEACON_TLV_STEERING_DATA_S      0x80
+
 #endif /* PACKET_ZBEE_NWK_H */
 
 /*

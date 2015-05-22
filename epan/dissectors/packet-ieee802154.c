@@ -72,7 +72,12 @@
 #include <epan/strutil.h>
 #include <epan/to_str-int.h>
 #include <epan/show_exception.h>
+#include <epan/to_str.h>
 #include <wsutil/pint.h>
+
+#define ZIP_HASHED_KEY
+#define THREAD_HASHED_KEY
+/* #define DISPLAY_HASHED_KEY */
 
 /* Use libgcrypt for cipher libraries. */
 #ifdef HAVE_LIBGCRYPT
@@ -98,17 +103,30 @@ static gboolean ieee802154_cc24xx = FALSE;
 /* boolean value set if the FCS must be ok before payload is dissected */
 static gboolean ieee802154_fcs_ok = TRUE;
 
+#define NUM_KEYS 3
+
 /* User string with the decryption key. */
-static const gchar *ieee802154_key_str = NULL;
-static gboolean     ieee802154_key_valid;
-static guint8       ieee802154_key[IEEE802154_CIPHER_SIZE];
+static const gchar *ieee802154_key_str[NUM_KEYS] = {NULL};
+#ifdef THREAD_HASHED_KEY
+static const gchar *ieee802154_thr_seq_ctr_str[NUM_KEYS] = {NULL};
+#endif
+#ifdef DISPLAY_HASHED_KEY
+static const gchar *ieee802154_hash_key_str[NUM_KEYS] = {NULL};
+#endif
+#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
+static gint ieee802154_key_hash_val = KEY_HASH_NONE;
+#endif
+static gboolean     ieee802154_key_valid[NUM_KEYS];
+static guint8       ieee802154_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
+static guint8       ieee802154_mle_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
+static unsigned int ieee802154_key_index[NUM_KEYS];
 static const char  *ieee802154_user    = "User";
 
 /*-------------------------------------
  * Address Hash Tables
  *-------------------------------------
  */
-static ieee802154_map_tab_t ieee802154_map = { NULL, NULL };
+ieee802154_map_tab_t ieee802154_map = { NULL, NULL };
 
 /*-------------------------------------
  * Static Address Mapping UAT
@@ -154,6 +172,9 @@ addr_uat_update_cb(void *r, char **err)
 UAT_HEX_CB_DEF(addr_uat, addr16, static_addr_t)
 UAT_HEX_CB_DEF(addr_uat, pan, static_addr_t)
 UAT_BUFFER_CB_DEF(addr_uat, eui64, static_addr_t, eui64, eui64_len)
+
+/* Needed for string display - this should really be in a header file */
+extern char *bytes_to_hexstr(char *out, const guint8 *ad, guint32 len);
 
 /*-------------------------------------
  * Dissector Function Prototypes
@@ -372,6 +393,20 @@ static const enum_val_t ieee802154_2003_sec_suite_enums[] = {
     { "AES-CCM-32",  "AES-128 Encryption, 32-bit Integrity Protection",  SECURITY_LEVEL_ENC_MIC_32 },
     { NULL, NULL, 0 }
 };
+
+#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
+/* Enumeration for key generation */
+static const enum_val_t ieee802154_key_hash_enums[] = {
+    { "No hash", "No hash used to derive key", KEY_HASH_NONE },
+#ifdef ZIP_HASHED_KEY
+    { "ZigBee IP hash", "ZigBee IP hash used to derive key", KEY_HASH_ZIP },
+#endif
+#ifdef THREAD_HASHED_KEY
+    { "Thread hash", "Thread hash used to derive key", KEY_HASH_THREAD },
+#endif
+    { NULL, NULL, 0 }
+};
+#endif
 
 /* Preferences for 2003 security */
 static gint ieee802154_sec_suite = SECURITY_LEVEL_ENC_MIC_64;
@@ -671,6 +706,9 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
         ieee_hints = (ieee802154_hints_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_ieee802154, 0);
     }
 
+    /* Save a pointer to the whole packet */
+    ieee_hints->packet = packet;
+    
     /* Create the protocol tree. */
     if (tree) {
         proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154, tvb, 0, tvb_length(tvb), "IEEE 802.15.4");
@@ -1809,6 +1847,7 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
     gint                captured_len;
     gint                reported_len;
     ieee802154_hints_t *ieee_hints;
+    int                 i;
 
     /*
      * Check the version; we only support IEEE 802.15.4-2003 and IEEE 802.15.4-2006.
@@ -1858,6 +1897,20 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
      * Let's hope it's simpler to implement for dissecting only.
      *
      * Also need to find the extended address of the sender.
+     *
+     * **********************************************************
+     * Response to above comment from the person who actually 
+     * contributed to the 802.15.4-2006 security specification:
+     * **********************************************************
+     *
+     * The original author of this dissector is entitled to their
+     * opinion. It does initially appear complex and does need to 
+     * be studied in detail, as do all specifications. The solution
+     * provides a lot of flexibility and in many cases is actually very 
+     * simple to implement, as is borne out by the simplicity of the 
+     * resulting code for key selection here. Therefore, it would be 
+     * appreciated that the text is studied before making pithy comments
+     * like the one above.
      */
     if (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) {
         /* The source EUI-64 is included in the headers. */
@@ -1876,14 +1929,22 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
     /* Lookup the key. */
     /*
      * TODO: What this dissector really needs is a UAT to store multiple keys
-     * and a variety of key configuration data. However, a single shared key
+     * and a variety of key configuration data. However, two shared keys
      * should be sufficient to get packet encryption off to a start.
      */
-    if (!ieee802154_key_valid) {
+    for (i = 0; i < NUM_KEYS; i++)
+    {
+        if ((ieee802154_key_valid[i]) &&
+            (packet->key_index == ieee802154_key_index[i]))
+        {
+            memcpy(key, ieee802154_key[i], IEEE802154_CIPHER_SIZE);
+            break;
+        }
+    }
+    if (i == NUM_KEYS) {
         *status = DECRYPT_PACKET_NO_KEY;
         return NULL;
     }
-    memcpy(key, ieee802154_key, IEEE802154_CIPHER_SIZE);
 
     /*=====================================================
      * CCM* - CTR mode payload encryption
@@ -1919,7 +1980,7 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
     /* There is no ciphertext. Wrap the plaintext in a new tvb. */
     else {
         /* Decrypt the MIC (if present). */
-        if ((have_mic) && (!ccm_ctr_encrypt(key, tmp, rx_mic, NULL, 0))) {
+        if (have_mic && !ccm_ctr_encrypt(key, tmp, rx_mic, NULL, 0)) {
             *status = DECRYPT_PACKET_DECRYPT_FAILED;
             return NULL;
         }
@@ -2228,6 +2289,32 @@ guint ieee802154_long_addr_hash(gconstpointer key)
 gboolean ieee802154_long_addr_equal(gconstpointer a, gconstpointer b)
 {
     return (((const ieee802154_long_addr *)a)->addr == ((const ieee802154_long_addr *)b)->addr);
+}
+
+/* Set MLE key function. */
+gboolean ieee802154_set_mle_key(unsigned int key_index, unsigned char *key)
+{
+    int i;
+    
+    /* Lookup the key. */
+    /*
+     * TODO: What this dissector really needs is a UAT to store multiple keys
+     * and a variety of key configuration data. However, two shared keys
+     * should be sufficient to get packet encryption off to a start.
+     */
+    for (i = 0; i < NUM_KEYS; i++)
+    {
+        if ((ieee802154_key_valid[i]) &&
+            (key_index == ieee802154_key_index[i]))
+        {
+            memcpy(key, ieee802154_mle_key[i], IEEE802154_CIPHER_SIZE);
+            break;
+        }
+    }
+    if (i == NUM_KEYS) {
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /*FUNCTION:------------------------------------------------------
@@ -2821,8 +2908,55 @@ void proto_register_ieee802154(void)
 
     /* Register preferences for a decryption key */
     /* TODO: Implement a UAT for multiple keys, and with more advanced key management. */
-    prefs_register_string_preference(ieee802154_module, "802154_key", "Decryption key",
-            "128-bit decryption key in hexadecimal format", (const char **)&ieee802154_key_str);
+#if (NUM_KEYS == 1) || (NUM_KEYS == 2) || (NUM_KEYS == 3)
+    prefs_register_string_preference(ieee802154_module, "802154_key_1", "Decryption key 1",
+            "128-bit decryption key in hexadecimal format", (const char **)&ieee802154_key_str[0]);
+    prefs_register_uint_preference(ieee802154_module, "802154_key_index_1", "Decryption key index 1",
+                                   "Key index in decimal format", 10, &ieee802154_key_index[0]);
+#ifdef THREAD_HASHED_KEY
+    prefs_register_string_preference(ieee802154_module, "802154_thr_seq_ctr_1", "Thread sequence counter 1",
+            "32-bit sequence counter for hash", (const char **)&ieee802154_thr_seq_ctr_str[0]);
+#endif
+#endif // (NUM_KEYS == 1) || (NUM_KEYS == 2) || (NUM_KEYS == 3)
+
+#if (NUM_KEYS == 2) || (NUM_KEYS == 3)
+    prefs_register_string_preference(ieee802154_module, "802154_key_2", "Decryption key 2",
+            "128-bit decryption key in hexadecimal format", (const char **)&ieee802154_key_str[1]);
+    prefs_register_uint_preference(ieee802154_module, "802154_key_index_2", "Decryption key index 2",
+                                   "Key index in decimal format", 10, &ieee802154_key_index[1]);
+#ifdef THREAD_HASHED_KEY
+    prefs_register_string_preference(ieee802154_module, "802154_thr_seq_ctr_2", "Thread sequence counter 2",
+            "32-bit sequence counter for hash", (const char **)&ieee802154_thr_seq_ctr_str[1]);
+#endif
+#endif // (NUM_KEYS == 2) || (NUM_KEYS == 3)
+
+#if (NUM_KEYS == 3)
+    prefs_register_string_preference(ieee802154_module, "802154_key_3", "Decryption key 3",
+            "128-bit decryption key in hexadecimal format", (const char **)&ieee802154_key_str[2]);
+    prefs_register_uint_preference(ieee802154_module, "802154_key_index_3", "Decryption key index 3",
+                                   "Key index in decimal format", 10, &ieee802154_key_index[2]);
+#ifdef THREAD_HASHED_KEY
+    prefs_register_string_preference(ieee802154_module, "802154_thr_seq_ctr_3", "Thread sequence counter 3",
+            "32-bit sequence counter for hash", (const char **)&ieee802154_thr_seq_ctr_str[2]);
+#endif
+#endif // (NUM_KEYS == 3)
+
+#ifdef DISPLAY_HASHED_KEY
+
+#if (NUM_KEYS == 1) || (NUM_KEYS == 2) || (NUM_KEYS == 3)
+    prefs_register_string_preference(ieee802154_module, "802154_hash_key_1", "Hashed Decryption key 1",
+            "128-bit decryption hashed key in hexadecimal format", (const char **)&ieee802154_hash_key_str[0]);
+#endif // (NUM_KEYS == 1) || (NUM_KEYS == 2) || (NUM_KEYS == 3)
+#if (NUM_KEYS == 2) || (NUM_KEYS == 3)
+    prefs_register_string_preference(ieee802154_module, "802154_hash_key_2", "Hashed Decryption key 2",
+            "128-bit decryption hashed key in hexadecimal format", (const char **)&ieee802154_hash_key_str[1]);
+#endif // NUM_KEYS == 2) || (NUM_KEYS == 3)
+#if (NUM_KEYS == 3)
+    prefs_register_string_preference(ieee802154_module, "802154_hash_key_3", "Hashed Decryption key 3",
+            "128-bit decryption hashed key in hexadecimal format", (const char **)&ieee802154_hash_key_str[2]);
+#endif // (NUM_KEYS == 3)
+            
+#endif // DISPLAY_HASHED_KEY
 
     prefs_register_enum_preference(ieee802154_module, "802154_sec_suite",
                                    "Security Suite (802.15.4-2003)",
@@ -2836,6 +2970,13 @@ void proto_register_ieee802154(void)
                                    "Set if the manufacturer extends the authentication data with the"
                                    " security header. Option ignored for 802.15.4-2006 and unsecured frames.",
                                    &ieee802154_extend_auth);
+                                   
+#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
+    prefs_register_enum_preference(ieee802154_module, "802154_key_hash",
+                                   "Key hash",
+                                   "Specifies which hash scheme is used to derived the key",
+                                   &ieee802154_key_hash_val, ieee802154_key_hash_enums, FALSE);
+#endif
 
     /* Register the subdissector list */
     panid_dissector_table = register_dissector_table(IEEE802154_PROTOABBREV_WPAN_PANID, "IEEE 802.15.4 PANID", FT_UINT16, BASE_HEX);
@@ -2874,7 +3015,12 @@ void proto_reg_handoff_ieee802154(void)
     static dissector_handle_t  ieee802154_nofcs_handle;
     static unsigned int        old_ieee802154_ethertype;
     GByteArray                *bytes;
+#ifdef THREAD_HASHED_KEY
+    GByteArray                *seq_ctr_bytes;
+    char                      buffer[10];
+#endif
     gboolean                   res;
+    int                        i;
 
     if (!prefs_initialized){
         /* Get the dissector handles. */
@@ -2895,14 +3041,78 @@ void proto_reg_handoff_ieee802154(void)
 
     old_ieee802154_ethertype = ieee802154_ethertype;
 
-    /* Get the IEEE 802.15.4 decryption key. */
-    bytes = g_byte_array_new();
-    res = hex_str_to_bytes(ieee802154_key_str, bytes, FALSE);
-    ieee802154_key_valid =  (res && bytes->len >= IEEE802154_CIPHER_SIZE);
-    if (ieee802154_key_valid) {
-        memcpy(ieee802154_key, bytes->data, IEEE802154_CIPHER_SIZE);
+    for (i = 0; i < NUM_KEYS; i++)
+    {
+        /* Get the IEEE 802.15.4 decryption key. */
+        bytes = g_byte_array_new();
+        res = hex_str_to_bytes(ieee802154_key_str[i], bytes, FALSE);
+        ieee802154_key_valid[i] = (res && bytes->len >= IEEE802154_CIPHER_SIZE);
+        if (ieee802154_key_valid[i]) {
+#if (defined(ZIP_HASHED_KEY) || defined(THREAD_HASHED_KEY)) && defined(HAVE_LIBGCRYPT)
+
+            if (ieee802154_key_hash_val != KEY_HASH_NONE) {
+                gcry_md_hd_t md_hd;
+                gcry_error_t err = 0;
+                unsigned char *data_computed_md = 0;
+#ifdef DISPLAY_HASHED_KEY
+                char *ieee802154_hash_key_str_ptr;
+#endif
+                err = gcry_md_open(&md_hd, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
+                if (err == 0) {
+                    gcry_md_setkey(md_hd, bytes->data, IEEE802154_CIPHER_SIZE);
+#ifdef ZIP_HASHED_KEY
+                    if (ieee802154_key_hash_val == KEY_HASH_ZIP) {
+                        gcry_md_write(md_hd, "ZigBeeIP", 8);
+                    }
+#endif                    
+#ifdef THREAD_HASHED_KEY
+                    if (ieee802154_key_hash_val == KEY_HASH_THREAD) {
+                        seq_ctr_bytes = g_byte_array_new();
+                        res = hex_str_to_bytes(ieee802154_thr_seq_ctr_str[i], seq_ctr_bytes, FALSE);
+                        if (seq_ctr_bytes->len > 4) {
+                            seq_ctr_bytes->len = 4;
+                        }
+                        memcpy(buffer, seq_ctr_bytes->data, seq_ctr_bytes->len); /* sizeof(uint32) */
+                        g_byte_array_free(seq_ctr_bytes, TRUE);
+                        memcpy(&buffer[4], "Thread", 6); /* len("Thread") */
+                        gcry_md_write(md_hd, buffer, 10);
+                    }
+#endif                    
+                    data_computed_md = gcry_md_read(md_hd, GCRY_MD_SHA256);
+                    if (data_computed_md != 0) {
+                        /* Copy upper hashed bytes to the key */
+                        memcpy(ieee802154_key[i], &data_computed_md[16], IEEE802154_CIPHER_SIZE);
+                        /* Copy lower hashed bytes to the MLE key */
+                        memcpy(ieee802154_mle_key[i], data_computed_md, IEEE802154_CIPHER_SIZE);
+#ifdef DISPLAY_HASHED_KEY
+                        ieee802154_hash_key_str_ptr = bytes_to_hexstr((char *)ieee802154_hash_key_str[i], (const guint8 *)data_computed_md, 32); // Just show whole string
+                        *ieee802154_hash_key_str_ptr = '\0'; /* Null terminate for display */
+#endif
+                    }
+                }
+                if (data_computed_md == 0) {
+                    /* Copy bytes to the key */
+                    memcpy(ieee802154_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+                    memcpy(ieee802154_mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+                }
+                gcry_md_close(md_hd);
+            } else {
+                /* Just copy the keys verbatim */
+                memcpy(ieee802154_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+                memcpy(ieee802154_mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+            }
+            
+#else /* !(defined(ZIP_HASHED_KEY) || defined(THREAD_HASHED_KEY)) && defined(HAVE_LIBGCRYPT) */
+
+            /* Will have to be manually entered as HMAC_SHA256(key, <string>)[16..31] */
+            memcpy(ieee802154_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+            /* Will have to be manually entered as HMAC_SHA256(key, <string>)[0..15] */
+            memcpy(ieee802154_mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+            
+#endif /* !(defined(ZIP_HASHED_KEY) || defined(THREAD_HASHED_KEY)) && defined(HAVE_LIBGCRYPT) */
+        }
+        g_byte_array_free(bytes, TRUE);
     }
-    g_byte_array_free(bytes, TRUE);
 
     /* Register dissector handles. */
     dissector_add_uint("ethertype", ieee802154_ethertype, ieee802154_handle);

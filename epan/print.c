@@ -38,6 +38,7 @@
 #include <wsutil/filesystem.h>
 #include <wsutil/ws_version_info.h>
 #include <ftypes/ftypes-int.h>
+#include <epan/tvbuff-int.h>
 
 #define PDML_VERSION "0"
 #define PSML_VERSION "0"
@@ -778,27 +779,28 @@ get_field_data(GSList *src_list, field_info *fi)
 
     for (src_le = src_list; src_le != NULL; src_le = src_le->next) {
         src = (struct data_source *)src_le->data;
-        src_tvb = get_data_source_tvb(src);
-        if (fi->ds_tvb == src_tvb) {
-            /*
-             * Found it.
-             *
-             * XXX - a field can have a length that runs past
-             * the end of the tvbuff.  Ideally, that should
-             * be fixed when adding an item to the protocol
-             * tree, but checking the length when doing
-             * that could be expensive.  Until we fix that,
-             * we'll do the check here.
-             */
-            tvbuff_length = tvb_length_remaining(src_tvb,
-                                                 fi->start);
-            if (tvbuff_length < 0) {
-                return NULL;
+        for (src_tvb = get_data_source_tvb(src); src_tvb != NULL; src_tvb = src_tvb->next) {
+            if (fi->ds_tvb == src_tvb) {
+                /*
+                 * Found it.
+                 *
+                 * XXX - a field can have a length that runs past
+                 * the end of the tvbuff.  Ideally, that should
+                 * be fixed when adding an item to the protocol
+                 * tree, but checking the length when doing
+                 * that could be expensive.  Until we fix that,
+                 * we'll do the check here.
+                 */
+                tvbuff_length = tvb_length_remaining(src_tvb,
+                                                     fi->start);
+                if (tvbuff_length < 0) {
+                    return NULL;
+                }
+                length = fi->length;
+                if (length > tvbuff_length)
+                    length = tvbuff_length;
+                return tvb_get_ptr(src_tvb, fi->start, length);
             }
-            length = fi->length;
-            if (length > tvbuff_length)
-                length = tvbuff_length;
-            return tvb_get_ptr(src_tvb, fi->start, length);
         }
     }
     g_assert_not_reached();

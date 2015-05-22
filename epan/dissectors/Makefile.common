@@ -898,6 +898,7 @@ DISSECTOR_SRC = \
 	packet-miop.c		\
 	packet-mip.c		\
 	packet-mip6.c		\
+	packet-mle.c		\
 	packet-mka.c		\
 	packet-mmse.c		\
 	packet-mndp.c		\
@@ -1238,6 +1239,10 @@ DISSECTOR_SRC = \
 	packet-text-media.c	\
 	packet-tfp.c		\
 	packet-tftp.c		\
+	packet-thread-address.c		\
+	packet-thread-coap.c		\
+	packet-thread-meshcop.c		\
+	packet-thread-nwd.c		\
 	packet-thrift.c		\
 	packet-time.c		\
 	packet-tipc.c		\

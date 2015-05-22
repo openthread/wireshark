@@ -35,6 +35,8 @@
 #include "packet-zbee-nwk.h"
 #include "packet-zbee-security.h"
 
+/**** TODO: All Thread beacon stuff should come out and be somewhere else ****/
+
 /*************************/
 /* Function Declarations */
 /*************************/
@@ -43,6 +45,7 @@ static int         dissect_zbee_nwk        (tvbuff_t *tvb, packet_info *pinfo, p
 static void        dissect_zbee_nwk_cmd    (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet* packet);
 static int         dissect_zbee_beacon     (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 static int         dissect_zbip_beacon     (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
+static int         dissect_thread_beacon   (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 
 /* Command Dissector Helpers */
 static guint       dissect_zbee_nwk_route_req  (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
@@ -69,6 +72,7 @@ void               proto_reg_handoff_zbee_nwk(void);
 static int proto_zbee_nwk = -1;
 static int proto_zbee_beacon = -1;
 static int proto_zbip_beacon = -1;
+static int proto_thread_beacon = -1;
 static int hf_zbee_nwk_fcf = -1;
 static int hf_zbee_nwk_frame_type = -1;
 static int hf_zbee_nwk_proto_version = -1;
@@ -155,6 +159,18 @@ static int hf_zbip_beacon_host_capacity = -1;
 static int hf_zbip_beacon_unsecure = -1;
 static int hf_zbip_beacon_network_id = -1;
 
+static int hf_thread_beacon_joining = -1;
+static int hf_thread_beacon_native = -1;
+static int hf_thread_beacon_version = -1;
+static int hf_thread_beacon_network_id = -1;
+static int hf_thread_beacon_epid = -1;
+static int hf_thread_beacon_tlv = -1;
+static int hf_thread_beacon_tlv_type = -1;
+static int hf_thread_beacon_tlv_length = -1;
+static int hf_thread_beacon_tlv_steering_data_s = -1;
+static int hf_thread_beacon_tlv_steering_data_bloom = -1;
+static int hf_thread_beacon_tlv_unknown = -1;
+
 static gint ett_zbee_nwk = -1;
 static gint ett_zbee_beacon = -1;
 static gint ett_zbee_nwk_fcf = -1;
@@ -165,6 +181,8 @@ static gint ett_zbee_nwk_cmd = -1;
 static gint ett_zbee_nwk_cmd_options = -1;
 static gint ett_zbee_nwk_cmd_cinfo = -1;
 static gint ett_zbee_nwk_cmd_link = -1;
+
+static gint ett_thread_beacon_tlv = -1;
 
 static expert_field ei_zbee_nwk_missing_payload = EI_INIT;
 
@@ -263,6 +281,13 @@ static const value_string zbee_nwk_stack_profiles[] = {
     { 0x01, "ZigBee Home" },
     { 0x02, "ZigBee PRO" },
     { 0, NULL }
+};
+
+#define THREAD_BEACON_TLV_STEERING_DATA        8
+
+/* Thread Beacon TLV Values. */
+static const value_string thread_beacon_tlv_vals[] = {
+{ THREAD_BEACON_TLV_STEERING_DATA,           "Steering Data" }
 };
 
 /* TODO: much of the following copied from ieee80154 dissector */
@@ -1341,10 +1366,13 @@ dissect_zbee_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     if (!packet) return FALSE;
     if (packet->src_addr_mode != IEEE802154_FCF_ADDR_SHORT) return FALSE;
 
-    /* ZigBee beacons begin with a protocol identifier. */
-    if (tvb_get_guint8(tvb, 0) != ZBEE_NWK_BEACON_PROTOCOL_ID) return FALSE;
-    dissect_zbee_beacon(tvb, pinfo, tree, packet);
-    return TRUE;
+    if (tvb_length(tvb) > 0) {
+        /* ZigBee beacons begin with a protocol identifier. */
+        if (tvb_get_guint8(tvb, 0) != ZBEE_NWK_BEACON_PROTOCOL_ID) return FALSE;
+        dissect_zbee_beacon(tvb, pinfo, tree, packet);
+        return TRUE;
+    }
+    return FALSE;
 } /* dissect_zbee_beacon_heur */
 
 /*FUNCTION:------------------------------------------------------
@@ -1481,10 +1509,13 @@ dissect_zbip_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     if (!packet) return FALSE;
     if (packet->src_addr_mode != IEEE802154_FCF_ADDR_SHORT) return FALSE;
 
-    /* ZigBee beacons begin with a protocol identifier. */
-    if (tvb_get_guint8(tvb, 0) != ZBEE_IP_BEACON_PROTOCOL_ID) return FALSE;
-    dissect_zbip_beacon(tvb, pinfo, tree, packet);
-    return TRUE;
+    if (tvb_length(tvb) > 0) {
+        /* ZigBee beacons begin with a protocol identifier. */
+        if (tvb_get_guint8(tvb, 0) != ZBEE_IP_BEACON_PROTOCOL_ID) return FALSE;
+        dissect_zbip_beacon(tvb, pinfo, tree, packet);
+        return TRUE;
+    }
+    return FALSE;
 } /* dissect_zbip_beacon_heur */
 
 /*FUNCTION:------------------------------------------------------
@@ -1566,6 +1597,162 @@ static int dissect_zbip_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     }
     return tvb_captured_length(tvb);
 } /* dissect_zbip_beacon */
+
+/*FUNCTION:------------------------------------------------------
+ *  NAME
+ *      dissect_thread_beacon_heur
+ *  DESCRIPTION
+ *      Heuristic interpreter for the Thread beacon dissectors.
+ *  PARAMETERS
+ *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
+ *      packet_into *pinfo  - pointer to packet information fields
+ *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
+ *  RETURNS
+ *      Boolean value, whether it handles the packet or not.
+ *---------------------------------------------------------------
+ */
+static gboolean
+dissect_thread_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+    ieee802154_packet   *packet = (ieee802154_packet *)data;
+
+    /* Thread beacon frames can be 16 or 64-bit source */
+    if (!packet) return FALSE;
+    if (!((packet->src_addr_mode == IEEE802154_FCF_ADDR_SHORT) || 
+          (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT))) return FALSE;
+
+    if (tvb_length(tvb) > 0) {
+        /* Thread beacons begin with a protocol identifier. */
+        if (tvb_get_guint8(tvb, 0) != THREAD_BEACON_PROTOCOL_ID) return FALSE;
+        dissect_thread_beacon(tvb, pinfo, tree, packet);
+        return TRUE;
+    }
+    return FALSE;
+} /* dissect_thread_beacon_heur */
+
+/*FUNCTION:------------------------------------------------------
+ *  NAME
+ *      dissect_thread_beacon
+ *  DESCRIPTION
+ *      Dissector for Thread beacons.
+ *  PARAMETERS
+ *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
+ *      packet_into *pinfo  - pointer to packet information fields
+ *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
+ *  RETURNS
+ *      void
+ *---------------------------------------------------------------
+ */
+static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+    ieee802154_packet   *packet = (ieee802154_packet *)data;
+
+    proto_item  *ti, *beacon_root;
+    proto_tree  *beacon_tree;
+    guint       offset = 0;
+    guint8      proto_id;
+    char        *ssid;
+    guint8      tlv_type, tlv_len;
+    proto_tree  *tlv_tree;
+
+    /* Reject the packet if data is NULL */
+    if (!packet) return 0;
+
+    /* Add ourself to the protocol column. */
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "Thread");
+    /* Create the tree for this beacon. */
+    beacon_root = proto_tree_add_item(tree, proto_thread_beacon, tvb, 0, -1, ENC_NA);
+    beacon_tree = proto_item_add_subtree(beacon_root, ett_zbee_beacon);
+
+    /* Update the info column. */
+    col_clear(pinfo->cinfo, COL_INFO);
+    col_append_fstr(pinfo->cinfo, COL_INFO, "Beacon, Src: 0x%04x", packet->src16);
+
+    /* Get and display the protocol id, must be 0x03 on all Thread beacons. */
+    proto_id = tvb_get_guint8(tvb, offset);
+    if (tree) {
+        proto_tree_add_uint(beacon_tree, hf_zbee_beacon_protocol, tvb, offset, 1, proto_id);
+    }
+    offset += 1;
+
+    /* Get and display the beacon flags */
+    if (tree) {
+        proto_tree_add_item(beacon_tree, hf_thread_beacon_joining, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(beacon_tree, hf_thread_beacon_native, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(beacon_tree, hf_thread_beacon_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+    }
+    offset += 1;
+
+    /* Get and display the network ID. */
+    if (tree) {
+        proto_tree_add_item(beacon_tree, hf_thread_beacon_network_id, tvb, offset, 16, ENC_ASCII|ENC_NA);
+    }
+
+    ssid = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 16, ENC_ASCII|ENC_NA);
+    col_append_fstr(pinfo->cinfo, COL_INFO, ", Network ID: %s", ssid);
+    offset += 16;
+
+    /* See if we're at the end */
+    if (offset >= tvb_captured_length(tvb)) {
+        return tvb_captured_length(tvb);
+    }
+    
+    /* XPANID */
+    if (tree) {
+        proto_tree_add_item(beacon_tree, hf_thread_beacon_epid, tvb, offset, 8, FALSE);
+    }
+    offset += 8;
+    
+    /* See if we're at the end */
+    if (offset >= tvb_captured_length(tvb)) {
+        return tvb_captured_length(tvb);
+    }
+
+    /* Steering data TLV present */
+        
+    /* Get the length ahead of time to pass to next function so we can highlight
+       proper amount of bytes */
+    tlv_len = tvb_get_guint8(tvb, offset+1);
+
+    /* Type */
+    if (tree) {
+        ti = proto_tree_add_item(beacon_tree, hf_thread_beacon_tlv, tvb, offset, tlv_len+2, FALSE);
+        tlv_tree = proto_item_add_subtree(ti, ett_thread_beacon_tlv);
+        proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_type, tvb, offset, 1, FALSE);
+    }
+    
+    tlv_type = tvb_get_guint8(tvb, offset);
+    offset++;
+
+    /* Add value name to value root label */
+    if (tree) {
+        proto_item_append_text(ti, " (%s)", val_to_str(tlv_type, thread_beacon_tlv_vals, "Unknown (%d)"));
+    }
+
+    /* Length */
+    if (tree) {
+        proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_length, tvb, offset, 1, FALSE);
+    }
+    offset++;    
+    
+    switch (tlv_type) {
+        case THREAD_BEACON_TLV_STEERING_DATA:
+            if (tree) {
+                proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_steering_data_s, tvb, offset, 1, FALSE);
+                proto_tree_add_bits_item(tlv_tree, hf_thread_beacon_tlv_steering_data_bloom, tvb, (offset << 3) + 1, (tlv_len << 3) - 1, FALSE);
+            }
+            offset += tlv_len;     
+            break;
+        default:
+            if (tree) {
+                proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_unknown, tvb, offset, tlv_len, FALSE);
+            }
+            offset += tlv_len;     
+            break;
+    }
+    
+    return tvb_captured_length(tvb);
+} /* dissect_thread_beacon */
 
 /*FUNCTION:------------------------------------------------------
  *  NAME
@@ -1918,7 +2105,50 @@ void proto_register_zbee_nwk(void)
             { &hf_zbip_beacon_network_id,
             { "Network ID",           "zbip_beacon.network_id", FT_STRING, BASE_NONE, NULL, 0x0,
                 "A string that uniquely identifies this network.", HFILL }},
+                
+            { &hf_thread_beacon_joining,
+            { "Joining",              "thread_beacon.joining", FT_BOOLEAN, 8, NULL, THREAD_BEACON_JOINING,
+                NULL, HFILL }},
 
+            { &hf_thread_beacon_native,
+            { "Native",               "thread_beacon.native", FT_BOOLEAN, 8, NULL, THREAD_BEACON_NATIVE,
+                NULL, HFILL }},
+
+            { &hf_thread_beacon_version,
+            { "Version",              "thread_beacon.version", FT_UINT8, BASE_DEC, NULL, THREAD_BEACON_PROTOCOL_VERSION,
+                NULL, HFILL }},
+
+            { &hf_thread_beacon_network_id,
+            { "Network Name",         "thread_beacon.network_name", FT_STRING, BASE_NONE, NULL, 0x0,
+                "A string that uniquely identifies this network.", HFILL }},
+
+            { &hf_thread_beacon_epid,
+            { "Extended PAN ID",      "thread_beacon.epid", FT_EUI64, BASE_NONE, NULL, 0x0,
+                NULL, HFILL }},
+                
+            { &hf_thread_beacon_tlv,
+            { "TLV",                  "thread_beacon.tlv", FT_NONE, BASE_NONE, NULL, 0x0,
+                "Type-Length-Value", HFILL }},
+                
+            { &hf_thread_beacon_tlv_type,
+            { "Type",                 "thread_beacon.tlv.type", FT_UINT8, BASE_DEC, VALS(thread_beacon_tlv_vals), 0x0,
+                "Type of Value", HFILL }},
+                
+            { &hf_thread_beacon_tlv_length,
+            { "Length",               "thread_beacon.tlv.len", FT_UINT8, BASE_DEC, NULL, 0x0,
+                "Length of Value", HFILL }},
+                
+            { &hf_thread_beacon_tlv_steering_data_s,
+            { "Steering Data S",      "thread_beacon.tlv.steering_data.s", FT_BOOLEAN, 8, NULL, THREAD_BEACON_TLV_STEERING_DATA_S,
+                "0: Derived from EUI-64, 1: Derived from bottom 24-bits of EUI-64", HFILL }},
+                
+            { &hf_thread_beacon_tlv_steering_data_bloom,
+            { "Steering Data Bloom Filter",         "thread_beacon.tlv.steering_data.bloom", FT_BYTES, BASE_NONE, NULL, 0x0,
+                "Bloom filter representation of joining devices", HFILL }},
+                
+            { &hf_thread_beacon_tlv_unknown,
+            { "Unknown",               "thread_beacon.tlv.unknown", FT_BYTES, BASE_NONE, NULL, 0x0,
+               "Unknown TLV, raw value", HFILL }},
     };
 
     /*  NWK Layer subtrees */
@@ -1950,6 +2180,7 @@ void proto_register_zbee_nwk(void)
     proto_zbee_nwk = proto_register_protocol("ZigBee Network Layer", "ZigBee", ZBEE_PROTOABBREV_NWK);
     proto_zbee_beacon = proto_register_protocol("ZigBee Beacon", "ZigBee Beacon", "zbee_beacon");
     proto_zbip_beacon = proto_register_protocol("ZigBee IP Beacon", "ZigBee IP Beacon", "zbip_beacon");
+    proto_thread_beacon = proto_register_protocol("Thread Beacon", "Thread Beacon", "thread_beacon");
     proto_register_field_array(proto_zbee_nwk, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
@@ -1957,6 +2188,7 @@ void proto_register_zbee_nwk(void)
     new_register_dissector(ZBEE_PROTOABBREV_NWK, dissect_zbee_nwk, proto_zbee_nwk);
     new_register_dissector("zbee_beacon", dissect_zbee_beacon, proto_zbee_beacon);
     new_register_dissector("zbip_beacon", dissect_zbip_beacon, proto_zbip_beacon);
+    new_register_dissector("thread_beacon", dissect_thread_beacon, proto_thread_beacon);
 
     /* Register the Security dissector. */
     zbee_security_register(NULL, proto_zbee_nwk);
@@ -1984,6 +2216,7 @@ void proto_reg_handoff_zbee_nwk(void)
     dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, find_dissector(ZBEE_PROTOABBREV_NWK));
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN_BEACON, dissect_zbee_beacon_heur, proto_zbee_beacon);
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN_BEACON, dissect_zbip_beacon_heur, proto_zbip_beacon);
+    heur_dissector_add(IEEE802154_PROTOABBREV_WPAN_BEACON, dissect_thread_beacon_heur, proto_thread_beacon);
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN, dissect_zbee_nwk_heur, proto_zbee_nwk);
 
     /* Handoff the ZigBee security dissector code. */

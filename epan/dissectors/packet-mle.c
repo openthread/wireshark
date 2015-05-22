@@ -1,0 +1,2397 @@
+/* packet-mle.c
+ * Routines for MLE packet dissection
+ *
+ * Colin O'Flynn <coflynn@newae.com>
+ *
+ * The entire security section of this is lifted from the IEEE 802.15.4
+ * dissectory, as this is done the same way. Should eventually make the
+ * two use some common functions or something. But that section is:
+ * By Owen Kirby <osk@exegin.com>
+ * Copyright 2007 Exegin Technologies Limited
+ *
+ *
+ *
+ * $Id: packet-mle.c $
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * Copied from packet-bootp.c
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ */
+
+//#ifdef HAVE_CONFIG_H
+# include "config.h"
+//#endif
+
+#include <glib.h>
+#include <stdlib.h>
+#include <epan/packet.h>
+#include <epan/conversation.h>
+#include <epan/wmem/wmem.h>
+#include <epan/expert.h>
+#include <epan/range.h>
+#include <epan/prefs.h>
+#include <epan/strutil.h>
+#include <epan/to_str.h>
+#include "packet-ieee802154.h"
+
+#define THREAD_EXTENSIONS
+
+/* Use libgcrypt for cipher libraries. */
+#ifdef HAVE_LIBGCRYPT
+#include <gcrypt.h>
+#endif /* HAVE_LIBGCRYPT */
+
+/*
+ * Set this define if MLE independently can set its own keys.
+ * If left undefined, it will use whatever 802.15.4 has set
+ */
+//#define INDEPENDENT_MLE_KEYS
+#define THREAD_HASHED_KEY
+//#define DISPLAY_HASHED_KEY
+
+/* Forward declarations */
+void proto_register_mle(void);
+void proto_reg_handoff_mle(void);
+
+static int proto_mle = -1;
+
+/*  Registered fields for Auxiliary Security Header */
+static int hf_mle_security_level = -1;
+static int hf_mle_key_id_mode = -1;
+static int hf_mle_aux_sec_reserved = -1;
+static int hf_mle_aux_sec_frame_counter = -1;
+static int hf_mle_aux_sec_key_source = -1;
+static int hf_mle_aux_sec_key_index = -1;
+
+static int hf_mle_mic = -1;
+
+static int hf_mle_command = -1;
+static int hf_mle_tlv = -1;
+static int hf_mle_tlv_type = -1;
+static int hf_mle_tlv_length = -1;
+static int hf_mle_tlv_source_addr = -1;
+static int hf_mle_tlv_mode_device_type = -1;
+static int hf_mle_tlv_mode_idle_rx = -1;
+static int hf_mle_tlv_mode_sec_data_req = -1;
+static int hf_mle_tlv_mode_nwk_data = -1;
+static int hf_mle_tlv_timeout = -1;
+static int hf_mle_tlv_challenge = -1;
+static int hf_mle_tlv_response = -1;
+static int hf_mle_tlv_ll_frm_cntr = -1;
+static int hf_mle_tlv_lqi_c = -1;
+static int hf_mle_tlv_lqi_size = -1;
+static int hf_mle_tlv_neighbor = -1;
+static int hf_mle_tlv_neighbor_flagI = -1;
+static int hf_mle_tlv_neighbor_flagO = -1;
+static int hf_mle_tlv_neighbor_flagP = -1;
+static int hf_mle_tlv_neighbor_idr = -1;
+static int hf_mle_tlv_neighbor_addr = -1;
+static int hf_mle_tlv_network_param_id = -1;
+static int hf_mle_tlv_network_delay = -1;
+static int hf_mle_tlv_network_channel = -1;
+static int hf_mle_tlv_network_pan_id = -1;
+static int hf_mle_tlv_network_pmt_join = -1;
+static int hf_mle_tlv_network_bcn_payload = -1;
+static int hf_mle_tlv_network_unknown = -1;
+static int hf_mle_tlv_mle_frm_cntr = -1;
+static int hf_mle_tlv_unknown = -1;
+#ifdef THREAD_EXTENSIONS
+static int hf_mle_tlv_route_tbl_id_seq = -1;
+static int hf_mle_tlv_route_tbl_id_mask = -1;
+static int hf_mle_tlv_route_tbl_entry = -1;
+static int hf_mle_tlv_route_tbl_nbr_out = -1;
+static int hf_mle_tlv_route_tbl_nbr_in = -1;
+static int hf_mle_tlv_route_tbl_cost = -1;
+static int hf_mle_tlv_route_tbl_unknown = -1;
+static int hf_mle_tlv_addr_16 = -1;
+static int hf_mle_tlv_leader_data_partition_id = -1;
+static int hf_mle_tlv_leader_data_weighting = -1;
+static int hf_mle_tlv_leader_data_version = -1;
+static int hf_mle_tlv_leader_data_stable_version = -1;
+static int hf_mle_tlv_leader_data_router_id = -1;
+static int hf_mle_tlv_network_data = -1;
+static int hf_mle_tlv_scan_mask_r = -1;
+static int hf_mle_tlv_scan_mask_e = -1;
+static int hf_mle_tlv_conn_max_child_cnt = -1;
+static int hf_mle_tlv_conn_child_cnt = -1;
+static int hf_mle_tlv_conn_lq3 = -1;
+static int hf_mle_tlv_conn_lq2 = -1;
+static int hf_mle_tlv_conn_lq1 = -1;
+static int hf_mle_tlv_conn_leader_cost = -1;
+static int hf_mle_tlv_conn_id_seq = -1;
+static int hf_mle_tlv_rssi = -1;
+static int hf_mle_tlv_status = -1;
+static int hf_mle_tlv_version = -1;
+static int hf_mle_tlv_addr_reg_cid = -1;
+static int hf_mle_tlv_addr_reg_iid = -1;
+static int hf_mle_tlv_hold_time = -1;
+#endif // THREAD_EXTENSIONS
+
+static gint ett_mle = -1;
+static gint ett_mle_tlv = -1;
+static gint ett_mle_neighbor = -1;
+#ifdef THREAD_EXTENSIONS
+static gint ett_mle_router = -1;
+static gint ett_mle_thread_nwd = -1;
+#endif // THREAD_EXTENSIONS
+static gint ett_mle_auxiliary_security = -1;
+static gint ett_mle_aux_sec_control = -1;
+static gint ett_mle_aux_sec_key_id = -1;
+
+static expert_field ei_mle_cbc_mac_failed = EI_INIT;
+static expert_field ei_mle_packet_too_small = EI_INIT;
+static expert_field ei_mle_no_key = EI_INIT;
+static expert_field ei_mle_decrypt_failed = EI_INIT;
+static expert_field ei_mle_mic_check_failed = EI_INIT;
+static expert_field ei_mle_tlv_length_failed = EI_INIT;
+static expert_field ei_mle_len_size_mismatch = EI_INIT;
+
+static dissector_handle_t mle_handle;
+static dissector_handle_t data_handle;
+static dissector_handle_t thread_nwd_handle;
+
+#define UDP_PORT_MLE_RANGE    "19788"
+
+#ifdef INCLUDE_MIC_OK
+/* boolean value set if the MIC must be ok before payload is dissected */
+static gboolean mle_mic_ok = FALSE;
+#endif
+
+// Why is it so hard to do this stuff in Wireshark?
+extern char *bytes_to_hexstr(char *out, const guint8 *ad, guint32 len);
+
+/* User definable values */
+static range_t *global_mle_port_range;
+
+static const value_string mle_sec_level_names[] = {
+    { SECURITY_LEVEL_NONE,        "No Security" },
+    { SECURITY_LEVEL_MIC_32,      "32-bit Message Integrity Code" },
+    { SECURITY_LEVEL_MIC_64,      "64-bit Message Integrity Code" },
+    { SECURITY_LEVEL_MIC_128,     "128-bit Message Integrity Code" },
+    { SECURITY_LEVEL_ENC,         "Encryption" },
+    { SECURITY_LEVEL_ENC_MIC_32,  "Encryption with 32-bit Message Integrity Code" },
+    { SECURITY_LEVEL_ENC_MIC_64,  "Encryption with 64-bit Message Integrity Code" },
+    { SECURITY_LEVEL_ENC_MIC_128, "Encryption with 128-bit Message Integrity Code" },
+    { 0, NULL }
+};
+
+static const value_string mle_key_id_mode_names[] = {
+    { KEY_ID_MODE_IMPLICIT,       "Implicit Key" },
+    { KEY_ID_MODE_KEY_INDEX,      "Indexed Key using the Default Key Source" },
+    { KEY_ID_MODE_KEY_EXPLICIT_4, "Explicit Key with 4-octet Key Source" },
+    { KEY_ID_MODE_KEY_EXPLICIT_8, "Explicit Key with 8-octet Key Source" },
+    { 0, NULL }
+};
+
+#define MLE_CMD_REQUEST           0
+#define MLE_CMD_ACCEPT            1
+#define MLE_CMD_ACCEPTREQ         2
+#define MLE_CMD_REJECT            3
+#define MLE_CMD_ADVERTISE         4
+#define MLE_CMD_UPDATE            5
+#define MLE_CMD_UPDATE_REQUEST    6
+#ifdef THREAD_EXTENSIONS
+#define MLE_CMD_DATA_REQUEST      7
+#define MLE_CMD_DATA_RESPONSE     8
+#define MLE_CMD_PARENT_REQUEST    9
+#define MLE_CMD_PARENT_RESPONSE   10
+#define MLE_CMD_CHILD_ID_REQUEST  11
+#define MLE_CMD_CHILD_ID_RESPONSE 12
+#endif // THREAD_EXTENSIONS
+
+static const value_string mle_command_vals[] = {
+{ MLE_CMD_REQUEST,                  "Link Request" },
+{ MLE_CMD_ACCEPT,                   "Link Accept" },
+{ MLE_CMD_ACCEPTREQ,                "Link Accept and Request" },
+{ MLE_CMD_REJECT,                   "Link Reject" },
+{ MLE_CMD_ADVERTISE,                "Advertisement" },
+{ MLE_CMD_UPDATE,                   "Update" },
+#ifdef THREAD_EXTENSIONS
+{ MLE_CMD_UPDATE_REQUEST,           "Update Request" },
+{ MLE_CMD_DATA_REQUEST,             "Data Request" },
+{ MLE_CMD_DATA_RESPONSE,            "Data Response" },
+{ MLE_CMD_PARENT_REQUEST,           "Parent Request" },
+{ MLE_CMD_PARENT_RESPONSE,          "Parent Response" },
+{ MLE_CMD_CHILD_ID_REQUEST,         "Child ID Request" },
+{ MLE_CMD_CHILD_ID_RESPONSE,        "Child ID Response" } };
+#else // !THREAD_EXTENSIONS
+{ MLE_CMD_UPDATE_REQUEST,           "Update Request" } };
+#endif // !THREAD_EXTENSIONS
+
+#define MLE_TLV_SOURCE_ADDRESS              0
+#define MLE_TLV_MODE                        1  /* Modified in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_TIMEOUT                     2
+#define MLE_TLV_CHALLENGE                   3
+#define MLE_TLV_RESPONSE                    4
+#define MLE_TLV_LINK_LAYER_FRAME_COUNTER    5
+#define MLE_TLV_LINK_QUALITY                6
+#define MLE_TLV_NETWORK_PARAMETER           7
+#define MLE_TLV_MLE_FRAME_COUNTER           8
+#ifdef THREAD_EXTENSIONS
+#define MLE_TLV_ROUTING_TABLE               9  /* Defined in draft-kelsey-thread-routing-01 */
+#define MLE_TLV_ADDRESS_16                  10 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_LEADER_DATA                 11 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_NETWORK_DATA                12 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_TLV_REQUEST                 13 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_SCAN_MASK                   14 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_CONNECTIVITY                15 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_RSSI                        16 /* Defined in draft-kelsey-thread-mle-04 */ /* RCC: Would be better as LQI */
+#define MLE_TLV_STATUS                      17 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+#define MLE_TLV_VERSION                     18 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+#define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_HOLD_TIME                   20 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+#endif // THREAD_EXTENSIONS
+
+static const value_string mle_tlv_vals[] = {
+{ MLE_TLV_SOURCE_ADDRESS,           "Source Address" },
+{ MLE_TLV_MODE,                     "Mode" },
+{ MLE_TLV_TIMEOUT,                  "Timeout" },
+{ MLE_TLV_CHALLENGE,                "Challenge" },
+{ MLE_TLV_RESPONSE,                 "Response" },
+{ MLE_TLV_LINK_LAYER_FRAME_COUNTER, "Link Layer Frame Counter"},
+{ MLE_TLV_LINK_QUALITY,             "Link Quality"},
+{ MLE_TLV_NETWORK_PARAMETER,        "Network Parameter"},
+{ MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"},
+#ifdef THREAD_EXTENSIONS
+{ MLE_TLV_ROUTING_TABLE,            "Routing Table"}, /* Defined in draft-kelsey-thread-routing-01 */
+{ MLE_TLV_ADDRESS_16,               "Address16"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_LEADER_DATA,              "Leader Data"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_NETWORK_DATA,             "Network Data"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_TLV_REQUEST,              "TLV Request"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_SCAN_MASK,                "Scan Mask"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_CONNECTIVITY,             "Connectivity"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_RSSI,                     "RSSI"}, /* Defined in draft-kelsey-thread-mle-04 */ /* RCC: Would be better as LQI */
+{ MLE_TLV_STATUS,                   "Status"}, /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+{ MLE_TLV_VERSION,                  "Version"}, /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+{ MLE_TLV_ADDRESS_REGISTRATION,     "Address Registration"}, /* Defined in draft-kelsey-thread-mle-04 */
+{ MLE_TLV_HOLD_TIME,                "Hold Time Registration"} /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+#else // !THREAD_EXTENSIONS
+{ MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"}
+#endif // !THREAD_EXTENSIONS
+};
+
+#define LQI_FLAGS_C         0x80
+#define LQI_FLAGS_SIZE      0x0F
+
+#define NEIGHBOR_FLAG_I     0x80
+#define NEIGHBOR_FLAG_O     0x40
+#define NEIGHBOR_FLAG_P     0x20
+
+#define NETWORK_PARAM_ID_CHANNEL        0
+#define NETWORK_PARAM_ID_PAN_ID         1
+#define NETWORK_PARAM_ID_PERMIT_JOIN    2
+#define NETWORK_PARAM_ID_BCN_PAYLOAD    3
+
+static const value_string mle_tlv_nwk_param_vals[] = {
+{ NETWORK_PARAM_ID_CHANNEL,     "Channel" },
+{ NETWORK_PARAM_ID_PAN_ID,      "PAN ID" },
+{ NETWORK_PARAM_ID_PERMIT_JOIN, "Permit Join" },
+{ NETWORK_PARAM_ID_BCN_PAYLOAD, "Beacon Payload" }
+};
+
+static const true_false_string mle_tlv_mode_device_type = {
+    "FFD",
+    "RFD"
+};
+static const true_false_string mle_tlv_mode_power_src = {
+    "AC/Mains Power",
+    "Battery"
+};
+
+#ifdef THREAD_EXTENSIONS
+#define ROUTE_TBL_OUT_MASK          0xC0
+#define ROUTE_TBL_IN_MASK           0x30
+#define ROUTE_TBL_COST_MASK         0x0F
+
+#define SCAN_MASK_R_MASK            0x80
+#define SCAN_MASK_D_MASK            0x40
+
+#define ADDR_REG_MASK_CID_MASK      0x0F
+
+#define MLE_CMD_CINFO_SEC_DATA_REQ  0x04
+#define MLE_CMD_CINFO_NWK_DATA      0x01
+#endif // THREAD_EXTENSIONS
+
+/* Decryption helpers. */
+typedef enum {
+    DECRYPT_PACKET_SUCCEEDED,
+    DECRYPT_NOT_ENCRYPTED,
+    DECRYPT_VERSION_UNSUPPORTED,
+    DECRYPT_PACKET_TOO_SMALL,
+    DECRYPT_PACKET_NO_EXT_SRC_ADDR,
+    DECRYPT_PACKET_NO_KEY,
+    DECRYPT_PACKET_DECRYPT_FAILED,
+    DECRYPT_PACKET_MIC_CHECK_FAILED,
+} ws_decrypt_status;
+
+static tvbuff_t *
+dissect_mle_decrypt(proto_item *volatile proto_root,
+                    tvbuff_t * tvb,
+                    guint aux_offset,
+                    guint aux_len,
+                    guint offset,
+                    packet_info * pinfo,
+                    ieee802154_packet * packet,
+                    unsigned char * rx_mic,
+                    unsigned int * rx_mic_len,
+                    ws_decrypt_status * status);
+
+static void ccm_init_block          (gchar *, gboolean, gint, guint64, guint32, ieee802154_security_level, gint);
+static gboolean ccm_ctr_encrypt     (const gchar *, const gchar *, gchar *, gchar *, gint);
+static gboolean ccm_cbc_mac         (const gchar *, const gchar *, const gchar *, gint, const gchar *, gint, gchar *);
+
+#ifdef INDEPENDENT_MLE_KEYS
+
+#define NUM_KEYS 2
+/* User string with the decryption key. */
+static const gchar *mle_key_str[NUM_KEYS] = {NULL, NULL};
+#ifdef THREAD_HASHED_KEY
+static const gchar *mle_thr_seq_ctr_str = NULL;
+#endif
+#ifdef DISPLAY_HASHED_KEY
+static const gchar *mle_hash_key_str[NUM_KEYS] = NULL;
+#endif
+#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
+static gboolean mle_hashed_key_str = FALSE;
+#endif
+static gboolean     mle_key_valid[NUM_KEYS];
+static guint8       mle_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
+static unsigned int mle_key_index[NUM_KEYS] = {1, 2};
+#endif /* INDEPENDENT_MLE_KEYS */
+static const char  *mle_user = "User";
+
+static gboolean mle_set_mle_key(unsigned int key_index, unsigned char *key)
+{
+#ifdef INDEPENDENT_MLE_KEYS
+    int i;
+    
+    /* Lookup the key. */
+    /*
+     * TODO: What this dissector really needs is a UAT to store multiple keys
+     * and a variety of key configuration data. However, two shared keys
+     * should be sufficient to get packet encryption off to a start.
+     */
+    for (i = 0; i < NUM_KEYS; i++)
+    {
+        if ((mle_key_valid[i]) &&
+            (key_index == mle_key_index[i]))
+        {
+            memcpy(key, mle_key[i], IEEE802154_CIPHER_SIZE);
+            break;
+        }
+    }
+    if (i == NUM_KEYS) {
+        return FALSE;
+    }
+    return TRUE;
+#else
+    return ieee802154_set_mle_key(key_index, key);
+#endif
+}
+
+/*FUNCTION:------------------------------------------------------
+ *  NAME
+ *      dissect_mle_decrypt
+ *  DESCRIPTION
+ *      MLE dissector.
+ *  PARAMETERS
+ *      tvbuff_t *tvb               - IEEE 802.15.4 packet.
+ *      packet_info * pinfo         - Packet info structure.
+ *      guint offset                - Offset where the ciphertext 'c' starts.
+ *      ieee802154_packet *packet   - IEEE 802.15.4 packet information.
+ *      ws_decrypt_status *status   - status of decryption returned through here on failure.
+ *  RETURNS
+ *      tvbuff_t *                  - Decrypted payload.
+ *---------------------------------------------------------------
+ */
+static tvbuff_t *
+dissect_mle_decrypt(proto_item *volatile proto_root,
+                    tvbuff_t * tvb,
+                    guint aux_offset,
+                    guint aux_len,
+                    guint offset,
+                    packet_info * pinfo,
+                    ieee802154_packet * packet,
+                    unsigned char * rx_mic,
+                    unsigned int * rx_mic_len,
+                    ws_decrypt_status * status)
+{
+    tvbuff_t *          ptext_tvb;
+    gboolean            have_mic = FALSE;
+    guint64             srcAddr;
+    unsigned char       key[16];
+    unsigned char       tmp[16];
+    guint               M;
+    gint                captured_len;
+    gint                reported_len;
+#ifdef INDEPENDENT_MLE_KEYS
+    int                 i;
+#endif
+
+    *rx_mic_len = 0;
+
+    /* Get the captured and on-the-wire length of the payload. */
+    if (packet->security_level > 0) {
+        M = IEEE802154_MIC_LENGTH(packet->security_level);
+    }
+    else {
+        M = 0;
+    }
+    
+    reported_len = tvb_reported_length_remaining(tvb, offset) - M;
+    if (reported_len < 0) {
+        *status = DECRYPT_PACKET_TOO_SMALL;
+        return NULL;
+    }
+    /* Check of the payload is truncated.  */
+    if (tvb_bytes_exist(tvb, offset, reported_len)) {
+        captured_len = reported_len;
+    }
+    else {
+        captured_len = tvb_length_remaining(tvb, offset);
+    }
+
+    if (packet->security_level > 0) {
+        /* Check if the MIC is present in the captured data. */
+        have_mic = tvb_bytes_exist(tvb, offset + reported_len, M);
+        if (have_mic) {
+            tvb_memcpy(tvb, rx_mic, offset + reported_len, M);
+        }
+    }
+
+    /*=====================================================
+     * Key Lookup - Need to find the appropriate key.
+     *=====================================================
+     */
+    if (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) {
+        /* The source EUI-64 is included in the headers. */
+        srcAddr = packet->src64; /* GUINT64_SWAP_LE_BE(packet->src64); */
+    }
+    else {
+        /* Lookup failed.  */ 
+        *status = DECRYPT_PACKET_NO_EXT_SRC_ADDR;
+        return NULL;
+    }
+
+    /*=====================================================
+     * CCM* - CTR mode payload encryption
+     *=====================================================
+     */
+    /* Create the CCM* initial block for decryption (Adata=0, M=0, counter=0). */
+    ccm_init_block(tmp, FALSE, 0, srcAddr, packet->frame_counter, packet->security_level, 0);
+
+    /* Decrypt the ciphertext, and place the plaintext in a new tvb. */
+    if (IEEE802154_IS_ENCRYPTED(packet->security_level) && captured_len) {
+        void *text;
+        
+        /* Lookup the key */
+        if (!mle_set_mle_key(packet->key_index, key)) {
+            *status = DECRYPT_PACKET_NO_KEY;
+            return NULL;
+        }
+        
+        /*
+         * Make a copy of the ciphertext in heap memory.
+         *
+         * We will decrypt the message in-place and then use the buffer as the
+         * real data for the new tvb.
+         */
+        text = tvb_memdup(wmem_packet_scope(), tvb, offset, captured_len);
+
+        /* Perform CTR-mode transformation. */
+        if (!ccm_ctr_encrypt(key, tmp, rx_mic, text, captured_len)) {
+            g_free(text);
+            *status = DECRYPT_PACKET_DECRYPT_FAILED;
+            return NULL;
+        }
+
+        /* Create a tvbuff for the plaintext. */
+        ptext_tvb = tvb_new_real_data(text, captured_len, reported_len);
+        tvb_set_child_real_data_tvbuff(tvb, ptext_tvb);
+        add_new_data_source(pinfo, ptext_tvb, "Decrypted MLE payload");
+        *status = DECRYPT_PACKET_SUCCEEDED;
+    }
+    /* There is no ciphertext. Wrap the plaintext in a new tvb. */
+    else {
+        /* Decrypt the MIC (if present). */
+        if (have_mic) {
+            /* Lookup the key */
+            if (!mle_set_mle_key(packet->key_index, key)) {
+                *status = DECRYPT_PACKET_NO_KEY;
+                return NULL;
+            }
+        
+            if (!ccm_ctr_encrypt(key, tmp, rx_mic, NULL, 0)) {
+                *status = DECRYPT_PACKET_DECRYPT_FAILED;
+                return NULL;
+            }
+        }
+
+        /* Create a tvbuff for the plaintext. This might result in a zero-length tvbuff. */
+        ptext_tvb = tvb_new_subset(tvb, offset, captured_len, reported_len);
+        *status = DECRYPT_PACKET_SUCCEEDED;
+    }
+
+    /*=====================================================
+     * CCM* - CBC-mode message authentication
+     *=====================================================
+     */
+    /* We can only verify the message if the MIC wasn't truncated. */
+    if (have_mic) {
+        unsigned char           dec_mic[16];
+        guint                   l_m = captured_len;
+        guint                   l_a;
+        guint8                  d_a[256];
+        
+        memcpy(d_a   , (guint8 *)pinfo->src.data, pinfo->src.len);
+        memcpy(d_a+16, (guint8 *)pinfo->dst.data, pinfo->dst.len);
+        
+        tvb_memcpy(tvb, d_a+32, aux_offset, aux_len);
+        l_a = 32 + aux_len;
+
+        /* Adjust the lengths of the plantext and additional data if unencrypted. */
+        if (!IEEE802154_IS_ENCRYPTED(packet->security_level)) {
+            l_a += l_m;
+            l_m = 0;
+        }
+
+        /* Create the CCM* initial block for authentication (Adata!=0, M!=0, counter=l(m)). */
+        ccm_init_block(tmp, TRUE, M, srcAddr, packet->frame_counter, packet->security_level, l_m);
+
+        /* Compute CBC-MAC authentication tag. */
+        /*
+         * And yes, despite the warning in tvbuff.h, I think tvb_get_ptr is the
+         * right function here since either A) the payload wasn't encrypted, in
+         * which case l_m is zero, or B) the payload was encrypted, and the tvb
+         * already points to contiguous memory, since we just allocated it in
+         * decryption phase.
+         */
+        if (!ccm_cbc_mac(key, tmp, d_a, l_a, tvb_get_ptr(ptext_tvb, 0, l_m), l_m, dec_mic)) {
+            *status = DECRYPT_PACKET_MIC_CHECK_FAILED;
+            expert_add_info(pinfo, proto_root, &ei_mle_cbc_mac_failed);
+        }
+        /* Compare the received MIC with the one we generated. */
+        else if (memcmp(rx_mic, dec_mic, M) != 0) {
+            *status = DECRYPT_PACKET_MIC_CHECK_FAILED;
+        }
+    }
+    
+    if(rx_mic_len) {
+        *rx_mic_len = M;
+    }
+
+    /* Done! */
+    return ptext_tvb;
+} /* dissect_ieee802154_decrypt */
+
+/*FUNCTION:------------------------------------------------------
+ *  NAME
+ *      ccm_init_block
+ *  DESCRIPTION
+ *      Creates the CCM* initial block value for IEEE 802.15.4.
+ *  PARAMETERS
+ *      gchar *block        - Output pointer for the initial block.
+ *      gboolean adata      - TRUE if additional auth data is present
+ *      gint M              - CCM* parameter M.
+ *      guint64 addr        - Source extended address.
+ *      guint32 counter     - Frame counter.
+ *      ieee802154_security_level level - Security leve being used.
+ *      guint16 ctr_val     - Value in the last L bytes of the block.
+ *  RETURNS
+ *      void
+ *---------------------------------------------------------------
+ */
+static void
+ccm_init_block(gchar *block, gboolean adata, gint M, guint64 addr, guint32 counter, ieee802154_security_level level, gint ctr_val)
+{
+    gint                i = 0;
+
+    /* Flags: Reserved(0) || Adata || (M-2)/2 || (L-1) */
+    block[i] = (0x2 - 1); /* (L-1) */
+    if (M > 0) block[i] |= (((M-2)/2) << 3); /* (M-2)/2 */
+    if (adata) block[i] |= (1 << 6); /* Adata */
+    i++;
+    /* Nonce: Source Address || Frame Counter || Security Level */
+    block[i++] = (guint8)((addr >> 56) & 0xff);
+    block[i++] = (guint8)((addr >> 48) & 0xff);
+    block[i++] = (guint8)((addr >> 40) & 0xff);
+    block[i++] = (guint8)((addr >> 32) & 0xff);
+    block[i++] = (guint8)((addr >> 24) & 0xff);
+    block[i++] = (guint8)((addr >> 16) & 0xff);
+    block[i++] = (guint8)((addr >> 8) & 0xff);
+    block[i++] = (guint8)((addr >> 0) & 0xff);
+    block[i++] = (guint8)((counter >> 24) & 0xff); 
+    block[i++] = (guint8)((counter >> 16) & 0xff);
+    block[i++] = (guint8)((counter >> 8) & 0xff);
+    block[i++] = (guint8)((counter >> 0) & 0xff);
+    block[i++] = level;
+    /* Plaintext length. */
+    block[i++] = (guint8)((ctr_val >> 8) & 0xff);
+    block[i++] = (guint8)((ctr_val >> 0) & 0xff);
+} /* ccm_init_block */
+
+/*FUNCTION:------------------------------------------------------
+ *  NAME
+ *      ccm_ctr_encrypt
+ *  DESCRIPTION
+ *      Performs an in-place CTR-mode encryption/decryption.
+ *  PARAMETERS
+ *      const gchar *key    - Encryption Key.
+ *      const gchar *iv     - Counter initial value.
+ *      gchar *mic          - MIC to encrypt/decrypt.
+ *      gchar *data         - Buffer to encrypt/decrypt.
+ *      gint length         - Length of the buffer.
+ *  RETURNS
+ *      gboolean            - TRUE on SUCCESS, FALSE on error.
+ *---------------------------------------------------------------
+ */
+static gboolean
+ccm_ctr_encrypt(const gchar *key _U_, const gchar *iv _U_, gchar *mic _U_, gchar *data _U_, gint length _U_)
+{
+#ifdef HAVE_LIBGCRYPT
+    gcry_cipher_hd_t    cipher_hd;
+
+    /* Open the cipher. */
+    if (gcry_cipher_open(&cipher_hd, GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_CTR, 0)) {
+        return FALSE;
+    }
+
+    /* Set the key and initial value. */
+    if (gcry_cipher_setkey(cipher_hd, key, 16)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+    if (gcry_cipher_setctr(cipher_hd, iv, 16)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+
+    /* Decrypt the MIC. */
+    if (gcry_cipher_encrypt(cipher_hd, mic, 16, NULL, 0)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+    /* Decrypt the payload. */
+    if (gcry_cipher_encrypt(cipher_hd, data, length, NULL, 0)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+
+    /* Done with the cipher. */
+    gcry_cipher_close(cipher_hd);
+    return TRUE;
+#else
+    return FALSE;
+#endif
+} /* ccm_ctr_encrypt */
+
+/*FUNCTION:------------------------------------------------------
+ *  NAME
+ *      ccm_cbc_mac
+ *  DESCRIPTION
+ *      Generates a CBC-MAC of the decrypted payload and additional
+ *      authentication headers.
+ *  PARAMETERS
+ *      const gchar key     - Encryption Key.
+ *      const gchar iv      - Counter initial value.
+ *      const gchar a       - Additional auth headers.
+ *      gint a_len                  - Length of the additional headers.
+ *      const gchar m       - Plaintext message.
+ *      gint m_len                  - Length of plaintext message.
+ *      gchar *mic          - Output for CBC-MAC.
+ *  RETURNS
+ *      gboolean            - TRUE on SUCCESS, FALSE on error.
+ *---------------------------------------------------------------
+ */
+static gboolean
+ccm_cbc_mac(const gchar *key _U_, const gchar *iv _U_, const gchar *a _U_, gint a_len _U_, const gchar *m _U_, gint m_len _U_, gchar *mic _U_)
+{
+#ifdef HAVE_LIBGCRYPT
+    gcry_cipher_hd_t    cipher_hd;
+    guint               i = 0;
+    unsigned char       block[16];
+
+    /* Open the cipher. */
+    if (gcry_cipher_open(&cipher_hd, GCRY_CIPHER_AES128, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_CBC_MAC)) return FALSE;
+
+    /* Set the key. */
+    if (gcry_cipher_setkey(cipher_hd, key, 16)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+
+    /* Process the initial value. */
+    if (gcry_cipher_encrypt(cipher_hd, mic, 16, iv, 16)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+
+    /* Encode L(a) */
+    i = 0;
+#if (GINT_MAX >= (1LL << 32))
+    if (a_len >= (1LL << 32)) {
+        block[i++] = 0xff;
+        block[i++] = 0xff;
+        block[i++] = (a_len >> 56) & 0xff;
+        block[i++] = (a_len >> 48) & 0xff;
+        block[i++] = (a_len >> 40) & 0xff;
+        block[i++] = (a_len >> 32) & 0xff;
+        block[i++] = (a_len >> 24) & 0xff;
+        block[i++] = (a_len >> 16) & 0xff;
+        block[i++] = (a_len >> 8) & 0xff;
+        block[i++] = (a_len >> 0) & 0xff;
+    }
+    else
+#endif
+    if (a_len >= ((1 << 16) - (1 << 8))) {
+        block[i++] = 0xff;
+        block[i++] = 0xfe;
+        block[i++] = (a_len >> 24) & 0xff;
+        block[i++] = (a_len >> 16) & 0xff;
+        block[i++] = (a_len >> 8) & 0xff;
+        block[i++] = (a_len >> 0) & 0xff;
+    }
+    else {
+        block[i++] = (a_len >> 8) & 0xff;
+        block[i++] = (a_len >> 0) & 0xff;
+    }
+    /* Append a to get the first block of input (pad if we encounter the end of a). */
+    while ((i < sizeof(block)) && (a_len-- > 0)) block[i++] = *a++;
+    while (i < sizeof(block)) block[i++] = 0;
+
+    /* Process the first block of AuthData. */
+    if (gcry_cipher_encrypt(cipher_hd, mic, 16, block, 16)) {
+        gcry_cipher_close(cipher_hd);
+        return FALSE;
+    }
+
+    /* Transform and process the remainder of a. */
+    while (a_len > 0) {
+        /* Copy and pad. */
+        if ((guint)a_len >= sizeof(block)) memcpy(block, a, sizeof(block));
+        else {memcpy(block, a, a_len); memset(block+a_len, 0, sizeof(block)-a_len);}
+        /* Adjust pointers. */
+        a += sizeof(block);
+        a_len -= sizeof(block);
+        /* Execute the CBC-MAC algorithm. */
+        if (gcry_cipher_encrypt(cipher_hd, mic, 16, block, sizeof(block))) {
+            gcry_cipher_close(cipher_hd);
+            return FALSE;
+        }
+    } /* while */
+
+    /* Process the message, m. */
+    while (m_len > 0) {
+        /* Copy and pad. */
+        if ((guint)m_len >= sizeof(block)) memcpy(block, m, sizeof(block));
+        else {memcpy(block, m, m_len); memset(block+m_len, 0, sizeof(block)-m_len);}
+        /* Adjust pointers. */
+        m += sizeof(block);
+        m_len -= sizeof(block);
+        /* Execute the CBC-MAC algorithm. */
+        if (gcry_cipher_encrypt(cipher_hd, mic, 16, block, sizeof(block))) {
+            gcry_cipher_close(cipher_hd);
+            return FALSE;
+        }
+    }
+
+    /* Done with the cipher. */
+    gcry_cipher_close(cipher_hd);
+    return TRUE;
+#else
+    return FALSE;
+#endif
+} /* ccm_cbc_mac */
+
+
+static void
+dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+{
+    tvbuff_t                *volatile payload_tvb;
+    proto_tree              *volatile mle_tree = NULL;
+    proto_item              *volatile proto_root = NULL;
+
+    guint                   offset = 0;
+    guint                   aux_header_offset = 0;
+    ws_decrypt_status       status;
+
+    proto_item              *ti, *mic_item;
+    proto_tree              *header_tree, *field_tree;
+    guint8                  security_suite;
+    guint8                  security_control;
+    guint                   aux_length = 0;
+    ieee802154_packet       *packet = wmem_alloc(wmem_packet_scope(), sizeof(ieee802154_packet));
+    ieee802154_packet       *original_packet;  
+    ieee802154_hints_t      *ieee_hints;
+    gboolean                mic_ok=TRUE;
+   
+    unsigned char           rx_mic[16];
+    unsigned int            rx_mic_len = 0;
+
+    guint8                  cmd;
+    guint8                  tlv_type, tlv_len;
+    proto_tree              *tlv_tree;
+   
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "MLE");
+    col_clear(pinfo->cinfo,   COL_INFO);
+
+    ieee_hints = (ieee802154_hints_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_get_id_by_filter_name(IEEE802154_PROTOABBREV_WPAN), 0);
+    original_packet = (ieee802154_packet *)ieee_hints->packet;
+     
+    /* Copy IEEE 802.15.4 Source Address */
+    packet->src_addr_mode = original_packet->src_addr_mode;
+    if (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) {
+        packet->src64 = original_packet->src64;
+    } else {
+        packet->src16 = original_packet->src16;
+    }    
+
+    /* Create the protocol tree. */
+    if (tree) {
+        proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_length(tvb), "Mesh Link Exchange");
+        mle_tree = proto_item_add_subtree(proto_root, ett_mle);
+    }
+    /* Add the protocol name. */
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "Mesh Link Exchange");
+    /* Add the packet length. */
+    col_clear(pinfo->cinfo, COL_PACKET_LENGTH);
+    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_length(tvb));
+
+    /* Parse the security suite field. */
+    /* Security Suite Field */
+    security_suite = tvb_get_guint8(tvb, offset);
+    proto_tree_add_text(mle_tree, tvb, offset, 1, "Security Suite Field (0x%02x)", security_suite);
+    offset++;
+
+    aux_header_offset = offset;
+
+    /* Security material present if security suite = 0 */
+    if (security_suite == 0) {
+        security_control = tvb_get_guint8(tvb, offset);
+        packet->security_level = (security_control & IEEE802154_AUX_SEC_LEVEL_MASK);
+        packet->key_id_mode = (security_control & IEEE802154_AUX_KEY_ID_MODE_MASK) >> IEEE802154_AUX_KEY_ID_MODE_SHIFT;
+
+        aux_length += 5; /* Security control + frame counter */
+
+        /* Compute the length of the auxiliary header and create a subtree.  */
+        if (packet->key_id_mode != KEY_ID_MODE_IMPLICIT) aux_length++;
+        if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) aux_length += 4;
+        if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) aux_length += 8;
+        ti = proto_tree_add_text(mle_tree, tvb, offset, aux_length, "Auxiliary Security Header");
+        header_tree = proto_item_add_subtree(ti, ett_mle_auxiliary_security);
+
+        /* Security Control Field */
+        ti = proto_tree_add_text(header_tree, tvb, offset, 1, "Security Control Field (0x%02x)", security_control);
+        field_tree = proto_item_add_subtree(ti, ett_mle_aux_sec_control);
+        proto_tree_add_uint(field_tree, hf_mle_security_level, tvb, offset, 1, security_control & IEEE802154_AUX_SEC_LEVEL_MASK);
+        proto_tree_add_uint(field_tree, hf_mle_key_id_mode, tvb, offset, 1, security_control & IEEE802154_AUX_KEY_ID_MODE_MASK);
+        proto_tree_add_uint(field_tree, hf_mle_aux_sec_reserved, tvb, offset, 1, security_control & IEEE802154_AUX_KEY_RESERVED_MASK);
+        offset++;
+    } else {
+        packet->security_level = 0;
+    }
+
+    /* Add additional fields for security level > 0 */
+    if (packet->security_level > 0) {
+
+        /* Frame Counter Field */
+        packet->frame_counter = tvb_get_letohl (tvb, offset); /* Note - frame counter is sent little endian according to 802.15.4 rules */
+        proto_tree_add_uint(header_tree, hf_mle_aux_sec_frame_counter, tvb, offset, 4, packet->frame_counter);
+        offset +=4;
+
+        /* Key identifier field(s). */
+        if (packet->key_id_mode != KEY_ID_MODE_IMPLICIT) {
+            
+            /* Create a subtree. */
+            ti = proto_tree_add_text(header_tree, tvb, offset, 1, "Key Identifier Field"); /* Will fix length later. */
+            field_tree = proto_item_add_subtree(ti, ett_mle_aux_sec_key_id);
+            
+            /* Add key source, if it exists. */
+            if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
+                packet->key_source.addr32 = tvb_get_ntohl(tvb, offset);
+                proto_tree_add_uint64(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 4, packet->key_source.addr32);
+                proto_item_set_len(ti, 1 + 4);
+                offset += 4;
+            }
+        
+            if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) {
+                packet->key_source.addr64 = tvb_get_ntoh64(tvb, offset);
+                proto_tree_add_uint64(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 8, packet->key_source.addr64);
+                proto_item_set_len(ti, 1 + 8);
+                offset += 8;
+            }
+            
+            /* Add key identifier. */
+            packet->key_index = tvb_get_guint8(tvb, offset);
+            proto_tree_add_uint(field_tree, hf_mle_aux_sec_key_index, tvb, offset, 1, packet->key_index);
+            offset++;
+        }  
+    }
+     
+    /* Pass to decryption process */
+    /* TODO - shouldn't have to do this if security level == 0 really */
+    memset(rx_mic, 0, 16);
+    payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status);
+
+    /* MIC */
+    mic_item = NULL;
+    if (rx_mic_len) {
+        mic_item = proto_tree_add_bytes(header_tree, hf_mle_mic, tvb, 0, rx_mic_len, rx_mic);
+        PROTO_ITEM_SET_GENERATED(mic_item);
+    }   
+
+    /* Get the unencrypted data if decryption failed.  */
+    if (!payload_tvb) {
+        /* Deal with possible truncation and the FCS field at the end. */
+        gint reported_len = tvb_reported_length(tvb)-offset;
+        gint captured_len = tvb_length(tvb)-offset;
+        if (reported_len < captured_len) captured_len = reported_len;
+        payload_tvb = tvb_new_subset(tvb, offset, captured_len, reported_len);
+    }
+
+    /* Display the reason for failure, and abort if the error was fatal. */
+    switch (status) {
+    case DECRYPT_PACKET_SUCCEEDED:
+    case DECRYPT_NOT_ENCRYPTED:
+        /* No problem. */
+        if (mic_item) {
+            proto_item_append_text(mic_item, " [correct]");
+        }
+        break;
+
+    case DECRYPT_PACKET_TOO_SMALL:
+        expert_add_info(pinfo, proto_root, &ei_mle_packet_too_small);
+        call_dissector(data_handle, payload_tvb, pinfo, tree);
+        goto encryption_failed;
+
+    case DECRYPT_PACKET_NO_KEY:
+        expert_add_info(pinfo, proto_root, &ei_mle_no_key);
+        call_dissector(data_handle, payload_tvb, pinfo, tree);
+        goto encryption_failed;
+
+    case DECRYPT_PACKET_DECRYPT_FAILED:
+        expert_add_info(pinfo, proto_root, &ei_mle_decrypt_failed);
+        call_dissector(data_handle, payload_tvb, pinfo, tree);
+        goto encryption_failed;
+
+    case DECRYPT_PACKET_MIC_CHECK_FAILED:
+        expert_add_info(pinfo, proto_root, &ei_mle_mic_check_failed);
+        if (mic_item) {
+            proto_item_append_text(mic_item, " [incorrect]");
+        }
+        /*
+         * Abort only if the payload was encrypted, in which case we
+         * probably didn't decrypt the packet right (eg: wrong key).
+         */
+        if (IEEE802154_IS_ENCRYPTED(packet->security_level)) {
+            mic_ok = FALSE;            
+        }
+        break;
+    default:
+        break;
+    }    
+    /* This can cause a lot of problems so remove it by default */
+#ifdef INCLUDE_MIC_OK
+    if (!mic_ok && mle_mic_ok) {
+#else
+    if (mic_ok == FALSE) {
+#endif
+        call_dissector(data_handle, payload_tvb, pinfo, tree);
+        col_add_fstr(pinfo->cinfo, COL_INFO, "MLE Secured, MIC Failed");
+        goto encryption_failed;
+    }
+
+    /***** NEW CODE HERE ****/
+    /* If we're good, carry on and display the MLE payload */
+    offset = 0;    
+    
+    /* MLE Command */
+       proto_tree_add_item(mle_tree, hf_mle_command, payload_tvb, offset, 1, FALSE);  
+    
+    cmd = tvb_get_guint8(payload_tvb, offset);
+    col_add_fstr(pinfo->cinfo, COL_INFO, "MLE %s%s", IEEE802154_IS_ENCRYPTED(packet->security_level) ? "Secured " : "", val_to_str(cmd, mle_command_vals, "Unknown (%x)"));
+    
+    offset++;
+    
+    /* MLE TLVs */
+    while (tvb_offset_exists(payload_tvb, offset)) {
+ 
+        /* Get the length ahead of time to pass to next function so we can highlight
+           proper amount of bytes */
+        tlv_len = tvb_get_guint8(payload_tvb, offset+1);
+ 
+        ti = proto_tree_add_item(mle_tree, hf_mle_tlv, payload_tvb, offset, tlv_len+2, FALSE);
+        tlv_tree = proto_item_add_subtree(ti, ett_mle_tlv);
+        
+        /* Type */
+        proto_tree_add_item(tlv_tree, hf_mle_tlv_type, payload_tvb, offset, 1, FALSE);
+        tlv_type = tvb_get_guint8(payload_tvb, offset);
+        offset++;
+    
+        /* Add value name to value root label */
+        proto_item_append_text(ti, " (%s", val_to_str(tlv_type, mle_tlv_vals, "Unknown (%d)"));
+
+        /* Length */
+        proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, FALSE);        
+        offset++;    
+        
+        switch(tlv_type){        
+            case MLE_TLV_SOURCE_ADDRESS:
+                {         
+                    gboolean haveShortTLV = FALSE;
+                    guint16 shortAddr;
+                
+                    if (!((tlv_len == 2) || (tlv_len == 8))) {
+                        /* TLV Length must be 2 or 8 */
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                        offset += tlv_len;
+                    } else {
+                        if (tlv_len == 2) {
+                            haveShortTLV = TRUE;
+                            shortAddr = tvb_get_ntohs(payload_tvb, offset);
+                        }
+                
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_source_addr, payload_tvb, offset, tlv_len, FALSE);                
+                        proto_item_append_text(ti, " = ");
+                        while (tlv_len) {
+                            guint8 addr;
+                            addr = tvb_get_guint8(payload_tvb, offset);
+                            proto_item_append_text(ti, "%02x", addr);
+                            if (--tlv_len) {
+                                proto_item_append_text(ti, ":");
+                            }
+                            offset++;
+                        }
+                        if ((original_packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) && haveShortTLV) {
+                            /* Source TLV: use this to update src/long mapping */
+                            ieee802154_addr_update(&ieee802154_map, shortAddr, original_packet->src_pan, original_packet->src64, pinfo->current_proto, pinfo->fd->num);
+                        }
+                    }
+                    proto_item_append_text(ti, ")");
+                }
+                break;
+
+            case MLE_TLV_MODE:
+                if (tlv_len == 1) {
+                    guint8 capability;
+
+                    capability = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %02x)", capability);
+                    /* Get and display capability info. (blatantly plagiarised from packet-ieee802154.c */
+#ifdef THREAD_EXTENSIONS
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_nwk_data, payload_tvb, offset, 1, FALSE);
+#endif // !THREAD_EXTENSIONS                    
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_device_type, payload_tvb, offset, 1, FALSE);
+#ifdef THREAD_EXTENSIONS
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_sec_data_req, payload_tvb, offset, 1, FALSE);
+#endif // !THREAD_EXTENSIONS                    
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_idle_rx, payload_tvb, offset, 1, FALSE);
+                }
+                else {
+                    /* TLV Length must be 1 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                }
+                offset += tlv_len;
+                break;
+            
+            case MLE_TLV_TIMEOUT:
+                if (tlv_len != 4) {
+                    /* TLV Length must be 4 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    proto_item_append_text(ti, " = ");
+                    {
+                        guint16 data = 0;
+                        guint8 len = 4; /* Fix it at 4 */
+                        guint stroffset = offset;
+                        
+                        while (len) {
+                            data <<= 8;
+                            data |= (guint16)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
+                            stroffset++;
+                            len--;
+                        }
+                        proto_item_append_text(ti, "%d", data);
+                    }
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_timeout, payload_tvb, offset, 2, FALSE);
+                }
+                proto_item_append_text(ti, ")");
+                offset += tlv_len;
+                break;
+                
+            case MLE_TLV_CHALLENGE:
+                proto_item_append_text(ti, " = ");
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_challenge, payload_tvb, offset, tlv_len, FALSE);                
+                while (tlv_len) {
+                    guint8 addr;
+                    addr = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, "%02x", addr);
+                    offset++;
+                    tlv_len--;
+                }
+                proto_item_append_text(ti, ")");
+                break;
+                
+            case MLE_TLV_RESPONSE:
+                proto_item_append_text(ti, " = ");
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_response, payload_tvb, offset, tlv_len, FALSE);                
+                while (tlv_len) {
+                    guint8 addr;
+                    addr = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, "%02x", addr);
+                    offset++;
+                    tlv_len--;
+                }
+                proto_item_append_text(ti, ")");
+                break;
+                
+            case MLE_TLV_LINK_LAYER_FRAME_COUNTER:
+            case MLE_TLV_MLE_FRAME_COUNTER:
+                if (tlv_len != 4) {
+                    /* TLV Length must be 4 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    proto_item_append_text(ti, " = ");
+                    {
+                        guint32 data = 0;
+                        guint8 len = 4; /* Fix it at 4 */
+                        guint stroffset = offset;
+                        
+                        while (len) {
+                            data <<= 8;
+                            data |= (guint32)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
+                            stroffset++;
+                            len--;
+                        }
+                        proto_item_append_text(ti, "%u", data);
+                    }
+                    if (tlv_type == MLE_TLV_LINK_LAYER_FRAME_COUNTER) {
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_ll_frm_cntr, payload_tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_mle_frm_cntr, payload_tvb, offset, tlv_len, FALSE);
+                    }
+                }
+                proto_item_append_text(ti, ")");
+                offset += tlv_len;
+                break;
+                
+            case MLE_TLV_LINK_QUALITY:
+                {
+                    guint numNeighbors;
+                    guint8 size = tvb_get_guint8(payload_tvb, offset) & LQI_FLAGS_SIZE;
+                    proto_tree *neig_tree;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_lqi_c, payload_tvb, offset, 1, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_lqi_size, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                
+                    if ((tlv_len - 1) % (size + 3)) {
+                        expert_add_info(pinfo, proto_root, &ei_mle_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                        numNeighbors = 0;
+                    } else {
+                        numNeighbors = (tlv_len - 1) / (size + 3);
+                    }                
+
+                    if (numNeighbors == 0) {
+                        proto_item_append_text(ti, ")");
+                    } else if (numNeighbors == 1) {
+                        proto_item_append_text(ti, ": 1 Neighbor)");
+                    } else {
+                        proto_item_append_text(ti, ": %d Neighbors)", numNeighbors);
+                    }
+                
+                    /* Add subtrees */
+                
+                    //Size is off by 1
+                    size++;
+                
+                    while (numNeighbors) {               
+                        ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_neighbor, payload_tvb, offset, size+2, FALSE);
+                        neig_tree = proto_item_add_subtree(ti, ett_mle_neighbor);
+                    
+                        proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_flagI, payload_tvb, offset, 1, FALSE);
+                        proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_flagO, payload_tvb, offset, 1, FALSE);
+                        proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_flagP, payload_tvb, offset, 1, FALSE);
+                        offset++;
+                    
+                        proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_idr, payload_tvb, offset, 1, FALSE);
+                        offset++;
+                    
+                        proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_addr, payload_tvb, offset,size, FALSE);
+                        offset += size;
+                    
+                        numNeighbors--;
+                    }                       
+                }
+                break;
+
+            case MLE_TLV_NETWORK_PARAMETER:
+                {
+                    guint8 param_id = tvb_get_guint8(payload_tvb, offset);
+
+                    proto_item_append_text(ti, " = %s)", val_to_str(param_id, mle_tlv_nwk_param_vals, "Unknown (%d)"));
+        
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_param_id, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_delay, payload_tvb, offset, 4, FALSE);
+                    offset += 4;
+                    
+                    switch (param_id) {
+                    case NETWORK_PARAM_ID_CHANNEL:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_network_channel, payload_tvb, offset, 2, FALSE);
+                        offset += 2;
+                        break;
+                    case NETWORK_PARAM_ID_PAN_ID:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_network_pan_id, payload_tvb, offset, 2, FALSE);
+                        offset += 2;
+                        break;
+                    case NETWORK_PARAM_ID_PERMIT_JOIN:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_network_pmt_join, payload_tvb, offset, 1, FALSE);
+                        offset++;
+                        break;
+                    case NETWORK_PARAM_ID_BCN_PAYLOAD:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_network_bcn_payload, payload_tvb, offset, tlv_len-5, FALSE);
+                        offset += tlv_len-5;
+                        break;
+                    default:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_network_unknown, payload_tvb, offset, tlv_len-5, FALSE);
+                        offset += tlv_len-5;
+                        break;
+                    }
+                }
+                break;
+
+#ifdef THREAD_EXTENSIONS
+            case MLE_TLV_ROUTING_TABLE:
+                {
+                    proto_tree *rtr_tree;
+                    guint i, j;
+                    guint count;
+                    guint64 id_mask, test_mask;
+                
+                    proto_item_append_text(ti, ")");
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_id_seq, payload_tvb, offset, 1, FALSE);
+                    offset++;
+
+                    /* Count number of table entries */
+                    count = 0;
+                    for (i = 0; i < 8; i++) { /* TODO magic - number of routers/8 */
+                        guint8 id_mask_octet = tvb_get_guint8(payload_tvb, offset + i);
+                        for (j = 0; j < 8; j++) {
+                            if (id_mask_octet & (1 << j)) {
+                                count++;
+                            }
+                        }
+                    }
+
+                    /* 
+                     * | | | | | | | | | | |1|1|1|1|1|1|...|6|
+                     * |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5|...|3|
+                     * ---------------------------------------
+                     * |1|0|1|1|1|0|0|0|1|1|0|0|0|1|0|1|...
+                     *
+                     * is sent as 0xb8, 0xc5
+                     * and represents table entry for routers 0, 2, 3, 4, 8, 9, 13, 15...
+                     */
+                    /* Get the ID mask as a 64-bit number (BE) */
+                    id_mask = tvb_get_ntoh64(payload_tvb, offset);
+                    
+                    /* Just show the string of octets - best representation for a bit mask */
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_id_mask, payload_tvb, offset, 8, FALSE);
+                    offset += 8;
+
+                    if (count != (tlv_len - 9))
+                    {
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                        offset += (tlv_len - 9);
+                    } else {
+                        /* Add subtrees */
+                        for (i = 0; i < count; i++) {
+                            /* Find first bit set */
+                            for (j = 0, test_mask = (G_GUINT64_CONSTANT(1) << 63); test_mask != 1; test_mask >>= 1, j++) {
+                                if (test_mask & id_mask) {
+                                    id_mask &= ~test_mask;
+                                    break;
+                                }
+                            }                            
+                            ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_entry, payload_tvb, offset, 1, FALSE);
+                            proto_item_append_text(ti, " (%d)", j);
+                            rtr_tree = proto_item_add_subtree(ti, ett_mle_router);
+
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_tbl_nbr_out, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_tbl_nbr_in, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_tbl_cost, payload_tvb, offset, 1, FALSE);
+                            offset++;
+                        }
+                    }
+                }
+                break;
+            
+            case MLE_TLV_ADDRESS_16:
+                if (tlv_len != 2) {
+                    /* TLV Length must be 2 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    guint16 shortAddr = tvb_get_ntohs(payload_tvb, offset);
+                    proto_item_append_text(ti, " = ");
+                    {
+                        guint8 len = 2; /* Fix it at 2 */
+                        guint stroffset = offset;
+                        
+                        while (len) {
+                            guint8 data;
+                            data = tvb_get_guint8(payload_tvb, stroffset);
+                            proto_item_append_text(ti, "%02x", data);
+                            if (--len) {
+                                proto_item_append_text(ti, ":");
+                            }
+                            stroffset++;
+                        }
+                    }
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_16, payload_tvb, offset, 2, FALSE);
+                    if (original_packet->dst_addr_mode == IEEE802154_FCF_ADDR_EXT) {
+                        /* Allocated Address16 TLV: use this to update dst/long mapping */
+                        ieee802154_addr_update(&ieee802154_map, shortAddr, original_packet->dst_pan, original_packet->dst64, pinfo->current_proto, pinfo->fd->num);
+                    }
+                }
+                proto_item_append_text(ti, ")");
+                offset += tlv_len;
+                break;
+                
+            case MLE_TLV_LEADER_DATA:
+                proto_item_append_text(ti, ")");
+                if (tlv_len != 8) {
+                    /* TLV Length must be 8 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    offset += tlv_len;
+                } else {
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_partition_id, payload_tvb, offset, 4, FALSE);                
+                    offset += 4;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_weighting, payload_tvb, offset, 1, FALSE);                
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_version, payload_tvb, offset, 1, FALSE);                
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_stable_version, payload_tvb, offset, 1, FALSE);                
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_router_id, payload_tvb, offset, 1, FALSE);                
+                    offset++;
+                }
+                break;
+
+            case MLE_TLV_NETWORK_DATA:
+                {
+                    tvbuff_t *sub_tvb;
+#if 0
+                    proto_tree *thread_nwd_tree;
+
+                    proto_item_append_text(ti, ")");
+                    ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_network_data, payload_tvb, offset, tlv_len, FALSE);
+                    thread_nwd_tree = proto_item_add_subtree(ti, ett_mle_thread_nwd);
+
+                    sub_tvb = tvb_new_subset_length(payload_tvb, offset, tlv_len);
+                    call_dissector(thread_nwd_handle, sub_tvb, pinfo, thread_nwd_tree);
+#else
+                    proto_item_append_text(ti, ")");
+                    if (tlv_len > 0) {
+                        sub_tvb = tvb_new_subset_length(payload_tvb, offset, tlv_len);
+                        call_dissector(thread_nwd_handle, sub_tvb, pinfo, tlv_tree);
+                    }
+#endif    
+                    offset += tlv_len;
+                }
+                break;
+                
+            case MLE_TLV_TLV_REQUEST:
+                proto_item_append_text(ti, ")");
+                while (tlv_len) {
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_type, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    tlv_len--;
+                }                       
+                break;
+
+            case MLE_TLV_SCAN_MASK:
+                if (tlv_len != 1) {
+                    /* TLV Length must be 1 */
+                    proto_item_append_text(ti, ")");
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    guint8 mask;
+
+                    mask = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %02x)", mask);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_scan_mask_r, payload_tvb, offset, 1, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_scan_mask_e, payload_tvb, offset, 1, FALSE);
+                }
+                offset += tlv_len;  
+                break;
+
+            case MLE_TLV_CONNECTIVITY:
+                if (tlv_len != 7) {
+                    /* TLV Length must be 7 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    offset += tlv_len;  
+                } else {
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_max_child_cnt, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_child_cnt, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_lq3, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_lq2, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_lq1, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_leader_cost, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_id_seq, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                }
+                proto_item_append_text(ti, ")");
+                break;
+
+            case MLE_TLV_RSSI:
+                if (tlv_len != 1) {
+                    /* TLV Length must be 1 */
+                    proto_item_append_text(ti, ")");
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    guint8 rssi;
+
+                    rssi = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %d)", rssi);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_rssi, payload_tvb, offset, tlv_len, FALSE);
+                }
+                offset += tlv_len;  
+                break;
+
+            case MLE_TLV_STATUS:
+                if (tlv_len != 1) {
+                    /* TLV Length must be 1 */
+                    proto_item_append_text(ti, ")");
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    guint8 status;
+
+                    status = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %d)", status);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_status, payload_tvb, offset, tlv_len, FALSE);
+                }
+                offset += tlv_len;  
+                break;
+                
+            case MLE_TLV_VERSION:
+                if (tlv_len != 2) {
+                    /* TLV Length must be 2 */
+                    proto_item_append_text(ti, ")");
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    guint16 version;
+
+                    version = tvb_get_ntohs(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %d)", version);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_version, payload_tvb, offset, tlv_len, FALSE);
+                }
+                offset += tlv_len;  
+                break;
+                
+            case MLE_TLV_ADDRESS_REGISTRATION:
+                if (tlv_len != 9) {
+                    /* TLV Length must be 9 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    offset += tlv_len;  
+                } else {
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_cid, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid, payload_tvb, offset, 8, FALSE);
+                    offset += 8;
+                }
+                proto_item_append_text(ti, ")");
+                break;
+                
+            case MLE_TLV_HOLD_TIME:
+                if (tlv_len != 2) {
+                    /* TLV Length must be 2 */
+                    proto_item_append_text(ti, ")");
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                } else {
+                    guint16 hold_time;
+
+                    hold_time = tvb_get_ntohs(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %d)", hold_time);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_hold_time, payload_tvb, offset, tlv_len, FALSE);
+                }
+                offset += tlv_len;  
+                break;
+#endif // THREAD_EXTENSIONS
+
+            default:                
+                proto_item_append_text(ti, ")");
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                offset += tlv_len;           
+        }        
+    }
+
+    encryption_failed:
+    return;
+}
+
+
+void
+proto_register_mle(void)
+{
+  static hf_register_info hf[] = {
+    
+    /* Auxiliary Security Header Fields */
+    /*----------------------------------*/
+    { &hf_mle_security_level,
+      { "Security Level",
+        "wpan.aux_sec.sec_level",
+        FT_UINT8, BASE_HEX, VALS(mle_sec_level_names), IEEE802154_AUX_SEC_LEVEL_MASK,
+        "The Security Level of the frame",
+        HFILL
+      }
+    },
+
+    { &hf_mle_key_id_mode,
+      { "Key Identifier Mode",
+        "wpan.aux_sec.key_id_mode",
+        FT_UINT8, BASE_HEX, VALS(mle_key_id_mode_names), IEEE802154_AUX_KEY_ID_MODE_MASK,
+        "The scheme to use by the recipient to lookup the key in its key table",
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_reserved,
+      { "Reserved",
+        "wpan.aux_sec.reserved",
+        FT_UINT8, BASE_HEX, NULL, IEEE802154_AUX_KEY_RESERVED_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_frame_counter,
+      { "Frame Counter",
+        "wpan.aux_sec.frame_counter",
+        FT_UINT32, BASE_DEC, NULL, 0x0,
+        "Frame counter of the originator of the protected frame",
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_key_source,
+      { "Key Source",
+        "wpan.aux_sec.key_source",
+        FT_UINT64, BASE_HEX, NULL, 0x0,
+        "Key Source for processing of the protected frame",
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_key_index,
+      { "Key Index",
+        "wpan.aux_sec.key_index",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        "Key Index for processing of the protected frame",
+        HFILL
+      }
+    },
+        
+    { &hf_mle_mic,
+      { "Decrypted MIC",
+        "mle.mic",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Decrypted MIC",
+        HFILL
+      }
+    },   
+        
+    /*MLE Command*/    
+    { &hf_mle_command,
+      { "Command",
+        "mle.cmd",
+        FT_UINT8, BASE_DEC, VALS(mle_command_vals), 0x0,
+        "MLE command type",
+        HFILL
+      }
+    },
+        
+    /* Generic TLV */
+    { &hf_mle_tlv,
+      { "TLV",
+        "mle.tlv",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        "Type-Length-Value",
+        HFILL
+      }
+    },
+        
+    { &hf_mle_tlv_type,
+      { "Type",
+        "mle.tlv.type",
+        FT_UINT8, BASE_DEC, VALS(mle_tlv_vals), 0x0,
+        "Type of value",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_length,
+      { "Length",
+        "mle.tlv.len",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        "Length of value",
+        HFILL
+      }
+    },
+        
+    /* Type-Specific TLV Fields */
+    { &hf_mle_tlv_source_addr,
+      { "Address",
+        "mle.tlv.source_addr",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Source address",
+        HFILL
+      }
+    },    
+
+    /*  Capability Information Fields */
+#ifdef THREAD_EXTENSIONS
+    { &hf_mle_tlv_mode_nwk_data,
+      { "Network Data",
+        "mle.tlv.mode.nwk_data",
+        FT_BOOLEAN, 8, NULL, MLE_CMD_CINFO_NWK_DATA,
+        NULL,
+        HFILL
+      }
+    },
+#endif // THREAD_EXTENSIONS
+
+    { &hf_mle_tlv_mode_device_type,
+      { "Device Type",
+        "mle.tlv.mode.device_type",
+        FT_BOOLEAN, 8, TFS(&mle_tlv_mode_device_type), IEEE802154_CMD_CINFO_DEVICE_TYPE,
+        NULL,
+        HFILL
+      }
+    },
+
+#ifdef THREAD_EXTENSIONS
+    { &hf_mle_tlv_mode_sec_data_req,
+      { "Secure Data Requests",
+        "mle.tlv.mode.sec_data_req",
+        FT_BOOLEAN, 8, NULL, MLE_CMD_CINFO_SEC_DATA_REQ,
+        NULL,
+        HFILL
+      }
+    },
+#endif // THREAD_EXTENSIONS
+
+    { &hf_mle_tlv_mode_idle_rx,
+      { "Receive On When Idle",
+        "mle.tlv.mode.idle_rx",
+        FT_BOOLEAN, 8, NULL, IEEE802154_CMD_CINFO_IDLE_RX,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_timeout,
+      { "Timeout",
+        "mle.tlv.timeout",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        "Expected interval between transmissions in seconds",
+        HFILL
+      }
+    }, 
+        
+    { &hf_mle_tlv_challenge,
+      { "Challenge",
+        "mle.tlv.challenge",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Challenge to be echoed back",
+        HFILL
+      }
+    },
+        
+    { &hf_mle_tlv_response,
+      { "Response",
+        "mle.tlv.response",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Response to a challenge",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_ll_frm_cntr,
+      { "Link Layer Frame Counter",
+        "mle.tlv.ll_frm_cntr",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Link layer frame counter",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_mle_frm_cntr,
+      { "MLE Frame Counter",
+        "mle.tlv.mle_frm_cntr",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Link layer frame counter",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_unknown,
+      { "Unknown",
+        "mle.tlv.unknown",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Unknown TLV, raw value",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_lqi_c,
+      { "Complete Flag",
+        "mle.tlv.lqi.complete",
+        FT_BOOLEAN, 8, NULL, LQI_FLAGS_C,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_lqi_size,
+      { "Address Size",
+        "mle.tlv.lqi.size",
+        FT_UINT8, BASE_DEC, NULL, LQI_FLAGS_SIZE,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_neighbor,
+      { "Neighbor Record",
+        "mle.tlv.neighbor",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+       
+    { &hf_mle_tlv_neighbor_flagI,
+      { "Incoming",
+        "mle.tlv.neighbor.flagI",
+        FT_BOOLEAN, 8, NULL, NEIGHBOR_FLAG_I,
+        "Set if the sender has configured its link with this neighbor and will accept incoming messages from them.",
+        HFILL
+      }
+    },
+       
+    { &hf_mle_tlv_neighbor_flagO,
+      { "Outgoing",
+        "mle.tlv.neighbor.flagO",
+        FT_BOOLEAN, 8, NULL, NEIGHBOR_FLAG_O,
+        "Set if the sender believes that the neighbor has configured its link with the sender and will accept incoming messages from the sender.",
+        HFILL
+      }
+    },
+       
+    { &hf_mle_tlv_neighbor_flagP,
+      { "Priority",
+        "mle.tlv.neighbor.flagP",
+        FT_BOOLEAN, 8, NULL, NEIGHBOR_FLAG_P,
+        "Set if the sender expects to use this link for sending messages to this neighbor.",
+        HFILL
+      }
+    },
+       
+    { &hf_mle_tlv_neighbor_idr,
+      { "Inverse Delivery Ratio",
+        "mle.tlv.neighbor.idr",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+       
+    { &hf_mle_tlv_neighbor_addr,
+      { "Address",
+        "mle.tlv.neighbor.addr",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },          
+
+    { &hf_mle_tlv_network_param_id,
+      { "Parameter ID",
+        "mle.tlv.network.param_id",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+       
+    { &hf_mle_tlv_network_delay,
+      { "Delay",
+        "mle.tlv.network.delay",
+        FT_UINT32, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },          
+       
+    { &hf_mle_tlv_network_channel,
+      { "Channel",
+        "mle.tlv.network.channel",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },   
+       
+    { &hf_mle_tlv_network_pan_id,
+      { "PAN ID",
+        "mle.tlv.network.pan_id",
+        FT_UINT16, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },          
+       
+    { &hf_mle_tlv_network_pmt_join,
+      { "Permit Join",
+        "mle.tlv.network.pmt_join",
+        FT_BOOLEAN, 8, NULL, 0x1,
+        NULL,
+        HFILL
+      }
+    },          
+       
+    { &hf_mle_tlv_network_bcn_payload,
+      { "Beacon Payload",
+        "mle.tlv.network.bcn_payload",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },          
+       
+#ifdef THREAD_EXTENSIONS
+    { &hf_mle_tlv_route_tbl_id_seq,
+      { "ID Sequence",
+        "mle.tlv.route_tbl.id_seq",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_route_tbl_id_mask,
+      { "Assigned Router ID Mask",
+        "mle.tlv.route_tbl.id_mask",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_route_tbl_entry,
+      { "Routing Table Entry",
+        "mle.tlv.route_tbl",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_route_tbl_nbr_out,
+      { "Neighbor Out Link Quality",
+        "mle.tlv.route_tbl.nbr_out",
+        FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_OUT_MASK,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_route_tbl_nbr_in,
+      { "Neighbor In Link Quality",
+        "mle.tlv.route_tbl.nbr_in",
+        FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_IN_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_route_tbl_cost,
+      { "Router Cost",
+        "mle.tlv.route_tbl.cost",
+        FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_COST_MASK,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_route_tbl_unknown,
+      { "(unknown)",
+        "mle.tlv.route_tbl.unknown",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_addr_16,
+      { "Short Address",
+        "mle.tlv.short_addr",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Short address",
+        HFILL
+      }
+    }, 
+        
+    { &hf_mle_tlv_leader_data_partition_id,
+      { "Leader Data Partition ID",
+        "mle.tlv.leader_data.partition_id",
+        FT_UINT32, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_leader_data_weighting,
+      { "Leader Data Weighting",
+        "mle.tlv.leader_data.weighting",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_leader_data_version,
+      { "Leader Data Version",
+        "mle.tlv.leader_data.version",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_leader_data_stable_version,
+      { "Leader Data Stable Version",
+        "mle.tlv.leader_data",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_leader_data_router_id,
+      { "Leader Data Router ID",
+        "mle.tlv.leader_data.router_id",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_network_data,
+      { "Network Data",
+        "mle.tlv.network_data",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Network data (opaque data)",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_scan_mask_r,
+      { "Router",
+        "mle.tlv.scan_mask.r",
+        FT_BOOLEAN, 8, NULL, SCAN_MASK_R_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_scan_mask_e,
+      { "End Device",
+        "mle.tlv.scan_mask.e",
+        FT_BOOLEAN, 8, NULL, SCAN_MASK_D_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_max_child_cnt,
+      { "Max Child Count",
+        "mle.tlv.conn.max_child_cnt",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_conn_child_cnt,
+      { "Child Count",
+        "mle.tlv.conn.child_cnt",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_lq3,
+      { "Link Quality 3",
+        "mle.tlv.conn.lq3",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_lq2,
+      { "Link Quality 2",
+        "mle.tlv.conn.lq2",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_lq1,
+      { "Link Quality 1",
+        "mle.tlv.conn.lq1",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_leader_cost,
+      { "Leader Cost",
+        "mle.tlv.conn.leader_cost",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_id_seq,
+      { "ID Sequence",
+        "mle.tlv.conn.id_seq",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_rssi,
+      { "RSSI",
+        "mle.tlv.rssi",
+        FT_INT8, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+        
+    { &hf_mle_tlv_status,
+      { "Status",
+        "mle.tlv.status",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_version,
+      { "Version",
+        "mle.tlv.version",
+        FT_UINT16, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+        
+    { &hf_mle_tlv_addr_reg_cid,
+      { "Context ID",
+        "mle.tlv.addr_reg_cid",
+        FT_UINT8, BASE_DEC, NULL, ADDR_REG_MASK_CID_MASK,
+        "Context ID",
+        HFILL
+      }
+    },    
+
+    { &hf_mle_tlv_addr_reg_iid,
+      { "IID",
+        "mle.tlv.addr_reg_iid",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "IID",
+        HFILL
+      }
+    },    
+
+    { &hf_mle_tlv_hold_time,
+      { "Hold Time",
+        "mle.tlv.hold_time",
+        FT_UINT16, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_network_unknown,
+      { "(unknown)",
+        "mle.tlv.network.unknown",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+#else // !THREAD_EXTENSIONS
+    { &hf_mle_tlv_network_unknown,
+      { "(unknown)",
+        "mle.tlv.network.unknown",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    }
+#endif // !THREAD_EXTENSIONS
+  };
+  
+  static gint *ett[] = {
+    &ett_mle,
+    &ett_mle_auxiliary_security,
+    &ett_mle_aux_sec_control,
+    &ett_mle_aux_sec_key_id,
+    &ett_mle_tlv,
+#ifdef THREAD_EXTENSIONS
+    &ett_mle_neighbor,
+    &ett_mle_router,
+    &ett_mle_thread_nwd
+#else // !THREAD_EXTENSIONS
+    &ett_mle_neighbor
+#endif // !THREAD_EXTENSIONS
+};
+
+  static ei_register_info ei[] = {
+    { &ei_mle_cbc_mac_failed, { "mle.cbc_mac_failed", PI_UNDECODED, PI_WARN, "Call to ccm_cbc_mac() failed", EXPFILL }},
+    { &ei_mle_packet_too_small, { "mle.packet_too_small", PI_UNDECODED, PI_WARN, "Packet was too small to include the CRC and MIC", EXPFILL }},
+    { &ei_mle_no_key, { "mle.no_key", PI_UNDECODED, PI_WARN, "No encryption key set - can't decrypt", EXPFILL }},
+    { &ei_mle_decrypt_failed, { "mle.decrypt_failed", PI_UNDECODED, PI_WARN, "Decrypt failed", EXPFILL }},
+    { &ei_mle_mic_check_failed, { "mle.mic_check_failed", PI_UNDECODED, PI_WARN, "MIC check failed", EXPFILL }},
+    { &ei_mle_tlv_length_failed, { "mle.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
+    { &ei_mle_len_size_mismatch, { "mle.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
+  };
+
+  module_t *mle_module;
+  expert_module_t* expert_mle;
+
+  proto_mle = proto_register_protocol("Mesh Link Establishment",
+                       "MLE", "mle");
+  proto_register_field_array(proto_mle, hf, array_length(hf));
+  proto_register_subtree_array(ett, array_length(ett));
+  expert_mle = expert_register_protocol(proto_mle);
+  expert_register_field_array(expert_mle, ei, array_length(ei));
+
+  register_dissector("mle", dissect_mle, proto_mle);
+
+  /* Set default UDP ports */
+  range_convert_str(&global_mle_port_range, UDP_PORT_MLE_RANGE, MAX_UDP_PORT);
+
+  mle_module = prefs_register_protocol(proto_mle, proto_reg_handoff_mle);
+  prefs_register_range_preference(mle_module, "udp_ports",
+                  "MLE port numbers",
+                  "Port numbers used for MLE traffic "
+                  "(default " UDP_PORT_MLE_RANGE ")",
+                  &global_mle_port_range, MAX_UDP_PORT);
+  
+  /* Register preferences for a decryption key */
+  /* TODO: Implement a UAT for multiple keys, and with more advanced key management. */
+
+#ifdef INDEPENDENT_MLE_KEYS
+  
+#if (NUM_KEYS == 2)
+  prefs_register_string_preference(mle_module, "meshlink_key_1", "Decryption key 1",
+      "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str[0]);
+  prefs_register_uint_preference(mle_module, "meshlink_key_index_1", "Decryption key index 1",
+      "Key index in decimal format", 10, &mle_key_index[0]);
+  prefs_register_string_preference(mle_module, "meshlink_key_2", "Decryption key 2",
+      "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str[1]);
+  prefs_register_uint_preference(mle_module, "meshlink_key_index_2", "Decryption key index 2",
+      "Key index in decimal format", 10, &mle_key_index[1]);
+#else
+  prefs_register_string_preference(mle_module, "meshlink_key", "Decryption key",
+      "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str);
+#endif
+#ifdef THREAD_HASHED_KEY
+  prefs_register_string_preference(mle_module, "meshlink_thr_seq_ctr", "Thread sequence counter",
+      "32-bit sequence counter for hash", (const char **)&mle_thr_seq_ctr_str);
+#endif
+#ifdef DISPLAY_HASHED_KEY
+#if (NUM_KEYS == 2)
+  prefs_register_string_preference(mle_module, "mle_hash_key_1", "Hashed Decryption key 1",
+      "128-bit decryption hashed key in hexadecimal format", (const char **)&mle_hash_key_str[0]);
+  prefs_register_string_preference(mle_module, "mle_hash_key_2", "Hashed Decryption key 2",
+      "128-bit decryption hashed key in hexadecimal format", (const char **)&mle_hash_key_str[1]);
+#else
+  prefs_register_string_preference(mle_module, "mle_hash_key", "Hashed Decryption key",
+      "128-bit decryption hashed key in hexadecimal format", (const char **)&mle_hash_key_str[0]);
+#endif
+#endif
+#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
+  prefs_register_bool_preference(mle_module, "meshlink_hashed_key",
+                                 "Hashed key",
+                                 "Set if the hashed key is to be used for MLE encryption."
+                                 " Option ignored for unsecured frames.",
+                                 &mle_hashed_key);
+#endif
+#endif /* INDEPENDENT_MLE_KEYS */
+#ifdef INCLUDE_MIC_OK
+  prefs_register_bool_preference(mle_module, "meshlink_mic_ok",
+                  "Dissect only good MIC",
+                  "Dissect payload only if MIC is valid.",
+                   &mle_mic_ok);
+#endif
+}
+
+static void range_delete_callback (guint32 port)
+{
+  dissector_delete_uint("udp.port", port, mle_handle);
+}
+
+static void range_add_callback (guint32 port)
+{
+  dissector_add_uint("udp.port", port, mle_handle);
+}
+
+void
+proto_reg_handoff_mle(void)
+{
+  static range_t *mle_port_range;
+  static gboolean mle_initialized = FALSE;
+#ifdef INDEPENDENT_MLE_KEYS
+  GByteArray *bytes;
+#ifdef THREAD_HASHED_KEY
+  GByteArray *seq_ctr_bytes;
+  char       buffer[10];
+#endif
+  gboolean   res;
+  int        i;
+#endif /* INDEPENDENT_MLE_KEYS */
+
+  if (!mle_initialized) {
+    mle_handle = find_dissector("mle");
+    data_handle = find_dissector("data");
+    thread_nwd_handle = find_dissector("thread_nwd");
+
+    //heur_dissector_add("stun", dissect_embeddedmle_heur, proto_mle);
+    mle_initialized = TRUE;
+  } else {
+    range_foreach(mle_port_range, range_delete_callback);
+    g_free(mle_port_range);
+  }
+
+  mle_port_range = range_copy(global_mle_port_range);
+  range_foreach(mle_port_range, range_add_callback);
+
+#ifdef INDEPENDENT_MLE_KEYS
+  for (i = 0; i < NUM_KEYS; i++)
+  {
+  
+    /* Get the IEEE 802.15.4 decryption key. */
+    bytes = g_byte_array_new();
+    res = hex_str_to_bytes(mle_key_str[i], bytes, FALSE);
+    mle_key_valid[i] = (res && bytes->len >= IEEE802154_CIPHER_SIZE);
+    if (mle_key_valid[i]) {
+#if (defined(ZIP_HASHED_KEY) || defined(THREAD_HASHED_KEY)) && defined(HAVE_LIBGCRYPT)
+      if (mle_hashed_key) {
+        gcry_md_hd_t md_hd;
+        gcry_error_t err = 0;
+        unsigned char *data_computed_md = 0;
+#ifdef DISPLAY_HASHED_KEY
+        char *mle_hash_key_str_ptr;
+#endif
+        err = gcry_md_open(&md_hd, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
+        if (err == 0) {
+          gcry_md_setkey (md_hd, bytes->data, IEEE802154_CIPHER_SIZE);
+#ifdef ZIP_HASHED_KEY
+          gcry_md_write (md_hd, "ZigBeeIP", 8);
+#endif
+#ifdef THREAD_HASHED_KEY
+          seq_ctr_bytes = g_byte_array_new();
+          res = hex_str_to_bytes(mle_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
+          memcpy(buffer, seq_ctr_bytes->data, 4); /* sizeof(uint32) */
+          g_byte_array_free(seq_ctr_bytes, TRUE);
+          memcpy(&buffer[4], "Thread", 6); /* len("Thread") */
+          gcry_md_write(md_hd, buffer, 10);
+#endif                    
+          data_computed_md = gcry_md_read(md_hd, GCRY_MD_SHA256);
+          if (data_computed_md != 0) {
+            /* Copy lower hashed bytes to the key */
+            memcpy(mle_key[i], data_computed_md, IEEE802154_CIPHER_SIZE);
+#ifdef DISPLAY_HASHED_KEY
+            mle_hash_key_str_ptr = bytes_to_hexstr((char *)mle_hash_key_str[i], (const guint8 *)mle_key[i], 16); // 16 bytes
+            *mle_hash_key_str_ptr = '\0'; /* Null terminate for display */
+#endif
+        }
+      }
+      if (data_computed_md == 0) {
+        /* Copy bytes to the key */
+        memcpy(mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+      }
+      gcry_md_close (md_hd);
+    } else {
+      memcpy(mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+    }
+#else /* !(defined(ZIP_HASHED_KEY) && defined(HAVE_LIBGCRYPT)) */
+    /* Will have to be manually entered as HMAC_SHA256(key, "ZigBeeIP")[0..15] */
+    memcpy(mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
+#endif /* !(defined(ZIP_HASHED_KEY) && defined(HAVE_LIBGCRYPT)) */
+  }
+  g_byte_array_free(bytes, TRUE);
+#endif /* INDEPENDENT_MLE_KEYS */
+}
+
+/*
+ * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ *
+ * Local variables:
+ * c-basic-offset: 2
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * vi: set shiftwidth=2 tabstop=8 expandtab
+ * :indentSize=2:tabSize=8:noTabs=true:
+ */

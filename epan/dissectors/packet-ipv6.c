@@ -69,6 +69,7 @@ void proto_reg_handoff_ipv6(void);
 #define IP6OPT_EXP_3E                   0x3E    /* 00 1 11110 */
 #define IP6OPT_EXP_5E                   0x5E    /* 01 0 11110 */
 #define IP6OPT_RPL                      0x63    /* 01 1 00011 */
+#define IP6OPT_MPL                      0x6D    /* 01 1 01101 */
 #define IP6OPT_EXP_7E                   0x7E    /* 01 1 11110 */
 #define IP6OPT_EXP_9E                   0x9E    /* 10 0 11110 */
 #define IP6OPT_EXP_BE                   0xBE    /* 10 1 11110 */
@@ -190,6 +191,13 @@ static int hf_ipv6_opt_rpl_flag_f               = -1;
 static int hf_ipv6_opt_rpl_flag_rsv             = -1;
 static int hf_ipv6_opt_rpl_instance_id          = -1;
 static int hf_ipv6_opt_rpl_senderrank           = -1;
+static int hf_ipv6_opt_mpl_flag                 = -1;
+static int hf_ipv6_opt_mpl_flag_s               = -1;
+static int hf_ipv6_opt_mpl_flag_m               = -1;
+static int hf_ipv6_opt_mpl_flag_v               = -1;
+static int hf_ipv6_opt_mpl_flag_rsv             = -1;
+static int hf_ipv6_opt_mpl_sequence             = -1;
+static int hf_ipv6_opt_mpl_seed_id              = -1;
 static int hf_ipv6_opt_experimental             = -1;
 static int hf_ipv6_opt_unknown_data             = -1;
 static int hf_ipv6_opt_unknown                  = -1;
@@ -497,6 +505,7 @@ static const value_string ipv6_opt_vals[] = {
     { IP6OPT_EXP_3E,       "Experimental (0x3E)" },
     { IP6OPT_EXP_5E,       "Experimental (0x5E)" },
     { IP6OPT_RPL,          "RPL Option" },
+    { IP6OPT_MPL,          "MPL Option" },
     { IP6OPT_EXP_7E,       "Experimental (0x7E)" },
     { IP6OPT_EXP_9E,       "Experimental (0x9E)" },
     { IP6OPT_EXP_BE,       "Experimental (0xBE)" },
@@ -1243,6 +1252,32 @@ dissect_opts(tvbuff_t *tvb, int offset, proto_tree *tree, packet_info * pinfo, c
 
                 proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_senderrank, tvb, offset, 2, ENC_BIG_ENDIAN);
                 offset +=2;
+
+                /* TODO: Add dissector of sub TLV */
+            }
+            break;
+            case IP6OPT_MPL:
+            {
+                proto_tree *flag_tree;
+                proto_item *ti_flag;
+                static const guint8 seed_id_len_arr[4] = {0, 2, 8, 16};
+                guint8 seed_id_len;
+
+                ti_flag = proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
+                flag_tree = proto_item_add_subtree(ti_flag, ett_ipv6_opt_flag);
+                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_s, tvb, offset, 1, ENC_BIG_ENDIAN);
+                seed_id_len = seed_id_len_arr[tvb_get_guint8(tvb, offset) >> 6];
+                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_m, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_v, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_rsv, tvb, offset, 1, ENC_BIG_ENDIAN);
+                offset +=1;
+
+                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_sequence, tvb, offset, 1, ENC_BIG_ENDIAN);
+                offset +=1;
+                if (seed_id_len > 0) {
+                    proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_seed_id, tvb, offset, seed_id_len, ENC_BIG_ENDIAN);
+                    offset +=seed_id_len;
+                }
 
                 /* TODO: Add dissector of sub TLV */
             }
@@ -2558,6 +2593,34 @@ proto_register_ipv6(void)
           { "Sender Rank",          "ipv6.opt.rpl.sender_rank",
             FT_UINT16, BASE_HEX, NULL, 0x0,
             "Set to zero by the source and to DAGRank(rank) by a router that forwards inside the RPL network", HFILL }},
+        { &hf_ipv6_opt_mpl_flag,
+          { "Flag",                 "ipv6.opt.mpl.flag",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }},
+        { &hf_ipv6_opt_mpl_flag_s,
+          { "Seed ID Length",       "ipv6.opt.mpl.flag.s",
+            FT_UINT8, BASE_DEC, NULL, 0xC0,
+            "Identifies the length of Seed ID", HFILL }},
+        { &hf_ipv6_opt_mpl_flag_m,
+          { "Largest Sequence",      "ipv6.opt.mpl.flag.m",
+            FT_BOOLEAN, 8, NULL, 0x20,
+            "Indicates Sequence is known to be the largest sequence number", HFILL }},
+        { &hf_ipv6_opt_mpl_flag_v,
+          { "Version",               "ipv6.opt.mpl.flag.v",
+            FT_BOOLEAN, 8, NULL, 0x10,
+            "0 indicates this option conforms to RFC<TBC>", HFILL }},
+        { &hf_ipv6_opt_mpl_flag_rsv,
+          { "Reserved",              "ipv6.opt.mpl.flag.rsv",
+            FT_UINT8, BASE_HEX, NULL, 0x0F,
+            "Reserved (Must Be Zero)", HFILL }},
+        { &hf_ipv6_opt_mpl_sequence,
+          { "Sequence",              "ipv6.opt.mpl.sequence",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            "Identifies relative ordering of MPL Data Messages from the MPL Seed identified by Seed ID", HFILL }},
+        { &hf_ipv6_opt_mpl_seed_id,
+          { "Seed ID",               "ipv6.opt.mpl.seed_id",
+            FT_BYTES, BASE_NONE, NULL, 0x0,
+            "Uniquely identifies the MPL Seed that initiated dissemination of the MPL Data Message", HFILL }},
         { &hf_ipv6_opt_experimental,
           { "Experimental Option","ipv6.opt.experimental",
             FT_BYTES, BASE_NONE, NULL, 0x0,

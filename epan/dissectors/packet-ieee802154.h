@@ -160,6 +160,12 @@ typedef enum {
     KEY_ID_MODE_KEY_EXPLICIT_8 = 0x03
 } ieee802154_key_id_mode;
 
+typedef enum {
+    KEY_HASH_NONE = 0x00,
+    KEY_HASH_ZIP = 0x01,
+    KEY_HASH_THREAD = 0x02,
+} ieee802154_key_hash;
+
 /* IEEE 802.15.4 cipher block size. */
 #define IEEE802154_CIPHER_SIZE              16
 
@@ -240,6 +246,7 @@ typedef struct {
     guint16             src16;
     guint16             dst16;
     ieee802154_map_rec *map_rec;
+    void               *packet;
 } ieee802154_hints_t;
 
 /* Short to Extended Address Prototypes */
@@ -252,5 +259,9 @@ extern gboolean ieee802154_long_addr_equal(gconstpointer a, gconstpointer b);
 
 extern gboolean ieee802154_short_addr_invalidate(guint16, guint16, guint);
 extern gboolean ieee802154_long_addr_invalidate(guint64, guint);
+
+extern ieee802154_map_tab_t ieee802154_map;
+
+extern gboolean ieee802154_set_mle_key(unsigned int key_index, unsigned char *key);
 
 #endif /* PACKET_IEEE802154_H */
