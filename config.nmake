@@ -830,6 +830,19 @@ POD2HTML=$(SH) pod2html
 # command for sed (cygwin's sed recommended)
 SED=sed
 
+# Command for Echo. Cygwin's echo recommended.
+# Absolute or relative paths must be Windows-style
+
+#ECHO=\custom\path\to\echo
+
+# Find echo automatically
+!IF !DEFINED(ECHO)
+!IF EXIST("$(CYGWIN_PATH)\echo.exe")
+# We add Cygwin to PATH below.
+ECHO=$(CYGWIN_PATH)\echo.exe
+!ENDIF
+!ENDIF
+
 # Command for Flex. Cygwin's flex or Chocolatey's win_flex
 # recommended.
 # Absolute or relative paths must be Windows-style

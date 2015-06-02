@@ -236,8 +236,8 @@ packaging: all
 	cd ..
 !ELSE
 packaging: _FORCE_
-	@echo \? NSIS not available (MAKENSIS not defined in config.nmake)
-	@echo.
+	@$(ECHO) \? NSIS not available (MAKENSIS not defined in config.nmake)
+	@$(ECHO).
 	@exit 1
 !ENDIF
 
@@ -254,7 +254,7 @@ packaging_zip: all
 	xcopy "$(MSVCR_DLL)" $(INSTALL_DIR)
 !ENDIF
 !IFDEF VCREDIST_EXE
-	@echo Including vcredist_$(TARGET_MACHINE).exe -- your recipient may need to run it!
+	@$(ECHO) Including vcredist_$(TARGET_MACHINE).exe -- your recipient may need to run it!
 	xcopy "$(VCREDIST_EXE)" $(INSTALL_DIR)
 !ENDIF
 	rm -f wireshark.zip
@@ -317,7 +317,7 @@ $(RESOURCES): image
 wiretap\wiretap-$(WTAP_VERSION).lib: image $(ZLIB_DLL) wiretap
 
 $(PROGRAM_NAME_GTK).exe	: $(LIBS_CHECK) config.h $(wireshark_gtk_OBJECTS) capchild caputils codecs epan ui gtk win32 image\wireshark.res image\file_dlg_win32.res wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib codecs\codecs.lib ui\libui.lib ui\gtk\libgtkui.lib ui\win32\libgtkui_win32.lib plugins
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:$(PROGRAM_NAME_GTK).exe $(guiflags) $(guilibsdll) $(LDFLAGS) /LARGEADDRESSAWARE $(wireshark_gtk_LIBS) $(GTK_LIBS) capchild\libcapchild.lib caputils\libcaputils.lib codecs\codecs.lib ui\gtk\libgtkui.lib ui\win32\libgtkui_win32.lib ui\libui.lib $(wireshark_gtk_OBJECTS) image\wireshark.res image\file_dlg_win32.res
 <<
@@ -328,7 +328,7 @@ $(PROGRAM_NAME_GTK).exe	: $(LIBS_CHECK) config.h $(wireshark_gtk_OBJECTS) capchi
 $(PROGRAM_NAME).exe	: install-generated-files $(LIBS_CHECK) config.h capchild caputils epan ui qt wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib plugins
 
 tshark.exe	: $(LIBS_CHECK) config.h $(tshark_OBJECTS) capchild caputils epan ui cli image\tshark.res wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib plugins
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:tshark.exe $(conflags) $(conlibsdll) $(LDFLAGS) /LARGEADDRESSAWARE $(tshark_LIBS) $(tshark_OBJECTS) capchild\libcapchild.lib caputils\libcaputils.lib ui\cli\libcliui.lib ui\libui.lib image\tshark.res
 <<
@@ -337,7 +337,7 @@ tshark.exe	: $(LIBS_CHECK) config.h $(tshark_OBJECTS) capchild caputils epan ui 
 !ENDIF
 
 tfshark.exe	: $(LIBS_CHECK) config.h $(tfshark_OBJECTS) epan ui cli image\tfshark.res wsutil\libwsutil.lib plugins
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:tfshark.exe $(conflags) $(conlibsdll) $(LDFLAGS) /LARGEADDRESSAWARE $(tfshark_LIBS) $(tfshark_OBJECTS) ui\cli\libcliui.lib ui\libui.lib image\tfshark.res
 <<
@@ -346,7 +346,7 @@ tfshark.exe	: $(LIBS_CHECK) config.h $(tfshark_OBJECTS) epan ui cli image\tfshar
 !ENDIF
 
 rawshark.exe	: $(LIBS_CHECK) config.h $(rawshark_OBJECTS) caputils epan ui image\rawshark.res wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib plugins
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:rawshark.exe $(conflags) $(conlibsdll) $(LDFLAGS) /LARGEADDRESSAWARE $(rawshark_LIBS) $(rawshark_OBJECTS) caputils\libcaputils.lib ui\libui.lib image\rawshark.res
 <<
@@ -356,7 +356,7 @@ rawshark.exe	: $(LIBS_CHECK) config.h $(rawshark_OBJECTS) caputils epan ui image
 
 # Linking with setargv.obj enables "wildcard expansion" of command-line arguments
 capinfos.exe	: $(LIBS_CHECK) config.h $(capinfos_OBJECTS) wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib image\capinfos.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:capinfos.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(capinfos_OBJECTS) $(capinfos_LIBS) setargv.obj image\capinfos.res
 <<
@@ -366,7 +366,7 @@ capinfos.exe	: $(LIBS_CHECK) config.h $(capinfos_OBJECTS) wsutil\libwsutil.lib w
 
 # Linking with setargv.obj enables "wildcard expansion" of command-line arguments
 captype.exe	: $(LIBS_CHECK) config.h $(captype_OBJECTS) wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib image\captype.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:captype.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(captype_OBJECTS) $(captype_LIBS) setargv.obj image\captype.res
 <<
@@ -375,7 +375,7 @@ captype.exe	: $(LIBS_CHECK) config.h $(captype_OBJECTS) wsutil\libwsutil.lib wir
 !ENDIF
 
 editcap.exe	: $(LIBS_CHECK) config.h $(editcap_OBJECTS) wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib image\editcap.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:editcap.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(editcap_OBJECTS) $(editcap_LIBS) image\editcap.res
 <<
@@ -385,7 +385,7 @@ editcap.exe	: $(LIBS_CHECK) config.h $(editcap_OBJECTS) wsutil\libwsutil.lib wir
 
 # Linking with setargv.obj enables "wildcard expansion" of command-line arguments
 mergecap.exe	: $(LIBS_CHECK)  config.h $(mergecap_OBJECTS) wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib image\mergecap.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:mergecap.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(mergecap_OBJECTS) $(mergecap_LIBS) setargv.obj image\mergecap.res
 <<
@@ -395,7 +395,7 @@ mergecap.exe	: $(LIBS_CHECK)  config.h $(mergecap_OBJECTS) wsutil\libwsutil.lib 
 
 # Linking with setargv.obj enables "wildcard expansion" of command-line arguments
 reordercap.exe	: $(LIBS_CHECK)  config.h $(reordercap_OBJECTS) wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib image\reordercap.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:reordercap.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(reordercap_OBJECTS) $(reordercap_LIBS) setargv.obj image\reordercap.res
 <<
@@ -404,7 +404,7 @@ reordercap.exe	: $(LIBS_CHECK)  config.h $(reordercap_OBJECTS) wsutil\libwsutil.
 !ENDIF
 
 text2pcap.exe	: $(LIBS_CHECK) config.h text2pcap.obj text2pcap-scanner.obj pcapio.obj wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib image\text2pcap.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:text2pcap.exe $(conflags) $(conlibsdll) $(LDFLAGS) text2pcap.obj text2pcap-scanner.obj pcapio.obj $(text2pcap_LIBS) image\text2pcap.res
 <<
@@ -413,7 +413,7 @@ text2pcap.exe	: $(LIBS_CHECK) config.h text2pcap.obj text2pcap-scanner.obj pcapi
 !ENDIF
 
 dftest.exe	: $(dftest_OBJECTS) epan ui
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:dftest.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(dftest_LIBS) ui\libui.lib $(dftest_OBJECTS)
 <<
@@ -422,7 +422,7 @@ dftest.exe	: $(dftest_OBJECTS) epan ui
 !ENDIF
 
 randpkt.exe	: $(randpkt_OBJECTS)
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:randpkt.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(randpkt_LIBS) $(randpkt_OBJECTS)
 <<
@@ -431,7 +431,7 @@ randpkt.exe	: $(randpkt_OBJECTS)
 !ENDIF
 
 androiddump.exe	: $(LIBS_CHECK) config.h androiddump.obj wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:androiddump.exe $(conflags) $(conlibsdll) $(LDFLAGS) /SUBSYSTEM:WINDOWS androiddump.obj $(androiddump_LIBS)
 <<
@@ -440,7 +440,7 @@ androiddump.exe	: $(LIBS_CHECK) config.h androiddump.obj wsutil\libwsutil.lib wi
 !ENDIF
 
 dumpcap.exe	: $(LIBS_CHECK) config.h $(dumpcap_OBJECTS) caputils wsutil\libwsutil.lib image\dumpcap.res
-	@echo Linking $@
+	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:dumpcap.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(dumpcap_LIBS) $(dumpcap_OBJECTS) image\dumpcap.res
 <<
@@ -493,7 +493,7 @@ config.h	: config.h.win32 config.nmake
 	    < config.h.win32 > $@
 
 ui\qt\config.pri: config.nmake Makefile.nmake
-	@echo Creating <<ui\qt\config.pri
+	@$(ECHO) Creating <<ui\qt\config.pri
 # Automatically generated from Makefile.nmake. Edit there, not here.
 # qmake apparently requires a three-part numeric VERSION.
 PROGRAM_NAME = $(PROGRAM_NAME)
@@ -967,7 +967,7 @@ check_libs:
 #   is the time of the update (not the time of the file in the repository).
 # touch is only called if libverify succeeds.
 $(LIBS_CHECK):  $(CHECK_TAG) config.nmake Makefile.nmake
-	@echo  Verifying library package files ...
+	@$(ECHO)  Verifying library package files ...
 	@$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake WIN_SETUP_OPT=--libverify process_libs
 	@touch $@
 
@@ -975,9 +975,9 @@ $(LIBS_CHECK):  $(CHECK_TAG) config.nmake Makefile.nmake
 # Defined only if "checktag" failed (see beginning of this Makefile).
 !IF "$(CHECK_TAG)" != ""
 $(CHECK_TAG): _FORCE_
-	@echo \? Wireshark Libraries not up-to-date \?
-	@echo \? Do you need to run "nmake -f Makefile.nmake setup" \?
-	@echo.
+	@$(ECHO) \? Wireshark Libraries not up-to-date \?
+	@$(ECHO) \? Do you need to run "nmake -f Makefile.nmake setup" \?
+	@$(ECHO).
 	@exit 1
 
 !ENDIF
@@ -1115,8 +1115,8 @@ process_libs:
 !IF "$(WIN_SETUP_OPT)" == "--download"
 	@$(SH) $(WIN_SETUP) --settag "$(WIRESHARK_LIB_DIR)" "$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
 !ENDIF
-	@echo.
-	@echo Wireshark is ready to build.
+	@$(ECHO).
+	@$(ECHO) Wireshark is ready to build.
 
 # Cleanup files installed by the setup target. It will not remove the
 # downloaded zip files.
