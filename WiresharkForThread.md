@@ -20,9 +20,9 @@ The main difference is that in Section 2.2.8, **do not use the specified reposit
 
     git clone https://github.com/TheThreadGroup/thread-wireshark.git wireshark
 
-This will include the patches required for Thread already incorporated into the source files.
+This will clone the repository from the Thread Group site into a directory called `wireshark`. This includes all the patches required for Thread already incorporated into the source files.
 
-Also, the environment variable setup has been put into a file called `vs2013.cfg`. You will need to alter this to change where your `WIRESHARK_BASE_DIR` is.
+Also, the environment variable setup has been put into a file called `vs2013cfg.bat`. You will need to alter this to change where your `WIRESHARK_BASE_DIR` is.
 
 ### Command prompt for building ###
 
@@ -30,7 +30,9 @@ There are some convenient shortcuts set up here:
 
     C:\Program Files (x86)\Microsoft Visual Studio 12.0\Common7\Tools\Shortcuts
 
-The "Developer Command Prompt for VS2013" shortcut can be used or copied and will set up the appropriate environment variables for executing the VS2013 tools.
+The "Developer Command Prompt for VS2013" shortcut can be used or copied and will set up the appropriate environment variables for executing the VS2013 tools. It is probably best to copy the shortcut, rename it and modify the properties so it starts up in your Wireshark directory:
+
+![VS2013 properties](WiresharkForThreadVS2013Props.png)
 
 ### Checking installed tools ###
 
@@ -59,6 +61,7 @@ sed: /usr/bin/sed
 unzip: /usr/bin/unzip
 wget: /usr/bin/wget
 ```
+
 Note especially where `link` and `perl` are pointing to as this can cause some issues. Also ensure that `python` is pointing to the Windows native version, **not** the Cygwin version in `/usr/bin`. If this is not the case, you may need to play around with path ordering.
 
 ### Building Wireshark ###
@@ -164,6 +167,7 @@ Users will then typically issue a Github "pull request". This notifies everybody
 **This should only be undertaken by a single person who is coordinating changes to the Thread repository. Whilst others can do this, it may cause some synchronisation issues if not carefully managed.**
 
 Performing the following additional Git commands links a local repository not only with an "origin" Git repository but also an "upstream" Git repository from which the intermediate repository is based on.
+
     git remote add upstream https://code.wireshark.org/review/wireshark
     git fetch upstream
     git merge upstream/master
