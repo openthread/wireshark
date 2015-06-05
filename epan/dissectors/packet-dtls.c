@@ -1530,12 +1530,9 @@ dissect_dtls_hnd_hello_verify_request(tvbuff_t *tvb, proto_tree *tree,
 
   if (cookie_length > 0)
   {
-     proto_tree_add_bytes_format(tree, dtls_hfs.hf_dtls_handshake_cookie,
-                                    tvb, offset, cookie_length,
-                                    NULL, "Cookie (%u byte%s)",
-                                    cookie_length,
-                                    plurality(cookie_length, "", "s"));
-     offset += cookie_length;
+    proto_tree_add_item(tree, dtls_hfs.hf_dtls_handshake_cookie,
+                                tvb, offset, cookie_length, ENC_NA);
+    offset += cookie_length;
   }
 
   return offset;
