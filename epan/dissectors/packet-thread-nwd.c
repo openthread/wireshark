@@ -295,7 +295,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
-                    if ((tlv_len % 3) != 0)
+                    if ((tlv_len % 4) != 0)
                     {
                         expert_add_info(pinfo, proto_root, &ei_thread_nwd_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_unknown, tvb, offset, tlv_len, FALSE);
@@ -303,7 +303,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     } else {
                         proto_tree *border_router_tree;
                         guint i;
-                        guint count = tlv_len / 3;
+                        guint count = tlv_len / 4;
 
                         /* Add subtrees */
                         for (i = 0; i < count; i++) {
@@ -318,7 +318,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_d, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_c, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_r, tvb, offset, 1, FALSE);
-                            offset++;
+                            offset += 2; /* Extra reserved byte */
                         }
                     }
                 }
