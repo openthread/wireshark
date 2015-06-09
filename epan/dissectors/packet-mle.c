@@ -9,6 +9,7 @@
  * By Owen Kirby <osk@exegin.com>
  * Copyright 2007 Exegin Technologies Limited
  *
+ * Thread parts added by Robert Cragie <robert.cragie@arm.com>
  *
  *
  * $Id: packet-mle.c $
@@ -376,7 +377,7 @@ static unsigned int mle_key_index[NUM_KEYS] = {1, 2};
 #endif /* INDEPENDENT_MLE_KEYS */
 static const char  *mle_user = "User";
 
-static gboolean mle_set_mle_key(unsigned int key_index, unsigned char *key)
+static gboolean mle_set_mle_key(ieee802154_packet *packet, unsigned char *key)
 {
 #ifdef INDEPENDENT_MLE_KEYS
     int i;
@@ -390,7 +391,7 @@ static gboolean mle_set_mle_key(unsigned int key_index, unsigned char *key)
     for (i = 0; i < NUM_KEYS; i++)
     {
         if ((mle_key_valid[i]) &&
-            (key_index == mle_key_index[i]))
+            (packet->key_index == mle_key_index[i]))
         {
             memcpy(key, mle_key[i], IEEE802154_CIPHER_SIZE);
             break;
@@ -401,7 +402,7 @@ static gboolean mle_set_mle_key(unsigned int key_index, unsigned char *key)
     }
     return TRUE;
 #else
-    return ieee802154_set_mle_key(key_index, key);
+    return ieee802154_set_mle_key(packet, key);
 #endif
 }
 
@@ -501,7 +502,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         void *text;
         
         /* Lookup the key */
-        if (!mle_set_mle_key(packet->key_index, key)) {
+        if (!mle_set_mle_key(packet, key)) {
             *status = DECRYPT_PACKET_NO_KEY;
             return NULL;
         }
@@ -532,7 +533,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         /* Decrypt the MIC (if present). */
         if (have_mic) {
             /* Lookup the key */
-            if (!mle_set_mle_key(packet->key_index, key)) {
+            if (!mle_set_mle_key(packet, key)) {
                 *status = DECRYPT_PACKET_NO_KEY;
                 return NULL;
             }

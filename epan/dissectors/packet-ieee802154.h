@@ -174,6 +174,11 @@ typedef enum {
 /* Macro to check for payload encryption. */
 #define IEEE802154_IS_ENCRYPTED(_level_) ((_level_) & 0x4)
 
+typedef union {
+    guint32 addr32;
+    guint64 addr64;
+} ieee802154_key_source;
+
 /*  Structure containing information regarding all necessary packet fields. */
 typedef struct {
     /* Frame control field. */
@@ -202,11 +207,8 @@ typedef struct {
     guint32     frame_counter;
     guint8      key_sequence_counter;    /* Only for 802.15.4-2003 security suite with encryption */
 
-    union {
-        guint32 addr32;
-        guint64 addr64;
-    } key_source;
-    guint8      key_index;
+    ieee802154_key_source key_source;
+    guint8                key_index;
 
     /* Command ID (only if frame_type == 0x3) */
     guint8      command_id;
@@ -262,6 +264,6 @@ extern gboolean ieee802154_long_addr_invalidate(guint64, guint);
 
 extern ieee802154_map_tab_t ieee802154_map;
 
-extern gboolean ieee802154_set_mle_key(unsigned int key_index, unsigned char *key);
+extern gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key);
 
 #endif /* PACKET_IEEE802154_H */
