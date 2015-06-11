@@ -78,7 +78,7 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
-    void setPipeInputHandler(gint source, gpointer user_data, int *child_process, pipe_input_cb_t input_cb);
+    void setPipeInputHandler(gint source, gpointer user_data, ws_process_id *child_process, pipe_input_cb_t input_cb);
 
     QString getFilter();
 #ifdef HAVE_LIBPCAP
@@ -140,7 +140,7 @@ private:
     // Pipe input
     gint                pipe_source_;
     gpointer            pipe_user_data_;
-    int                 *pipe_child_process_;
+    ws_process_id      *pipe_child_process_;
     pipe_input_cb_t     pipe_input_cb_;
 #ifdef _WIN32
     QTimer *pipe_timer_;
@@ -152,8 +152,8 @@ private:
 
     void mergeCaptureFile();
     void importCaptureFile();
-    void saveCaptureFile(capture_file *cf, bool stay_closed);
-    void saveAsCaptureFile(capture_file *cf, bool must_support_comments, bool stay_closed);
+    void saveCaptureFile(capture_file *cf, bool dont_reopen);
+    void saveAsCaptureFile(capture_file *cf, bool must_support_comments = false, bool dont_reopen = false);
     void exportSelectedPackets();
     void exportDissections(export_type_e export_type);
 
@@ -181,6 +181,7 @@ private:
     QMenu* findOrAddMenu(QMenu *parent_menu, QString& menu_text);
 
     void recursiveCopyProtoTreeItems(QTreeWidgetItem *item, QString &clip, int ident_level);
+    void captureFileReadStarted(const QString &action);
 
 signals:
     void showProgress(struct progdlg **dlg_p, bool animate, const QString message, bool terminate_is_stop, bool *stop_flag, float pct);
@@ -209,10 +210,13 @@ public slots:
     void captureCaptureFailed(capture_session *);
 
     void captureFileOpened();
-    void captureFileReadStarted();
+    void captureFileReadStarted() { captureFileReadStarted(tr("Loading")); }
     void captureFileReadFinished();
+    void captureFileReloadStarted() { captureFileReadStarted(tr("Reloading")); }
+    void captureFileRescanStarted() { captureFileReadStarted(tr("Rescanning")); }
     void captureFileClosing();
     void captureFileClosed();
+    void captureFileSaveStarted(const QString &file_path);
 
     void filterExpressionsChanged();
 
@@ -245,6 +249,7 @@ private slots:
 
     void setFeaturesEnabled(bool enabled = true);
 
+    void on_actionDisplayFilterExpression_triggered();
     void addDisplayFilterButton(QString df_text);
     void displayFilterButtonClicked();
 
@@ -355,7 +360,9 @@ private slots:
     void on_actionCaptureOptions_triggered();
     void on_actionCaptureRefreshInterfaces_triggered();
 #endif
+    void on_actionCaptureCaptureFilters_triggered();
 
+    void on_actionAnalyzeDisplayFilters_triggered();
     void matchFieldFilter(FilterAction::Action action, FilterAction::ActionType filter_type);
     void on_actionAnalyzeCreateAColumn_triggered();
     void on_actionAnalyzeAAFSelected_triggered();
@@ -370,6 +377,8 @@ private slots:
     void on_actionAnalyzePAFOrSelected_triggered();
     void on_actionAnalyzePAFAndNotSelected_triggered();
     void on_actionAnalyzePAFOrNotSelected_triggered();
+
+    void applyConversationFilter();
 
     void on_actionAnalyzeDecodeAs_triggered();
 

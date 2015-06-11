@@ -413,10 +413,11 @@ ssl_parse_old_keys(void)
     if (ssldecrypt_uat && ssl_keys_list && ssl_keys_list[0]) {
         old_keys = wmem_strsplit(NULL, ssl_keys_list, ";", 0);
         for (i = 0; old_keys[i] != NULL; i++) {
-            parts = wmem_strsplit(NULL, old_keys[i], ",", 4);
+            parts = wmem_strsplit(NULL, old_keys[i], ",", 5);
             if (parts[0] && parts[1] && parts[2] && parts[3]) {
-                uat_entry = wmem_strdup_printf(NULL, "\"%s\",\"%s\",\"%s\",\"%s\",\"\"",
-                                parts[0], parts[1], parts[2], parts[3]);
+                const gchar *password = parts[4] ? parts[4] : "";
+                uat_entry = wmem_strdup_printf(NULL, "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"",
+                                parts[0], parts[1], parts[2], parts[3], password);
                 if (!uat_load_str(ssldecrypt_uat, uat_entry, &err)) {
                     ssl_debug_printf("ssl_parse_old_keys: Can't load UAT string %s: %s\n",
                                      uat_entry, err);
@@ -2003,7 +2004,7 @@ dissect_ssl3_handshake(tvbuff_t *tvb, packet_info *pinfo,
                 break;
 
             case SSL_HND_SERVER_HELLO:
-                ssl_dissect_hnd_srv_hello(&dissect_ssl3_hf, tvb, ssl_hand_tree,
+                ssl_dissect_hnd_srv_hello(&dissect_ssl3_hf, tvb, pinfo, ssl_hand_tree,
                                           offset, length, session, ssl);
                 break;
 
@@ -4156,8 +4157,8 @@ proto_register_ssl(void)
             ssldecrypt_uat);
 
         prefs_register_filename_preference(ssl_module, "debug_file", "SSL debug file",
-            "Redirect SSL debug to file name; leave empty to disable debugging, "
-            "or use \"" SSL_DEBUG_USE_STDERR "\" to redirect output to stderr\n",
+            "Redirect SSL debug to the file specified. Leave empty to disable debugging "
+            "or use \"" SSL_DEBUG_USE_STDERR "\" to redirect output to stderr.",
             &ssl_debug_file_name);
 
         prefs_register_string_preference(ssl_module, "keys_list", "RSA keys list (deprecated)",

@@ -48,6 +48,7 @@
 #include <wsutil/str_util.h>
 
 #include "epan/addr_resolv.h"
+#include "epan/color_dissector_filters.h"
 #include "epan/column.h"
 #include "epan/epan_dissect.h"
 #include "epan/filter_expressions.h"
@@ -80,6 +81,7 @@
 #include "conversation_dialog.h"
 #include "decode_as_dialog.h"
 #include "display_filter_edit.h"
+#include "display_filter_expression_dialog.h"
 #include "endpoint_dialog.h"
 #include "expert_info_dialog.h"
 #include "export_object_dialog.h"
@@ -87,6 +89,7 @@
 #if HAVE_EXTCAP
 #include "extcap_options_dialog.h"
 #endif
+#include "filter_dialog.h"
 #include "io_graph_dialog.h"
 #include "lbm_stream_dialog.h"
 #include "lbm_uimflow_dialog.h"
@@ -110,8 +113,10 @@
 #include "time_shift_dialog.h"
 #include "voip_calls_dialog.h"
 #include "wireshark_application.h"
+#include "filter_action.h"
 
 #include <QClipboard>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QToolBar>
@@ -626,14 +631,14 @@ void MainWindow::captureFileOpened() {
     emit setCaptureFile(capture_file_.capFile());
 }
 
-void MainWindow::captureFileReadStarted() {
+void MainWindow::captureFileReadStarted(const QString &action) {
 //    tap_param_dlg_update();
 
     /* Set up main window for a capture file. */
 //    main_set_for_capture_file(TRUE);
 
     main_ui_->statusBar->popFileStatus();
-    QString msg = QString(tr("Loading: %1")).arg(get_basename(capture_file_.capFile()->filename));
+    QString msg = QString(tr("%1: %2")).arg(action).arg(capture_file_.fileName());
     QString msgtip = QString();
     main_ui_->statusBar->pushFileStatus(msg, msgtip);
     main_ui_->mainStack->setCurrentWidget(&master_split_);
@@ -659,12 +664,7 @@ void MainWindow::captureFileReadFinished() {
     /* Enable menu items that make sense if you have some captured packets. */
     setForCapturedPackets(true);
 
-    main_ui_->statusBar->popFileStatus();
-    QString msg = QString().sprintf("%s", get_basename(capture_file_.capFile()->filename));
-    QString msgtip = QString("%1 (%2)")
-            .arg(capture_file_.capFile()->filename)
-            .arg(file_size_to_qstring(capture_file_.capFile()->f_datalen));
-    main_ui_->statusBar->pushFileStatus(msg, msgtip);
+    main_ui_->statusBar->setFileName(capture_file_);
 
     emit setDissectedCaptureFile(capture_file_.capFile());
 }
@@ -698,17 +698,25 @@ void MainWindow::captureFileClosed() {
     setMenusForSelectedTreeRow();
 }
 
+void MainWindow::captureFileSaveStarted(const QString &file_path)
+{
+    QFileInfo file_info(file_path);
+    main_ui_->statusBar->popFileStatus();
+    main_ui_->statusBar->pushFileStatus(tr("Saving %1...").arg(file_info.baseName()));
+}
+
 void MainWindow::filterExpressionsChanged()
 {
     // Recreate filter buttons
     foreach (QAction *act, main_ui_->displayFilterToolBar->actions()) {
         // Permanent actions shouldn't have data
-        if (act->property(dfe_property_).isValid()) {
+        if (act->property(dfe_property_).isValid() || act->isSeparator()) {
             main_ui_->displayFilterToolBar->removeAction(act);
             delete act;
         }
     }
 
+    bool first = true;
     for (struct filter_expression *fe = *pfilter_expression_head; fe != NULL; fe = fe->next) {
         if (!fe->enabled) continue;
         QAction *dfb_action = new QAction(fe->label, main_ui_->displayFilterToolBar);
@@ -717,6 +725,10 @@ void MainWindow::filterExpressionsChanged()
         dfb_action->setProperty(dfe_property_, true);
         main_ui_->displayFilterToolBar->addAction(dfb_action);
         connect(dfb_action, SIGNAL(triggered()), this, SLOT(displayFilterButtonClicked()));
+        if (first) {
+            first = false;
+            main_ui_->displayFilterToolBar->insertSeparator(dfb_action);
+        }
     }
 }
 
@@ -878,13 +890,7 @@ void MainWindow::stopCapture() {
 #endif // HAVE_LIBPCAP
 
     /* Pop the "<live capture in progress>" message off the status bar. */
-    main_ui_->statusBar->popFileStatus();
-    QString msg = QString().sprintf("%s", get_basename(capture_file_.capFile()->filename));
-    QString msgtip = QString("%1 (%2)")
-            .arg(capture_file_.capFile()->filename)
-            .arg(file_size_to_qstring(capture_file_.capFile()->f_datalen));
-    main_ui_->statusBar->pushFileStatus(msg, msgtip);
-
+    main_ui_->statusBar->setFileName(capture_file_);
 
     /* disable autoscroll timer if any. */
     packet_list_->setAutoScroll(false);
@@ -955,16 +961,8 @@ void MainWindow::recentActionTriggered() {
 
 void MainWindow::setMenusForSelectedPacket()
 {
-//    GList      *list_entry = dissector_filter_list;
-//    guint       i          = 0;
-//    gboolean    properties = FALSE;
-//    const char *abbrev     = NULL;
-//    char       *prev_abbrev;
-#if 0
-    gboolean is_ip = FALSE, is_tcp = FALSE, is_udp = FALSE, is_sctp = FALSE;
-#else
+//    gboolean is_ip = FALSE, is_tcp = FALSE, is_udp = FALSE, is_sctp = FALSE, is_ssl = FALSE;
     gboolean is_tcp = FALSE, is_sctp = FALSE;
-#endif
 
 //    /* Making the menu context-sensitive allows for easier selection of the
 //       desired item and has the added benefit, with large captures, of
@@ -1092,16 +1090,23 @@ void MainWindow::setMenusForSelectedPacket()
 //                         frame_selected ? is_ssl : FALSE);
 //    set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/FollowSSLStream",
 //                         frame_selected ? is_ssl : FALSE);
-//    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ConversationFilter",
-//                         frame_selected);
-//    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ConversationFilter/Ethernet",
-//                         frame_selected ? (cf->edt->pi.dl_src.type == AT_ETHER) : FALSE);
-//    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ConversationFilter/IP",
-//                         frame_selected ? is_ip : FALSE);
-//    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ConversationFilter/TCP",
-//                         frame_selected ? is_tcp : FALSE);
-//    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ConversationFilter/UDP",
-//                         frame_selected ? is_udp : FALSE);
+
+    main_ui_->menuConversationFilter->clear();
+    for (GList *color_list_entry = color_conv_filter_list; color_list_entry; color_list_entry = g_list_next(color_list_entry)) {
+        color_conversation_filter_t* color_filter = (color_conversation_filter_t *)color_list_entry->data;
+        QAction *conv_action = main_ui_->menuConversationFilter->addAction(color_filter->display_name);
+
+        bool enable = false;
+        QString filter;
+        if (capture_file_.capFile()->edt) {
+            enable = color_filter->is_filter_valid(&capture_file_.capFile()->edt->pi);
+            filter = color_filter->build_filter_string(&capture_file_.capFile()->edt->pi);
+        }
+        conv_action->setEnabled(enable);
+        conv_action->setData(filter);
+        connect(conv_action, SIGNAL(triggered()), this, SLOT(applyConversationFilter()));
+    }
+
 //    set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/FollowUDPStream",
 //                         frame_selected ? is_udp : FALSE);
 //    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ConversationFilter/PN-CBA",
@@ -1175,9 +1180,6 @@ void MainWindow::setMenusForSelectedPacket()
 }
 
 void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
-    //gboolean properties;
-    //gint id;
-
     // XXX Add commented items below
 
     if (capture_file_.capFile()) {
@@ -1258,7 +1260,24 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
         main_ui_->actionAnalyzePAFAndNotSelected->setEnabled(can_match_selected);
         main_ui_->actionAnalyzePAFOrNotSelected->setEnabled(can_match_selected);
 
+        main_ui_->menuConversationFilter->clear();
+        for (GList *color_list_entry = color_conv_filter_list; color_list_entry; color_list_entry = g_list_next(color_list_entry)) {
+            color_conversation_filter_t* color_filter = (color_conversation_filter_t *)color_list_entry->data;
+            QAction *conv_action = main_ui_->menuConversationFilter->addAction(color_filter->display_name);
+
+            bool enable = false;
+            QString filter;
+            if (capture_file_.capFile()->edt) {
+                enable = color_filter->is_filter_valid(&capture_file_.capFile()->edt->pi);
+                filter = color_filter->build_filter_string(&capture_file_.capFile()->edt->pi);
+            }
+            conv_action->setEnabled(enable);
+            conv_action->setData(filter);
+            connect(conv_action, SIGNAL(triggered()), this, SLOT(applyConversationFilter()));
+        }
+
         main_ui_->actionViewExpandSubtrees->setEnabled(capture_file_.capFile()->finfo_selected->tree_type != -1);
+
 //        prev_abbrev = g_object_get_data(G_OBJECT(ui_manager_tree_view_menu), "menu_abbrev");
 //        if (!prev_abbrev || (strcmp (prev_abbrev, abbrev) != 0)) {
 //            /* No previous protocol or protocol changed - update Protocol Preferences menu */
@@ -1441,6 +1460,18 @@ void MainWindow::setFeaturesEnabled(bool enabled)
     }
 }
 
+// Display Filter Toolbar
+
+void MainWindow::on_actionDisplayFilterExpression_triggered()
+{
+    DisplayFilterExpressionDialog *dfe_dialog = new DisplayFilterExpressionDialog(this);
+
+    connect(dfe_dialog, SIGNAL(insertDisplayFilter(QString)),
+            df_combo_box_->lineEdit(), SLOT(insertFilter(const QString &)));
+
+    dfe_dialog->show();
+}
+
 // On Qt4 + OS X with unifiedTitleAndToolBarOnMac set it's possible to make
 // the main window obnoxiously wide.
 
@@ -1517,7 +1548,7 @@ void MainWindow::on_actionFileSave_triggered()
 
 void MainWindow::on_actionFileSaveAs_triggered()
 {
-    saveAsCaptureFile(capture_file_.capFile(), FALSE, TRUE);
+    saveAsCaptureFile(capture_file_.capFile());
 }
 
 void MainWindow::on_actionFileSetListFiles_triggered()
@@ -2202,6 +2233,17 @@ void MainWindow::matchFieldFilter(FilterAction::Action action, FilterAction::Act
     filterAction(field_filter, action, filter_type);
 }
 
+static FilterDialog *display_filter_dlg_ = NULL;
+void MainWindow::on_actionAnalyzeDisplayFilters_triggered()
+{
+    if (!display_filter_dlg_) {
+        display_filter_dlg_ = new FilterDialog(this, FilterDialog::DisplayFilter);
+    }
+    display_filter_dlg_->show();
+    display_filter_dlg_->raise();
+    display_filter_dlg_->activateWindow();
+}
+
 void MainWindow::on_actionAnalyzeCreateAColumn_triggered()
 {
     gint colnr = 0;
@@ -2216,6 +2258,18 @@ void MainWindow::on_actionAnalyzeCreateAColumn_triggered()
 
         prefs_main_write();
     }
+}
+
+void MainWindow::applyConversationFilter()
+{
+    QAction *cfa = qobject_cast<QAction*>(sender());
+    if (!cfa) return;
+
+    QString new_filter = cfa->data().toString();
+    if (new_filter.isEmpty()) return;
+
+    df_combo_box_->lineEdit()->setText(new_filter);
+    df_combo_box_->applyDisplayFilter();
 }
 
 // XXX We could probably create the analyze and prepare actions
@@ -2850,6 +2904,7 @@ void MainWindow::on_actionGoGoToPacket_triggered() {
         main_ui_->goToFrame->animatedHide();
     } else {
         main_ui_->goToFrame->animatedShow();
+        main_ui_->goToLineEdit->clear();
     }
     main_ui_->goToLineEdit->setFocus();
 }
@@ -2942,6 +2997,17 @@ void MainWindow::on_actionCaptureRestart_triggered()
     startCapture();
 }
 
+static FilterDialog *capture_filter_dlg_ = NULL;
+void MainWindow::on_actionCaptureCaptureFilters_triggered()
+{
+    if (!capture_filter_dlg_) {
+        capture_filter_dlg_ = new FilterDialog(this, FilterDialog::CaptureFilter);
+    }
+    capture_filter_dlg_->show();
+    capture_filter_dlg_->raise();
+    capture_filter_dlg_->activateWindow();
+}
+
 void MainWindow::on_actionStatisticsCaptureFileProperties_triggered()
 {
     CaptureFilePropertiesDialog *capture_file_properties_dialog = new CaptureFilePropertiesDialog(*this, capture_file_);
@@ -3012,7 +3078,6 @@ void MainWindow::externalMenuItem_triggered()
 }
 
 #ifdef HAVE_EXTCAP
-#include <QDebug>
 void MainWindow::extcap_options_finished(int result)
 {
     if ( result == QDialog::Accepted )

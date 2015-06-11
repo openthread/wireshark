@@ -54,7 +54,7 @@ sync_pipe_stop(capture_session *cap_session);
 
 /** User wants to stop the program, just kill the child as soon as possible */
 extern void
-sync_pipe_kill(int fork_child);
+sync_pipe_kill(ws_process_id fork_child);
 
 /** Set wireless channel using dumpcap */
 extern int
@@ -75,11 +75,11 @@ sync_if_capabilities_open(const gchar *ifname, gboolean monitor_mode,
 
 /** Start getting interface statistics using dumpcap. */
 extern int
-sync_interface_stats_open(int *read_fd, int *fork_child, gchar **msg, void (*update_cb)(void));
+sync_interface_stats_open(int *read_fd, ws_process_id *fork_child, gchar **msg, void (*update_cb)(void));
 
 /** Stop gathering statistics. */
 extern int
-sync_interface_stats_close(int *read_fd, int *fork_child, gchar **msg);
+sync_interface_stats_close(int *read_fd, ws_process_id *fork_child, gchar **msg);
 
 /** Read a line from a pipe, similar to fgets.  Non-blocking. */
 extern int
@@ -133,6 +133,6 @@ extern void
 capture_input_closed(capture_session *cap_session, gchar *msg);
 
 /* set a callback to be called after fork with the pid of the forked child */
-extern void capture_sync_set_fetch_dumpcap_pid_cb(void(*cb)(int pid));
+extern void capture_sync_set_fetch_dumpcap_pid_cb(void(*cb)(ws_process_id pid));
 
 #endif /* capture_sync.h */

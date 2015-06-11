@@ -59,7 +59,13 @@ public:
      * @return One of: the basename of the capture file without an extension,
      *  the basename followed by "[closing]", "[closed]", or "[no capture file]".
      */
-    const QString fileTitle() { return file_title_ + file_state_; }
+    const QString fileTitle() { return fileName() + file_state_; }
+
+    /** Return the plain filename.
+     *
+     * @return The basename of the capture file without an extension.
+     */
+    const QString fileName();
 
     /** Retap the capture file
      */
@@ -79,8 +85,16 @@ signals:
     void captureFileOpened() const;
     void captureFileReadStarted() const;
     void captureFileReadFinished() const;
+    void captureFileReloadStarted() const;
+    void captureFileReloadFinished() const;
+    void captureFileRescanStarted() const;
+    void captureFileRescanFinished() const;
     void captureFileClosing() const;
     void captureFileClosed() const;
+    void captureFileSaveStarted(const QString &file_path) const;
+    void captureFileSaveFinished() const;
+    void captureFileSaveFailed() const;
+    void captureFileSaveStopped() const;
 
     void captureCapturePrepared(capture_session *cap_session);
     void captureCaptureUpdateStarted(capture_session *cap_session);
@@ -104,11 +118,12 @@ private:
 
     void captureFileEvent(int event, gpointer data);
     void captureEvent(int event, capture_session *cap_session);
+    const QString &getFileBasename();
 
     static QString no_capture_file_;
 
     capture_file *cap_file_;
-    QString file_title_;
+    QString file_name_;
     QString file_state_;
 };
 

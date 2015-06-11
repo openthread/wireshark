@@ -335,6 +335,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-adb_service.c
 	dissectors/packet-adwin-config.c
 	dissectors/packet-adwin.c
+	dissectors/packet-aeron.c
 	dissectors/packet-afp.c
 	dissectors/packet-afs.c
 	dissectors/packet-agentx.c
@@ -1125,6 +1126,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-pingpongprotocol.c
 	dissectors/packet-pktc.c
 	dissectors/packet-pktgen.c
+	dissectors/packet-pmproxy.c
 	dissectors/packet-pnrp.c
 	dissectors/packet-pop.c
 	dissectors/packet-portmap.c
@@ -1735,7 +1737,7 @@ add_library(epan ${LINK_MODE_LIB}
 	${CMAKE_BINARY_DIR}/image/libwireshark.rc
 )
 
-set(FULL_SO_VERSION "0.0.6")
+set(FULL_SO_VERSION "0.0.7")
 
 set_target_properties(epan PROPERTIES COMPILE_DEFINITIONS "WS_BUILD_DLL")
 set_target_properties(epan PROPERTIES LINK_FLAGS "${WS_LINK_FLAGS}")

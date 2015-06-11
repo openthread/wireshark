@@ -215,11 +215,13 @@ FORMS += \
     column_editor_frame.ui \
     compiled_filter_output.ui \
     decode_as_dialog.ui \
+    display_filter_expression_dialog.ui \
     expert_info_dialog.ui \
     export_object_dialog.ui \
     export_pdu_dialog.ui \
     extcap_options_dialog.ui \
     file_set_dialog.ui \
+    filter_dialog.ui \
     filter_expressions_preferences_frame.ui \
     follow_stream_dialog.ui \
     font_color_preferences_frame.ui \
@@ -255,7 +257,7 @@ FORMS += \
     search_frame.ui \
     sequence_dialog.ui \
     splash_overlay.ui \
-    stats_tree_dialog.ui \
+    tap_parameter_dialog.ui \
     tcp_stream_dialog.ui \
     time_shift_dialog.ui \
     traffic_table_dialog.ui \
@@ -276,6 +278,7 @@ HEADERS += $$HEADERS_WS_C \
     compiled_filter_output.h \
     conversation_dialog.h \
     decode_as_dialog.h \
+    display_filter_expression_dialog.h \
     elided_label.h \
     endpoint_dialog.h \
     expert_info_dialog.h \
@@ -318,6 +321,7 @@ HEADERS += $$HEADERS_WS_C \
     splash_overlay.h \
     stats_tree_dialog.h \
     tango_colors.h \
+    tap_parameter_dialog.h \
     tcp_stream_dialog.h \
     traffic_table_dialog.h \
     uat_dialog.h \
@@ -576,6 +580,7 @@ HEADERS += \
     display_filter_combo.h \
     display_filter_edit.h \
     file_set_dialog.h \
+    filter_dialog.h \
     import_text_dialog.h \
     interface_tree.h \
     io_graph_dialog.h \
@@ -628,6 +633,7 @@ SOURCES += \
     decode_as_dialog.cpp \
     display_filter_combo.cpp \
     display_filter_edit.cpp \
+    display_filter_expression_dialog.cpp \
     elided_label.cpp \
     endpoint_dialog.cpp \
     expert_info_dialog.cpp \
@@ -639,6 +645,7 @@ SOURCES += \
     extcap_options_dialog.cpp \
     file_set_dialog.cpp \
     filter_action.cpp \
+    filter_dialog.cpp \
     filter_expressions_preferences_frame.cpp \
     follow_stream_dialog.cpp \
     follow_stream_text.cpp \
@@ -694,6 +701,7 @@ SOURCES += \
     stats_tree_dialog.cpp \
     stock_icon.cpp \
     syntax_line_edit.cpp \
+    tap_parameter_dialog.cpp \
     tcp_stream_dialog.cpp \
     time_shift_dialog.cpp \
     traffic_table_dialog.cpp \

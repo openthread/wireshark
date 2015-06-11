@@ -26,6 +26,7 @@
 #include "qt_ui_utils.h"
 
 #include <epan/addr_resolv.h>
+#include <epan/range.h>
 #include <epan/to_str.h>
 #include <epan/value_string.h>
 
@@ -55,6 +56,13 @@ QString gchar_free_to_qstring(gchar *glib_string) {
     QString qt_string(glib_string);
     g_free(glib_string);
     return qt_string;
+}
+
+QByteArray gstring_free_to_qbytearray(GString *glib_gstring)
+{
+    QByteArray qt_ba(glib_gstring->str);
+    g_string_free(glib_gstring, TRUE);
+    return qt_ba;
 }
 
 const QString address_to_qstring(const _address *address)
@@ -97,6 +105,17 @@ const QString val_ext_to_qstring(const guint32 val, value_string_ext *vse, const
     wmem_free(NULL, gchar_p);
 
     return val_qstr;
+}
+
+const QString range_to_qstring(const epan_range *range)
+{
+    QString range_qstr = QString();
+    if (range) {
+        const gchar *range_gchar_p = range_convert_range(NULL, range);
+        range_qstr = range_gchar_p;
+        wmem_free(NULL, (void *) range_gchar_p);
+    }
+    return range_qstr;
 }
 
 const QString bits_s_to_qstring(const double bits_s)

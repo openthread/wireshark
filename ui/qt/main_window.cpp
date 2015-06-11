@@ -77,7 +77,7 @@
 // If we ever add support for multiple windows this will need to be replaced.
 static MainWindow *gbl_cur_main_window_ = NULL;
 
-void pipe_input_set_handler(gint source, gpointer user_data, int *child_process, pipe_input_cb_t input_cb)
+void pipe_input_set_handler(gint source, gpointer user_data, ws_process_id *child_process, pipe_input_cb_t input_cb)
 {
     gbl_cur_main_window_->setPipeInputHandler(source, user_data, child_process, input_cb);
 }
@@ -230,7 +230,7 @@ MainWindow::MainWindow(QWidget *parent) :
     // unifiedTitleAndToolBarOnMac is enabled everything ends up in the same row.
     // https://bugreports.qt-project.org/browse/QTBUG-22433
     // This property is obsolete in Qt5 so this issue may be fixed in that version.
-    main_ui_->displayFilterToolBar->addWidget(df_combo_box_);
+    main_ui_->displayFilterToolBar->insertWidget(main_ui_->actionDisplayFilterExpression, df_combo_box_);
 
     main_ui_->goToFrame->hide();
     // XXX For some reason the cursor is drawn funny with an input mask set
@@ -316,10 +316,27 @@ MainWindow::MainWindow(QWidget *parent) :
             this, SLOT(captureFileReadStarted()));
     connect(&capture_file_, SIGNAL(captureFileReadFinished()),
             this, SLOT(captureFileReadFinished()));
+    connect(&capture_file_, SIGNAL(captureFileReloadStarted()),
+            this, SLOT(captureFileReloadStarted()));
+    connect(&capture_file_, SIGNAL(captureFileReloadFinished()),
+            this, SLOT(captureFileReadFinished()));
+    connect(&capture_file_, SIGNAL(captureFileRescanStarted()),
+            this, SLOT(captureFileRescanStarted()));
+    connect(&capture_file_, SIGNAL(captureFileRescanFinished()),
+            this, SLOT(captureFileReadFinished()));
     connect(&capture_file_, SIGNAL(captureFileClosing()),
             this, SLOT(captureFileClosing()));
     connect(&capture_file_, SIGNAL(captureFileClosed()),
             this, SLOT(captureFileClosed()));
+
+    connect(&capture_file_, SIGNAL(captureFileSaveStarted(QString)),
+            this, SLOT(captureFileSaveStarted(QString)));
+    connect(&capture_file_, SIGNAL(captureFileSaveFinished()),
+            main_ui_->statusBar, SLOT(popFileStatus()));
+    connect(&capture_file_, SIGNAL(captureFileSaveFailed()),
+            main_ui_->statusBar, SLOT(popFileStatus()));
+    connect(&capture_file_, SIGNAL(captureFileSaveStopped()),
+            main_ui_->statusBar, SLOT(popFileStatus()));
 
     connect(&capture_file_, SIGNAL(setCaptureStopFlag(bool)),
             this, SLOT(setCaptureStopFlag(bool)));
@@ -455,7 +472,7 @@ QString MainWindow::getFilter()
     return df_combo_box_->itemText(df_combo_box_->count());
 }
 
-void MainWindow::setPipeInputHandler(gint source, gpointer user_data, int *child_process, pipe_input_cb_t input_cb)
+void MainWindow::setPipeInputHandler(gint source, gpointer user_data, ws_process_id *child_process, pipe_input_cb_t input_cb)
 {
     pipe_source_        = source;
     pipe_child_process_ = child_process;
@@ -832,7 +849,7 @@ void MainWindow::importCaptureFile() {
     openCaptureFile(import_dlg.capfileName());
 }
 
-void MainWindow::saveCaptureFile(capture_file *cf, bool stay_closed) {
+void MainWindow::saveCaptureFile(capture_file *cf, bool dont_reopen) {
     QString file_name;
     gboolean discard_comments;
 
@@ -844,7 +861,7 @@ void MainWindow::saveCaptureFile(capture_file *cf, bool stay_closed) {
            probably pcap-ng, which supports comments and, if it's
            not pcap-ng, let the user decide what they want to do
            if they've added comments. */
-        saveAsCaptureFile(cf, FALSE, stay_closed);
+        saveAsCaptureFile(cf, FALSE, dont_reopen);
     } else {
         if (cf->unsaved_changes) {
             cf_write_status_t status;
@@ -879,7 +896,7 @@ void MainWindow::saveCaptureFile(capture_file *cf, bool stay_closed) {
                    support comments, and the user said not to delete the
                    comments.  Do a "Save As" so the user can select
                    one of those formats and choose a file name. */
-                saveAsCaptureFile(cf, TRUE, stay_closed);
+                saveAsCaptureFile(cf, TRUE, dont_reopen);
                 return;
 
             case CANCELLED:
@@ -899,7 +916,7 @@ void MainWindow::saveCaptureFile(capture_file *cf, bool stay_closed) {
                so make a copy and free it later. */
             file_name = cf->filename;
             status = cf_save_records(cf, file_name.toUtf8().constData(), cf->cd_t, cf->iscompressed,
-                                     discard_comments, stay_closed);
+                                     discard_comments, dont_reopen);
             switch (status) {
 
             case CF_WRITE_OK:
@@ -929,7 +946,7 @@ void MainWindow::saveCaptureFile(capture_file *cf, bool stay_closed) {
     }
 }
 
-void MainWindow::saveAsCaptureFile(capture_file *cf, bool must_support_comments, bool stay_closed) {
+void MainWindow::saveAsCaptureFile(capture_file *cf, bool must_support_comments, bool dont_reopen) {
     QString file_name = "";
     int file_type;
     gboolean compressed;
@@ -1014,7 +1031,7 @@ void MainWindow::saveAsCaptureFile(capture_file *cf, bool must_support_comments,
 
         /* Attempt to save the file */
         status = cf_save_records(cf, file_name.toUtf8().constData(), file_type, compressed,
-                                 discard_comments, stay_closed);
+                                 discard_comments, dont_reopen);
         switch (status) {
 
         case CF_WRITE_OK:

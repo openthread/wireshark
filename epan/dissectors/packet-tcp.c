@@ -108,6 +108,7 @@ static int hf_tcp_flags_push = -1;
 static int hf_tcp_flags_reset = -1;
 static int hf_tcp_flags_syn = -1;
 static int hf_tcp_flags_fin = -1;
+static int hf_tcp_flags_str = -1;
 static int hf_tcp_window_size_value = -1;
 static int hf_tcp_window_size = -1;
 static int hf_tcp_window_size_scalefactor = -1;
@@ -4298,6 +4299,23 @@ tcp_flags_to_str(const struct tcpheader *tcph)
 
     return buf;
 }
+static const char *
+tcp_flags_to_str_first_letter(const struct tcpheader *tcph)
+{
+    char *buf;
+    unsigned i;
+    const unsigned flags_count = 12;
+
+    /* upper three bytes are marked as reserved ('R'). */
+    buf = wmem_strdup(wmem_packet_scope(), "RRRNCEUAPRSF");
+    for (i = 0; i < flags_count; i++) {
+        if (!((tcph->th_flags >> (flags_count - 1 - i)) & 1)) {
+            buf[i] = '*';
+        }
+    }
+
+    return buf;
+}
 
 static void
 dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
@@ -4310,7 +4328,7 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_item *options_item;
     proto_tree *options_tree;
     int        offset = 0;
-    const char *flags_str;
+    const char *flags_str, *flags_str_first_letter;
     guint      optlen;
     guint32    nxtseq = 0;
     guint      reported_len;
@@ -4523,6 +4541,7 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         tcph->th_have_seglen = FALSE;
 
     flags_str = tcp_flags_to_str(tcph);
+    flags_str_first_letter = tcp_flags_to_str_first_letter(tcph);
 
     col_append_lstr(pinfo->cinfo, COL_INFO,
         " [", flags_str, "]",
@@ -4609,6 +4628,8 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         tf_syn = proto_tree_add_boolean(field_tree, hf_tcp_flags_syn, tvb, offset + 13, 1, tcph->th_flags);
         tf_fin = proto_tree_add_boolean(field_tree, hf_tcp_flags_fin, tvb, offset + 13, 1, tcph->th_flags);
 
+        tf = proto_tree_add_string(field_tree, hf_tcp_flags_str, tvb, offset + 12, 2, flags_str_first_letter);
+        PROTO_ITEM_SET_GENERATED(tf);
         /* As discussed in bug 5541, it is better to use two separate
          * fields for the real and calculated window size.
          */
@@ -5089,18 +5110,20 @@ tcp_init(void)
 void
 proto_register_tcp(void)
 {
+    static value_string tcp_ports[65536+1];
+
     static hf_register_info hf[] = {
 
         { &hf_tcp_srcport,
-        { "Source Port",        "tcp.srcport", FT_UINT16, BASE_DEC, NULL, 0x0,
+        { "Source Port",        "tcp.srcport", FT_UINT16, BASE_DEC, VALS(tcp_ports), 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_dstport,
-        { "Destination Port",       "tcp.dstport", FT_UINT16, BASE_DEC, NULL, 0x0,
+        { "Destination Port",       "tcp.dstport", FT_UINT16, BASE_DEC, VALS(tcp_ports), 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_port,
-        { "Source or Destination Port", "tcp.port", FT_UINT16, BASE_DEC, NULL, 0x0,
+        { "Source or Destination Port", "tcp.port", FT_UINT16, BASE_DEC, VALS(tcp_ports), 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_stream,
@@ -5165,6 +5188,10 @@ proto_register_tcp(void)
 
         { &hf_tcp_flags_fin,
         { "Fin",            "tcp.flags.fin", FT_BOOLEAN, 12, TFS(&tfs_set_notset), TH_FIN,
+            NULL, HFILL }},
+
+        { &hf_tcp_flags_str,
+        { "TCP Flags",          "tcp.flags.str", FT_STRING, BASE_NONE, NULL, 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_window_size_value,
@@ -5936,6 +5963,28 @@ proto_register_tcp(void)
 
     module_t *tcp_module;
     expert_module_t* expert_tcp;
+
+    {
+        int i, j;
+        gboolean transport_name_old = gbl_resolv_flags.transport_name;
+
+        gbl_resolv_flags.transport_name = TRUE;
+        for (i = 0, j = 0; i <= 65535; i++) {
+            const char *serv = tcp_port_to_display(NULL, i);
+
+            if (serv) {
+                value_string *p = &tcp_ports[j++];
+
+                p->value = i;
+                p->strptr = serv;
+            }
+        }
+        /* NULL terminate */
+        tcp_ports[j].value = 0;
+        tcp_ports[j].strptr = NULL;
+
+        gbl_resolv_flags.transport_name = transport_name_old;
+    }
 
     proto_tcp = proto_register_protocol("Transmission Control Protocol", "TCP", "tcp");
     register_dissector("tcp", dissect_tcp, proto_tcp);

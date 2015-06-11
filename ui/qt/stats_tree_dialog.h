@@ -22,26 +22,19 @@
 #ifndef STATS_TREE_DIALOG_H
 #define STATS_TREE_DIALOG_H
 
-#include "config.h"
+#include "tap_parameter_dialog.h"
+
+#include <config.h>
 
 #include <glib.h>
 
-#include "cfile.h"
-
 #include "epan/stats_tree_priv.h"
-
-#include "wireshark_dialog.h"
-
-namespace Ui {
-class StatsTreeDialog;
-class StatsTreeWidgetItem;
-}
 
 struct _tree_cfg_pres {
     class StatsTreeDialog* st_dlg;
 };
 
-class StatsTreeDialog : public WiresharkDialog
+class StatsTreeDialog : public TapParameterDialog
 {
     Q_OBJECT
 
@@ -50,24 +43,15 @@ public:
     ~StatsTreeDialog();
     static void setupNode(stat_node* node);
 
-public slots:
-
 private:
-    Ui::StatsTreeDialog *ui;
-
     struct _tree_cfg_pres cfg_pr_;
     stats_tree *st_;
     stats_tree_cfg *st_cfg_;
 
-    void fillTree();
+    virtual void fillTree();
     static void resetTap(void *st_ptr);
     static void drawTreeItems(void *st_ptr);
-
-private slots:
-    void updateWidgets();
-    void on_applyFilterButton_clicked();
-    void on_actionCopyToClipboard_triggered();
-    void on_actionSaveAs_triggered();
+    virtual QByteArray getTreeAsString(st_format_type format);
 };
 
 #endif // STATS_TREE_DIALOG_H

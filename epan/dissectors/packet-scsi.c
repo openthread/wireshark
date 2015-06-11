@@ -173,7 +173,11 @@ static int hf_scsi_inq_rmb                      = -1;
 static int hf_scsi_inq_version                  = -1;
 static int hf_scsi_lun_address_mode             = -1;
 static int hf_scsi_lun                          = -1;
+static int hf_scsi_lun_extended                 = -1;
+static int hf_scsi_extended_add_method_len      = -1;
+static int hf_scsi_extended_add_method          = -1;
 static int hf_scsi_bus                          = -1;
+static int hf_scsi_target                       = -1;
 static int hf_scsi_modesns_errrep               = -1;
 static int hf_scsi_modesns_tst                  = -1;
 static int hf_scsi_modesns_qmod                 = -1;
@@ -738,6 +742,7 @@ static gint ett_scsi_fragments = -1;
 static gint ett_scsi_fragment = -1;
 static gint ett_persresv_control = -1;
 static gint ett_scsi_lun = -1;
+static gint ett_scsi_lun_unit = -1;
 static gint ett_scsi_prevent_allow = -1;
 static gint ett_command_descriptor = -1;
 static gint ett_timeout_descriptor = -1;
@@ -855,8 +860,9 @@ static const value_string scsi_spc_vals[] = {
 static value_string_ext scsi_spc_vals_ext = VALUE_STRING_EXT_INIT(scsi_spc_vals);
 
 static const value_string scsi_lun_address_mode_vals[] = {
-    { 0, "Single Level LUN Structure" },
+    { 0, "Peripheral Device Addressing Method" },
     { 1, "Flat Space Addressing Method" },
+    { 2, "Logical Unit Addressing Method" },
     { 3, "Extended Logical Unit Addressing" },
     { 0, NULL }
 };
@@ -3091,7 +3097,7 @@ dissect_spc_inquiry(tvbuff_t *tvb_a, packet_info *pinfo,
     };
 
     if (!isreq && ((cdata == NULL) || !(cdata->itlq->flags & 0x3))
-        && (tvb_length_remaining(tvb_a, offset_a) >= 1) ) {
+        && (tvb_reported_length_remaining(tvb_a, offset_a) >= 1) ) {
         /*
          * INQUIRY response with device type information; add device type
          * to list of known devices & their types if not already known.
@@ -3653,7 +3659,7 @@ dissect_scsi_log_page(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
             if (log_parameter && log_parameter->dissector) {
                 tvbuff_t *param_tvb;
 
-                param_tvb = tvb_new_subset(tvb, offset, MIN(tvb_length_remaining(tvb, offset),paramlen), paramlen);
+                param_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),paramlen), paramlen);
                 log_parameter->dissector(param_tvb, pinfo, log_tree);
             } else {
                 /* We did not have a dissector for this page/parameter so
@@ -3760,14 +3766,14 @@ dissect_scsi_blockdescs(tvbuff_t *tvb, packet_info *pinfo _U_,
     if (!cdata)
         return;
 
-    while (tvb_length_remaining(tvb, offset) > 0) {
+    while (tvb_reported_length_remaining(tvb, offset) > 0) {
         if (longlba) {
-            if (tvb_length_remaining(tvb, offset)<8)
+            if (tvb_reported_length_remaining(tvb, offset)<8)
                 return;
             proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_no_of_blocks64, tvb, offset, 8, ENC_BIG_ENDIAN);
             offset += 8;
 
-            if (tvb_length_remaining(tvb, offset)<1)
+            if (tvb_reported_length_remaining(tvb, offset)<1)
                 return;
             proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_density_code, tvb, offset, 1, ENC_BIG_ENDIAN);
             offset += 1;
@@ -3775,37 +3781,37 @@ dissect_scsi_blockdescs(tvbuff_t *tvb, packet_info *pinfo _U_,
             /* 3 reserved bytes */
             offset += 3;
 
-            if (tvb_length_remaining(tvb, offset)<4)
+            if (tvb_reported_length_remaining(tvb, offset)<4)
                 return;
             proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_block_length32, tvb, offset, 4, ENC_BIG_ENDIAN);
             offset += 4;
         } else {
             if ((cdata->itl->cmdset&SCSI_CMDSET_MASK) == SCSI_DEV_SBC) {
-                if (tvb_length_remaining(tvb, offset)<4)
+                if (tvb_reported_length_remaining(tvb, offset)<4)
                     return;
                 proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_no_of_blocks32, tvb, offset, 4, ENC_BIG_ENDIAN);
                 offset += 4;
 
                 offset++;  /* reserved */
 
-                if (tvb_length_remaining(tvb, offset)<3)
+                if (tvb_reported_length_remaining(tvb, offset)<3)
                     return;
                 proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_block_length24, tvb, offset, 3, ENC_BIG_ENDIAN);
                 offset += 3;
             } else {
-                if (tvb_length_remaining(tvb, offset)<1)
+                if (tvb_reported_length_remaining(tvb, offset)<1)
                     return;
                 proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_density_code, tvb, offset, 1, ENC_BIG_ENDIAN);
                 offset += 1;
 
-                if (tvb_length_remaining(tvb, offset)<3)
+                if (tvb_reported_length_remaining(tvb, offset)<3)
                     return;
                 proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_no_of_blocks24, tvb, offset, 3, ENC_BIG_ENDIAN);
                 offset += 3;
 
                 offset++; /* reserved */
 
-                if (tvb_length_remaining(tvb, offset)<3)
+                if (tvb_reported_length_remaining(tvb, offset)<3)
                     return;
                 proto_tree_add_item(scsi_tree, hf_scsi_blockdescs_block_length24, tvb, offset, 3, ENC_BIG_ENDIAN);
                 offset += 3;
@@ -4448,8 +4454,8 @@ dissect_spc_modeselect6(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 1;
         payload_len -= 1;
 
-        if (tvb_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_length_remaining(tvb, offset),desclen), desclen);
+        if (tvb_reported_length_remaining(tvb, offset)>0) {
+            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, FALSE);
         }
         offset += desclen;
@@ -4542,8 +4548,8 @@ dissect_spc_modeselect10(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 2;
         payload_len -= 2;
 
-        if (tvb_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_length_remaining(tvb, offset),desclen), desclen);
+        if (tvb_reported_length_remaining(tvb, offset)>0) {
+            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, longlba);
         }
         offset += desclen;
@@ -4672,8 +4678,8 @@ dissect_spc_modesense6(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         tot_len -= 1;
 
 
-        if (tvb_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_length_remaining(tvb, offset),desclen), desclen);
+        if (tvb_reported_length_remaining(tvb, offset)>0) {
+            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, FALSE);
         }
         offset += desclen;
@@ -4762,8 +4768,8 @@ dissect_spc_modesense10(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 2;
         tot_len -= 2;
 
-        if (tvb_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_length_remaining(tvb, offset),desclen), desclen);
+        if (tvb_reported_length_remaining(tvb, offset)>0) {
+            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, longlba);
         }
         offset += desclen;
@@ -4987,31 +4993,123 @@ dissect_spc_reportdeviceidentifier(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
 void
 dissect_scsi_lun(proto_tree *tree, tvbuff_t *tvb, guint offset) {
     proto_item *ti;
-    proto_tree *tt = proto_tree_add_subtree(tree, tvb, offset, 8, ett_scsi_lun, &ti, "LUN: ");
-    guint8 address_mode;
+    proto_tree *tt, *tl = proto_tree_add_subtree(tree, tvb, offset, 8, ett_scsi_lun, &ti, "LUN");
+    guint8 address_mode, lun_len = 0, ea_code = 0, len_code = 0, lun_count = 0, complex_lun = 0;
     guint16 lun = 0;
+    const gchar *str = NULL;
 
-    address_mode = tvb_get_guint8(tvb, offset) >> 6;
-    proto_tree_add_item(tt, hf_scsi_lun_address_mode, tvb, offset, 1, ENC_BIG_ENDIAN);
-
-    switch (address_mode) {
-    case 0:
-        proto_tree_add_item(tt, hf_scsi_bus, tvb, offset, 1, ENC_BIG_ENDIAN);
-        lun = tvb_get_guint8(tvb, offset + 1);
-        proto_tree_add_uint(tt, hf_scsi_lun, tvb, offset + 1, 1, lun);
-        break;
-    case 1:
-        lun = tvb_get_ntohs(tvb, offset) & 0x3fff;
-        proto_tree_add_uint(tt, hf_scsi_lun, tvb, offset, 2, lun);
-        break;
-/*
-    This mode is complex. Lets implement it if/once we see this mode used in the wild.
-    case 3:
-        break;
- */
+    if (tvb_get_ntoh48(tvb, offset) << 16) {
+        /* Pedantically change LUN to LUNs */
+        proto_item_append_text(tl, "s");
+        complex_lun = 1;
     }
 
-    proto_item_append_text(ti, "%d (%s)", lun, val_to_str(address_mode, scsi_lun_address_mode_vals, "Unknown Address Mode:%d"));
+    while (lun_len < 8) {
+        lun = tvb_get_ntohs(tvb, offset + lun_len);
+        /* Don't skip the first non-zero LUN */
+        if (lun_len && !lun)
+            break;
+
+        address_mode = tvb_get_guint8(tvb, offset + lun_len);
+        if ((address_mode >> 6) < 0x3)
+            len_code = 2;
+        else {
+            len_code = (address_mode & 0x30) >> 4;
+            len_code = 2 + (len_code * 2);
+        }
+
+        if (complex_lun) {
+            /* Add lun subtrees only for complex luns */
+            tt = proto_tree_add_subtree(tl, tvb, offset + lun_len, len_code, ett_scsi_lun_unit, &ti, "LUN");
+            proto_item_append_text(tt, " %d", lun_count++);
+        } else
+            tt = tl;
+
+        /* Peripheral and Simple logical unit addressing share the same identifier, with bus defining the difference */
+        if (!address_mode)
+            proto_tree_add_uint_format_value(tt, hf_scsi_lun_address_mode, tvb, offset + lun_len, 1, (address_mode >> 6),
+                                             "Simple logical unit addressing (0x0%x)", address_mode >> 6);
+        else
+            proto_tree_add_item(tt, hf_scsi_lun_address_mode, tvb, offset + lun_len, 1, ENC_BIG_ENDIAN);
+
+        switch (address_mode >> 6) {
+        case 0:
+            /*  Simple logical unit addressing method has no bus id */
+            if (address_mode) {
+                proto_tree_add_bits_item(tt, hf_scsi_bus, tvb, (offset + lun_len) * 8 + 2, 0x6, ENC_BIG_ENDIAN);
+                lun = tvb_get_guint8(tvb, offset + lun_len + 1);
+                proto_tree_add_uint(tt, hf_scsi_lun, tvb, offset + lun_len + 1, 1, lun);
+            } else {
+                proto_tree_add_bits_item(tt, hf_scsi_lun, tvb, (offset + lun_len) * 8 + 2, 0xe, ENC_BIG_ENDIAN);
+            }
+            lun_len += len_code;
+            break;
+
+        case 1:
+            proto_tree_add_bits_item(tt, hf_scsi_lun, tvb, (offset + lun_len) * 8 + 2, 0xe, ENC_BIG_ENDIAN);
+            lun_len += len_code;
+            break;
+        case 2:
+            proto_tree_add_item(tt, hf_scsi_target, tvb, offset + lun_len, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_bits_item(tt, hf_scsi_bus, tvb, (offset + lun_len + 1) * 8, 0x3, ENC_BIG_ENDIAN);
+            proto_tree_add_bits_item(tt, hf_scsi_lun, tvb, (offset + lun_len + 1) * 8 + 3, 0x5, ENC_BIG_ENDIAN);
+            lun_len += len_code;
+            break;
+        case 3:
+            ea_code = address_mode & 0xf;
+            lun = len_code;
+            len_code = (address_mode & 0x30) >> 4;
+
+            ti = proto_tree_add_item(tt, hf_scsi_extended_add_method_len, tvb, offset + lun_len, 1, ENC_BIG_ENDIAN);
+            proto_item_append_text(ti, " (%d bytes)", lun);
+
+            ti = proto_tree_add_item(tt, hf_scsi_extended_add_method, tvb, offset + lun_len, 1, ENC_BIG_ENDIAN);
+
+            str = NULL;
+            switch(ea_code) {
+            case 0x1:
+                if (!len_code) {
+                    str = "Well known logical unit";
+                    proto_tree_add_item(tt, hf_scsi_lun, tvb, offset + lun_len + 1, 1, ENC_BIG_ENDIAN);
+                }
+                break;
+            case 0x2:
+                if (len_code == 0x1)
+                    str = "Extended flat space addressing";
+                else if (len_code == 0x2)
+                    str = "Long extended flat space addressing";
+                if (str)
+                    proto_tree_add_item(tt, hf_scsi_lun_extended, tvb, offset + lun_len + 1, lun - 1, ENC_BIG_ENDIAN);
+                break;
+            case 0xe:
+                if (len_code == 0x3)
+                    str = "Reserved for FC-SB-5";
+                break;
+            case 0xf:
+                /* The contents of all hierarchical LUN structure addressing fields following a logical unit not specified addressing
+                 * method addressing field shall be ignored. [SAM5] 4.7.7.5.4 */
+                if (len_code == 0x3) {
+                    proto_item_append_text(ti, " (Logical unit not specified)");
+                    return;
+                }
+                break;
+            default:
+                str = "Reserved";
+                break;
+            }
+
+            len_code = (guint8)lun;
+            if (!str)
+                str = "Reserved";
+
+            proto_item_append_text(ti, " (%s)", str);
+            lun_len += len_code;
+            break;
+
+        default:
+            break;
+        }
+    }
 }
 
 void
@@ -5983,7 +6081,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         return;
     }
 
-    payload_len = tvb_length(tvb);
+    payload_len = tvb_reported_length(tvb);
     cdata = wmem_new(wmem_packet_scope(), scsi_task_data_t);
     cdata->itl = itl;
     cdata->itlq = itlq;
@@ -6068,7 +6166,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     /* If we don't have the entire PDU there is no point in even trying
      * reassembly
      */
-    if (tvb_length_remaining(tvb, offset) != tvb_reported_length_remaining(tvb, offset)) {
+    if (tvb_captured_length_remaining(tvb, offset) != tvb_reported_length_remaining(tvb, offset)) {
         if (relative_offset) {
             call_dissector(data_handle, tvb, pinfo, scsi_tree);
             goto end_of_payload;
@@ -6094,17 +6192,17 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     /* If this PDU already contains all the expected data we don't have to do
      * reassembly.
      */
-    if ( (!relative_offset) && ((guint32)tvb_length_remaining(tvb, offset) == expected_length) ) {
+    if ( (!relative_offset) && ((guint32)tvb_reported_length_remaining(tvb, offset) == expected_length) ) {
         goto dissect_the_payload;
     }
 
 
     /* Start reassembly */
 
-    if (tvb_length_remaining(tvb, offset) < 0) {
+    if (tvb_reported_length_remaining(tvb, offset) < 0) {
         goto end_of_payload;
     }
-    if ((tvb_length_remaining(tvb,offset) + relative_offset) != expected_length) {
+    if ((tvb_reported_length_remaining(tvb,offset) + relative_offset) != expected_length) {
         more_frags = TRUE;
     }
     ipfd_head = fragment_add_check(&scsi_reassembly_table, tvb, offset,
@@ -6112,7 +6210,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                    itlq->first_exchange_frame, /* key */
                                    NULL,
                                    relative_offset,
-                                   tvb_length_remaining(tvb, offset),
+                                   tvb_reported_length_remaining(tvb, offset),
                                    more_frags);
     next_tvb = process_reassembled_data(tvb, offset, pinfo, "Reassembled SCSI DATA", ipfd_head, &scsi_frag_items, &update_col_info, tree);
 
@@ -6950,14 +7048,28 @@ proto_register_scsi(void)
           {"Maximum Sense Data Length", "scsi.spc.modepage.msdl", FT_UINT8, BASE_DEC,
            NULL, 0, NULL, HFILL}},
         { &hf_scsi_lun,
-          { "LUN", "scsi.lun", FT_UINT16, BASE_DEC,
-            NULL, 0, "Logical Unit Number", HFILL }},
+          { "LUN", "scsi.lun", FT_UINT16, BASE_HEX,
+           NULL, 0, "Logical Unit Number", HFILL }},
+        { &hf_scsi_lun_extended,
+          { "LUN", "scsi.lun_long", FT_UINT64, BASE_HEX,
+           NULL, 0, "Logical Unit Number", HFILL }},
+        /* hf_scsi_bus has length of 0x6 with 2bit offset, or 0x3 with no offset
+           so we handle it with add_bits_item */
         { &hf_scsi_bus,
-          { "BUS", "scsi.bus", FT_UINT8, BASE_DEC,
-            NULL, 0x3f, NULL, HFILL }},
+          { "BUS", "scsi.bus", FT_UINT8, BASE_HEX,
+           NULL, 0, NULL, HFILL }},
+        { &hf_scsi_target,
+          { "Target", "scsi.target", FT_UINT8, BASE_HEX,
+           NULL, 0x3f, NULL, HFILL }},
         { &hf_scsi_lun_address_mode,
-          { "Address Mode", "scsi.lun.address_mode", FT_UINT8, BASE_DEC,
+          { "Address Mode", "scsi.lun.address_mode", FT_UINT8, BASE_HEX,
           VALS(scsi_lun_address_mode_vals), 0xc0, "Addressing mode for the LUN", HFILL }},
+        { &hf_scsi_extended_add_method_len,
+          { "Extended Address Method Length", "scsi.lun.extended_address_method.len", FT_UINT8, BASE_HEX,
+          NULL, 0x30, "Extended Address Method Specific Field", HFILL }},
+        { &hf_scsi_extended_add_method,
+          { "Extended Address Method", "scsi.lun.extended_address_method", FT_UINT8, BASE_HEX,
+          NULL, 0xf, "Extended Logical Unit Addressing", HFILL }},
         { &hf_scsi_prevent_allow_flags,
           {"Prevent Allow Flags", "scsi.prevent_allow.flags", FT_UINT8, BASE_HEX, NULL, 0,
            NULL, HFILL}},
@@ -7403,6 +7515,7 @@ proto_register_scsi(void)
         &ett_scsi_fragment,
         &ett_persresv_control,
         &ett_scsi_lun,
+        &ett_scsi_lun_unit,
         &ett_scsi_prevent_allow,
         &ett_command_descriptor,
         &ett_timeout_descriptor,

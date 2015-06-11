@@ -49,6 +49,7 @@ static int hf_atm_gfc = -1;
 static int hf_atm_vpi = -1;
 static int hf_atm_vci = -1;
 static int hf_atm_cid = -1;
+static int hf_atm_reserved = -1;
 static int proto_atm_lane = -1;
 static int proto_ilmi = -1;
 static int proto_aal1 = -1;
@@ -441,14 +442,14 @@ dissect_le_registration_frame(tvbuff_t *tvb, int offset, proto_tree *tree)
   proto_tree_add_item(tree, hf_atm_source_atm, tvb, offset, 20, ENC_NA);
   offset += 20;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 2, ENC_NA);
   offset += 2;
 
   num_tlvs = tvb_get_guint8(tvb, offset);
   proto_tree_add_item(tree, hf_atm_le_registration_frame_num_tlvs, tvb, offset, 1, ENC_NA);
   offset += 1;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 53, ENC_NA);
   offset += 53;
 
   dissect_le_control_tlvs(tvb, offset, num_tlvs, tree);
@@ -468,20 +469,20 @@ dissect_le_arp_frame(tvbuff_t *tvb, int offset, proto_tree *tree)
   proto_tree_add_item(tree, hf_atm_source_atm, tvb, offset, 20, ENC_NA);
   offset += 20;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 2, ENC_NA);
   offset += 2;
 
   num_tlvs = tvb_get_guint8(tvb, offset);
   proto_tree_add_item(tree, hf_atm_le_arp_frame_num_tlvs, tvb, offset, 1, ENC_NA);
   offset += 1;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 1, ENC_NA);
   offset += 1;
 
   proto_tree_add_item(tree, hf_atm_target_atm, tvb, offset, 20, ENC_NA);
   offset += 20;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 32, ENC_NA);
   offset += 32;
 
   dissect_le_control_tlvs(tvb, offset, num_tlvs, tree);
@@ -492,20 +493,20 @@ dissect_le_verify_frame(tvbuff_t *tvb, int offset, proto_tree *tree)
 {
   guint8 num_tlvs;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 38, ENC_NA);
   offset += 38;
 
   num_tlvs = tvb_get_guint8(tvb, offset);
   proto_tree_add_item(tree, hf_atm_le_verify_frame_num_tlvs, tvb, offset, 1, ENC_NA);
   offset += 1;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 1, ENC_NA);
   offset += 1;
 
   proto_tree_add_item(tree, hf_atm_target_atm, tvb, offset, 20, ENC_NA);
   offset += 20;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 32, ENC_NA);
   offset += 32;
 
   dissect_le_control_tlvs(tvb, offset, num_tlvs, tree);
@@ -523,13 +524,13 @@ dissect_le_flush_frame(tvbuff_t *tvb, int offset, proto_tree *tree)
   proto_tree_add_item(tree, hf_atm_source_atm, tvb, offset, 20, ENC_NA);
   offset += 20;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 4, ENC_NA);
   offset += 4;
 
   proto_tree_add_item(tree, hf_atm_target_atm, tvb, offset, 20, ENC_NA);
   offset += 20;
 
-  /* Reserved */
+  proto_tree_add_item(tree, hf_atm_reserved, tvb, offset, 32, ENC_NA);
   offset += 32;
 
   return offset;
@@ -642,7 +643,8 @@ dissect_le_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     case LE_TOPOLOGY_REQUEST:
         proto_tree_add_item(flags_tree, hf_atm_le_control_topology_change, tvb, offset, 2, ENC_BIG_ENDIAN);
-      /* 92 reserved bytes */
+        offset += 2;
+        proto_tree_add_item(flags_tree, hf_atm_reserved, tvb, offset, 92, ENC_NA);
       break;
 
     case LE_VERIFY_REQUEST:
@@ -1732,6 +1734,10 @@ proto_register_atm(void)
       { "CID",          "atm.cid", FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL, HFILL }},
 
+    { &hf_atm_reserved,
+      { "Reserved", "atm.reserved", FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }},
+
     { &hf_atm_le_client_client,
       { "LE Client", "atm.le_client.client", FT_UINT16, BASE_HEX, NULL, 0x0,
         NULL, HFILL }},
@@ -1954,7 +1960,7 @@ proto_register_atm(void)
   static build_valid_func atm_da_build_value[1] = {atm_value};
   static decode_as_value_t atm_da_values = {atm_prompt, 1, atm_da_build_value};
   static decode_as_t atm_da = {"atm", "Network", "atm.aal2.type", 1, 0, &atm_da_values, NULL, NULL,
-								decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
+                                decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
 
   proto_atm    = proto_register_protocol("Asynchronous Transfer Mode", "ATM", "atm");
   proto_aal1   = proto_register_protocol("ATM AAL1", "AAL1", "aal1");

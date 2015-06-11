@@ -22,7 +22,7 @@
 #ifndef BYTE_VIEW_TEXT_H
 #define BYTE_VIEW_TEXT_H
 
-#include "config.h"
+#include <config.h>
 
 #include <epan/packet.h>
 #include <epan/proto.h>
@@ -55,6 +55,7 @@ public:
     void setProtocolHighlight(int start, int end);
     void setFieldHighlight(int start, int end, guint32 mask = 0, int mask_le = 0);
     void setFieldAppendixHighlight(int start, int end);
+    bool isEmpty() { return tvb_ == NULL || proto_tree_ == NULL; }
 
 signals:
     void byteFieldHovered(const QString &);

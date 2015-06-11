@@ -5051,6 +5051,16 @@ dissect_gtpv2_mbms_time_to_data_xfer(tvbuff_t *tvb, packet_info *pinfo _U_, prot
         proto_tree_add_item(tree, hf_gtpv2_spare_bytes, tvb, offset, length-1, ENC_NA);
 }
 
+static const value_string gtpv2_throttling_delay_unit_vals[] = {
+    { 0, "value is incremented in multiples of 2 seconds" },
+    { 1, "value is incremented in multiples of 1 minute" },
+    { 2, "value is incremented in multiples of 10 minutes" },
+    { 3, "value is incremented in multiples of 1 hour" },
+    { 4, "value is incremented in multiples of 10 hour" },
+    { 7, "value indicates that the timer is deactivated" },
+    { 0, NULL }
+};
+
 /* 8.85 Throttling */
 static void
 dissect_gtpv2_throttling(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, proto_item *item, guint16 length, guint8 message_type _U_, guint8 instance _U_)
@@ -7233,12 +7243,12 @@ void proto_register_gtpv2(void)
         {&hf_gtpv2_uci_csg_id,
           {"CSG ID", "gtpv2.cui_csg_id",
            FT_UINT32, BASE_DEC, NULL, 0x07FFFFFF,
-		   NULL, HFILL}
+           NULL, HFILL}
         },
         {&hf_gtpv2_uci_csg_id_spare,
           {"Spare", "gtpv2.cui_csg_id_spare",
            FT_UINT8, BASE_DEC, NULL, 0xF8,
-		   NULL, HFILL}
+           NULL, HFILL}
         },
         { &hf_gtpv2_uci_csg_membership,
           { "CSG Membership Indication", "gtpv2.uci_csg_membership",
@@ -7682,17 +7692,17 @@ void proto_register_gtpv2(void)
           FT_UINT8, BASE_DEC|BASE_EXT_STRING, &gtpv2_action_indication_vals_ext, 0x07,
           NULL , HFILL}
         },
-		{ &hf_gtpv2_uli_timestamp,
-		{ "ULI Timestamp", "gtpv2.uli_timestamp",
-		FT_STRING, BASE_NONE, NULL, 0,
-		NULL, HFILL }
-		},
-		{ &hf_gtpv2_abs_time_mbms_data,
-		{ "Absolute Time of MBMS Data Transfer", "gtpv2.abs_time_mbms_data",
-		FT_STRING, BASE_NONE, NULL, 0,
-		NULL, HFILL }
-		},
-		{ &hf_gtpv2_mbms_session_duration_days,
+        { &hf_gtpv2_uli_timestamp,
+        { "ULI Timestamp", "gtpv2.uli_timestamp",
+        FT_STRING, BASE_NONE, NULL, 0,
+        NULL, HFILL }
+        },
+        { &hf_gtpv2_abs_time_mbms_data,
+        { "Absolute Time of MBMS Data Transfer", "gtpv2.abs_time_mbms_data",
+        FT_STRING, BASE_NONE, NULL, 0,
+        NULL, HFILL }
+        },
+        { &hf_gtpv2_mbms_session_duration_days,
           {"MBMS Session Duration (days)", "gtpv2.mbms_session_duration_days",
            FT_UINT24, BASE_DEC, NULL, 0x00007F,
            NULL, HFILL}
@@ -7744,7 +7754,7 @@ void proto_register_gtpv2(void)
         },
         { &hf_gtpv2_throttling_delay_unit,
           {"Throttling Delay unit", "gtpv2.throttling_delay_unit",
-           FT_UINT8, BASE_DEC, VALS(gtpv2_timer_unit_vals), 0xe0,
+           FT_UINT8, BASE_DEC, VALS(gtpv2_throttling_delay_unit_vals), 0xe0,
            NULL, HFILL }
         },
         { &hf_gtpv2_timer_value,
@@ -7752,7 +7762,7 @@ void proto_register_gtpv2(void)
            FT_UINT8, BASE_DEC, NULL, 0x1f,
            NULL, HFILL}
         },
-		{ &hf_gtpv2_throttling_delay_value,
+        { &hf_gtpv2_throttling_delay_value,
           {"Throttling Delay value", "gtpv2.throttling_delay_value",
            FT_UINT8, BASE_DEC, NULL, 0x1f,
            NULL, HFILL }

@@ -49,7 +49,7 @@ QString CaptureFile::no_capture_file_ = QObject::tr("[no capture file]");
 CaptureFile::CaptureFile(QObject *parent, capture_file *cap_file) :
     QObject(parent),
     cap_file_(cap_file),
-    file_title_(no_capture_file_),
+    file_name_(no_capture_file_),
     file_state_(QString())
 {
 #ifdef HAVE_LIBPCAP
@@ -76,6 +76,17 @@ int CaptureFile::currentRow()
     if (isValid())
         return cap_file_->current_row;
     return -1;
+}
+
+const QString CaptureFile::fileName()
+{
+    if (isValid()) {
+        QFileInfo cfi(QString::fromUtf8(cap_file_->filename));
+        file_name_ = cfi.baseName();
+    } else {
+        file_name_ = no_capture_file_;
+    }
+    return file_name_;
 }
 
 void CaptureFile::retapPackets()
@@ -123,14 +134,11 @@ void CaptureFile::captureFileEvent(int event, gpointer data)
 {
     switch(event) {
     case(cf_cb_file_opened):
-    {
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Opened");
         cap_file_ = (capture_file *) data;
-        QFileInfo cfi(QString::fromUtf8(cap_file_->filename));
-        file_title_ = cfi.baseName();
+        fileName();
         emit captureFileOpened();
         break;
-    }
     case(cf_cb_file_closing):
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Closing");
         file_state_ = tr(" [closing]");
@@ -141,7 +149,7 @@ void CaptureFile::captureFileEvent(int event, gpointer data)
         file_state_ = tr(" [closed]");
         emit captureFileClosed();
         cap_file_ = NULL;
-        file_title_ = no_capture_file_;
+        file_name_ = no_capture_file_;
         file_state_ = QString();
         break;
     case(cf_cb_file_read_started):
@@ -154,11 +162,24 @@ void CaptureFile::captureFileEvent(int event, gpointer data)
         break;
     case(cf_cb_file_reload_started):
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Reload started");
-        emit captureFileReadStarted();
+        emit captureFileReloadStarted();
         break;
     case(cf_cb_file_reload_finished):
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Reload finished");
-        emit captureFileReadFinished();
+        emit captureFileReloadFinished();
+        break;
+
+    case(cf_cb_file_rescan_started):
+        g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Rescan started");
+        emit captureFileRescanStarted();
+        break;
+    case(cf_cb_file_rescan_finished):
+        g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Rescan finished");
+        emit captureFileRescanFinished();
+        break;
+
+    case(cf_cb_file_fast_save_finished):
+        // Ignored for now
         break;
 
     case(cf_cb_packet_selected):
@@ -167,11 +188,22 @@ void CaptureFile::captureFileEvent(int event, gpointer data)
         // Signals and slots handled elsewhere.
         break;
 
-    case(cf_cb_file_save_started): // data = string
-    case(cf_cb_file_save_finished):
-    case(cf_cb_file_save_failed):
-        // Ignored
+    case(cf_cb_file_save_started):
+    {
+        const QString file_path = (const char *) data;
+        captureFileSaveStarted(file_path);
         break;
+    }
+    case(cf_cb_file_save_finished):
+        emit captureFileSaveFinished();
+        break;
+    case(cf_cb_file_save_failed):
+        emit captureFileSaveFailed();
+        break;
+    case(cf_cb_file_save_stopped):
+        emit captureFileSaveStopped();
+        break;
+
     default:
         g_log(NULL, G_LOG_LEVEL_DEBUG, "FIX: main_cf_callback %d %p", event, data);
         g_warning("CaptureFile::captureFileCallback: event %u unknown", event);

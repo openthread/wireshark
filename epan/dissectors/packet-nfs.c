@@ -460,9 +460,6 @@ static int hf_nfs4_client_id = -1;
 static int hf_nfs4_stateid_other = -1;
 static int hf_nfs4_stateid_hash = -1;
 static int hf_nfs4_lock_reclaim = -1;
-static int hf_nfs4_acl = -1;
-static int hf_nfs4_dacl = -1;
-static int hf_nfs4_sacl = -1;
 static int hf_nfs4_aclflags = -1;
 static int hf_nfs4_aclflag_auto_inherit = -1;
 static int hf_nfs4_aclflag_protected = -1;
@@ -764,6 +761,7 @@ static gint ett_nfs4_want_notify_flags = -1;
 
 static expert_field ei_nfs_too_many_ops = EI_INIT;
 static expert_field ei_nfs_not_vnx_file = EI_INIT;
+static expert_field ei_protocol_violation = EI_INIT;
 
 
 /* Types of fhandles we can dissect */
@@ -2121,7 +2119,7 @@ dissect_fhandle_data_CELERRA_VNX(tvbuff_t* tvb, packet_info *pinfo _U_, proto_tr
 static void
 dissect_fhandle_data_unknown(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
 {
-	guint fhlen = tvb_length(tvb);
+	guint fhlen = tvb_reported_length(tvb);
 
 	proto_tree_add_item(tree, hf_nfs_fh_fhandle_data, tvb, 0, fhlen, ENC_NA);
 }
@@ -2189,8 +2187,8 @@ dissect_fhandle_data(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *
 		proto_tree_add_uint(tree, hf_nfs_fh_decode_as, tvb, offset, 0, default_nfs_fhandle_type);
 
 		real_length = fhlen;
-		if (default_nfs_fhandle_type != FHT_UNKNOWN && real_length < tvb_length_remaining(tvb, offset))
-			real_length = tvb_length_remaining(tvb, offset);
+		if (default_nfs_fhandle_type != FHT_UNKNOWN && real_length < tvb_captured_length_remaining(tvb, offset))
+			real_length = tvb_captured_length_remaining(tvb, offset);
 
 		fh_tvb = tvb_new_subset(tvb, offset, real_length, fhlen);
 		if (!dissector_try_uint(nfs_fhandle_table, default_nfs_fhandle_type, fh_tvb, pinfo, tree))
@@ -6450,26 +6448,6 @@ dissect_nfs4_fattr_acl(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_item
 	guint32 num_aces;
 	guint32 ace_number;
 
-	if (tree) {
-		proto_item *acl_item;
-
-		switch (attr_num) {
-		case FATTR4_DACL:
-			acl_item = proto_tree_add_item(tree, hf_nfs4_dacl, tvb, offset, 0, ENC_BIG_ENDIAN);
-			break;
-
-		case FATTR4_SACL:
-			acl_item = proto_tree_add_item(tree, hf_nfs4_sacl, tvb, offset, 0, ENC_BIG_ENDIAN);
-			break;
-
-		default:
-			acl_item = proto_tree_add_item(tree, hf_nfs4_acl, tvb, offset, 0, ENC_BIG_ENDIAN);
-			break;
-		}
-
-		PROTO_ITEM_SET_HIDDEN(acl_item);
-	}
-
 	if (attr_num != FATTR4_ACL)
 		offset = dissect_nfs4_aclflags(tvb, offset, tree);
 
@@ -6647,9 +6625,9 @@ static int
 dissect_nfs4_fattrs(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, int type, rpc_call_info_value *civ)
 {
 	int	  attr_mask_offset = 0;
-	guint8	  i, j;
-	guint8	  num_bitmaps;
-	guint8	  count		   = 0;
+	guint32	  i, j;
+	guint32	  num_bitmaps;
+	guint32	  count		   = 0;
 	guint32	  attr_num;
 	guint32	 *bitmaps	   = NULL;
 	guint32	  bitmap, sl;
@@ -6659,20 +6637,19 @@ dissect_nfs4_fattrs(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *t
 
 	proto_item *bitmap_item = NULL;
 	proto_tree *bitmap_tree = NULL;
-	proto_item *hitem	= NULL;
-	proto_item *attr_item	= NULL;
+	proto_item *hitem = NULL;
+	proto_item *attr_item = NULL;
 	proto_tree *attr_tree	= NULL;
 
 	num_bitmaps = tvb_get_ntohl(tvb, offset);
 	offset += 4;
 
-	if (num_bitmaps > MAX_BITMAPS) {
-		proto_tree_add_uint(tree, hf_nfs4_huge_bitmap_length, tvb, offset, 4, num_bitmaps);
-		THROW(ReportedBoundsError);
-	}
-	tvb_ensure_bytes_exist(tvb, offset, num_bitmaps * 4);
-
 	if (num_bitmaps) {
+		if (num_bitmaps > MAX_BITMAPS) {
+			proto_tree_add_uint(tree, hf_nfs4_huge_bitmap_length, tvb, offset, 4, num_bitmaps);
+			THROW(ReportedBoundsError);
+		}
+
 		bitmaps = (guint32 *)wmem_alloc(wmem_packet_scope(), num_bitmaps * sizeof(guint32));
 		attr_mask_offset = offset;
 
@@ -6690,6 +6667,10 @@ dissect_nfs4_fattrs(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *t
 		*  attr_bitmap fields and the 4-byte 'total bytes in the values section field';
 		*  otherwise, just skip the bitmaps and offset will be returned. */
 		offset += (num_bitmaps * 4) + (type == FATTR4_DISSECT_VALUES ? 4 : 0);
+
+	} else if (type == FATTR4_DISSECT_VALUES) {
+		expert_add_info(pinfo, tree, &ei_protocol_violation);
+		return offset += 4;
 	}
 
 	if (!tree
@@ -11417,15 +11398,6 @@ proto_register_nfs(void)
 			"StateID Hash", "nfs.stateid4.hash", FT_UINT16, BASE_HEX,
 			NULL, 0, NULL, HFILL }},
 
-		{ &hf_nfs4_acl, {
-			"ACL", "nfs.acl", FT_NONE, BASE_NONE, NULL, 0, "Access Control List", HFILL }},
-
-		{ &hf_nfs4_dacl, {
-			"DACL", "nfs.dacl", FT_NONE, BASE_NONE, NULL, 0, "Access Control List", HFILL }},
-
-		{ &hf_nfs4_sacl, {
-			"SACL", "nfs.sacl", FT_NONE, BASE_NONE, NULL, 0, "Access Control List", HFILL }},
-
 		{ &hf_nfs4_aclflags, {
 			"ACL flags", "nfs.acl.flags", FT_UINT32, BASE_DEC,
 			NULL, 0, NULL, HFILL }},
@@ -12428,6 +12400,8 @@ proto_register_nfs(void)
 	static ei_register_info ei[] = {
 		{ &ei_nfs_too_many_ops, { "nfs.too_many_ops", PI_PROTOCOL, PI_NOTE, "Too many operations", EXPFILL }},
 		{ &ei_nfs_not_vnx_file, { "nfs.not_vnx_file", PI_UNDECODED, PI_WARN, "Not a Celerra|VNX file handle", EXPFILL }},
+		{ &ei_protocol_violation, { "nfs.protocol_violation", PI_PROTOCOL, PI_WARN,
+			"Per RFCs 3530 and 5661 an attribute mask is required but was not provided.", EXPFILL }},
 	};
 
 	module_t *nfs_module;

@@ -53,6 +53,11 @@ if (POLICY CMP0054)
 	cmake_policy(SET CMP0054 OLD)
 endif()
 
+# Set old behaviour for MACOSX_RPATH
+if (POLICY CMP0042)
+	cmake_policy(SET CMP0042 OLD)
+endif()
+
 # If our target platform is enforced by our generator, set
 # WIRESHARK_TARGET_PLATFORM accordingly. Otherwise use
 # %WIRESHARK_TARGET_PLATFORM%.
@@ -173,7 +178,7 @@ include(CMakeInstallDirs)
 set(GIT_REVISION 0)
 set(PROJECT_MAJOR_VERSION 1)
 set(PROJECT_MINOR_VERSION 99)
-set(PROJECT_PATCH_VERSION 6)
+set(PROJECT_PATCH_VERSION 7)
 set(PROJECT_BUILD_VERSION ${GIT_REVISION})
 set(PROJECT_VERSION_EXTENSION "$ENV{WIRESHARK_VERSION_EXTRA}")
 set(PROJECT_VERSION "${PROJECT_MAJOR_VERSION}.${PROJECT_MINOR_VERSION}.${PROJECT_PATCH_VERSION}${PROJECT_VERSION_EXTENSION}")
@@ -697,15 +702,13 @@ endif()
 if(ENABLE_ZLIB)
 	if (WIN32)
 		# On Windows we build our own version of zlib, so add the paths
-		set(ZLIB_SRC_DIR "${_PROJECT_LIB_DIR}/zlib-1.2.8")
+		set(ZLIB_SRC_DIR "${_PROJECT_LIB_DIR}/zlib-1.2.8-ws")
 		add_subdirectory("${ZLIB_SRC_DIR}" "${CMAKE_BINARY_DIR}/zlib")
 		set(ZLIB_INCLUDE_DIR  "${ZLIB_SRC_DIR}" "${CMAKE_BINARY_DIR}/zlib")
 		set(ZLIB_LIBRARY zlib)
-		# Annoyingly zlib also builds some other stuff we aren't interested in
 		set_target_properties(zlib PROPERTIES FOLDER "Libs/zlib")
+		# Annoyingly zlib also builds some other stuff we aren't interested in
 		set_target_properties(zlibstatic PROPERTIES FOLDER "Libs/zlib")
-		set_target_properties(example PROPERTIES FOLDER "Libs/zlib")
-		set_target_properties(minigzip PROPERTIES FOLDER "Libs/zlib")
 	endif()
 	set(PACKAGELIST ${PACKAGELIST} ZLIB)
 endif()

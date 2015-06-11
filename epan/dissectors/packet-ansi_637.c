@@ -407,6 +407,12 @@ text_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
         proto_tree_add_expert(tree, pinfo, &ei_ansi_637_unknown_encoding, tvb, offset, required_octs);
         return;
 
+    case 0x00: /* Octet, unspecified */
+
+        proto_tree_add_string(tree, hf_index, tvb_out, 0, required_octs,
+            tvb_bytes_to_str(wmem_packet_scope(), tvb_out, 0, required_octs));
+        break;
+
     case 0x02: /* 7-bit ASCII */
 
         offset = 0;
@@ -424,7 +430,7 @@ text_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
         IA5_7BIT_decode(ansi_637_bigbuf, ustr, num_fields);
 
         proto_tree_add_string(tree, hf_index, tvb_out, 0,
-            offset, ansi_637_bigbuf);
+            required_octs, ansi_637_bigbuf);
         break;
 
     case 0x04: /* UNICODE */
@@ -2075,14 +2081,14 @@ trans_param_address(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gui
 
             if (email_addr)
             {
-                proto_tree_add_string_format(tree, hf_ansi_637_trans_addr_param_number, tvb, offset, num_fields - 1,
+                proto_tree_add_string_format(tree, hf_ansi_637_trans_addr_param_number, tvb, offset - 1, num_fields + 1,
                     ansi_637_bigbuf,
                     "Number: %s",
                     ansi_637_bigbuf);
             }
             else
             {
-                proto_tree_add_bytes(tree, hf_ansi_637_trans_bin_addr, tvb, offset, num_fields - 1,
+                proto_tree_add_bytes(tree, hf_ansi_637_trans_bin_addr, tvb, offset - 1, num_fields + 1,
                     (guint8 *) ansi_637_bigbuf);
             }
 
@@ -2162,7 +2168,7 @@ trans_param_address(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gui
             }
             ansi_637_bigbuf[i] = '\0';
 
-            proto_tree_add_string_format(tree, hf_ansi_637_trans_addr_param_number, tvb, offset, num_fields - 1,
+            proto_tree_add_string_format(tree, hf_ansi_637_trans_addr_param_number, tvb, offset - 1, num_fields + 1,
                 ansi_637_bigbuf,
                 "Number: %s",
                 ansi_637_bigbuf);

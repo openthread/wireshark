@@ -118,19 +118,19 @@ static const char *sync_pipe_signame(int);
 
 
 static gboolean sync_pipe_input_cb(gint source, gpointer user_data);
-static int sync_pipe_wait_for_child(int fork_child, gchar **msgp);
+static int sync_pipe_wait_for_child(ws_process_id fork_child, gchar **msgp);
 static void pipe_convert_header(const guchar *header, int header_len, char *indicator, int *block_len);
 static ssize_t pipe_read_block(int pipe_fd, char *indicator, int len, char *msg,
                            char **err_msg);
 
-static void (*fetch_dumpcap_pid)(int) = NULL;
+static void (*fetch_dumpcap_pid)(ws_process_id) = NULL;
 
 
 void
 capture_session_init(capture_session *cap_session, struct _capture_file *cf)
 {
     cap_session->cf                              = cf;
-    cap_session->fork_child                      = -1;               /* invalid process handle */
+    cap_session->fork_child                      = WS_INVALID_PID;   /* invalid process handle */
 #ifdef _WIN32
     cap_session->signal_pipe_write_fd            = -1;
 #endif
@@ -396,7 +396,7 @@ sync_pipe_start(capture_options *capture_opts, capture_session *cap_session, voi
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_DEBUG, "sync_pipe_start");
     capture_opts_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_DEBUG, capture_opts);
 
-    cap_session->fork_child = -1;
+    cap_session->fork_child = WS_INVALID_PID;
 
 #ifdef HAVE_EXTCAP
     if (!extcaps_init_initerfaces(capture_opts)) {
@@ -659,15 +659,15 @@ sync_pipe_start(capture_options *capture_opts, capture_session *cap_session, voi
         g_free( (gpointer) argv);
         return FALSE;
     }
-    cap_session->fork_child = (int) pi.hProcess;
+    cap_session->fork_child = pi.hProcess;
     g_string_free(args, TRUE);
 
     /* associate the operating system filehandle to a C run-time file handle */
     /* (good file handle infos at: http://www.flounder.com/handles.htm) */
-    sync_pipe_read_fd = _open_osfhandle( (long) sync_pipe_read, _O_BINARY);
+    sync_pipe_read_fd = _open_osfhandle( (intptr_t) sync_pipe_read, _O_BINARY);
 
     /* associate the operating system filehandle to a C run-time file handle */
-    cap_session->signal_pipe_write_fd = _open_osfhandle( (long) signal_pipe, _O_BINARY);
+    cap_session->signal_pipe_write_fd = _open_osfhandle( (intptr_t) signal_pipe, _O_BINARY);
 
 #else /* _WIN32 */
     if (pipe(sync_pipe) < 0) {
@@ -726,7 +726,7 @@ sync_pipe_start(capture_options *capture_opts, capture_session *cap_session, voi
     ws_close(sync_pipe[PIPE_WRITE]);
 #endif
 
-    if (cap_session->fork_child == -1) {
+    if (cap_session->fork_child == WS_INVALID_PID) {
         /* We couldn't even create the child process. */
         report_failure("Couldn't create child process: %s", g_strerror(errno));
         ws_close(sync_pipe_read_fd);
@@ -771,7 +771,7 @@ sync_pipe_start(capture_options *capture_opts, capture_session *cap_session, voi
 #define PIPE_BUF_SIZE 5120
 static int
 sync_pipe_open_command(char** argv, int *data_read_fd,
-                       int *message_read_fd, int *fork_child, gchar **msg, void(*update_cb)(void))
+                       int *message_read_fd, ws_process_id *fork_child, gchar **msg, void(*update_cb)(void))
 {
     enum PIPES { PIPE_READ, PIPE_WRITE };   /* Constants 0 and 1 for PIPE_READ and PIPE_WRITE */
 #ifdef _WIN32
@@ -788,7 +788,7 @@ sync_pipe_open_command(char** argv, int *data_read_fd,
     int data_pipe[2];                       /* pipe used to send data from child to parent */
 #endif
     int i;
-    *fork_child = -1;
+    *fork_child = WS_INVALID_PID;
     *data_read_fd = -1;
     *message_read_fd = -1;
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_DEBUG, "sync_pipe_open_command");
@@ -875,13 +875,13 @@ sync_pipe_open_command(char** argv, int *data_read_fd,
         g_free( (gpointer) argv);
         return -1;
     }
-    *fork_child = (int) pi.hProcess;
+    *fork_child = pi.hProcess;
     g_string_free(args, TRUE);
 
     /* associate the operating system filehandles to C run-time file handles */
     /* (good file handle infos at: http://www.flounder.com/handles.htm) */
-    *data_read_fd = _open_osfhandle( (long) data_pipe[PIPE_READ], _O_BINARY);
-    *message_read_fd = _open_osfhandle( (long) sync_pipe[PIPE_READ], _O_BINARY);
+    *data_read_fd = _open_osfhandle( (intptr_t) data_pipe[PIPE_READ], _O_BINARY);
+    *message_read_fd = _open_osfhandle( (intptr_t) sync_pipe[PIPE_READ], _O_BINARY);
 #else /* _WIN32 */
     /* Create a pipe for the child process to send us messages */
     if (pipe(sync_pipe) < 0) {
@@ -960,7 +960,7 @@ sync_pipe_open_command(char** argv, int *data_read_fd,
     ws_close(sync_pipe[PIPE_WRITE]);
 #endif
 
-    if (*fork_child == -1) {
+    if (*fork_child == WS_INVALID_PID) {
         /* We couldn't even create the child process. */
         *msg = g_strdup_printf("Couldn't create child process: %s", g_strerror(errno));
         ws_close(*data_read_fd);
@@ -983,7 +983,7 @@ sync_pipe_open_command(char** argv, int *data_read_fd,
  */
 static int
 sync_pipe_close_command(int *data_read_fd, int *message_read_fd,
-                        int *fork_child, gchar **msgp)
+	ws_process_id *fork_child, gchar **msgp)
 {
     ws_close(*data_read_fd);
     if (message_read_fd != NULL)
@@ -1017,7 +1017,8 @@ sync_pipe_run_command_actual(char** argv, gchar **data, gchar **primary_msg,
                       gchar **secondary_msg,  void(*update_cb)(void))
 {
     gchar *msg;
-    int data_pipe_read_fd, sync_pipe_read_fd, fork_child, ret;
+    int data_pipe_read_fd, sync_pipe_read_fd, ret;
+    ws_process_id fork_child;
     char *wait_msg;
     gchar buffer[PIPE_BUF_SIZE+1] = {0};
     ssize_t nread;
@@ -1362,7 +1363,7 @@ sync_if_capabilities_open(const gchar *ifname, gboolean monitor_mode,
  * that must be g_free()d, and -1 will be returned.
  */
 int
-sync_interface_stats_open(int *data_read_fd, int *fork_child, gchar **msg, void (*update_cb)(void))
+sync_interface_stats_open(int *data_read_fd, ws_process_id *fork_child, gchar **msg, void (*update_cb)(void))
 {
     int argc;
     char **argv;
@@ -1514,7 +1515,7 @@ sync_interface_stats_open(int *data_read_fd, int *fork_child, gchar **msg, void 
 
 /* Close down the stats process */
 int
-sync_interface_stats_close(int *read_fd, int *fork_child, gchar **msg)
+sync_interface_stats_close(int *read_fd, ws_process_id *fork_child, gchar **msg)
 {
 #ifndef _WIN32
     /*
@@ -1774,7 +1775,7 @@ sync_pipe_input_cb(gint source, gpointer user_data)
         }
 
         /* No more child process. */
-        cap_session->fork_child = -1;
+        cap_session->fork_child = WS_INVALID_PID;
         cap_session->fork_child_status = ret;
 
 #ifdef _WIN32
@@ -1868,7 +1869,7 @@ sync_pipe_input_cb(gint source, gpointer user_data)
  * must be freed with g_free().
  */
 static int
-sync_pipe_wait_for_child(int fork_child, gchar **msgp)
+sync_pipe_wait_for_child(ws_process_id fork_child, gchar **msgp)
 {
     int fork_child_status;
 #ifndef _WIN32
@@ -1886,11 +1887,11 @@ sync_pipe_wait_for_child(int fork_child, gchar **msgp)
     g_get_current_time(&start_time);
 
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_DEBUG, "sync_pipe_wait_for_child: wait till child closed");
-    g_assert(fork_child != -1);
+    g_assert(fork_child != WS_INVALID_PID);
 
     *msgp = NULL; /* assume no error */
 #ifdef _WIN32
-    if (_cwait(&fork_child_status, fork_child, _WAIT_CHILD) == -1) {
+    if (_cwait(&fork_child_status, (intptr_t) fork_child, _WAIT_CHILD) == -1) {
         *msgp = g_strdup_printf("Error from cwait(): %s", g_strerror(errno));
         ret = -1;
     } else {
@@ -2100,7 +2101,7 @@ sync_pipe_stop(capture_session *cap_session)
     DWORD childstatus;
     gboolean terminate = TRUE;
 #endif
-    if (cap_session->fork_child != -1) {
+    if (cap_session->fork_child != WS_INVALID_PID) {
 #ifndef _WIN32
         /* send the SIGINT signal to close the capture child gracefully. */
         int sts = kill(cap_session->fork_child, SIGINT);
@@ -2139,9 +2140,9 @@ sync_pipe_stop(capture_session *cap_session)
 
 /* Wireshark has to exit, force the capture child to close */
 void
-sync_pipe_kill(int fork_child)
+sync_pipe_kill(ws_process_id fork_child)
 {
-    if (fork_child != -1) {
+    if (fork_child != WS_INVALID_PID) {
 #ifndef _WIN32
         int sts = kill(fork_child, SIGTERM);    /* SIGTERM so it can clean up if necessary */
         if (sts != 0) {
@@ -2173,7 +2174,7 @@ sync_pipe_kill(int fork_child)
     }
 }
 
-void capture_sync_set_fetch_dumpcap_pid_cb(void(*cb)(int pid)) {
+void capture_sync_set_fetch_dumpcap_pid_cb(void(*cb)(ws_process_id pid)) {
     fetch_dumpcap_pid = cb;
 }
 

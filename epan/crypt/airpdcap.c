@@ -1129,7 +1129,7 @@ AirPDcapWepMng(
             sa->key=tmp_key;
 
             if (key!=NULL) {
-                memcpy(key, &sa->key, sizeof(AIRPDCAP_KEY_ITEM));
+                memcpy(key, sa->key, sizeof(AIRPDCAP_KEY_ITEM));
                 key->KeyType=AIRPDCAP_KEY_TYPE_WEP;
             }
 
@@ -1324,7 +1324,7 @@ AirPDcapRsna4WHandshake(
                         sa->key=tmp_key;
 
                         if (key!=NULL) {
-                            memcpy(key, &tmp_key, sizeof(AIRPDCAP_KEY_ITEM));
+                            memcpy(key, tmp_key, sizeof(AIRPDCAP_KEY_ITEM));
                             if (AIRPDCAP_EAP_KEY_DESCR_VER(data[offset+1])==AIRPDCAP_WPA_KEY_VER_NOT_CCMP)
                                 key->KeyType=AIRPDCAP_KEY_TYPE_TKIP;
                             else if (AIRPDCAP_EAP_KEY_DESCR_VER(data[offset+1])==AIRPDCAP_WPA_KEY_VER_AES_CCMP)

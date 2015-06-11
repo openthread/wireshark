@@ -140,6 +140,8 @@ compiled_filter_output.cpp compiled_filter_output.h: ui_compiled_filter_output.h
 
 decode_as_dialog.cpp decode_as_dialog.h: ui_decode_as_dialog.h
 
+display_filter_expression_dialog.cpp display_filter_expression_dialog.h: ui_display_filter_expression_dialog.h
+
 expert_info_dialog.cpp expert_info_dialog.h: ui_expert_info_dialog.h
 
 export_object_dialog.cpp export_object_dialog.h: ui_export_object_dialog.h
@@ -149,6 +151,8 @@ export_pdu_dialog.cpp export_pdu_dialog.h: ui_export_pdu_dialog.h
 extcap_options_dialog.cpp extcap_options_dialog.h: ui_extcap_options_dialog.h
 
 file_set_dialog.cpp file_set_dialog.h: ui_file_set_dialog.h
+
+filter_dialog.cpp filter_dialog.h: ui_filter_dialog.h
 
 filter_expressions_preferences_frame.cpp filter_expressions_preferences_frame.h: ui_filter_expressions_preferences_frame.h
 
@@ -220,7 +224,7 @@ sctp_graph_byte_dialog.cpp sctp_graph_byte_dialog.h: ui_sctp_graph_byte_dialog.h
 
 splash_overlay.cpp splash_overlay.h: ui_splash_overlay.h
 
-stats_tree_dialog.cpp stats_tree_dialog.h: ui_stats_tree_dialog.h
+tap_parameter_dialog.cpp tap_parameter_dialog.h: ui_tap_parameter_dialog.h
 
 tcp_stream_dialog.cpp: ui_tcp_stream_dialog.h
 
