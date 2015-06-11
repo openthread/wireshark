@@ -85,6 +85,8 @@ static expert_field ei_coap_invalid_option_number = EI_INIT;
 static expert_field ei_coap_invalid_option_range  = EI_INIT;
 static expert_field ei_coap_option_length_bad	  = EI_INIT;
 
+#define MAX_COAP_PORTS 4
+
 /* CoAP's IANA-assigned port number */
 #define DEFAULT_COAP_PORT	5683
 
@@ -92,7 +94,7 @@ static expert_field ei_coap_option_length_bad	  = EI_INIT;
 #define DEFAULT_COAP_CTYPE_VALUE	~0U
 #define DEFAULT_COAP_BLOCK_NUMBER	~0U
 
-static guint global_coap_port_number = DEFAULT_COAP_PORT;
+static guint global_coap_port_number[MAX_COAP_PORTS] = { DEFAULT_COAP_PORT };
 
 /*
  * Transaction Type
@@ -1128,7 +1130,19 @@ proto_register_coap(void)
 	prefs_register_uint_preference (coap_module, "udp_port",
 					"CoAP port number",
 					"Port number used for CoAP traffic",
-					10, &global_coap_port_number);
+					10, &global_coap_port_number[0]);
+	prefs_register_uint_preference (coap_module, "udp_port_a1",
+					"Additional CoAP port number (1)",
+					"Additional port number (1) used for CoAP traffic",
+					10, &global_coap_port_number[1]);
+	prefs_register_uint_preference (coap_module, "udp_port_a2",
+					"Additional CoAP port number (2)",
+					"Additional port number (2) used for CoAP traffic",
+					10, &global_coap_port_number[2]);
+	prefs_register_uint_preference (coap_module, "udp_port_a3",
+					"Additional CoAP port number (3)",
+					"Additional port number (3) used for CoAP traffic",
+					10, &global_coap_port_number[3]);
 }
 
 void
@@ -1136,20 +1150,25 @@ proto_reg_handoff_coap(void)
 {
 	static gboolean coap_prefs_initialized = FALSE;
 	static dissector_handle_t coap_handle;
-	static guint coap_port_number;
+	static guint coap_port_number[MAX_COAP_PORTS];
+    guint i;
 
 	if (!coap_prefs_initialized) {
 		coap_handle = find_dissector("coap");
 		media_type_dissector_table = find_dissector_table("media_type");
 		coap_prefs_initialized = TRUE;
 	} else {
-		dissector_delete_uint("udp.port", coap_port_number, coap_handle);
-		dissector_delete_uint("tcp.port", coap_port_number, coap_handle);
+        for (i = 0; i < MAX_COAP_PORTS; i++) {
+            dissector_delete_uint("udp.port", coap_port_number[i], coap_handle);
+            dissector_delete_uint("tcp.port", coap_port_number[i], coap_handle);
+        }
 	}
 
-	coap_port_number = global_coap_port_number;
-	dissector_add_uint("udp.port", coap_port_number, coap_handle);
-	dissector_add_uint("tcp.port", coap_port_number, coap_handle);
+    for (i = 0; i < MAX_COAP_PORTS; i++) {
+        coap_port_number[i] = global_coap_port_number[i];
+        dissector_add_uint("udp.port", coap_port_number[i], coap_handle);
+        dissector_add_uint("tcp.port", coap_port_number[i], coap_handle);
+    }
 }
 
 /*
