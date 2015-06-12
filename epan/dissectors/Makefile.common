@@ -1243,6 +1243,7 @@ DISSECTOR_SRC = \
 	packet-tftp.c		\
 	packet-thread-address.c		\
 	packet-thread-coap.c		\
+	packet-thread-diagnostic.c		\
 	packet-thread-meshcop.c		\
 	packet-thread-nwd.c		\
 	packet-thrift.c		\

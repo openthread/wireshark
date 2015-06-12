@@ -52,13 +52,14 @@ static dissector_handle_t thread_coap_handle;
 static dissector_handle_t thread_nwd_handle;
 static dissector_handle_t thread_meshcop_handle;
 static dissector_handle_t thread_address_handle;
+static dissector_handle_t thread_diagnostic_handle;
 
 typedef enum {
-    THREAD_COAP_URI_UNKNOWN,   /* URI without "/tn" at beginning */
-    THREAD_COAP_URI_THREAD,    /* "/tn/..." */
-    THREAD_COAP_URI_NWD,       /* "/tn/nd/..." */
-    THREAD_COAP_URI_MESHCOP,   /* "/tn/mc/..." */
-    THREAD_COAP_URI_ADDRESS,   /* "/tn/d/..."  */
+    THREAD_COAP_URI_THREAD,     /* "..." */
+    THREAD_COAP_URI_NWD,        /* "/n/..." */
+    THREAD_COAP_URI_MESHCOP,    /* "/c/..." */
+    THREAD_COAP_URI_ADDRESS,    /* "/a/..."  */
+    THREAD_COAP_URI_DIAGNOSTIC  /* "/d/..."  */
 } thread_coap_uri_type;
 
 static void
@@ -72,30 +73,26 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     coinfo = (coap_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_get_id_by_filter_name("coap"), 0);
     uri = (gchar *)wmem_strbuf_get_str(coinfo->uri_str_strbuf);
     
-    uri_type = THREAD_COAP_URI_UNKNOWN;
+    uri_type = THREAD_COAP_URI_THREAD;
     for (tok = strtok(uri, "/"); tok; tok = strtok(NULL, "/")) {
-        if (THREAD_COAP_URI_UNKNOWN == uri_type) {
-            if (strcmp ("tn", tok) == 0) {
-                uri_type = THREAD_COAP_URI_THREAD;
-            } else {
-                break; /* Give up trying to decode */
-            }
-        }
-        else if (THREAD_COAP_URI_THREAD == uri_type) {
-            if (strcmp ("nd", tok) == 0) {
+        if (THREAD_COAP_URI_THREAD == uri_type) {
+            if (strcmp ("n", tok) == 0) {
                 uri_type = THREAD_COAP_URI_NWD;
             }
-            else if (strcmp ("mc", tok) == 0) {
+            else if (strcmp ("c", tok) == 0) {
                 uri_type = THREAD_COAP_URI_MESHCOP;
             }
-            else if (strcmp ("d", tok) == 0) {
+            else if (strcmp ("a", tok) == 0) {
                 uri_type = THREAD_COAP_URI_ADDRESS;
+            }
+            else if (strcmp ("d", tok) == 0) {
+                uri_type = THREAD_COAP_URI_DIAGNOSTIC;
             }
             break; /* Done at the second token */
         }
     }
     
-    if ((THREAD_COAP_URI_UNKNOWN == uri_type) || (THREAD_COAP_URI_THREAD == uri_type)) {
+    if (THREAD_COAP_URI_THREAD == uri_type) {
         /* Not enough to go on */
         return;
     }
@@ -106,12 +103,13 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         call_dissector(thread_nwd_handle, tvb, pinfo, tree);
         break;
     case THREAD_COAP_URI_MESHCOP:
-        /* TODO */
         call_dissector(thread_meshcop_handle, tvb, pinfo, tree);
         break;
     case THREAD_COAP_URI_ADDRESS:
-        /* TODO */
         call_dissector(thread_address_handle, tvb, pinfo, tree);
+        break;
+    case THREAD_COAP_URI_DIAGNOSTIC:
+        call_dissector(thread_diagnostic_handle, tvb, pinfo, tree);
         break;
     default:
         break;
@@ -146,6 +144,7 @@ proto_reg_handoff_thread_coap(void)
     thread_nwd_handle = find_dissector("thread_nwd");
     thread_meshcop_handle = find_dissector("thread_meshcop");
     thread_address_handle = find_dissector("thread_address");
+    thread_diagnostic_handle = find_dissector("thread_diagnostic");
     thread_coap_initialized = TRUE;
   }
   

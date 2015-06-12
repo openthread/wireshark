@@ -2792,7 +2792,6 @@ proto_register_6lowpan(void)
     module_t    *prefs_module;
     expert_module_t* expert_6lowpan;
 
-	/* RCC 20141211: Moved lowpan_context_table initialization to here */
     lowpan_context_table = g_hash_table_new_full(lowpan_context_hash, lowpan_context_equal, lowpan_context_free, lowpan_context_free);
 
     proto_6lowpan = proto_register_protocol("IPv6 over IEEE 802.15.4", "6LoWPAN", "6lowpan");
@@ -2846,7 +2845,6 @@ proto_init_6lowpan(void)
     reassembly_table_init(&lowpan_reassembly_table,
                           &addresses_reassembly_table_functions);
 
-    /* RCC 20141211: Removed lowpan_context_table initialisation from here */
     /* Initialize the link-local context. */
     lowpan_context_local.frame = 0;
     lowpan_context_local.plen = LOWPAN_CONTEXT_LINK_LOCAL_BITS;

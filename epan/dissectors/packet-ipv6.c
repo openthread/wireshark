@@ -309,7 +309,8 @@ static int hf_geoip_dst_lon             = -1;
 
 static gint ett_ipv6                    = -1;
 static gint ett_ipv6_opt                = -1;
-static gint ett_ipv6_opt_flag           = -1;
+static gint ett_ipv6_opt_rpl            = -1;
+static gint ett_ipv6_opt_mpl            = -1;
 static gint ett_ipv6_version            = -1;
 static gint ett_ipv6_shim6              = -1;
 static gint ett_ipv6_shim6_option       = -1;
@@ -1236,21 +1237,21 @@ dissect_opts(tvbuff_t *tvb, int offset, proto_tree *tree, packet_info * pinfo, c
             break;
             case IP6OPT_RPL:
             {
-                proto_tree *flag_tree;
-                proto_item *ti_flag;
+                static const int * rpl_flags[] = {
+                    &hf_ipv6_opt_rpl_flag_o,
+                    &hf_ipv6_opt_rpl_flag_r,
+                    &hf_ipv6_opt_rpl_flag_f,
+                    &hf_ipv6_opt_rpl_flag_rsv,
+                    NULL
+                };
 
-                ti_flag = proto_tree_add_item(opt_tree, hf_ipv6_opt_rpl_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
-                flag_tree = proto_item_add_subtree(ti_flag, ett_ipv6_opt_flag);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_flag_o, tvb, offset, 1, ENC_BIG_ENDIAN);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_flag_r, tvb, offset, 1, ENC_BIG_ENDIAN);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_flag_f, tvb, offset, 1, ENC_BIG_ENDIAN);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_flag_rsv, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_bitmask(opt_tree, tvb, offset, hf_ipv6_opt_rpl_flag, ett_ipv6_opt_rpl, rpl_flags, ENC_NA);
                 offset +=1;
 
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_instance_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(opt_tree, hf_ipv6_opt_rpl_instance_id, tvb, offset, 1, ENC_BIG_ENDIAN);
                 offset +=1;
 
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_rpl_senderrank, tvb, offset, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(opt_tree, hf_ipv6_opt_rpl_senderrank, tvb, offset, 2, ENC_BIG_ENDIAN);
                 offset +=2;
 
                 /* TODO: Add dissector of sub TLV */
@@ -1258,28 +1259,26 @@ dissect_opts(tvbuff_t *tvb, int offset, proto_tree *tree, packet_info * pinfo, c
             break;
             case IP6OPT_MPL:
             {
-                proto_tree *flag_tree;
-                proto_item *ti_flag;
+                static const int * mpl_flags[] = {
+                    &hf_ipv6_opt_mpl_flag_s,
+                    &hf_ipv6_opt_mpl_flag_m,
+                    &hf_ipv6_opt_mpl_flag_v,
+                    &hf_ipv6_opt_mpl_flag_rsv,
+                    NULL
+                };
                 static const guint8 seed_id_len_arr[4] = {0, 2, 8, 16};
                 guint8 seed_id_len;
 
-                ti_flag = proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
-                flag_tree = proto_item_add_subtree(ti_flag, ett_ipv6_opt_flag);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_s, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_bitmask(opt_tree, tvb, offset, hf_ipv6_opt_mpl_flag, ett_ipv6_opt_mpl, mpl_flags, ENC_NA);
                 seed_id_len = seed_id_len_arr[tvb_get_guint8(tvb, offset) >> 6];
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_m, tvb, offset, 1, ENC_BIG_ENDIAN);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_v, tvb, offset, 1, ENC_BIG_ENDIAN);
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_flag_rsv, tvb, offset, 1, ENC_BIG_ENDIAN);
                 offset +=1;
 
-                proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_sequence, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_sequence, tvb, offset, 1, ENC_BIG_ENDIAN);
                 offset +=1;
                 if (seed_id_len > 0) {
-                    proto_tree_add_item(flag_tree, hf_ipv6_opt_mpl_seed_id, tvb, offset, seed_id_len, ENC_BIG_ENDIAN);
+                    proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_seed_id, tvb, offset, seed_id_len, ENC_BIG_ENDIAN);
                     offset +=seed_id_len;
                 }
-
-                /* TODO: Add dissector of sub TLV */
             }
             break;
             case IP6OPT_EXP_1E:
@@ -2998,7 +2997,8 @@ proto_register_ipv6(void)
     static gint *ett[] = {
         &ett_ipv6,
         &ett_ipv6_opt,
-        &ett_ipv6_opt_flag,
+        &ett_ipv6_opt_rpl,
+        &ett_ipv6_opt_mpl,
         &ett_ipv6_version,
         &ett_ipv6_shim6,
         &ett_ipv6_shim6_option,
