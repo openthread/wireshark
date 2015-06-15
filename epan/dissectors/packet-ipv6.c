@@ -1248,7 +1248,7 @@ dissect_opts(tvbuff_t *tvb, int offset, proto_tree *tree, packet_info * pinfo, c
                 proto_tree_add_bitmask(opt_tree, tvb, offset, hf_ipv6_opt_rpl_flag, ett_ipv6_opt_rpl, rpl_flags, ENC_NA);
                 offset +=1;
 
-                proto_tree_add_item(opt_tree, hf_ipv6_opt_rpl_instance_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(opt_tree, hf_ipv6_opt_rpl_instance_id, tvb, offset, 1, ENC_NA);
                 offset +=1;
 
                 proto_tree_add_item(opt_tree, hf_ipv6_opt_rpl_senderrank, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -1273,10 +1273,10 @@ dissect_opts(tvbuff_t *tvb, int offset, proto_tree *tree, packet_info * pinfo, c
                 seed_id_len = seed_id_len_arr[tvb_get_guint8(tvb, offset) >> 6];
                 offset +=1;
 
-                proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_sequence, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_sequence, tvb, offset, 1, ENC_NA);
                 offset +=1;
                 if (seed_id_len > 0) {
-                    proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_seed_id, tvb, offset, seed_id_len, ENC_BIG_ENDIAN);
+                    proto_tree_add_item(opt_tree, hf_ipv6_opt_mpl_seed_id, tvb, offset, seed_id_len, ENC_NA);
                     offset +=seed_id_len;
                 }
             }
