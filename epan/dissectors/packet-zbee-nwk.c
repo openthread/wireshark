@@ -1732,22 +1732,37 @@ static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
     offset++;    
     
-    switch (tlv_type) {
-        case THREAD_BEACON_TLV_STEERING_DATA:
-            if (tree) {
-                proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_steering_data_s, tvb, offset, 1, FALSE);
-                proto_tree_add_bits_item(tlv_tree, hf_thread_beacon_tlv_steering_data_bloom, tvb, (offset << 3) + 1, (tlv_len << 3) - 1, FALSE);
-            }
-            offset += tlv_len;     
-            break;
-        default:
-            if (tree) {
-                proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_unknown, tvb, offset, tlv_len, FALSE);
-            }
-            offset += tlv_len;     
-            break;
-    }
-    
+    if (tlv_len) { /* Belt 'n' braces check */
+        switch (tlv_type) {
+            case THREAD_BEACON_TLV_STEERING_DATA:
+                if (tree) {
+                    guint8 *bloom;
+                    guint8  i, data1, data2;
+                    
+                    proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_steering_data_s, tvb, offset, 1, FALSE);
+                    bloom = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, offset, tlv_len);
+                    /* Fiddle the bloom data to shift it by 1 */
+                    for (i = 0; i < tlv_len; i++) {
+                        data1 = bloom[i];
+                        if (i < (tlv_len - 1)) {
+                            data2 = bloom[i + 1];
+                        } else {
+                            data2 = 0;
+                        }
+                        bloom[i] = (data1 << 1) | (data2 >> 7);
+                    }
+                    proto_tree_add_bytes(tlv_tree, hf_thread_beacon_tlv_steering_data_bloom, tvb, offset, tlv_len, bloom);
+                }
+                offset += tlv_len;     
+                break;
+            default:
+                if (tree) {
+                    proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                }
+                offset += tlv_len;     
+                break;
+        }
+    }    
     return tvb_captured_length(tvb);
 } /* dissect_thread_beacon */
 
@@ -2136,15 +2151,15 @@ void proto_register_zbee_nwk(void)
                 "Length of Value", HFILL }},
                 
             { &hf_thread_beacon_tlv_steering_data_s,
-            { "Steering Data S",      "thread_beacon.tlv.steering_data.s", FT_BOOLEAN, 8, NULL, THREAD_BEACON_TLV_STEERING_DATA_S,
+            { "S",                    "thread_beacon.tlv.steering_data.s", FT_BOOLEAN, 8, NULL, THREAD_BEACON_TLV_STEERING_DATA_S,
                 "0: Derived from EUI-64, 1: Derived from bottom 24-bits of EUI-64", HFILL }},
                 
             { &hf_thread_beacon_tlv_steering_data_bloom,
-            { "Steering Data Bloom Filter",         "thread_beacon.tlv.steering_data.bloom", FT_BYTES, BASE_NONE, NULL, 0x0,
+            { "Bloom Filter",         "thread_beacon.tlv.steering_data.bloom", FT_BYTES, BASE_NONE, NULL, 0x0,
                 "Bloom filter representation of joining devices", HFILL }},
                 
             { &hf_thread_beacon_tlv_unknown,
-            { "Unknown",               "thread_beacon.tlv.unknown", FT_BYTES, BASE_NONE, NULL, 0x0,
+            { "Unknown",              "thread_beacon.tlv.unknown", FT_BYTES, BASE_NONE, NULL, 0x0,
                "Unknown TLV, raw value", HFILL }},
     };
 
@@ -2159,7 +2174,8 @@ void proto_register_zbee_nwk(void)
         &ett_zbee_nwk_cmd,
         &ett_zbee_nwk_cmd_options,
         &ett_zbee_nwk_cmd_cinfo,
-        &ett_zbee_nwk_cmd_link
+        &ett_zbee_nwk_cmd_link,
+        &ett_thread_beacon_tlv
     };
 
     static ei_register_info ei[] = {
