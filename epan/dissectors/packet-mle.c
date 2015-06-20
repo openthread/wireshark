@@ -201,20 +201,22 @@ static const value_string mle_key_id_mode_names[] = {
     { 0, NULL }
 };
 
-#define MLE_CMD_REQUEST           0
-#define MLE_CMD_ACCEPT            1
-#define MLE_CMD_ACCEPTREQ         2
-#define MLE_CMD_REJECT            3
-#define MLE_CMD_ADVERTISE         4
-#define MLE_CMD_UPDATE            5
-#define MLE_CMD_UPDATE_REQUEST    6
+#define MLE_CMD_REQUEST               0
+#define MLE_CMD_ACCEPT                1
+#define MLE_CMD_ACCEPTREQ             2
+#define MLE_CMD_REJECT                3
+#define MLE_CMD_ADVERTISE             4
+#define MLE_CMD_UPDATE                5
+#define MLE_CMD_UPDATE_REQUEST        6
 #ifdef THREAD_EXTENSIONS
-#define MLE_CMD_DATA_REQUEST      7
-#define MLE_CMD_DATA_RESPONSE     8
-#define MLE_CMD_PARENT_REQUEST    9
-#define MLE_CMD_PARENT_RESPONSE   10
-#define MLE_CMD_CHILD_ID_REQUEST  11
-#define MLE_CMD_CHILD_ID_RESPONSE 12
+#define MLE_CMD_DATA_REQUEST          7
+#define MLE_CMD_DATA_RESPONSE         8
+#define MLE_CMD_PARENT_REQUEST        9
+#define MLE_CMD_PARENT_RESPONSE       10
+#define MLE_CMD_CHILD_ID_REQUEST      11
+#define MLE_CMD_CHILD_ID_RESPONSE     12
+#define MLE_CMD_CHILD_UPDATE_REQUEST  13
+#define MLE_CMD_CHILD_UPDATE_RESPONSE 14
 #endif // THREAD_EXTENSIONS
 
 static const value_string mle_command_vals[] = {
@@ -231,7 +233,9 @@ static const value_string mle_command_vals[] = {
 { MLE_CMD_PARENT_REQUEST,           "Parent Request" },
 { MLE_CMD_PARENT_RESPONSE,          "Parent Response" },
 { MLE_CMD_CHILD_ID_REQUEST,         "Child ID Request" },
-{ MLE_CMD_CHILD_ID_RESPONSE,        "Child ID Response" } };
+{ MLE_CMD_CHILD_ID_RESPONSE,        "Child ID Response" },
+{ MLE_CMD_CHILD_UPDATE_REQUEST,     "Child Update Request" },
+{ MLE_CMD_CHILD_UPDATE_RESPONSE,    "Child Update Response" } };
 #else // !THREAD_EXTENSIONS
 { MLE_CMD_UPDATE_REQUEST,           "Update Request" } };
 #endif // !THREAD_EXTENSIONS
@@ -1406,22 +1410,11 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             case MLE_TLV_NETWORK_DATA:
                 {
                     tvbuff_t *sub_tvb;
-#if 0
-                    proto_tree *thread_nwd_tree;
-
-                    proto_item_append_text(ti, ")");
-                    ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_network_data, payload_tvb, offset, tlv_len, FALSE);
-                    thread_nwd_tree = proto_item_add_subtree(ti, ett_mle_thread_nwd);
-
-                    sub_tvb = tvb_new_subset_length(payload_tvb, offset, tlv_len);
-                    call_dissector(thread_nwd_handle, sub_tvb, pinfo, thread_nwd_tree);
-#else
                     proto_item_append_text(ti, ")");
                     if (tlv_len > 0) {
                         sub_tvb = tvb_new_subset_length(payload_tvb, offset, tlv_len);
                         call_dissector(thread_nwd_handle, sub_tvb, pinfo, tlv_tree);
                     }
-#endif    
                     offset += tlv_len;
                 }
                 break;
