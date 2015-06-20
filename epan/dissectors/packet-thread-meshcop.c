@@ -350,6 +350,27 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
                 break;
                 
+            case THREAD_MESHCOP_TLV_NETWORK_NAME:
+            case THREAD_MESHCOP_TLV_COMMISSIONING_CREDENTIAL:
+            case THREAD_MESHCOP_TLV_NETWORK_MASTER_KEY:
+            case THREAD_MESHCOP_TLV_NETWORK_KEY_SEQUENCE:
+            case THREAD_MESHCOP_TLV_NETWORK_ML_ULA:
+            case THREAD_MESHCOP_TLV_STEERING_DATA:
+            case THREAD_MESHCOP_TLV_BORDER_ROUTER_LOCATOR:
+            case THREAD_MESHCOP_TLV_COMMISSIONER_ID:
+            case THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID:
+            case THREAD_MESHCOP_TLV_SECURITY_POLICY:
+            case THREAD_MESHCOP_TLV_GET:
+            case THREAD_MESHCOP_TLV_COMMISSIONING_DATA_TSTAMP:
+            case THREAD_MESHCOP_TLV_JOINER_KEK:
+            case THREAD_MESHCOP_TLV_PROVISIONING_URL:
+            case THREAD_MESHCOP_TLV_VENDOR_NAME:
+            case THREAD_MESHCOP_TLV_VENDOR_MODEL:
+            case THREAD_MESHCOP_TLV_VENDOR_SW_VERSION:
+            case THREAD_MESHCOP_TLV_VENDOR_DATA:
+            case THREAD_MESHCOP_TLV_VENDOR_STACK_VERSION:
+            case THREAD_MESHCOP_TLV_UDP_ENCAPSULATION:
+            case THREAD_MESHCOP_TLV_IPV6_ADDRESS:
             default:                
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);

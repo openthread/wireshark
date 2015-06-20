@@ -167,8 +167,12 @@ static int hf_thread_beacon_epid = -1;
 static int hf_thread_beacon_tlv = -1;
 static int hf_thread_beacon_tlv_type = -1;
 static int hf_thread_beacon_tlv_length = -1;
+#if 1                
+static int hf_thread_beacon_tlv_steering_data = -1;
+#else
 static int hf_thread_beacon_tlv_steering_data_s = -1;
 static int hf_thread_beacon_tlv_steering_data_bloom = -1;
+#endif
 static int hf_thread_beacon_tlv_unknown = -1;
 
 static gint ett_zbee_nwk = -1;
@@ -1736,6 +1740,10 @@ static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
         switch (tlv_type) {
             case THREAD_BEACON_TLV_STEERING_DATA:
                 if (tree) {
+#if 1
+                    /* Display simply */
+                    proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_steering_data, tvb, offset, tlv_len, FALSE);
+#else
                     guint8 *bloom;
                     guint8  i, data1, data2;
                     
@@ -1752,6 +1760,7 @@ static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                         bloom[i] = (data1 << 1) | (data2 >> 7);
                     }
                     proto_tree_add_bytes(tlv_tree, hf_thread_beacon_tlv_steering_data_bloom, tvb, offset, tlv_len, bloom);
+#endif
                 }
                 offset += tlv_len;     
                 break;
@@ -2149,7 +2158,11 @@ void proto_register_zbee_nwk(void)
             { &hf_thread_beacon_tlv_length,
             { "Length",               "thread_beacon.tlv.len", FT_UINT8, BASE_DEC, NULL, 0x0,
                 "Length of Value", HFILL }},
-                
+#if 1                
+            { &hf_thread_beacon_tlv_steering_data,
+            { "Steering Data",         "thread_beacon.tlv.steering_data", FT_BYTES, BASE_NONE, NULL, 0x0,
+                "Steering data", HFILL }},
+#else
             { &hf_thread_beacon_tlv_steering_data_s,
             { "S",                    "thread_beacon.tlv.steering_data.s", FT_BOOLEAN, 8, NULL, THREAD_BEACON_TLV_STEERING_DATA_S,
                 "0: Derived from EUI-64, 1: Derived from bottom 24-bits of EUI-64", HFILL }},
@@ -2157,7 +2170,7 @@ void proto_register_zbee_nwk(void)
             { &hf_thread_beacon_tlv_steering_data_bloom,
             { "Bloom Filter",         "thread_beacon.tlv.steering_data.bloom", FT_BYTES, BASE_NONE, NULL, 0x0,
                 "Bloom filter representation of joining devices", HFILL }},
-                
+#endif            
             { &hf_thread_beacon_tlv_unknown,
             { "Unknown",              "thread_beacon.tlv.unknown", FT_BYTES, BASE_NONE, NULL, 0x0,
                "Unknown TLV, raw value", HFILL }},

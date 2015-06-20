@@ -77,7 +77,8 @@ static int hf_mle_security_level = -1;
 static int hf_mle_key_id_mode = -1;
 static int hf_mle_aux_sec_reserved = -1;
 static int hf_mle_aux_sec_frame_counter = -1;
-static int hf_mle_aux_sec_key_source = -1;
+static int hf_mle_aux_sec_key_source_4 = -1;
+static int hf_mle_aux_sec_key_source_8 = -1;
 static int hf_mle_aux_sec_key_index = -1;
 
 static int hf_mle_mic = -1;
@@ -926,14 +927,14 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             /* Add key source, if it exists. */
             if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
                 packet->key_source.addr32 = tvb_get_ntohl(tvb, offset);
-                proto_tree_add_uint64(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 4, packet->key_source.addr32);
+                proto_tree_add_uint(field_tree, hf_mle_aux_sec_key_source_4, tvb, offset, 4, packet->key_source.addr32);
                 proto_item_set_len(ti, 1 + 4);
                 offset += 4;
             }
         
             if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) {
                 packet->key_source.addr64 = tvb_get_ntoh64(tvb, offset);
-                proto_tree_add_uint64(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 8, packet->key_source.addr64);
+                proto_tree_add_uint64(field_tree, hf_mle_aux_sec_key_source_8, tvb, offset, 8, packet->key_source.addr64);
                 proto_item_set_len(ti, 1 + 8);
                 offset += 8;
             }
@@ -1611,11 +1612,20 @@ proto_register_mle(void)
       }
     },
 
-    { &hf_mle_aux_sec_key_source,
+    { &hf_mle_aux_sec_key_source_4,
       { "Key Source",
         "wpan.aux_sec.key_source",
-        FT_UINT64, BASE_HEX, NULL, 0x0,
-        "Key Source for processing of the protected frame",
+        FT_UINT32, BASE_HEX, NULL, 0x0,
+        "Key Source (4 octet) for processing of the protected frame",
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_key_source_8,
+      { "Key Source",
+        "wpan.aux_sec.key_source",
+        FT_UINT32, BASE_HEX, NULL, 0x0,
+        "Key Source (8 octet) for processing of the protected frame",
         HFILL
       }
     },

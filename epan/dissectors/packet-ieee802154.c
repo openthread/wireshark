@@ -103,7 +103,7 @@ static gboolean ieee802154_cc24xx = FALSE;
 /* boolean value set if the FCS must be ok before payload is dissected */
 static gboolean ieee802154_fcs_ok = TRUE;
 
-#define NUM_KEYS 3
+#define NUM_KEYS 1
 
 /* User string with the decryption key. */
 static const gchar *ieee802154_pref_key_str[NUM_KEYS] = {NULL};
@@ -2295,7 +2295,7 @@ gboolean ieee802154_long_addr_equal(gconstpointer a, gconstpointer b)
 }
 
 static void
-ieee802154_create_thread_temp_keys(guint32 key_source)
+ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes)
 {
     GByteArray *bytes;
     char       buffer[10];
@@ -2315,11 +2315,7 @@ ieee802154_create_thread_temp_keys(guint32 key_source)
             if (err == 0) {
                 gcry_md_setkey(md_hd, bytes->data, IEEE802154_CIPHER_SIZE);
                 if (ieee802154_key_hash_val == KEY_HASH_THREAD) {
-                    /* TODO endianness check */
-                    buffer[0] = (key_source >> 24) & 0xFF;
-                    buffer[1] = (key_source >> 16) & 0xFF;
-                    buffer[2] = (key_source >> 8) & 0xFF;
-                    buffer[3] = key_source & 0xFF;
+                    memcpy(buffer, seq_ctr_bytes->data, 4);
                     memcpy(&buffer[4], "Thread", 6); /* len("Thread") */
                     gcry_md_write(md_hd, buffer, 10);
                 }
@@ -2363,18 +2359,38 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key)
             (packet->key_index == ieee802154_key_index[i]))
         {
             memcpy(key, ieee802154_mle_key[i], IEEE802154_CIPHER_SIZE);
-            break;
+            return TRUE;
         }
     }
     if (i == NUM_KEYS) {
-        if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
-            /* Reconstruct the current key using key source as sequence counter */
-            ieee802154_create_thread_temp_keys(packet->key_source.addr32);
-            memcpy(key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
+        GByteArray *seq_ctr_bytes = NULL;;
+        gboolean   res;
+
+        if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
+            seq_ctr_bytes = g_byte_array_new();
+            res = hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str[i], seq_ctr_bytes, FALSE);
+            if (seq_ctr_bytes->len > 4) {
+                seq_ctr_bytes->len = 4;
+            }
+            seq_ctr_bytes->data[0] = seq_ctr_bytes->data[0] & 0x80 + (packet->key_index - 1);
         }
-        return FALSE;
+        else if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
+            /* Reconstruct the key source from the key source in the packet */
+            seq_ctr_bytes = g_byte_array_new();
+            g_byte_array_set_size(seq_ctr_bytes, 4);
+            seq_ctr_bytes->data[0] = (packet->key_source.addr32 >> 24) & 0xFF;
+            seq_ctr_bytes->data[1] = (packet->key_source.addr32 >> 16) & 0xFF;
+            seq_ctr_bytes->data[2] = (packet->key_source.addr32 >> 8) & 0xFF;
+            seq_ctr_bytes->data[3] = packet->key_source.addr32 & 0xFF;
+        }
+        if (seq_ctr_bytes != NULL) {
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            memcpy(key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
+            g_byte_array_free(seq_ctr_bytes, TRUE);
+            return TRUE;
+        }
     }
-    return TRUE;
+    return FALSE;
 }
 
 /*FUNCTION:------------------------------------------------------
