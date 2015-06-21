@@ -115,7 +115,10 @@ static const gchar *ieee802154_pref_hash_key_str[NUM_KEYS] = {NULL};
 static gint ieee802154_key_hash_val = KEY_HASH_NONE;
 #endif
 #ifdef THREAD_HASHED_KEY
+static gboolean ieee802154_pref_auto_acq_thr_seq_ctr = TRUE;
 static const gchar *ieee802154_pref_thr_seq_ctr_str = NULL;
+static gboolean ieee802154_thr_seq_ctr_acqd = FALSE;
+static guint8 ieee802154_thr_seq_ctr_bytes[4];
 #endif
 static gboolean     ieee802154_key_valid[NUM_KEYS];
 static guint8       ieee802154_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
@@ -2400,8 +2403,14 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key)
 
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
             seq_ctr_bytes = g_byte_array_new();
-            res = hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
-            assert(seq_ctr_bytes->len == 4);
+            if (ieee802154_thr_seq_ctr_acqd) {
+                seq_ctr_bytes = g_byte_array_set_size(seq_ctr_bytes, 4);
+                memcpy(seq_ctr_bytes->data, ieee802154_thr_seq_ctr_bytes, 3);
+            } else {
+                res = hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
+                assert(seq_ctr_bytes->len == 4);
+            }
+            /* Replace lower part with counter based on packet key index */
             seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[0] & 0x80) + (packet->key_index - 1);
         }
         else if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
@@ -2412,6 +2421,11 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key)
             seq_ctr_bytes->data[1] = (packet->key_source.addr32 >> 16) & 0xFF;
             seq_ctr_bytes->data[2] = (packet->key_source.addr32 >> 8) & 0xFF;
             seq_ctr_bytes->data[3] = packet->key_source.addr32 & 0xFF;
+            /* Acquire the sequence counter if configured in preferences */
+            if (ieee802154_pref_auto_acq_thr_seq_ctr && !ieee802154_thr_seq_ctr_acqd) {
+                memcpy(ieee802154_thr_seq_ctr_bytes, seq_ctr_bytes->data, 4);
+                ieee802154_thr_seq_ctr_acqd = TRUE;
+            }
         }
         if (seq_ctr_bytes != NULL) {
             ieee802154_create_thread_temp_keys(seq_ctr_bytes);
@@ -3013,6 +3027,11 @@ void proto_register_ieee802154(void)
                 static_addr_uat);
 
 #ifdef THREAD_HASHED_KEY
+    prefs_register_bool_preference(ieee802154_module, "802154_auto_acq_thr_seq_ctr",
+                                   "Automatically acquire Thread sequence counter",
+                                   "Set if the Thread sequence counter should be automatically acquired from Key ID mode 2 MLE messages.",
+                                   &ieee802154_pref_auto_acq_thr_seq_ctr);
+                                   
     prefs_register_string_preference(ieee802154_module, "802154_thr_seq_ctr", "Thread sequence counter",
             "32-bit sequence counter for hash", (const char **)&ieee802154_pref_thr_seq_ctr_str);
 #endif
@@ -3195,6 +3214,9 @@ void proto_reg_handoff_ieee802154(void)
         }
         break;
     case KEY_HASH_THREAD:
+        /* Reset the sequence counter variables */
+        ieee802154_thr_seq_ctr_acqd = FALSE;
+        memset(ieee802154_thr_seq_ctr_bytes, 0, 4);
         /* Just copy the key indices - keys will be generated on the fly */
         for (i = 0; i < NUM_KEYS; i++)
         {
