@@ -151,8 +151,7 @@ static const value_string thread_meshcop_tlv_vals[] = {
 
 typedef enum {
     MC_LENGTH8 = 0,
-    MC_LENGTH16_NOESC,
-    MC_LENGTH16_ESC
+    MC_LENGTH16
 } mc_length_e;
 
 static void
@@ -184,14 +183,10 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         tlv_len = (guint16)tvb_get_guint8(tvb, offset + 1);
         
         /* TODO: need to make sure this applies to all MeshCoP TLVs */
-        if (THREAD_MESHCOP_TLV_JOINER_DTLS_ENCAP == tlv_type) {
-            /* 16-bit length field */
-            tlv_len = tvb_get_ntohs(tvb, offset + 1);
-            tlv_mc_len = MC_LENGTH16_NOESC;
-        } else if (THREAD_MESHCOP_TLV_LENGTH_ESC == tlv_len) {
+        if (THREAD_MESHCOP_TLV_LENGTH_ESC == tlv_len) {
             /* 16-bit length field */
             tlv_len = tvb_get_ntohs(tvb, offset + 2);
-            tlv_mc_len = MC_LENGTH16_ESC;
+            tlv_mc_len = MC_LENGTH16;
         } else {
             tlv_mc_len = MC_LENGTH8;
         }
@@ -213,12 +208,8 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_length8, tvb, offset, 1, FALSE);
                 offset++;
                 break;
-            case MC_LENGTH16_NOESC:
-                proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_length16, tvb, offset, 2, FALSE);
-                offset += 2;
-            break;
-            case MC_LENGTH16_ESC:
-                proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_length16, tvb, offset, 2, FALSE);
+            case MC_LENGTH16:
+                proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_length16, tvb, offset + 1, 2, FALSE);
                 offset += 3; /* Including escape byte */
                 break;
             default:
