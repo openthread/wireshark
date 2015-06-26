@@ -137,7 +137,7 @@ static int hf_mle_tlv_conn_lq2 = -1;
 static int hf_mle_tlv_conn_lq1 = -1;
 static int hf_mle_tlv_conn_leader_cost = -1;
 static int hf_mle_tlv_conn_id_seq = -1;
-static int hf_mle_tlv_rssi = -1;
+static int hf_mle_tlv_link_margin = -1;
 static int hf_mle_tlv_status = -1;
 static int hf_mle_tlv_version = -1;
 static int hf_mle_tlv_addr_reg_cid = -1;
@@ -257,7 +257,7 @@ static const value_string mle_command_vals[] = {
 #define MLE_TLV_TLV_REQUEST                 13 /* Defined in draft-kelsey-thread-mle-04 */
 #define MLE_TLV_SCAN_MASK                   14 /* Defined in draft-kelsey-thread-mle-04 */
 #define MLE_TLV_CONNECTIVITY                15 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_RSSI                        16 /* Defined in draft-kelsey-thread-mle-04 */ /* RCC: Would be better as LQI */
+#define MLE_TLV_LINK_MARGIN                 16 /* Defined in draft-kelsey-thread-mle-04 */
 #define MLE_TLV_STATUS                      17 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
 #define MLE_TLV_VERSION                     18 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
 #define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in draft-kelsey-thread-mle-04 */
@@ -282,7 +282,7 @@ static const value_string mle_tlv_vals[] = {
 { MLE_TLV_TLV_REQUEST,              "TLV Request"}, /* Defined in draft-kelsey-thread-mle-04 */
 { MLE_TLV_SCAN_MASK,                "Scan Mask"}, /* Defined in draft-kelsey-thread-mle-04 */
 { MLE_TLV_CONNECTIVITY,             "Connectivity"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_RSSI,                     "RSSI"}, /* Defined in draft-kelsey-thread-mle-04 */ /* RCC: Would be better as LQI */
+{ MLE_TLV_LINK_MARGIN,              "Link Margin"}, /* Defined in draft-kelsey-thread-mle-04 */
 { MLE_TLV_STATUS,                   "Status"}, /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
 { MLE_TLV_VERSION,                  "Version"}, /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
 { MLE_TLV_ADDRESS_REGISTRATION,     "Address Registration"}, /* Defined in draft-kelsey-thread-mle-04 */
@@ -1470,18 +1470,18 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_item_append_text(ti, ")");
                 break;
 
-            case MLE_TLV_RSSI:
+            case MLE_TLV_LINK_MARGIN:
                 if (tlv_len != 1) {
                     /* TLV Length must be 1 */
                     proto_item_append_text(ti, ")");
                     expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                 } else {
-                    guint8 rssi;
+                    guint8 link_margin;
 
-                    rssi = tvb_get_guint8(payload_tvb, offset);
-                    proto_item_append_text(ti, " = %d)", rssi);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_rssi, payload_tvb, offset, tlv_len, FALSE);
+                    link_margin = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %udB)", link_margin);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_margin, payload_tvb, offset, tlv_len, FALSE);
                 }
                 offset += tlv_len;  
                 break;
@@ -2118,11 +2118,11 @@ proto_register_mle(void)
       }
     },
 
-    { &hf_mle_tlv_rssi,
-      { "RSSI",
-        "mle.tlv.rssi",
-        FT_INT8, BASE_DEC, NULL, 0,
-        NULL,
+    { &hf_mle_tlv_link_margin,
+      { "Link Margin",
+        "mle.tlv.link_margin",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        "Link margin in dB representing RSSI",
         HFILL
       }
     },
