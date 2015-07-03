@@ -140,8 +140,10 @@ static int hf_mle_tlv_conn_id_seq = -1;
 static int hf_mle_tlv_link_margin = -1;
 static int hf_mle_tlv_status = -1;
 static int hf_mle_tlv_version = -1;
+static int hf_mle_tlv_addr_reg_iid_type = -1;
 static int hf_mle_tlv_addr_reg_cid = -1;
 static int hf_mle_tlv_addr_reg_iid = -1;
+static int hf_mle_tlv_addr_reg_ipv6 = -1;
 static int hf_mle_tlv_hold_time = -1;
 #endif // THREAD_EXTENSIONS
 
@@ -201,6 +203,12 @@ static const value_string mle_key_id_mode_names[] = {
     { 0, NULL }
 };
 
+static const value_string mle_status_tlv_enums[] = {
+    { 1, "Error" },
+    { 2, "Duplicate Address Detected" },
+    { 0, NULL }
+};
+
 #define MLE_CMD_REQUEST               0
 #define MLE_CMD_ACCEPT                1
 #define MLE_CMD_ACCEPTREQ             2
@@ -241,7 +249,7 @@ static const value_string mle_command_vals[] = {
 #endif // !THREAD_EXTENSIONS
 
 #define MLE_TLV_SOURCE_ADDRESS              0
-#define MLE_TLV_MODE                        1  /* Modified in draft-kelsey-thread-mle-04 */
+#define MLE_TLV_MODE                        1  /* Modified in Ch04_Mesh Link Establishment */
 #define MLE_TLV_TIMEOUT                     2
 #define MLE_TLV_CHALLENGE                   3
 #define MLE_TLV_RESPONSE                    4
@@ -250,18 +258,17 @@ static const value_string mle_command_vals[] = {
 #define MLE_TLV_NETWORK_PARAMETER           7
 #define MLE_TLV_MLE_FRAME_COUNTER           8
 #ifdef THREAD_EXTENSIONS
-#define MLE_TLV_ROUTING_TABLE               9  /* Defined in draft-kelsey-thread-routing-01 */
-#define MLE_TLV_ADDRESS_16                  10 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_LEADER_DATA                 11 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_NETWORK_DATA                12 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_TLV_REQUEST                 13 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_SCAN_MASK                   14 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_CONNECTIVITY                15 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_LINK_MARGIN                 16 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_STATUS                      17 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
-#define MLE_TLV_VERSION                     18 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
-#define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in draft-kelsey-thread-mle-04 */
-#define MLE_TLV_HOLD_TIME                   20 /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+#define MLE_TLV_ROUTING_TABLE               9  /* Defined in Ch05_Network Layer */
+#define MLE_TLV_ADDRESS_16                  10 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_LEADER_DATA                 11 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_NETWORK_DATA                12 /* Defined in Ch05_Network Layer */
+#define MLE_TLV_TLV_REQUEST                 13 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_SCAN_MASK                   14 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_CONNECTIVITY                15 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_LINK_MARGIN                 16 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_STATUS                      17 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_VERSION                     18 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in Ch04_Mesh Link Establishment */
 #endif // THREAD_EXTENSIONS
 
 static const value_string mle_tlv_vals[] = {
@@ -275,18 +282,17 @@ static const value_string mle_tlv_vals[] = {
 { MLE_TLV_NETWORK_PARAMETER,        "Network Parameter"},
 { MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"},
 #ifdef THREAD_EXTENSIONS
-{ MLE_TLV_ROUTING_TABLE,            "Routing Table"}, /* Defined in draft-kelsey-thread-routing-01 */
-{ MLE_TLV_ADDRESS_16,               "Address16"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_LEADER_DATA,              "Leader Data"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_NETWORK_DATA,             "Network Data"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_TLV_REQUEST,              "TLV Request"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_SCAN_MASK,                "Scan Mask"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_CONNECTIVITY,             "Connectivity"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_LINK_MARGIN,              "Link Margin"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_STATUS,                   "Status"}, /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
-{ MLE_TLV_VERSION,                  "Version"}, /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
-{ MLE_TLV_ADDRESS_REGISTRATION,     "Address Registration"}, /* Defined in draft-kelsey-thread-mle-04 */
-{ MLE_TLV_HOLD_TIME,                "Hold Time Registration"} /* Defined in Chapter 4_Mesh Link Establishment (Legal Review) */
+{ MLE_TLV_ROUTING_TABLE,            "Routing Table"},
+{ MLE_TLV_ADDRESS_16,               "Address16"},
+{ MLE_TLV_LEADER_DATA,              "Leader Data"},
+{ MLE_TLV_NETWORK_DATA,             "Network Data"},
+{ MLE_TLV_TLV_REQUEST,              "TLV Request"},
+{ MLE_TLV_SCAN_MASK,                "Scan Mask"},
+{ MLE_TLV_CONNECTIVITY,             "Connectivity"},
+{ MLE_TLV_LINK_MARGIN,              "Link Margin"},
+{ MLE_TLV_STATUS,                   "Status"},
+{ MLE_TLV_VERSION,                  "Version"},
+{ MLE_TLV_ADDRESS_REGISTRATION,     "Address Registration"}
 #else // !THREAD_EXTENSIONS
 { MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"}
 #endif // !THREAD_EXTENSIONS
@@ -328,6 +334,7 @@ static const true_false_string mle_tlv_mode_power_src = {
 #define SCAN_MASK_R_MASK            0x80
 #define SCAN_MASK_D_MASK            0x40
 
+#define ADDR_REG_MASK_IID_TYPE_MASK 0x80
 #define ADDR_REG_MASK_CID_MASK      0x0F
 
 #define MLE_CMD_CINFO_SEC_DATA_REQ  0x04
@@ -1519,34 +1526,29 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
                 
             case MLE_TLV_ADDRESS_REGISTRATION:
-                if (tlv_len != 9) {
-                    /* TLV Length must be 9 */
+                if ((tlv_len != 9) && (tlv_len != 17)) {
+                    /* TLV Length must be 9 or 17 */
                     expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                     offset += tlv_len;  
                 } else {
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_cid, payload_tvb, offset, 1, FALSE);
-                    offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid, payload_tvb, offset, 8, FALSE);
-                    offset += 8;
+                    guint8 iid_type;
+                    
+                    iid_type = tvb_get_guint8(payload_tvb, offset);
+                    if (iid_type & ADDR_REG_MASK_IID_TYPE_MASK) {
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_cid, payload_tvb, offset, 1, FALSE);
+                        offset++;
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid, payload_tvb, offset, 8, FALSE);
+                        offset += 8;
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
+                        offset++;
+                        proto_tree_add_ipv6(tlv_tree, hf_mle_tlv_addr_reg_ipv6, payload_tvb, offset, 16, FALSE);
+                        offset += 16;
+                    }
                 }
                 proto_item_append_text(ti, ")");
-                break;
-                
-            case MLE_TLV_HOLD_TIME:
-                if (tlv_len != 2) {
-                    /* TLV Length must be 2 */
-                    proto_item_append_text(ti, ")");
-                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
-                } else {
-                    guint16 hold_time;
-
-                    hold_time = tvb_get_ntohs(payload_tvb, offset);
-                    proto_item_append_text(ti, " = %d)", hold_time);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_hold_time, payload_tvb, offset, tlv_len, FALSE);
-                }
-                offset += tlv_len;  
                 break;
 #endif // THREAD_EXTENSIONS
 
@@ -1984,7 +1986,7 @@ proto_register_mle(void)
     }, 
         
     { &hf_mle_tlv_leader_data_partition_id,
-      { "Leader Data Partition ID",
+      { "Partition ID",
         "mle.tlv.leader_data.partition_id",
         FT_UINT32, BASE_HEX, NULL, 0x0,
         NULL,
@@ -1993,7 +1995,7 @@ proto_register_mle(void)
     },
     
     { &hf_mle_tlv_leader_data_weighting,
-      { "Leader Data Weighting",
+      { "Weighting",
         "mle.tlv.leader_data.weighting",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
@@ -2002,8 +2004,8 @@ proto_register_mle(void)
     },
     
     { &hf_mle_tlv_leader_data_version,
-      { "Leader Data Version",
-        "mle.tlv.leader_data.version",
+      { "Data Version",
+        "mle.tlv.leader_data.data_version",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -2011,8 +2013,8 @@ proto_register_mle(void)
     },
     
     { &hf_mle_tlv_leader_data_stable_version,
-      { "Leader Data Stable Version",
-        "mle.tlv.leader_data",
+      { "Stable Data Version",
+        "mle.tlv.leader_data.stable_data_version",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -2020,7 +2022,7 @@ proto_register_mle(void)
     },
     
     { &hf_mle_tlv_leader_data_router_id,
-      { "Leader Data Router ID",
+      { "Leader Router ID",
         "mle.tlv.leader_data.router_id",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
@@ -2122,7 +2124,7 @@ proto_register_mle(void)
       { "Link Margin",
         "mle.tlv.link_margin",
         FT_UINT8, BASE_DEC, NULL, 0,
-        "Link margin in dB representing RSSI",
+        "Link margin in dB",
         HFILL
       }
     },
@@ -2130,7 +2132,7 @@ proto_register_mle(void)
     { &hf_mle_tlv_status,
       { "Status",
         "mle.tlv.status",
-        FT_UINT8, BASE_DEC, NULL, 0,
+        FT_UINT8, BASE_DEC, VALS(mle_status_tlv_enums), 0,
         NULL,
         HFILL
       }
@@ -2145,6 +2147,15 @@ proto_register_mle(void)
       }
     },
         
+    { &hf_mle_tlv_addr_reg_iid_type,
+      { "IID type",
+        "mle.tlv.addr_reg_iid_type",
+        FT_BOOLEAN, 8, NULL, ADDR_REG_MASK_IID_TYPE_MASK,
+        "Context ID",
+        HFILL
+      }
+    },    
+
     { &hf_mle_tlv_addr_reg_cid,
       { "Context ID",
         "mle.tlv.addr_reg_cid",
@@ -2158,6 +2169,15 @@ proto_register_mle(void)
       { "IID",
         "mle.tlv.addr_reg_iid",
         FT_BYTES, BASE_NONE, NULL, 0x0,
+        "IID",
+        HFILL
+      }
+    },    
+
+    { &hf_mle_tlv_addr_reg_ipv6,
+      { "IPv6 Address",
+        "mle.tlv.addr_reg_ipv6",
+        FT_IPv6, BASE_NONE, NULL, 0x0,
         "IID",
         HFILL
       }
