@@ -321,9 +321,9 @@ static const true_false_string mle_tlv_mode_device_type = {
     "FFD",
     "RFD"
 };
-static const true_false_string mle_tlv_mode_power_src = {
-    "AC/Mains Power",
-    "Battery"
+static const true_false_string mle_tlv_mode_nwk_data = {
+    "Full",
+    "Stable"
 };
 
 #ifdef THREAD_EXTENSIONS
@@ -1696,7 +1696,7 @@ proto_register_mle(void)
     { &hf_mle_tlv_mode_nwk_data,
       { "Network Data",
         "mle.tlv.mode.nwk_data",
-        FT_BOOLEAN, 8, NULL, MLE_CMD_CINFO_NWK_DATA,
+        FT_BOOLEAN, 8, TFS(&mle_tlv_mode_nwk_data), MLE_CMD_CINFO_NWK_DATA,
         NULL,
         HFILL
       }

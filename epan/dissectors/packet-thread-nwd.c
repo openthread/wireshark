@@ -49,6 +49,7 @@ static int proto_thread_nwd = -1;
 
 static int hf_thread_nwd_tlv = -1;
 static int hf_thread_nwd_tlv_type = -1;
+static int hf_thread_nwd_tlv_stable = -1;
 static int hf_thread_nwd_tlv_length = -1;
 static int hf_thread_nwd_tlv_unknown = -1;
 static int hf_thread_nwd_tlv_sub_tlvs = -1;
@@ -96,38 +97,25 @@ static expert_field ei_thread_nwd_len_size_mismatch = EI_INIT;
 static dissector_handle_t thread_nwd_handle;
 
 #define THREAD_NWD_TLV_HAS_ROUTE                    0
-#define THREAD_NWD_TLV_HAS_ROUTE_STABLE             1
-#define THREAD_NWD_TLV_PREFIX                       2
-#define THREAD_NWD_TLV_PREFIX_STABLE                3
-#define THREAD_NWD_TLV_BORDER_ROUTER                4
-#define THREAD_NWD_TLV_BORDER_ROUTER_STABLE         5
-#define THREAD_NWD_TLV_6LOWPAN_ID                   6
-#define THREAD_NWD_TLV_6LOWPAN_ID_STABLE            7
-#define THREAD_NWD_TLV_COMMISSIONING_DATA           8
-#define THREAD_NWD_TLV_COMMISSIONING_DATA_STABLE    9
+#define THREAD_NWD_TLV_PREFIX                       1
+#define THREAD_NWD_TLV_BORDER_ROUTER                2
+#define THREAD_NWD_TLV_6LOWPAN_ID                   3
+#define THREAD_NWD_TLV_COMMISSIONING_DATA           4
+#define THREAD_NWD_TLV_SERVICE                      5
+#define THREAD_NWD_TLV_SERVER                       6
 
 static const value_string thread_nwd_tlv_vals[] = {
 { THREAD_NWD_TLV_HAS_ROUTE,                 "Has Route" },
-{ THREAD_NWD_TLV_HAS_ROUTE_STABLE,          "Has Route (stable)" },
 { THREAD_NWD_TLV_PREFIX,                    "Prefix" },
-{ THREAD_NWD_TLV_PREFIX_STABLE,             "Prefix (stable)" },
 { THREAD_NWD_TLV_BORDER_ROUTER,             "Border Router" },
-{ THREAD_NWD_TLV_BORDER_ROUTER_STABLE,      "Border Router (stable)" },
 { THREAD_NWD_TLV_6LOWPAN_ID,                "6LoWPAN ID" },
-{ THREAD_NWD_TLV_6LOWPAN_ID_STABLE,         "6LoWPAN ID (stable)" },
 { THREAD_NWD_TLV_COMMISSIONING_DATA,        "Commissioning Data" },
-{ THREAD_NWD_TLV_COMMISSIONING_DATA_STABLE, "Commissioning Data (stable)" }
+{ THREAD_NWD_TLV_SERVICE,                   "Service" },
+{ THREAD_NWD_TLV_SERVER,                    "Server" }
 };
 
-/* Haven't actually used this as we just extend the types as above */
-#if 0
-#define THREAD_NWD_TLV_STABLE_M     0X01
-
-static const true_false_string thread_nwd_tlv_stable = {
-    "Stable",
-    "Unstable"
-};
-#endif
+#define THREAD_NWD_TLV_TYPE_M       0xFE
+#define THREAD_NWD_TLV_STABLE_M     0x01
 
 static const true_false_string tfs_thread_nwd_tlv_border_router_p = {
     "SLAAC preferred",
@@ -177,7 +165,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tvbuff_t    *sub_tvb;
     guint       offset, tlv_offset;
     proto_item  *ti;
-    guint8      tlv_type, tlv_len;
+    guint8      tlv_type, tlv_stable, tlv_len;
    
     /* Create the protocol tree. */
     if (tree) {
@@ -199,7 +187,11 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         
         /* Type */
         proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_type, tvb, offset, 1, FALSE);
-        tlv_type = tvb_get_guint8(tvb, offset);
+        tlv_type = tvb_get_guint8(tvb, offset) >> 1;
+
+        /* Stable */
+        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_stable, tvb, offset, 1, FALSE);
+        tlv_stable = tvb_get_guint8(tvb, offset) & 1;
         offset++;
     
         /* Add value name to value root label */
@@ -211,7 +203,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         
         switch(tlv_type) {
             case THREAD_NWD_TLV_HAS_ROUTE:
-            case THREAD_NWD_TLV_HAS_ROUTE_STABLE:
                 {
                     /* Has Route TLV can be top level TLV or sub-TLV */
                     proto_item_append_text(ti, ")");
@@ -241,7 +232,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
 
             case THREAD_NWD_TLV_PREFIX:
-            case THREAD_NWD_TLV_PREFIX_STABLE:
                 {
                     guint8 domain_id;
                     guint8 prefix_len;
@@ -289,7 +279,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
             
             case THREAD_NWD_TLV_BORDER_ROUTER:
-            case THREAD_NWD_TLV_BORDER_ROUTER_STABLE:
                 {
                     /* Border Router TLV can only be sub-TLV */
                     proto_item_append_text(ti, ")");
@@ -325,7 +314,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
 
             case THREAD_NWD_TLV_6LOWPAN_ID:
-            case THREAD_NWD_TLV_6LOWPAN_ID_STABLE:
                 {
                     /* 6lowpan-ND */
                     guint8 context_id;
@@ -349,7 +337,8 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
 
             case THREAD_NWD_TLV_COMMISSIONING_DATA:
-            case THREAD_NWD_TLV_COMMISSIONING_DATA_STABLE:
+            case THREAD_NWD_TLV_SERVICE: /* TODO */
+            case THREAD_NWD_TLV_SERVER: /* TODO */
                 {
                     /* Just show it as bytes */
                     proto_item_append_text(ti, ")");
@@ -384,8 +373,17 @@ proto_register_thread_nwd(void)
     { &hf_thread_nwd_tlv_type,
       { "Type",
         "thread_nwd.tlv.type",
-        FT_UINT8, BASE_DEC, VALS(thread_nwd_tlv_vals), 0x0,
+        FT_UINT8, BASE_DEC, VALS(thread_nwd_tlv_vals), THREAD_NWD_TLV_TYPE_M,
         "Type of value",
+        HFILL
+      }
+    },
+
+    { &hf_thread_nwd_tlv_stable,
+      { "Stable",
+        "thread_nwd.tlv.stable",
+        FT_BOOLEAN, 8, NULL, THREAD_NWD_TLV_STABLE_M,
+        "Stability or transience of network data",
         HFILL
       }
     },
