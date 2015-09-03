@@ -169,7 +169,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_thread_nwd, tvb, 0, tvb_length(tvb), "Thread Network Data");
+        proto_root = proto_tree_add_protocol_format(tree, proto_thread_nwd, tvb, 0, tvb_reported_length(tvb), "Thread Network Data");
         thread_nwd_tree = proto_item_add_subtree(proto_root, ett_thread_nwd);
     }
 

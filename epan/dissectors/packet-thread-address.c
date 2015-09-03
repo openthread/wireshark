@@ -121,7 +121,7 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_thread_address, tvb, 0, tvb_length(tvb), "Thread Address");
+        proto_root = proto_tree_add_protocol_format(tree, proto_thread_address, tvb, 0, tvb_reported_length(tvb), "Thread Address");
         thread_address_tree = proto_item_add_subtree(proto_root, ett_thread_address);
     }
 

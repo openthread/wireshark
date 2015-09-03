@@ -477,7 +477,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         captured_len = reported_len;
     }
     else {
-        captured_len = tvb_length_remaining(tvb, offset);
+        captured_len = tvb_captured_length_remaining(tvb, offset);
     }
 
     if (packet->security_level > 0) {
@@ -877,14 +877,14 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_length(tvb), "Mesh Link Exchange");
+        proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_reported_length(tvb), "Mesh Link Exchange");
         mle_tree = proto_item_add_subtree(proto_root, ett_mle);
     }
     /* Add the protocol name. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Mesh Link Exchange");
     /* Add the packet length. */
     col_clear(pinfo->cinfo, COL_PACKET_LENGTH);
-    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_length(tvb));
+    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_reported_length(tvb));
 
     /* Parse the security suite field. */
     /* Security Suite Field */
@@ -973,7 +973,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (!payload_tvb) {
         /* Deal with possible truncation and the FCS field at the end. */
         gint reported_len = tvb_reported_length(tvb)-offset;
-        gint captured_len = tvb_length(tvb)-offset;
+        gint captured_len = tvb_captured_length(tvb)-offset;
         if (reported_len < captured_len) captured_len = reported_len;
         payload_tvb = tvb_new_subset(tvb, offset, captured_len, reported_len);
     }
