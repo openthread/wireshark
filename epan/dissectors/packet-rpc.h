@@ -29,6 +29,10 @@
 #include <epan/conversation.h>
 #include "ws_symbol_export.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 #define RPC_CALL 0
 #define RPC_REPLY 1
 
@@ -124,7 +128,6 @@ typedef struct _rpc_call_info_value {
 	flavor_t flavor;
 	guint32 gss_proc;
 	guint32 gss_svc;
-	struct _rpc_proc_info_value*	proc_info;
 	gboolean request;	/* Is this a request or not ?*/
 	nstime_t req_time;
 	void *private_data;
@@ -133,23 +136,35 @@ typedef struct _rpc_call_info_value {
 
 typedef int (dissect_function_t)(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree* tree, void* data);
 
+/*
+ * Information about a particular version of a program.
+ */
 typedef struct _vsff {
 	guint32	value;
 	const gchar   *strptr;
-	dissect_function_t *dissect_call;
-	dissect_function_t *dissect_reply;
+	new_dissector_t dissect_call;
+	new_dissector_t dissect_reply;
 } vsff;
+
+typedef struct _rpc_proc_list {
+	guint vers;
+	const vsff *proc_table;
+	int *procedure_hf;
+} rpc_prog_vers_info;
 
 extern const value_string rpc_auth_flavor[];
 
-WS_DLL_PUBLIC void rpc_init_proc_table(guint prog, guint vers, const vsff *proc_table,
-    int procedure_hf);
-WS_DLL_PUBLIC void rpc_init_prog(int proto, guint32 prog, int ett);
+WS_DLL_PUBLIC void rpc_init_prog(int proto, guint32 prog, int ett, size_t nvers,
+    const rpc_prog_vers_info *versions);
 WS_DLL_PUBLIC const char *rpc_prog_name(guint32 prog);
 WS_DLL_PUBLIC const char *rpc_proc_name(guint32 prog, guint32 vers, guint32 proc);
 WS_DLL_PUBLIC int rpc_prog_hf(guint32 prog, guint32 vers);
 
 WS_DLL_PUBLIC unsigned int rpc_roundup(unsigned int a);
+WS_DLL_PUBLIC int dissect_rpc_void(tvbuff_t *tvb,
+        packet_info *pinfo, proto_tree *tree, void *data);
+WS_DLL_PUBLIC int dissect_rpc_unknown(tvbuff_t *tvb,
+        packet_info *pinfo, proto_tree *tree, void *data);
 WS_DLL_PUBLIC int dissect_rpc_bool(tvbuff_t *tvb,
 	proto_tree *tree, int hfindex, int offset);
 WS_DLL_PUBLIC int dissect_rpc_string(tvbuff_t *tvb,
@@ -184,22 +199,22 @@ WS_DLL_PUBLIC int dissect_rpc_indir_call(tvbuff_t *tvb, packet_info *pinfo,
 WS_DLL_PUBLIC int dissect_rpc_indir_reply(tvbuff_t *tvb, packet_info *pinfo,
 	proto_tree *tree, int offset, int result_id, int prog_id, int vers_id,
 	int proc_id);
-
-
-typedef struct _rpc_prog_info_key {
-	guint32 prog;
-} rpc_prog_info_key;
+WS_DLL_PUBLIC int dissect_rpc_opaque_auth(tvbuff_t* tvb, proto_tree* tree,
+	int offset, packet_info *pinfo);
 
 typedef struct _rpc_prog_info_value {
 	protocol_t *proto;
 	int proto_id;
 	int ett;
 	const char* progname;
-	GArray *procedure_hfs;
+	GArray *procedure_hfs; /* int */
 } rpc_prog_info_value;
 
 /* rpc_progs is also used in tap. With MSVC and a
  * libwireshark.dll, we need a special declaration.
+ */
+/* Key: Program number (guint32)
+ * Value: rpc_prog_info_value *
  */
 WS_DLL_PUBLIC GHashTable *rpc_progs;
 
@@ -209,16 +224,16 @@ typedef struct _rpc_proc_info_key {
 	guint32	proc;
 } rpc_proc_info_key;
 
-typedef struct _rpc_proc_info_value {
-	const gchar	*name;
-	dissect_function_t *dissect_call;
-	dissect_function_t *dissect_reply;
-} rpc_proc_info_value;
+typedef struct rpcstat_tap_data
+{
+	const char *prog;
+	guint32 program;
+	guint32 version;
+	int num_procedures;
+} rpcstat_tap_data_t;
 
-/* rpc_procs is also used in tap. With MSVC and a
- * libwireshark.dll, we need a special declaration.
- */
-WS_DLL_PUBLIC GHashTable *rpc_procs;
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif /* packet-rpc.h */
-

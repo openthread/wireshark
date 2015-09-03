@@ -167,23 +167,80 @@ wtap_file_tsprec(wtap *wth)
 	return wth->file_tsprec;
 }
 
-wtapng_section_t *
-wtap_file_get_shb_info(wtap *wth)
+const gchar *
+wtap_file_get_shb_comment(wtap *wth)
 {
-	wtapng_section_t		*shb_hdr;
+	return wth ? wth->shb_hdr.opt_comment : NULL;
+}
 
-	if(wth == NULL)
-		return NULL;
-	shb_hdr = g_new(wtapng_section_t,1);
-	shb_hdr->section_length = wth->shb_hdr.section_length;
+const wtapng_section_t *
+wtap_file_get_shb(wtap *wth)
+{
+	return wth ? &(wth->shb_hdr) : NULL;
+}
+
+wtapng_section_t *
+wtap_file_get_shb_for_new_file(wtap *wth)
+{
+	wtapng_section_t *shb_hdr;
+
+	if (wth == NULL)
+	    return NULL;
+
+	shb_hdr = g_new0(wtapng_section_t,1);
+
+	shb_hdr->section_length = -1;
 	/* options */
-	shb_hdr->opt_comment   =	wth->shb_hdr.opt_comment;	/* NULL if not available */
-	shb_hdr->shb_hardware  =	wth->shb_hdr.shb_hardware;	/* NULL if not available, UTF-8 string containing the description of the hardware used to create this section. */
-	shb_hdr->shb_os        =	wth->shb_hdr.shb_os;		/* NULL if not available, UTF-8 string containing the name of the operating system used to create this section. */
-	shb_hdr->shb_user_appl =	wth->shb_hdr.shb_user_appl;	/* NULL if not available, UTF-8 string containing the name of the application used to create this section. */
-
+	shb_hdr->opt_comment = g_strdup(wth->shb_hdr.opt_comment);
+	/* the rest of the options remain NULL */
 
 	return shb_hdr;
+}
+
+const gchar*
+wtap_get_nrb_comment(wtap *wth)
+{
+	g_assert(wth);
+
+	if (wth == NULL)
+		return NULL;
+
+	return wth->nrb_hdr ? wth->nrb_hdr->opt_comment : NULL;
+}
+
+void
+wtap_write_nrb_comment(wtap *wth, gchar *comment)
+{
+	g_assert(wth);
+
+	if (wth == NULL)
+		return;
+
+	if (wth->nrb_hdr == NULL) {
+		wth->nrb_hdr = g_new0(wtapng_name_res_t,1);
+	} else {
+		g_free(wth->nrb_hdr->opt_comment);
+	}
+
+	/*
+	 * I'd prefer this function duplicate the passed-in comment,
+	 * but wtap_write_shb_comment() assumes the caller duplicated
+	 * it so we'll stick with that.
+	 */
+	wth->nrb_hdr->opt_comment = comment;
+}
+
+void
+wtap_free_shb(wtapng_section_t *shb_hdr)
+{
+	if (shb_hdr == NULL)
+	    return;
+
+	g_free(shb_hdr->opt_comment);
+	g_free(shb_hdr->shb_hardware);
+	g_free(shb_hdr->shb_os);
+	g_free(shb_hdr->shb_user_appl);
+	g_free(shb_hdr);
 }
 
 void
@@ -205,6 +262,166 @@ wtap_file_get_idb_info(wtap *wth)
 
 	return idb_info;
 }
+
+static void
+wtap_free_isb_members(wtapng_if_stats_t *isb)
+{
+	if (isb) {
+		g_free(isb->opt_comment);
+	}
+}
+
+static void
+wtap_free_idb_members(wtapng_if_descr_t* idb)
+{
+	if (idb) {
+		g_free(idb->opt_comment);
+		g_free(idb->if_os);
+		g_free(idb->if_name);
+		g_free(idb->if_description);
+		g_free(idb->if_filter_str);
+		g_free(idb->if_filter_bpf_bytes);
+		if (idb->interface_statistics) {
+			wtapng_if_stats_t *isb;
+			guint i;
+			for (i = 0; i < idb->interface_statistics->len; i++) {
+				isb = &g_array_index(idb->interface_statistics, wtapng_if_stats_t, i);
+				wtap_free_isb_members(isb);
+			}
+			g_array_free(idb->interface_statistics, TRUE);
+		}
+	}
+}
+
+void
+wtap_free_idb_info(wtapng_iface_descriptions_t *idb_info)
+{
+	if (idb_info == NULL)
+	    return;
+
+	if (idb_info->interface_data) {
+		guint i;
+		for (i = 0; i < idb_info->interface_data->len; i++) {
+			wtapng_if_descr_t* idb = &g_array_index(idb_info->interface_data, wtapng_if_descr_t, i);
+			wtap_free_idb_members(idb);
+		}
+		g_array_free(idb_info->interface_data, TRUE);
+	}
+
+	g_free(idb_info);
+}
+
+gchar *
+wtap_get_debug_if_descr(const wtapng_if_descr_t *if_descr,
+                        const int indent,
+                        const char* line_end)
+{
+	GString *info = g_string_new("");
+
+	g_assert(if_descr);
+
+	g_string_printf(info,
+			"%*cName = %s%s", indent, ' ',
+			if_descr->if_name ? if_descr->if_name : "UNKNOWN",
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cDescription = %s%s", indent, ' ',
+			if_descr->if_description ? if_descr->if_description : "NONE",
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cEncapsulation = %s (%d/%u - %s)%s", indent, ' ',
+			wtap_encap_string(if_descr->wtap_encap),
+			if_descr->wtap_encap,
+			if_descr->link_type,
+			wtap_encap_short_string(if_descr->wtap_encap),
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cSpeed = %" G_GINT64_MODIFIER "u%s", indent, ' ',
+			if_descr->if_speed,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cCapture length = %u%s", indent, ' ',
+			if_descr->snap_len,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cFCS length = %d%s", indent, ' ',
+			if_descr->if_fcslen,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cTime precision = %s (%d)%s", indent, ' ',
+			wtap_tsprec_string(if_descr->tsprecision),
+			if_descr->tsprecision,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cTime ticks per second = %" G_GINT64_MODIFIER "u%s", indent, ' ',
+			if_descr->time_units_per_second,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cTime resolution = 0x%.2x%s", indent, ' ',
+			if_descr->if_tsresol,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cFilter string = %s%s", indent, ' ',
+			if_descr->if_filter_str ? if_descr->if_filter_str : "NONE",
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cOperating system = %s%s", indent, ' ',
+			if_descr->if_os ? if_descr->if_os : "UNKNOWN",
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cComment = %s%s", indent, ' ',
+			if_descr->opt_comment ? if_descr->opt_comment : "NONE",
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cBPF filter length = %u%s", indent, ' ',
+			if_descr->bpf_filter_len,
+			line_end);
+
+	g_string_append_printf(info,
+			"%*cNumber of stat entries = %u%s", indent, ' ',
+			if_descr->num_stat_entries,
+			line_end);
+
+	return g_string_free(info, FALSE);
+}
+
+wtapng_name_res_t *
+wtap_file_get_nrb_for_new_file(wtap *wth)
+{
+	wtapng_name_res_t *nrb_hdr;
+
+	if (wth == NULL || wth->nrb_hdr == NULL)
+	    return NULL;
+
+	nrb_hdr = g_new0(wtapng_name_res_t,1);
+
+	nrb_hdr->opt_comment = g_strdup(wth->nrb_hdr->opt_comment);
+
+	return nrb_hdr;
+}
+
+void
+wtap_free_nrb(wtapng_name_res_t *nrb_hdr)
+{
+	if (nrb_hdr == NULL)
+	    return;
+
+	g_free(nrb_hdr->opt_comment);
+	g_free(nrb_hdr);
+}
+
 
 /* Table of the encapsulation types we know about. */
 struct encap_type_info {
@@ -819,6 +1036,40 @@ wtap_short_string_to_encap(const char *short_name)
 			return encap;
 	}
 	return -1;	/* no such encapsulation type */
+}
+
+const char*
+wtap_tsprec_string(int tsprec)
+{
+	const char* s;
+	switch (tsprec) {
+		case WTAP_TSPREC_PER_PACKET:
+			s = "per-packet";
+			break;
+		case WTAP_TSPREC_SEC:
+			s = "seconds";
+			break;
+		case WTAP_TSPREC_DSEC:
+			s = "deciseconds";
+			break;
+		case WTAP_TSPREC_CSEC:
+			s = "centiseconds";
+			break;
+		case WTAP_TSPREC_MSEC:
+			s = "milliseconds";
+			break;
+		case WTAP_TSPREC_USEC:
+			s = "microseconds";
+			break;
+		case WTAP_TSPREC_NSEC:
+			s = "nanoseconds";
+			break;
+		case WTAP_TSPREC_UNKNOWN:
+		default:
+			s = "UNKNOWN";
+			break;
+	}
+	return s;
 }
 
 static const char *wtap_errlist[] = {

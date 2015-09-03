@@ -486,11 +486,13 @@ fcswils_hash(gconstpointer v)
 static void
 fcswils_init_protocol(void)
 {
-    if (fcswils_req_hash)
-        g_hash_table_destroy(fcswils_req_hash);
-
     fcswils_req_hash = g_hash_table_new(fcswils_hash, fcswils_equal);
+}
 
+static void
+fcswils_cleanup_protocol(void)
+{
+    g_hash_table_destroy(fcswils_req_hash);
 }
 
 static guint8 *
@@ -1803,7 +1805,7 @@ dissect_fcswils(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         call_dissector(data_handle, next_tvb, pinfo, tree);
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -2531,6 +2533,7 @@ proto_register_fcswils(void)
     expert_fcswils = expert_register_protocol(proto_fcswils);
     expert_register_field_array(expert_fcswils, ei, array_length(ei));
     register_init_routine(&fcswils_init_protocol);
+    register_cleanup_routine(&fcswils_cleanup_protocol);
 }
 
 void

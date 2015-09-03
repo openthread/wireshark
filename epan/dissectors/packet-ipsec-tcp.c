@@ -160,18 +160,18 @@ dissect_tcpencap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 		call_dissector(esp_handle, next_tvb, pinfo, tree);
 	}
 
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 static gboolean
 dissect_tcpencap_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
 	guint32 reported_length = tvb_reported_length(tvb);
-	guint32 length = tvb_length(tvb);
+	guint32 captured_length = tvb_captured_length(tvb);
 
 	if (reported_length <= TRAILERLENGTH + 8 ||
 		/* Ensure we have enough bytes for packet_is_tcpencap analysis */
-		(reported_length - length) > (TRAILERLENGTH - 13) ||
+		(reported_length - captured_length) > (TRAILERLENGTH - 13) ||
 		!packet_is_tcpencap(tvb, pinfo, reported_length - TRAILERLENGTH) ) {
 		return FALSE;
 	}
@@ -248,7 +248,7 @@ proto_reg_handoff_tcpencap(void)
 		esp_handle = find_dissector("esp");
 		udp_handle = find_dissector("udp");
 
-		heur_dissector_add("tcp", dissect_tcpencap_heur, proto_tcpencap);
+		heur_dissector_add("tcp", dissect_tcpencap_heur, "TCP Encapsulation of IPsec Packets", "ipsec_tcp", proto_tcpencap, HEURISTIC_ENABLE);
 
 		initialized = TRUE;
 	}

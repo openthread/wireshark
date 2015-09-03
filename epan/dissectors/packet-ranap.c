@@ -3155,8 +3155,20 @@ dissect_ranap_AuthorisedPLMNs(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *act
 
 static int
 dissect_ranap_BindingID(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+#line 374 "../../asn1/ranap/ranap.cnf"
+  tvbuff_t *value_tvb = NULL;
   offset = dissect_per_octet_string(tvb, offset, actx, tree, hf_index,
-                                       4, 4, FALSE, NULL);
+                                       4, 4, FALSE, &value_tvb);
+
+  /* N.B. value_tvb is 4 bytes of OCTET STRING */
+  if (tvb_get_ntohs(value_tvb, 2) == 0) {
+    /* Will show first 2 bytes as an integer, as very likely to be a UDP port number */
+    guint16 port_number = tvb_get_ntohs(value_tvb, 0);
+    proto_item_append_text(actx->created_item, " (%u)", port_number);
+  }
+
+
+
 
   return offset;
 }
@@ -4576,7 +4588,7 @@ dissect_ranap_GlobalRNC_ID(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _
 
 static int
 dissect_ranap_GTP_TEI(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-#line 332 "../../asn1/ranap/ranap.cnf"
+#line 333 "../../asn1/ranap/ranap.cnf"
   tvbuff_t *parameter_tvb=NULL;
   int saved_hf;
 
@@ -7435,7 +7447,7 @@ dissect_ranap_Service_Handover(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *ac
 
 static int
 dissect_ranap_Source_ToTarget_TransparentContainer(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-#line 358 "../../asn1/ranap/ranap.cnf"
+#line 359 "../../asn1/ranap/ranap.cnf"
 
 dissect_ranap_SourceRNC_ToTargetRNC_TransparentContainer(tvb , offset, actx ,tree , hf_ranap_ranap_SourceRNC_ToTargetRNC_TransparentContainer_PDU );
 
@@ -7512,7 +7524,7 @@ static const per_sequence_t SourceRNC_ToTargetRNC_TransparentContainer_sequence[
 
 static int
 dissect_ranap_SourceRNC_ToTargetRNC_TransparentContainer(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-#line 344 "../../asn1/ranap/ranap.cnf"
+#line 345 "../../asn1/ranap/ranap.cnf"
 /* If SourceRNC-ToTargetRNC-TransparentContainer is called trough
    dissect_ranap_SourceRNC_ToTargetRNC_TransparentContainer_PDU
    ProtocolIE_ID may be unset
@@ -7751,9 +7763,10 @@ dissect_ranap_SRVCC_Operation_Possible(tvbuff_t *tvb _U_, int offset _U_, asn1_c
 
 static int
 dissect_ranap_Target_ToSource_TransparentContainer(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-#line 368 "../../asn1/ranap/ranap.cnf"
+#line 369 "../../asn1/ranap/ranap.cnf"
 
 dissect_ranap_TargetRNC_ToSourceRNC_TransparentContainer(tvb , offset, actx ,tree , hf_ranap_ranap_TargetRNC_ToSourceRNC_TransparentContainer_PDU );
+
 
 
 
@@ -7904,10 +7917,11 @@ dissect_ranap_TransportLayerAddress(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_
 		/* IPv6 */
 		 proto_tree_add_item(subtree, hf_ranap_transportLayerAddress_ipv6, parameter_tvb, 0, tvb_len, ENC_NA);
 	}
-	if (tvb_len==20){
-		item = proto_tree_add_item(subtree, hf_ranap_transportLayerAddress_nsap, parameter_tvb, 0, tvb_len, ENC_NA);
+	/* Length will be 25 if optional bearerId is present */
+	if ((tvb_len==20) || (tvb_len==25)) {
+		item = proto_tree_add_item(subtree, hf_ranap_transportLayerAddress_nsap, parameter_tvb, 0, 20, ENC_NA);
 		nsap_tree = proto_item_add_subtree(item, ett_ranap_TransportLayerAddress_nsap);
-		dissect_nsap(parameter_tvb, 0, 20, nsap_tree);
+		dissect_nsap(parameter_tvb, 0, tvb_len, nsap_tree);
 	}
 
 
@@ -16849,12 +16863,9 @@ proto_reg_handoff_ranap(void)
 
 	dissector_add_uint("sccp.ssn", global_ranap_sccp_ssn, ranap_handle);
 	local_ranap_sccp_ssn = global_ranap_sccp_ssn;
-	/* Add heuristic dissector
-	* Perhaps we want a preference whether the heuristic dissector
-	* is or isn't enabled
-	*/
-	heur_dissector_add("sccp", dissect_sccp_ranap_heur, proto_ranap);
-	heur_dissector_add("sua", dissect_sccp_ranap_heur, proto_ranap);
+
+	heur_dissector_add("sccp", dissect_sccp_ranap_heur, "RANAP over SCCP", "ranap_sccp", proto_ranap, HEURISTIC_ENABLE);
+	heur_dissector_add("sua", dissect_sccp_ranap_heur, "RANAP over SUA", "ranap_sua", proto_ranap, HEURISTIC_ENABLE);
 }
 
 

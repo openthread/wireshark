@@ -22,7 +22,7 @@
 #include "config.h"
 
 #include "about_dialog.h"
-#include "ui_about_dialog.h"
+#include <ui_about_dialog.h>
 
 #include "wireshark_application.h"
 #include <wsutil/filesystem.h>
@@ -40,10 +40,11 @@
 #include "../log.h"
 #include "../register.h"
 
-#include "ui/text_import_scanner.h"
-#include "ui/last_open_dir.h"
 #include "ui/alert_box.h"
+#include "ui/last_open_dir.h"
 #include "ui/help_url.h"
+#include "ui/text_import_scanner.h"
+#include "ui/utf8_entities.h"
 
 #include "file.h"
 #include "wsutil/file_util.h"
@@ -115,8 +116,8 @@ const QString AboutDialog::plugins_scan()
     return plugin_table;
 }
 
-AboutDialog::AboutDialog(QWidget *parent) :
-    QDialog(parent),
+AboutDialog::AboutDialog(QWidget *) :
+    QDialog(NULL),
     ui(new Ui::AboutDialog)
 {
     ui->setupUi(this);
@@ -131,7 +132,6 @@ AboutDialog::AboutDialog(QWidget *parent) :
     gint i;
     gchar **resultArray;
 #endif
-
 
     /* Wireshark tab */
 
@@ -188,13 +188,13 @@ AboutDialog::AboutDialog(QWidget *parent) :
     /* pers conf */
     message += about_folders_row("Personal configuration",
                                  gchar_free_to_qstring(get_persconffile_path("", FALSE)),
-                                 "<i>dfilters</i>, <i>preferences</i>, <i>ethers</i>, ...");
+                                 "<i>dfilters</i>, <i>preferences</i>, <i>ethers</i>, " UTF8_HORIZONTAL_ELLIPSIS);
 
     /* global conf */
     constpath = get_datafile_dir();
     if (constpath != NULL) {
         message += about_folders_row("Global configuration", constpath,
-                                     "<i>dfilters</i>, <i>preferences</i>, <i>manuf</i>, ...");
+                                     "<i>dfilters</i>, <i>preferences</i>, <i>manuf</i>, " UTF8_HORIZONTAL_ELLIPSIS);
     }
 
     /* system */

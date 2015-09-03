@@ -227,7 +227,7 @@ dissect_msdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
         }
 
-        if (tvb_length_remaining(tvb, offset) > 0)
+        if (tvb_reported_length_remaining(tvb, offset) > 0)
                 proto_tree_add_item(msdp_tree, hf_msdp_trailing_junk, tvb, offset, -1, ENC_NA);
 
         return;
@@ -299,7 +299,7 @@ static void dissect_msdp_sa(tvbuff_t *tvb, packet_info *pinfo,
                                          ett_msdp_sa_enc_data, NULL, "Encapsulated IPv4 packet: %u bytes",
                                          length);
 
-                available_length = tvb_length_remaining(tvb, *offset);
+                available_length = tvb_captured_length_remaining(tvb, *offset);
                 reported_length = tvb_reported_length_remaining(tvb, *offset);
                 DISSECTOR_ASSERT(available_length >= 0);
                 DISSECTOR_ASSERT(reported_length >= 0);
@@ -383,7 +383,6 @@ static void dissect_msdp_notification(tvbuff_t *tvb, packet_info *pinfo, proto_t
          * correctly. Ugly.
          */
         switch (error) {
-                tvbuff_t *next_tvb;
         case SA_REQUEST_ERROR:
                 add_notification_data_ipv4addr(tvb, tree, offset, hf_msdp_not_group_address);
                 break;
@@ -420,7 +419,8 @@ static void dissect_msdp_notification(tvbuff_t *tvb, packet_info *pinfo, proto_t
                 }
                 /* Fall through */
         case MESSAGE_HEADER_ERROR:
-        case NOTIFICATION:
+        case NOTIFICATION: {
+                tvbuff_t *next_tvb;
                 /* Data contains the message that had an error. Even a
                  * broken Notification message causes a Notification
                  * message with Error Code set to Notification to be
@@ -428,6 +428,7 @@ static void dissect_msdp_notification(tvbuff_t *tvb, packet_info *pinfo, proto_t
                  */
                 next_tvb = tvb_new_subset_remaining(tvb, *offset);
                 dissect_msdp(next_tvb, pinfo, tree);
+                }
                 break;
         case FSM_ERROR:
         case HOLD_TIMER_EXPIRED:

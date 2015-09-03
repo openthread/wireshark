@@ -20,7 +20,7 @@
  */
 
 #include "uat_dialog.h"
-#include "ui_uat_dialog.h"
+#include <ui_uat_dialog.h>
 #include "wireshark_application.h"
 
 #include "epan/strutil.h"
@@ -234,8 +234,6 @@ void UatDialog::activateLastItem()
 
 void UatDialog::on_uatTreeWidget_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous)
 {
-    Q_UNUSED(current)
-
     for (int col = 0; col < ui->uatTreeWidget->columnCount(); col++) {
         if (previous && ui->uatTreeWidget->itemWidget(previous, col)) {
             ui->uatTreeWidget->removeItemWidget(previous, col);
@@ -419,6 +417,13 @@ void UatDialog::stringPrefTextChanged(const QString &text)
             uat_update_record(uat_, rec, FALSE);
         }
     }
+    if (uat_->update_cb) {
+        gchar *err;
+        if (!uat_->update_cb(rec, &err)) {
+            g_free(err); // XXX Handle this.
+        }
+    }
+
 
     ok_button_->setEnabled(enable_ok);
     cur_line_edit_->setSyntaxState(ss);
@@ -491,11 +496,11 @@ void UatDialog::applyChanges()
 
     if (uat_->flags & UAT_AFFECTS_FIELDS) {
         /* Recreate list with new fields and redissect packets */
-        wsApp->emitAppSignal(WiresharkApplication::FieldsChanged);
+        wsApp->queueAppSignal(WiresharkApplication::FieldsChanged);
     }
     if (uat_->flags & UAT_AFFECTS_DISSECTION) {
         /* Just redissect packets if we have any */
-        wsApp->emitAppSignal(WiresharkApplication::PacketDissectionChanged);
+        wsApp->queueAppSignal(WiresharkApplication::PacketDissectionChanged);
     }
 }
 

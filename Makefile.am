@@ -372,7 +372,7 @@ if HAVE_GTK
 wireshark_gtk_LDFLAGS = -export-dynamic
 endif
 if HAVE_Qt
-wireshark_LDFLAGS = -export-dynamic
+wireshark_LDFLAGS = -export-dynamic @Qt_LDFLAGS@
 endif
 endif
 
@@ -998,6 +998,7 @@ EXTRA_DIST = \
 	image/toolbar/16x16/x-capture-file-reload.png	\
 	image/toolbar/16x16/x-capture-file-reload.svg	\
 	image/toolbar/16x16/x-capture-file-reload@2x.png	\
+	image/toolbar/16x16/x-capture-file-reload@2x.svg	\
 	image/toolbar/16x16/x-capture-file-save.png	\
 	image/toolbar/16x16/x-capture-file-save.svg	\
 	image/toolbar/16x16/x-capture-file-save@2x.png	\
@@ -1066,6 +1067,7 @@ EXTRA_DIST = \
 	image/toolbar/24x24/x-capture-file-reload.png		\
 	image/toolbar/24x24/x-capture-file-reload.svg		\
 	image/toolbar/24x24/x-capture-file-reload@2x.png	\
+	image/toolbar/24x24/x-capture-file-reload@2x.svg	\
 	image/toolbar/24x24/x-capture-file-save.png		\
 	image/toolbar/24x24/x-capture-file-save.svg		\
 	image/toolbar/24x24/x-capture-file-save@2x.png		\
@@ -1636,6 +1638,7 @@ checkapi: checkapi_local
 ##	cd epan/ftypes && $(MAKE) checkapi
 ##	cd epan/wslua && $(MAKE) checkapi
 	cd epan/dissectors && $(MAKE) checkapi
+	cd epan/dissectors/dcerpc && $(MAKE) checkapi
 	cd plugins && $(MAKE) checkapi
 	cd wsutil && $(MAKE) checkapi
 

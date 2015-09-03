@@ -194,25 +194,6 @@ get_dirname(char *path)
  *  to be a directory.
  */
 
-/*
- * Visual C++ on Win32 systems doesn't define these.  (Old UNIX systems don't
- * define them either.)
- *
- * Visual C++ on Win32 systems doesn't define S_IFIFO, it defines _S_IFIFO.
- */
-#ifndef S_ISREG
-#define S_ISREG(mode)   (((mode) & S_IFMT) == S_IFREG)
-#endif
-#ifndef S_IFIFO
-#define S_IFIFO _S_IFIFO
-#endif
-#ifndef S_ISFIFO
-#define S_ISFIFO(mode)  (((mode) & S_IFMT) == S_IFIFO)
-#endif
-#ifndef S_ISDIR
-#define S_ISDIR(mode)   (((mode) & S_IFMT) == S_IFDIR)
-#endif
-
 int
 test_for_directory(const char *path)
 {
@@ -386,7 +367,8 @@ get_executable_path(void)
      * XXX - are there OS versions that support "exe" but not "self"?
      */
     struct utsname name;
-    static char executable_path[PATH_MAX];
+    static char executable_path[PATH_MAX + 1];
+    ssize_t r;
 
     if (uname(&name) == -1)
         return NULL;
@@ -397,8 +379,9 @@ get_executable_path(void)
         strcmp(name.release, "2.1") == 0 ||
         strncmp(name.release, "2.1.", 4) == 0)
         return NULL; /* Linux 2.0.x or 2.1.x */
-    if (readlink("/proc/self/exe", executable_path, sizeof executable_path) == -1)
+    if ((r = readlink("/proc/self/exe", executable_path, PATH_MAX)) == -1)
         return NULL;
+    executable_path[r] = '\0';
     return executable_path;
 #elif defined(__FreeBSD__) && defined(KERN_PROC_PATHNAME)
     /*
@@ -436,10 +419,12 @@ get_executable_path(void)
      * XXX - are there OS versions that support "exe" but not "curproc"
      * or "self"?  Are there any that support "self" but not "curproc"?
      */
-    static char executable_path[PATH_MAX];
+    static char executable_path[PATH_MAX + 1];
+    ssize_t r;
 
-    if (readlink("/proc/curproc/exe", executable_path, sizeof executable_path) == -1)
+    if ((r = readlink("/proc/curproc/exe", executable_path, PATH_MAX)) == -1)
         return NULL;
+    executable_path[r] = '\0';
     return executable_path;
 #elif defined(__DragonFly__)
     /*
@@ -448,10 +433,12 @@ get_executable_path(void)
      * instead; it appears to be supported by all versions of DragonFly
      * BSD.
      */
-    static char executable_path[PATH_MAX];
+    static char executable_path[PATH_MAX + 1];
+    ssize_t r;
 
-    if (readlink("/proc/curproc/file", executable_path, sizeof executable_path) == -1)
+    if ((r = readlink("/proc/curproc/file", executable_path, PATH_MAX)) == -1)
         return NULL;
+    executable_path[r] = '\0';
     return executable_path;
 #elif (defined(sun) || defined(__sun)) && defined(HAVE_GETEXECNAME)
     /*
@@ -1960,7 +1947,8 @@ file_exists(const char *fname)
         return FALSE;
     }
 
-#ifdef _WIN32
+#if defined(_MSC_VER) && _MSC_VER < 1900
+
     /*
      * This is a bit tricky on win32. The st_ino field is documented as:
      * "The inode, and therefore st_ino, has no meaning in the FAT, ..."

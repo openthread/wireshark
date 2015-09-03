@@ -24,7 +24,7 @@
 // Adapted from sequence_dialog.cpp
 
 #include "lbm_uimflow_dialog.h"
-#include "ui_lbm_uimflow_dialog.h"
+#include <ui_lbm_uimflow_dialog.h>
 
 #include "file.h"
 
@@ -163,10 +163,8 @@ static gboolean lbm_uimflow_add_to_graph(seq_analysis_info_t * seq_info, packet_
     return (TRUE);
 }
 
-static gboolean lbm_uimflow_tap_packet(void * tap_data, packet_info * pinfo, epan_dissect_t * edt _U_, const void * stream_info)
+static gboolean lbm_uimflow_tap_packet(void * tap_data, packet_info * pinfo, epan_dissect_t *, const void * stream_info)
 {
-    Q_UNUSED(edt)
-
     seq_analysis_info_t * sainfo = (seq_analysis_info_t *)tap_data;
     const lbm_uim_stream_info_t * info = (const lbm_uim_stream_info_t *)stream_info;
 
@@ -262,7 +260,7 @@ LBMUIMFlowDialog::LBMUIMFlowDialog(QWidget * parent, capture_file * cfile) :
     m_sequence_analysis.any_addr = TRUE;
 
     QPushButton * save_bt = m_ui->buttonBox->button(QDialogButtonBox::Save);
-    save_bt->setText(tr("Save As..."));
+    save_bt->setText(tr("Save As" UTF8_HORIZONTAL_ELLIPSIS));
 
     // XXX Use recent settings instead
     if (parent)
@@ -297,15 +295,13 @@ void LBMUIMFlowDialog::setCaptureFile(capture_file * cfile)
     }
 }
 
-void LBMUIMFlowDialog::showEvent(QShowEvent * event)
+void LBMUIMFlowDialog::showEvent(QShowEvent *)
 {
-    Q_UNUSED(event);
     resetAxes();
 }
 
-void LBMUIMFlowDialog::resizeEvent(QResizeEvent * event)
+void LBMUIMFlowDialog::resizeEvent(QResizeEvent *)
 {
-    Q_UNUSED(event);
     resetAxes(true);
 }
 
@@ -441,9 +437,8 @@ void LBMUIMFlowDialog::mouseMoved(QMouseEvent * event)
     m_ui->hintLabel->setText(hint);
 }
 
-void LBMUIMFlowDialog::mouseReleased(QMouseEvent * event)
+void LBMUIMFlowDialog::mouseReleased(QMouseEvent *)
 {
-    Q_UNUSED(event);
     if (m_ui->sequencePlot->cursor().shape() == Qt::ClosedHandCursor)
     {
         m_ui->sequencePlot->setCursor(QCursor(Qt::OpenHandCursor));

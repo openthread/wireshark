@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "packet_list.h"
+
 #include "config.h"
 
 #include <glib.h>
@@ -30,15 +32,9 @@
 
 #include <epan/column-info.h>
 #include <epan/column.h>
+#include <epan/ipproto.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
-
-#include "packet_list.h"
-#include "proto_tree.h"
-#include "wireshark_application.h"
-#include "epan/ipproto.h"
-
-#include "qt_ui_utils.h"
 
 #include "ui/main_statusbar.h"
 #include "ui/packet_list_utils.h"
@@ -47,17 +43,31 @@
 #include "ui/recent_utils.h"
 #include "ui/ui_util.h"
 #include "ui/utf8_entities.h"
+#include "ui/util.h"
 
 #include "wsutil/str_util.h"
 
+#include "color.h"
+#include "color_filters.h"
 #include "frame_tvbuff.h"
+
+#include "color_utils.h"
+#include "overlay_scroll_bar.h"
+#include "proto_tree.h"
+#include "qt_ui_utils.h"
+#include "wireshark_application.h"
 
 #include <QAction>
 #include <QActionGroup>
+#include <QClipboard>
 #include <QContextMenuEvent>
+#include <QtCore/qmath.h>
+#include <QElapsedTimer>
 #include <QFontMetrics>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QPainter>
+#include <QScreen>
 #include <QScrollBar>
 #include <QTabWidget>
 #include <QTextEdit>
@@ -65,7 +75,8 @@
 #include <QTreeWidget>
 
 // To do:
-// - Catch column reordering and rebuild the column list accoringly.
+// - Fix "apply as filter" behavior.
+// - Add colorize conversation.
 // - Use a timer to trigger automatic scrolling.
 
 // If we ever add the ability to open multiple capture files we might be
@@ -75,12 +86,11 @@ static PacketList *gbl_cur_packet_list = NULL;
 
 const int max_comments_to_fetch_ = 20000000; // Arbitrary
 const int tail_update_interval_ = 100; // Milliseconds.
+const int overlay_update_interval_ = 100; // 250; // Milliseconds.
 
 guint
-packet_list_append(column_info *cinfo, frame_data *fdata)
+packet_list_append(column_info *, frame_data *fdata)
 {
-    Q_UNUSED(cinfo);
-
     if (!gbl_cur_packet_list)
         return 0;
 
@@ -150,12 +160,10 @@ packet_list_clear(void)
 }
 
 void
-packet_list_enable_color(gboolean enable)
+packet_list_enable_color(gboolean)
 {
-    Q_UNUSED(enable);
-    if (gbl_cur_packet_list && gbl_cur_packet_list->packetListModel()) {
-        gbl_cur_packet_list->packetListModel()->resetColorized();
-        gbl_cur_packet_list->update();
+    if (gbl_cur_packet_list) {
+        gbl_cur_packet_list->recolorPackets();
     }
 }
 
@@ -218,9 +226,15 @@ packet_list_recent_write_all(FILE *rf) {
     gbl_cur_packet_list->writeRecent(rf);
 }
 
-#define MIN_COL_WIDTH_STR "...."
+#define MIN_COL_WIDTH_STR "MMMMMM"
 
 Q_DECLARE_METATYPE(PacketList::ColumnActions)
+
+enum copy_summary_type {
+    copy_summary_text_,
+    copy_summary_csv_,
+    copy_summary_yaml_
+};
 
 PacketList::PacketList(QWidget *parent) :
     QTreeView(parent),
@@ -229,11 +243,13 @@ PacketList::PacketList(QWidget *parent) :
     cap_file_(NULL),
     decode_as_(NULL),
     ctx_column_(-1),
+    create_near_overlay_(true),
+    create_far_overlay_(true),
     capture_in_progress_(false),
     tail_timer_id_(0),
     rows_inserted_(false)
 {
-    QMenu *submenu, *subsubmenu;
+    QMenu *main_menu_item, *submenu;
     QAction *action;
 
     setItemsExpandable(false);
@@ -241,6 +257,10 @@ PacketList::PacketList(QWidget *parent) :
     setSortingEnabled(true);
     setAccessibleName("Packet list");
     setItemDelegateForColumn(0, &related_packet_delegate_);
+
+    overlay_sb_ = new OverlayScrollBar(Qt::Vertical, this);
+    setVerticalScrollBar(overlay_sb_);
+    overlay_timer_id_ = startTimer(overlay_update_interval_);
 
     packet_list_model_ = new PacketListModel(this, cap_file_);
     setModel(packet_list_model_);
@@ -256,32 +276,12 @@ PacketList::PacketList(QWidget *parent) :
 
     ctx_menu_.addSeparator();
 
-    action = window()->findChild<QAction *>("actionFollow");
-    submenu = new QMenu();
-    action->setMenu(submenu);
-    ctx_menu_.addAction(action);
-    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowTCPStream"));
-    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowUDPStream"));
-    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowSSLStream"));
-
-    action = window()->findChild<QAction *>("actionSCTP");
-    submenu = new QMenu();
-    action->setMenu(submenu);
-    ctx_menu_.addAction(action);
-    ctx_menu_.addMenu(submenu);
-    submenu->addAction(window()->findChild<QAction *>("actionSCTPAnalyseThisAssociation"));
-    submenu->addAction(window()->findChild<QAction *>("actionSCTPShowAllAssociations"));
-    submenu->addAction(window()->findChild<QAction *>("actionSCTPFilterThisAssociation"));
-
+    ctx_menu_.addAction(window()->findChild<QAction *>("actionViewEditResolvedName"));
     ctx_menu_.addSeparator();
 
-//    "     <menuitem name='ManuallyResolveAddress' action='/ManuallyResolveAddress'/>\n"
-//    ctx_menu_.addSeparator();
-
-    action = window()->findChild<QAction *>("actionApply_as_Filter");
-    submenu = new QMenu();
-    action->setMenu(submenu);
-    ctx_menu_.addAction(action);
+    main_menu_item = window()->findChild<QMenu *>("menuApplyAsFilter");
+    submenu = new QMenu(main_menu_item->title());
+    ctx_menu_.addMenu(submenu);
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeAAFSelected"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeAAFNotSelected"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeAAFAndSelected"));
@@ -289,10 +289,9 @@ PacketList::PacketList(QWidget *parent) :
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeAAFAndNotSelected"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeAAFOrNotSelected"));
 
-    action = window()->findChild<QAction *>("actionPrepare_a_Filter");
-    submenu = new QMenu();
-    action->setMenu(submenu);
-    ctx_menu_.addAction(action);
+    main_menu_item = window()->findChild<QMenu *>("menuPrepareAFilter");
+    submenu = new QMenu(main_menu_item->title());
+    ctx_menu_.addMenu(submenu);
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzePAFSelected"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzePAFNotSelected"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzePAFAndSelected"));
@@ -300,111 +299,73 @@ PacketList::PacketList(QWidget *parent) :
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzePAFAndNotSelected"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzePAFOrNotSelected"));
 
-    QMenu *main_conv_menu = window()->findChild<QMenu *>("menuConversationFilter");
-    conv_menu_.setTitle(main_conv_menu->title());
+    const char *conv_menu_name = "menuConversationFilter";
+    main_menu_item = window()->findChild<QMenu *>(conv_menu_name);
+    conv_menu_.setTitle(main_menu_item->title());
+    conv_menu_.setObjectName(conv_menu_name);
     ctx_menu_.addMenu(&conv_menu_);
 
-//    "     <menu name= 'ConversationFilter' action='/Conversation Filter'>\n"
-//    "       <menuitem name='Ethernet' action='/Conversation Filter/Ethernet'/>\n"
-//    "       <menuitem name='IP' action='/Conversation Filter/IP'/>\n"
-//    "       <menuitem name='TCP' action='/Conversation Filter/TCP'/>\n"
-//    "       <menuitem name='UDP' action='/Conversation Filter/UDP'/>\n"
-//    "       <menuitem name='PN-CBA' action='/Conversation Filter/PN-CBA'/>\n"
-    //submenu = new QMenu(tr("Colorize with Filter"));
-//    "     <menu name= 'ColorizeConversation' action='/Colorize Conversation'>\n"
-//    "        <menu name= 'Ethernet' action='/Colorize Conversation/Ethernet'>\n"
-//    "          <menuitem name='Color1' action='/Colorize Conversation/Ethernet/Color 1'/>\n"
-//    "          <menuitem name='Color2' action='/Colorize Conversation/Ethernet/Color 2'/>\n"
-//    "          <menuitem name='Color3' action='/Colorize Conversation/Ethernet/Color 3'/>\n"
-//    "          <menuitem name='Color4' action='/Colorize Conversation/Ethernet/Color 4'/>\n"
-//    "          <menuitem name='Color5' action='/Colorize Conversation/Ethernet/Color 5'/>\n"
-//    "          <menuitem name='Color6' action='/Colorize Conversation/Ethernet/Color 6'/>\n"
-//    "          <menuitem name='Color7' action='/Colorize Conversation/Ethernet/Color 7'/>\n"
-//    "          <menuitem name='Color8' action='/Colorize Conversation/Ethernet/Color 8'/>\n"
-//    "          <menuitem name='Color9' action='/Colorize Conversation/Ethernet/Color 9'/>\n"
-//    "          <menuitem name='Color10' action='/Colorize Conversation/Ethernet/Color 10'/>\n"
-//    "          <menuitem name='NewColoringRule' action='/Colorize Conversation/Ethernet/New Coloring Rule'/>\n"
-//    "        <menu name= 'IP' action='/Colorize Conversation/IP'>\n"
-//    "          <menuitem name='Color1' action='/Colorize Conversation/IP/Color 1'/>\n"
-//    "          <menuitem name='Color2' action='/Colorize Conversation/IP/Color 2'/>\n"
-//    "          <menuitem name='Color3' action='/Colorize Conversation/IP/Color 3'/>\n"
-//    "          <menuitem name='Color4' action='/Colorize Conversation/IP/Color 4'/>\n"
-//    "          <menuitem name='Color5' action='/Colorize Conversation/IP/Color 5'/>\n"
-//    "          <menuitem name='Color6' action='/Colorize Conversation/IP/Color 6'/>\n"
-//    "          <menuitem name='Color7' action='/Colorize Conversation/IP/Color 7'/>\n"
-//    "          <menuitem name='Color8' action='/Colorize Conversation/IP/Color 8'/>\n"
-//    "          <menuitem name='Color9' action='/Colorize Conversation/IP/Color 9'/>\n"
-//    "          <menuitem name='Color10' action='/Colorize Conversation/IP/Color 10'/>\n"
-//    "          <menuitem name='NewColoringRule' action='/Colorize Conversation/IP/New Coloring Rule'/>\n"
-//    "        <menu name= 'TCP' action='/Colorize Conversation/TCP'>\n"
-//    "          <menuitem name='Color1' action='/Colorize Conversation/TCP/Color 1'/>\n"
-//    "          <menuitem name='Color2' action='/Colorize Conversation/TCP/Color 2'/>\n"
-//    "          <menuitem name='Color3' action='/Colorize Conversation/TCP/Color 3'/>\n"
-//    "          <menuitem name='Color4' action='/Colorize Conversation/TCP/Color 4'/>\n"
-//    "          <menuitem name='Color5' action='/Colorize Conversation/TCP/Color 5'/>\n"
-//    "          <menuitem name='Color6' action='/Colorize Conversation/TCP/Color 6'/>\n"
-//    "          <menuitem name='Color7' action='/Colorize Conversation/TCP/Color 7'/>\n"
-//    "          <menuitem name='Color8' action='/Colorize Conversation/TCP/Color 8'/>\n"
-//    "          <menuitem name='Color9' action='/Colorize Conversation/TCP/Color 9'/>\n"
-//    "          <menuitem name='Color10' action='/Colorize Conversation/TCP/Color 10'/>\n"
-//    "          <menuitem name='NewColoringRule' action='/Colorize Conversation/TCP/New Coloring Rule'/>\n"
-//    "        <menu name= 'UDP' action='/Colorize Conversation/UDP'>\n"
-//    "          <menuitem name='Color1' action='/Colorize Conversation/UDP/Color 1'/>\n"
-//    "          <menuitem name='Color2' action='/Colorize Conversation/UDP/Color 2'/>\n"
-//    "          <menuitem name='Color3' action='/Colorize Conversation/UDP/Color 3'/>\n"
-//    "          <menuitem name='Color4' action='/Colorize Conversation/UDP/Color 4'/>\n"
-//    "          <menuitem name='Color5' action='/Colorize Conversation/UDP/Color 5'/>\n"
-//    "          <menuitem name='Color6' action='/Colorize Conversation/UDP/Color 6'/>\n"
-//    "          <menuitem name='Color7' action='/Colorize Conversation/UDP/Color 7'/>\n"
-//    "          <menuitem name='Color8' action='/Colorize Conversation/UDP/Color 8'/>\n"
-//    "          <menuitem name='Color9' action='/Colorize Conversation/UDP/Color 9'/>\n"
-//    "          <menuitem name='Color10' action='/Colorize Conversation/UDP/Color 10'/>\n"
-//    "          <menuitem name='NewColoringRule' action='/Colorize Conversation/UDP/New Coloring Rule'/>\n"
-//    "        <menu name= 'PN-CBA' action='/Colorize Conversation/PN-CBA'>\n"
-//    "          <menuitem name='Color1' action='/Colorize Conversation/PN-CBA/Color 1'/>\n"
-//    "          <menuitem name='Color2' action='/Colorize Conversation/PN-CBA/Color 2'/>\n"
-//    "          <menuitem name='Color3' action='/Colorize Conversation/PN-CBA/Color 3'/>\n"
-//    "          <menuitem name='Color4' action='/Colorize Conversation/PN-CBA/Color 4'/>\n"
-//    "          <menuitem name='Color5' action='/Colorize Conversation/PN-CBA/Color 5'/>\n"
-//    "          <menuitem name='Color6' action='/Colorize Conversation/PN-CBA/Color 6'/>\n"
-//    "          <menuitem name='Color7' action='/Colorize Conversation/PN-CBA/Color 7'/>\n"
-//    "          <menuitem name='Color8' action='/Colorize Conversation/PN-CBA/Color 8'/>\n"
-//    "          <menuitem name='Color9' action='/Colorize Conversation/PN-CBA/Color 9'/>\n"
-//    "          <menuitem name='Color10' action='/Colorize Conversation/PN-CBA/Color 10'/>\n"
-//    "          <menuitem name='NewColoringRule' action='/Colorize Conversation/PN-CBA/New Coloring Rule'/>\n"
-//    "     <menu name= 'SCTP' action='/SCTP'>\n"
-//    "        <menuitem name='AnalysethisAssociation' action='/SCTP/Analyse this Association'/>\n"
-//    "        <menuitem name='PrepareFilterforthisAssociation' action='/SCTP/Prepare Filter for this Association'/>\n"
-//    "     <menuitem name='FollowTCPStream' action='/Follow TCP Stream'/>\n"
-//    "     <menuitem name='FollowUDPStream' action='/Follow UDP Stream'/>\n"
-//    "     <menuitem name='FollowSSLStream' action='/Follow SSL Stream'/>\n"
+    const char *colorize_menu_name = "menuColorizeConversation";
+    main_menu_item = window()->findChild<QMenu *>(colorize_menu_name);
+    colorize_menu_.setTitle(main_menu_item->title());
+    colorize_menu_.setObjectName(colorize_menu_name);
+    ctx_menu_.addMenu(&colorize_menu_);
+
+    main_menu_item = window()->findChild<QMenu *>("menuSCTP");
+    submenu = new QMenu(main_menu_item->title());
+    ctx_menu_.addMenu(submenu);
+    submenu->addAction(window()->findChild<QAction *>("actionSCTPAnalyseThisAssociation"));
+    submenu->addAction(window()->findChild<QAction *>("actionSCTPShowAllAssociations"));
+    submenu->addAction(window()->findChild<QAction *>("actionSCTPFilterThisAssociation"));
+
+    main_menu_item = window()->findChild<QMenu *>("menuFollow");
+    submenu = new QMenu(main_menu_item->title());
+    ctx_menu_.addMenu(submenu);
+    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowTCPStream"));
+    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowUDPStream"));
+    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowSSLStream"));
+
     ctx_menu_.addSeparator();
 
-    action = window()->findChild<QAction *>("actionCopy");
-    submenu = new QMenu();
-    action->setMenu(submenu);
-    ctx_menu_.addAction(action);
-    //    "        <menuitem name='SummaryTxt' action='/Copy/SummaryTxt'/>\n"
-    //    "        <menuitem name='SummaryCSV' action='/Copy/SummaryCSV'/>\n"
+    main_menu_item = window()->findChild<QMenu *>("menuEditCopy");
+    submenu = new QMenu(main_menu_item->title());
+    ctx_menu_.addMenu(submenu);
+
+    action = submenu->addAction(tr("Summary as Text"));
+    action->setData(copy_summary_text_);
+    connect(action, SIGNAL(triggered()), this, SLOT(copySummary()));
+    action = submenu->addAction(tr(UTF8_HORIZONTAL_ELLIPSIS "as CSV"));
+    action->setData(copy_summary_csv_);
+    connect(action, SIGNAL(triggered()), this, SLOT(copySummary()));
+    action = submenu->addAction(tr(UTF8_HORIZONTAL_ELLIPSIS "as YAML"));
+    action->setData(copy_summary_yaml_);
+    connect(action, SIGNAL(triggered()), this, SLOT(copySummary()));
+    submenu->addSeparator();
+
     submenu->addAction(window()->findChild<QAction *>("actionEditCopyAsFilter"));
     submenu->addSeparator();
 
-    action = window()->findChild<QAction *>("actionBytes");
-    subsubmenu = new QMenu();
-    action->setMenu(subsubmenu);
+    action = window()->findChild<QAction *>("actionContextCopyBytesHexTextDump");
     submenu->addAction(action);
-    //    "           <menuitem name='OffsetHexText' action='/Copy/Bytes/OffsetHexText'/>\n"
-    //    "           <menuitem name='OffsetHex' action='/Copy/Bytes/OffsetHex'/>\n"
-    //    "           <menuitem name='PrintableTextOnly' action='/Copy/Bytes/PrintableTextOnly'/>\n"
-//    ctx_menu_.addSeparator();
-//    "           <menuitem name='HexStream' action='/Copy/Bytes/HexStream'/>\n"
-//    "           <menuitem name='BinaryStream' action='/Copy/Bytes/BinaryStream'/>\n"
+    copy_actions_ << action;
+    action = window()->findChild<QAction *>("actionContextCopyBytesHexDump");
+    submenu->addAction(action);
+    copy_actions_ << action;
+    action = window()->findChild<QAction *>("actionContextCopyBytesPrintableText");
+    submenu->addAction(action);
+    copy_actions_ << action;
+    action = window()->findChild<QAction *>("actionContextCopyBytesHexStream");
+    submenu->addAction(action);
+    copy_actions_ << action;
+    action = window()->findChild<QAction *>("actionContextCopyBytesBinary");
+    submenu->addAction(action);
+    copy_actions_ << action;
+
     ctx_menu_.addSeparator();
-//    "     <menuitem name='ProtocolPreferences' action='/ProtocolPreferences'/>\n"
+    ctx_menu_.addMenu(&proto_prefs_menu_);
     decode_as_ = window()->findChild<QAction *>("actionAnalyzeDecodeAs");
     ctx_menu_.addAction(decode_as_);
     // "Print" not ported intentionally
-//    "     <menuitem name='ShowPacketinNewWindow' action='/ShowPacketinNewWindow'/>\n"
     action = window()->findChild<QAction *>("actionViewShowPacketInNewWindow");
     ctx_menu_.addAction(action);
 
@@ -421,8 +382,27 @@ PacketList::PacketList(QWidget *parent) :
             this, SLOT(showHeaderMenu(QPoint)));
     connect(header(), SIGNAL(sectionResized(int,int,int)),
             this, SLOT(sectionResized(int,int,int)));
+    connect(header(), SIGNAL(sectionMoved(int,int,int)),
+            this, SLOT(sectionMoved(int,int,int)));
 
     connect(verticalScrollBar(), SIGNAL(actionTriggered(int)), this, SLOT(vScrollBarActionTriggered(int)));
+
+    connect(&proto_prefs_menu_, SIGNAL(showProtocolPreferences(QString)),
+            this, SIGNAL(showProtocolPreferences(QString)));
+    connect(&proto_prefs_menu_, SIGNAL(editProtocolPreference(preference*,pref_module*)),
+            this, SIGNAL(editProtocolPreference(preference*,pref_module*)));
+}
+
+void PacketList::drawRow (QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
+{
+    QTreeView::drawRow(painter, option, index);
+
+    if (prefs.gui_qt_packet_list_separator) {
+        QRect rect = visualRect(index);
+
+        painter->setPen(QColor(Qt::white));
+        painter->drawLine(0, rect.y() + rect.height() - 1, width(), rect.y() + rect.height() - 1);
+    }
 }
 
 void PacketList::setProtoTree (ProtoTree *proto_tree) {
@@ -500,44 +480,43 @@ void PacketList::selectionChanged (const QItemSelection & selected, const QItemS
 
 void PacketList::contextMenuEvent(QContextMenuEvent *event)
 {
-    QAction *action;
-    gboolean is_tcp = FALSE, is_udp = FALSE, is_sctp = FALSE;
+    const char *module_name = NULL;
+    if (cap_file_ && cap_file_->edt && cap_file_->edt->tree) {
+        GPtrArray          *finfo_array = proto_all_finfos(cap_file_->edt->tree);
 
-    /* walk the list of a available protocols in the packet to see what we have */
-    if (cap_file_ != NULL && cap_file_->edt != NULL)
-        proto_get_frame_protocols(cap_file_->edt->pi.layers, NULL, &is_tcp, &is_udp, &is_sctp, NULL);
+        for (guint i = finfo_array->len - 1; i > 0 ; i --) {
+            field_info *fi = (field_info *)g_ptr_array_index (finfo_array, i);
+            header_field_info *hfinfo =  fi->hfinfo;
 
-    QMenu *main_conv_menu = window()->findChild<QMenu *>("menuConversationFilter");
-    conv_menu_.clear();
-    foreach (action, main_conv_menu->actions()) {
-        conv_menu_.addAction(action);
+            if (!g_str_has_prefix(hfinfo->abbrev, "text") &&
+                !g_str_has_prefix(hfinfo->abbrev, "_ws.expert") &&
+                !g_str_has_prefix(hfinfo->abbrev, "_ws.malformed")) {
+
+                if (hfinfo->parent == -1) {
+                    module_name = hfinfo->abbrev;
+                } else {
+                    module_name = proto_registrar_get_abbrev(hfinfo->parent);
+                }
+                break;
+            }
+        }
     }
+    proto_prefs_menu_.setModule(module_name);
 
-    action = window()->findChild<QAction *>("actionSCTP");
-    if (cap_file_ != NULL && cap_file_->edt != NULL && is_sctp)
-        action->setEnabled(TRUE);
-    else
-        action->setEnabled(FALSE);
-
-    action = window()->findChild<QAction *>("actionAnalyzeFollowTCPStream");
-    action->setEnabled(is_tcp);
-
-    action = window()->findChild<QAction *>("actionAnalyzeFollowUDPStream");
-    action->setEnabled(is_udp);
-
-    action = window()->findChild<QAction *>("actionAnalyzeFollowSSLStream");
-
-    if (cap_file_ != NULL && cap_file_->edt != NULL &&
-            epan_dissect_packet_contains_field(cap_file_->edt, "ssl"))
-        action->setEnabled(TRUE);
-    else
-        action->setEnabled(FALSE);
+    foreach (QAction *action, copy_actions_) {
+        action->setData(QVariant());
+    }
 
     decode_as_->setData(qVariantFromValue(true));
     ctx_column_ = columnAt(event->x());
+
+    // Set menu sensitivity for the current column and set action data.
+    emit packetSelectionChanged();
+
     ctx_menu_.exec(event->globalPos());
     ctx_column_ = -1;
     decode_as_->setData(QVariant());
+
 }
 
 // Auto scroll if:
@@ -554,52 +533,25 @@ void PacketList::timerEvent(QTimerEvent *event)
 {
     QTreeView::timerEvent(event);
 
-    if (rows_inserted_
-            && event->timerId() == tail_timer_id_
+    if (event->timerId() == tail_timer_id_
+            && rows_inserted_
             && capture_in_progress_
             && tail_at_end_) {
         scrollToBottom();
         rows_inserted_ = false;
+    } else if (event->timerId() == overlay_timer_id_ && !capture_in_progress_) {
+        if (create_near_overlay_) drawNearOverlay();
+        if (create_far_overlay_) drawFarOverlay();
     }
 }
 
-void PacketList::markFramesReady()
+void PacketList::paintEvent(QPaintEvent *event)
 {
-    packets_bar_update();
-    redrawVisiblePackets();
-}
-
-void PacketList::setFrameMark(gboolean set, frame_data *fdata)
-{
-    if (set)
-        cf_mark_frame(cap_file_, fdata);
-    else
-        cf_unmark_frame(cap_file_, fdata);
-}
-
-void PacketList::setFrameIgnore(gboolean set, frame_data *fdata)
-{
-    if (set)
-        cf_ignore_frame(cap_file_, fdata);
-    else
-        cf_unignore_frame(cap_file_, fdata);
-}
-
-void PacketList::setFrameReftime(gboolean set, frame_data *fdata)
-{
-    if (!fdata || !cap_file_) return;
-    if (set) {
-        fdata->flags.ref_time=1;
-        cap_file_->ref_time_count++;
-    } else {
-        fdata->flags.ref_time=0;
-        cap_file_->ref_time_count--;
-    }
-    cf_reftime_packets(cap_file_);
-    if (!fdata->flags.ref_time && !fdata->flags.passed_dfilter) {
-        cap_file_->displayed_count--;
-        packet_list_model_->recreateVisibleRows();
-    }
+    // XXX This is overkill, but there are quite a few events that
+    // require a new overlay, e.g. page up/down, scrolling, column
+    // resizing, etc.
+    create_near_overlay_ = true;
+    QTreeView::paintEvent(event);
 }
 
 void PacketList::setColumnVisibility()
@@ -662,8 +614,9 @@ void PacketList::initHeaderContextMenu()
     }
 }
 
-// Redraw the packet list and detail. Called from many places, including
-// columnsChanged.
+// Redraw the packet list and detail. Called from many places.
+// XXX We previously re-selected the packet here, but that seems to cause
+// automatic scrolling problems.
 void PacketList::redrawVisiblePackets() {
     if (!cap_file_) return;
 
@@ -671,20 +624,30 @@ void PacketList::redrawVisiblePackets() {
         proto_tree_->fillProtocolTree(cap_file_->edt->tree);
     }
 
-    int row = currentIndex().row();
+    update();
+    header()->update();
+}
+
+// prefs.col_list has changed.
+void PacketList::columnsChanged()
+{
+    if (!cap_file_) return;
 
     prefs.num_cols = g_list_length(prefs.col_list);
     col_cleanup(&cap_file_->cinfo);
     build_column_format_array(&cap_file_->cinfo, prefs.num_cols, FALSE);
+    packet_list_model_->recreateVisibleRows(); // Calls PacketListRecord::resetColumns
     setColumnVisibility();
+    create_far_overlay_ = true;
+    redrawVisiblePackets();
+}
 
-    packet_list_model_->resetColumns();
-    if (row >= 0) {
-        setCurrentIndex(packet_list_model_->index(row, 0));
-    }
-
-    update();
-    header()->update();
+// Fields have changed, update custom columns
+void PacketList::fieldsChanged(capture_file *cf)
+{
+    prefs.num_cols = g_list_length(prefs.col_list);
+    col_cleanup(&cf->cinfo);
+    build_column_format_array(&cf->cinfo, prefs.num_cols, FALSE);
 }
 
 // Column widths should
@@ -721,6 +684,28 @@ void PacketList::applyRecentColumnWidths()
         setColumnWidth(i, col_width) ;
     }
     column_state_ = header()->saveState();
+}
+
+// This sets the mode for the entire view. If we want to make this setting
+// per-column we'll either have to generalize RelatedPacketDelegate so that
+// we can set it for entire rows or create another delegate.
+void PacketList::elideModeChanged()
+{
+    Qt::TextElideMode elide_mode = Qt::ElideRight;
+    switch (prefs.gui_packet_list_elide_mode) {
+    case ELIDE_LEFT:
+        elide_mode = Qt::ElideLeft;
+        break;
+    case ELIDE_MIDDLE:
+        elide_mode = Qt::ElideMiddle;
+        break;
+    case ELIDE_NONE:
+        elide_mode = Qt::ElideNone;
+        break;
+    default:
+        break;
+    }
+    setTextElideMode(elide_mode);
 }
 
 void PacketList::recolorPackets()
@@ -774,10 +759,12 @@ void PacketList::clear() {
     proto_tree_->clear();
     byte_view_tab_->clear();
 
-    /* XXX is this correct in all cases?
-     * Reset the sort column, use packetlist as model in case the list is frozen.
-     */
-    sortByColumn(-1, Qt::AscendingOrder);
+    QImage overlay;
+    overlay_sb_->setNearOverlayImage(overlay);
+    overlay_sb_->setFarOverlayImage(overlay);
+    create_near_overlay_ = true;
+    create_far_overlay_ = true;
+
     setColumnVisibility();
 }
 
@@ -812,7 +799,7 @@ bool PacketList::contextMenuActive()
     return ctx_column_ >= 0 ? true : false;
 }
 
-QString &PacketList::getFilterFromRowAndColumn()
+const QString &PacketList::getFilterFromRowAndColumn()
 {
     frame_data *fdata;
     QString &filter = *new QString();
@@ -834,7 +821,7 @@ QString &PacketList::getFilterFromRowAndColumn()
         epan_dissect_run(&edt, cap_file_->cd_t, &cap_file_->phdr, frame_tvbuff_new_buffer(fdata, &cap_file_->buf), fdata, &cap_file_->cinfo);
         epan_dissect_fill_in_columns(&edt, TRUE, TRUE);
 
-        if ((cap_file_->cinfo.col_custom_occurrence[ctx_column_]) ||
+        if ((cap_file_->cinfo.columns[ctx_column_].col_custom_occurrence) ||
             (strchr (cap_file_->cinfo.col_expr.col_expr_val[ctx_column_], ',') == NULL))
         {
             /* Only construct the filter when a single occurrence is displayed
@@ -846,8 +833,8 @@ QString &PacketList::getFilterFromRowAndColumn()
              */
             if (strlen(cap_file_->cinfo.col_expr.col_expr[ctx_column_]) != 0 &&
                 strlen(cap_file_->cinfo.col_expr.col_expr_val[ctx_column_]) != 0) {
-                if (cap_file_->cinfo.col_fmt[ctx_column_] == COL_CUSTOM) {
-                    header_field_info *hfi = proto_registrar_get_byname(cap_file_->cinfo.col_custom_field[ctx_column_]);
+                if (cap_file_->cinfo.columns[ctx_column_].col_fmt == COL_CUSTOM) {
+                    header_field_info *hfi = proto_registrar_get_byname(cap_file_->cinfo.columns[ctx_column_].col_custom_field);
                     if (hfi->parent == -1) {
                         /* Protocol only */
                         filter.append(cap_file_->cinfo.col_expr.col_expr[ctx_column_]);
@@ -870,6 +857,12 @@ QString &PacketList::getFilterFromRowAndColumn()
     }
 
     return filter;
+}
+
+void PacketList::resetColorized()
+{
+    packet_list_model_->resetColorized();
+    update();
 }
 
 QString PacketList::packetComment()
@@ -949,6 +942,7 @@ void PacketList::setCaptureFile(capture_file *cf)
     }
     cap_file_ = cf;
     packet_list_model_->setCaptureFile(cf);
+    create_near_overlay_ = true;
 }
 
 void PacketList::setMonospaceFont(const QFont &mono_font)
@@ -964,24 +958,38 @@ void PacketList::setMonospaceFont(const QFont &mono_font)
 }
 
 void PacketList::goNextPacket(void) {
-    if (!selectionModel()->hasSelection()) return;
-    setCurrentIndex(moveCursor(MoveDown, Qt::NoModifier));
+    if (selectionModel()->hasSelection()) {
+        setCurrentIndex(moveCursor(MoveDown, Qt::NoModifier));
+    } else {
+        // First visible packet.
+        setCurrentIndex(indexAt(viewport()->rect().topLeft()));
+    }
 }
 
 void PacketList::goPreviousPacket(void) {
-    if (!selectionModel()->hasSelection()) return;
-    setCurrentIndex(moveCursor(MoveUp, Qt::NoModifier));
+    if (selectionModel()->hasSelection()) {
+        setCurrentIndex(moveCursor(MoveUp, Qt::NoModifier));
+    } else {
+        // Last visible packet.
+        QModelIndex last_idx = indexAt(viewport()->rect().bottomLeft());
+        if (last_idx.isValid()) {
+            setCurrentIndex(last_idx);
+        } else {
+            goLastPacket();
+        }
+    }
 }
 
 void PacketList::goFirstPacket(void) {
     if (packet_list_model_->rowCount() < 1) return;
     setCurrentIndex(packet_list_model_->index(0, 0));
+    scrollTo(currentIndex());
 }
 
 void PacketList::goLastPacket(void) {
     if (packet_list_model_->rowCount() < 1) return;
-    setCurrentIndex(packet_list_model_->index(0, 0));
-    setCurrentIndex(moveCursor(MoveEnd, Qt::NoModifier));
+    setCurrentIndex(packet_list_model_->index(packet_list_model_->rowCount() - 1, 0));
+    scrollTo(currentIndex());
 }
 
 // XXX We can jump to the wrong packet if a display filter is applied
@@ -1000,104 +1008,56 @@ void PacketList::goToPacket(int packet, int hf_id)
 
 void PacketList::markFrame()
 {
-    int row = currentIndex().row();
-    frame_data *fdata;
-
     if (!cap_file_ || !packet_list_model_) return;
 
-    fdata = packet_list_model_->getRowFdata(row);
-
-    if (!fdata) return;
-
-    setFrameMark(!fdata->flags.marked, fdata);
-    markFramesReady();
+    packet_list_model_->toggleFrameMark(currentIndex());
+    create_far_overlay_ = true;
+    packets_bar_update();
 }
 
 void PacketList::markAllDisplayedFrames(bool set)
 {
-    guint32 framenum;
-    frame_data *fdata;
-
     if (!cap_file_ || !packet_list_model_) return;
 
-    for (framenum = 1; framenum <= cap_file_->count; framenum++) {
-        fdata = frame_data_sequence_find(cap_file_->frames, framenum);
-        if (fdata->flags.passed_dfilter)
-            setFrameMark(set, fdata);
-    }
-    markFramesReady();
+    packet_list_model_->setDisplayedFrameMark(set);
+    create_far_overlay_ = true;
+    packets_bar_update();
 }
 
 void PacketList::ignoreFrame()
 {
-    int row = currentIndex().row();
-    frame_data *fdata;
-
     if (!cap_file_ || !packet_list_model_) return;
 
-    fdata = packet_list_model_->getRowFdata(row);
-
-    setFrameIgnore(!fdata->flags.ignored, fdata);
+    packet_list_model_->toggleFrameIgnore(currentIndex());
+    create_far_overlay_ = true;
+    int sb_val = verticalScrollBar()->value(); // Surely there's a better way to keep our position?
+    setUpdatesEnabled(false);
     emit packetDissectionChanged();
+    setUpdatesEnabled(true);
+    verticalScrollBar()->setValue(sb_val);
 }
 
 void PacketList::ignoreAllDisplayedFrames(bool set)
 {
-    guint32 framenum;
-    frame_data *fdata;
-
     if (!cap_file_ || !packet_list_model_) return;
 
-    for (framenum = 1; framenum <= cap_file_->count; framenum++) {
-        fdata = frame_data_sequence_find(cap_file_->frames, framenum);
-        if (!set || fdata->flags.passed_dfilter)
-            setFrameIgnore(set, fdata);
-    }
+    packet_list_model_->setDisplayedFrameIgnore(set);
+    create_far_overlay_ = true;
     emit packetDissectionChanged();
 }
 
 void PacketList::setTimeReference()
 {
-    if (!cap_file_) return;
-
-    if (cap_file_->current_frame) {
-        if(recent.gui_time_format != TS_RELATIVE && cap_file_->current_frame->flags.ref_time==0) {
-            int ret = QMessageBox::question(
-                        this,
-                        tr("Change Time Display Format?"),
-                        tr("Time References don't work well with the currently selected Time Display Format.\n"
-                           "Do you want to switch to \"Seconds Since Beginning of Capture\" now?"),
-                        QMessageBox::Yes | QMessageBox::No
-                        );
-            if (ret == QMessageBox::Yes) {
-                timestamp_set_type(TS_RELATIVE);
-                recent.gui_time_format  = TS_RELATIVE;
-                cf_timestamp_auto_precision(cap_file_);
-                setFrameReftime(!cap_file_->current_frame->flags.ref_time,
-                                cap_file_->current_frame);
-            }
-        } else {
-            setFrameReftime(!cap_file_->current_frame->flags.ref_time,
-                            cap_file_->current_frame);
-        }
-    }
-    redrawVisiblePackets();
+    if (!cap_file_ || !packet_list_model_) return;
+    packet_list_model_->toggleFrameRefTime(currentIndex());
+    create_far_overlay_ = true;
 }
 
 void PacketList::unsetAllTimeReferences()
 {
-    if (!cap_file_) return;
-
-    /* XXX: we might need a progressbar here */
-    guint32 framenum;
-    frame_data *fdata;
-    for (framenum = 1; framenum <= cap_file_->count && cap_file_->ref_time_count > 0; framenum++) {
-        fdata = frame_data_sequence_find(cap_file_->frames, framenum);
-        if (fdata->flags.ref_time == 1) {
-            setFrameReftime(FALSE, fdata);
-        }
-    }
-    redrawVisiblePackets();
+    if (!cap_file_ || !packet_list_model_) return;
+    packet_list_model_->unsetAllFrameRefTime();
+    create_far_overlay_ = true;
 }
 
 void PacketList::showHeaderMenu(QPoint pos)
@@ -1124,6 +1084,8 @@ void PacketList::showHeaderMenu(QPoint pos)
     bool can_resolve = resolve_column(header_ctx_column_, cap_file_);
     header_actions_[caResolveNames]->setChecked(can_resolve && get_column_resolved(header_ctx_column_));
     header_actions_[caResolveNames]->setEnabled(can_resolve);
+
+    header_actions_[caRemoveColumn]->setEnabled(header_ctx_column_ >= 0 && header()->count() > 2);
 
     foreach (QAction *action, show_hide_actions_) {
         header_ctx_menu_.removeAction(action);
@@ -1162,7 +1124,7 @@ void PacketList::headerMenuTriggered()
         recent_set_column_xalign(header_ctx_column_, checked ? COLUMN_XALIGN_RIGHT : COLUMN_XALIGN_DEFAULT);
         break;
     case caColumnPreferences:
-        emit showPreferences(PreferencesDialog::ppColumn);
+        emit showColumnPreferences(PreferencesDialog::ppColumn);
         break;
     case caEditColumn:
         emit editColumn(header_ctx_column_);
@@ -1182,13 +1144,16 @@ void PacketList::headerMenuTriggered()
         hideColumn(header_ctx_column_);
         break;
     case caRemoveColumn:
-        column_prefs_remove_nth(header_ctx_column_);
-        if (!prefs.gui_use_pref_save) {
-            prefs_main_write();
+    {
+        if (header()->count() > 2) {
+            column_prefs_remove_nth(header_ctx_column_);
+            columnsChanged();
+            if (!prefs.gui_use_pref_save) {
+                prefs_main_write();
+            }
         }
-        setColumnVisibility();
-        redraw = true;
         break;
+    }
     default:
         break;
     }
@@ -1218,6 +1183,84 @@ void PacketList::sectionResized(int col, int, int new_width)
     }
 }
 
+// The user moved a column. Make sure prefs.col_list, the column format
+// array, and the header's visual and logical indices all agree.
+// gtk/packet_list.c:column_dnd_changed_cb
+void PacketList::sectionMoved(int, int, int)
+{
+    GList *new_col_list = NULL;
+    QList<int> saved_sizes;
+
+    // Build a new column list based on the header's logical order.
+    for (int vis_idx = 0; vis_idx < header()->count(); vis_idx++) {
+        int log_idx = header()->logicalIndex(vis_idx);
+        saved_sizes << header()->sectionSize(log_idx);
+
+        void *pref_data = g_list_nth_data(prefs.col_list, log_idx);
+        if (!pref_data) continue;
+
+        new_col_list = g_list_append(new_col_list, pref_data);
+    }
+
+    // Clear and rebuild our (and the header's) model. There doesn't appear
+    // to be another way to reset the logical index.
+    freeze();
+
+    g_list_free(prefs.col_list);
+    prefs.col_list = new_col_list;
+
+    thaw();
+
+    for (int i = 0; i < saved_sizes.length(); i++) {
+        if (saved_sizes[i] < 1) continue;
+        header()->resizeSection(i, saved_sizes[i]);
+    }
+
+    if (!prefs.gui_use_pref_save) {
+        prefs_main_write();
+    }
+
+    wsApp->emitAppSignal(WiresharkApplication::ColumnsChanged);
+}
+
+void PacketList::copySummary()
+{
+    if (!currentIndex().isValid()) return;
+
+    QAction *ca = qobject_cast<QAction*>(sender());
+    if (!ca) return;
+
+    bool ok = false;
+    int copy_type = ca->data().toInt(&ok);
+    if (!ok) return;
+
+    QStringList col_parts;
+    int row = currentIndex().row();
+    for (int col = 0; col < packet_list_model_->columnCount(); col++) {
+        col_parts << packet_list_model_->data(packet_list_model_->index(row, col), Qt::DisplayRole).toString();
+    }
+
+    QString copy_text;
+    switch (copy_type) {
+    case copy_summary_csv_:
+        copy_text = "\"";
+        copy_text += col_parts.join("\",\"");
+        copy_text += "\"";
+        break;
+    case copy_summary_yaml_:
+        copy_text = "----\n";
+        copy_text += QString("# Packet %1 from %2\n").arg(row).arg(cap_file_->filename);
+        copy_text += "- ";
+        copy_text += col_parts.join("\n- ");
+        copy_text += "\n";
+        break;
+    case copy_summary_text_:
+    default:
+        copy_text = col_parts.join("\t");
+    }
+    wsApp->clipboard()->setText(copy_text);
+}
+
 // We need to tell when the user has scrolled the packet list, either to
 // the end or anywhere other than the end.
 void PacketList::vScrollBarActionTriggered(int)
@@ -1228,6 +1271,190 @@ void PacketList::vScrollBarActionTriggered(int)
 
     if (capture_in_progress_ && prefs.capture_auto_scroll) {
         emit packetListScrolled(tail_at_end_);
+    }
+}
+
+// Goal: Overlay the packet list scroll bar with the colors of all of the
+// packets.
+// Try 1: Average packet colors in each scroll bar raster line. This has
+// two problems: It's easy to wash out colors and we dissect every packet.
+// Try 2: Color across a 5000 or 10000 packet window. We still end up washing
+// out colors.
+// Try 3: One packet per vertical scroll bar pixel. This seems to work best
+// but has the smallest window.
+// Try 4: Use a multiple of the scroll bar heigh and scale the image down
+// using Qt::SmoothTransformation. This gives us more packets per raster
+// line.
+
+// Odd (prime?) numbers resulted in fewer scaling artifacts. A multiplier
+// of 9 washed out colors a little too much.
+const int height_multiplier_ = 7;
+void PacketList::drawNearOverlay()
+{
+    if (!cap_file_ || cap_file_->state != FILE_READ_DONE) return;
+
+    if (create_near_overlay_) {
+        create_near_overlay_ = false;
+    }
+
+    qreal dp_ratio = 1.0;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)
+    dp_ratio = overlay_sb_->devicePixelRatio();
+#endif
+    int o_height = overlay_sb_->height() * dp_ratio * height_multiplier_;
+    int o_rows = qMin(packet_list_model_->rowCount(), o_height);
+    int selected_pos = -1;
+
+    if (recent.packet_list_colorize && o_rows > 0) {
+        QImage overlay(1, o_height, QImage::Format_ARGB32_Premultiplied);
+
+        QPainter painter(&overlay);
+#if 0
+        QElapsedTimer timer;
+        timer.start();
+#endif
+
+        overlay.fill(Qt::transparent);
+
+        int cur_line = 0;
+        int start = 0;
+
+        if (packet_list_model_->rowCount() > o_height && overlay_sb_->maximum() > 0) {
+            start += ((double) overlay_sb_->value() / overlay_sb_->maximum()) * (packet_list_model_->rowCount() - o_rows);
+        }
+        int end = start + o_rows;
+        for (int row = start; row < end; row++) {
+            packet_list_model_->ensureRowColorized(row);
+
+#if 0
+            // Try to remain responsive for large captures.
+            if (timer.elapsed() > update_time_) {
+                wsApp->processEvents();
+                if (!cap_file_ || cap_file_->state != FILE_READ_DONE) {
+                    create_overlay_ = true;
+                    return;
+                }
+                timer.restart();
+            }
+#endif
+
+            frame_data *fdata = packet_list_model_->getRowFdata(row);
+            const color_t *bgcolor = NULL;
+            if (fdata->color_filter) {
+                const color_filter_t *color_filter = (const color_filter_t *) fdata->color_filter;
+                bgcolor = &color_filter->bg_color;
+            }
+
+            int next_line = (row - start) * o_height / o_rows;
+            if (bgcolor) {
+                QColor color(ColorUtils::fromColorT(bgcolor));
+
+                painter.setPen(color);
+                painter.drawLine(0, cur_line, 0, next_line);
+            }
+            cur_line = next_line;
+        }
+
+        // If the selected packet is in the overlay set selected_pos
+        // accordingly. Otherwise, pin it to either the top or bottom.
+        if (selectionModel()->hasSelection()) {
+            int sel_row = selectionModel()->currentIndex().row();
+            if (sel_row < start) {
+                selected_pos = 0;
+            } else if (sel_row >= end) {
+                selected_pos = overlay.height() - 1;
+            } else {
+                selected_pos = (sel_row - start) * o_height / o_rows;
+            }
+        }
+
+        overlay_sb_->setNearOverlayImage(overlay, selected_pos);
+    } else {
+        QImage overlay;
+        overlay_sb_->setNearOverlayImage(overlay);
+    }
+}
+
+void PacketList::drawFarOverlay()
+{
+    if (!cap_file_ || cap_file_->state != FILE_READ_DONE) return;
+
+    if (create_far_overlay_) {
+        create_far_overlay_ = false;
+    }
+
+    qreal dp_ratio = 1.0;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)
+    dp_ratio = overlay_sb_->devicePixelRatio();
+#endif
+    int o_width = 2 * dp_ratio;
+    int o_height = overlay_sb_->height() * dp_ratio;
+    int pl_rows = packet_list_model_->rowCount();
+
+    if (recent.packet_list_colorize && pl_rows > 0) {
+        // Create a tall image here. OverlayScrollBar will scale it to fit.
+        QImage overlay(o_width, o_height, QImage::Format_ARGB32_Premultiplied);
+
+        QPainter painter(&overlay);
+        painter.setRenderHint(QPainter::Antialiasing);
+#if 0
+        QElapsedTimer timer;
+        timer.start();
+#endif
+
+        // The default "marked" background is black and the default "ignored"
+        // background is white. Instead of trying to figure out if our
+        // available colors will show up, just use the palette's background
+        // here and foreground below.
+#if QT_VERSION < QT_VERSION_CHECK(4, 8, 0)
+        overlay.fill(palette().base().color().value());
+#else
+        overlay.fill(palette().base().color());
+#endif
+        QColor arrow_fg = palette().text().color();
+        arrow_fg.setAlphaF(0.3);
+        painter.setPen(arrow_fg);
+        painter.setBrush(arrow_fg);
+
+        bool have_far = false;
+        for (int row = 0; row < pl_rows; row++) {
+#if 0
+            // Try to remain responsive for large captures.
+            if (timer.elapsed() > update_time_) {
+                wsApp->processEvents();
+                if (!cap_file_ || cap_file_->state != FILE_READ_DONE) {
+                    create_overlay_ = true;
+                    return;
+                }
+                timer.restart();
+            }
+#endif
+
+            frame_data *fdata = packet_list_model_->getRowFdata(row);
+            bool marked = false;
+            if (fdata->flags.marked || fdata->flags.ref_time || fdata->flags.ignored) {
+                marked = true;
+            }
+
+            if (marked) {
+                int new_line = (row) * o_height / pl_rows;
+
+                QPointF points[3] = {
+                    QPointF(o_width, new_line),
+                    QPointF(0, new_line - (o_width * 0.7)),
+                    QPointF(0, new_line + (o_width * 0.7))
+                };
+                painter.drawPolygon(points, 3);
+                have_far = true;
+            }
+        }
+
+        if (have_far) {
+            overlay_sb_->setFarOverlayImage(overlay);
+            return;
+        }
+        QImage null_overlay;
+        overlay_sb_->setFarOverlayImage(null_overlay);
     }
 }
 

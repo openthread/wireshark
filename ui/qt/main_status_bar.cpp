@@ -52,6 +52,7 @@ enum StatusContext {
     STATUS_CTX_FIELD,
     STATUS_CTX_BYTE,
     STATUS_CTX_FILTER,
+    STATUS_CTX_PROGRESS,
     STATUS_CTX_TEMPORARY
 };
 
@@ -138,7 +139,7 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
     info_progress_hb->addWidget(&expert_status_);
     info_progress_hb->addWidget(&comment_label_);
     info_progress_hb->addWidget(&info_status_);
-    info_progress_hb->addWidget(&progress_bar_);
+    info_progress_hb->addWidget(&progress_frame_);
     info_progress_hb->addStretch(10);
 
     splitter->addWidget(info_progress);
@@ -157,14 +158,14 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
     info_status_.pushText(ready_msg, STATUS_CTX_MAIN);
     packets_bar_update();
 
-    action = ctx_menu_.addAction(tr("Manage Profiles..."));
+    action = ctx_menu_.addAction(tr("Manage Profiles" UTF8_HORIZONTAL_ELLIPSIS));
     action->setData(ProfileDialog::ShowProfiles);
     connect(action, SIGNAL(triggered()), this, SLOT(manageProfile()));
     ctx_menu_.addSeparator();
-    action = ctx_menu_.addAction(tr("New..."));
+    action = ctx_menu_.addAction(tr("New" UTF8_HORIZONTAL_ELLIPSIS));
     action->setData(ProfileDialog::NewProfile);
     connect(action, SIGNAL(triggered()), this, SLOT(manageProfile()));
-    edit_action_ = ctx_menu_.addAction(tr("Edit..."));
+    edit_action_ = ctx_menu_.addAction(tr("Edit" UTF8_HORIZONTAL_ELLIPSIS));
     edit_action_->setData(ProfileDialog::EditCurrentProfile);
     connect(edit_action_, SIGNAL(triggered()), this, SLOT(manageProfile()));
     delete_action_ = ctx_menu_.addAction(tr("Delete"));
@@ -174,6 +175,10 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
     profile_menu_.setTitle(tr("Switch to"));
     ctx_menu_.addMenu(&profile_menu_);
 
+#ifdef QWINTASKBARPROGRESS_H
+    progress_frame_.enableTaskbarUpdates(true);
+#endif
+
     connect(wsApp, SIGNAL(appInitialized()), splitter, SLOT(show()));
     connect(wsApp, SIGNAL(appInitialized()), this, SLOT(pushProfileName()));
     connect(&info_status_, SIGNAL(toggleTemporaryFlash(bool)),
@@ -182,14 +187,18 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
             this, SLOT(pushProfileName()));
     connect(&profile_status_, SIGNAL(mousePressedAt(QPoint,Qt::MouseButton)),
             this, SLOT(showProfileMenu(QPoint,Qt::MouseButton)));
+
+    connect(&progress_frame_, SIGNAL(stopLoading()),
+            this, SIGNAL(stopLoading()));
 }
 
 void MainStatusBar::showExpert() {
     expertUpdate();
 }
 
-void MainStatusBar::hideExpert() {
+void MainStatusBar::captureFileClosing() {
     expert_status_.hide();
+    progress_frame_.captureFileClosing();
 }
 
 void MainStatusBar::expertUpdate() {
@@ -262,7 +271,7 @@ void MainStatusBar::pushFileStatus(const QString &message, const QString &messag
 
 void MainStatusBar::popFileStatus() {
     info_status_.popText(STATUS_CTX_FILE);
-    info_status_.setToolTip("");
+    info_status_.setToolTip(QString());
 }
 
 void MainStatusBar::pushFieldStatus(const QString &message) {
@@ -329,15 +338,48 @@ void MainStatusBar::pushProfileName()
     }
 }
 
+void MainStatusBar::pushBusyStatus(const QString &message, const QString &messagetip)
+{
+    info_status_.pushText(message, STATUS_CTX_PROGRESS);
+    info_status_.setToolTip(messagetip);
+    progress_frame_.showBusy(true, false, NULL);
+}
+
+void MainStatusBar::popBusyStatus()
+{
+    info_status_.popText(STATUS_CTX_PROGRESS);
+    info_status_.setToolTip(QString());
+    progress_frame_.hide();
+}
+
 void MainStatusBar::popProfileStatus() {
     profile_status_.popText(STATUS_CTX_MAIN);
 }
 
-void MainStatusBar::updateCaptureStatistics(capture_session *cap_session _U_)
+void MainStatusBar::pushProgressStatus(const QString &message, bool animate, bool terminate_is_stop, gboolean *stop_flag)
+{
+    info_status_.pushText(message, STATUS_CTX_PROGRESS);
+    progress_frame_.showProgress(animate, terminate_is_stop, stop_flag);
+}
+
+void MainStatusBar::updateProgressStatus(int value)
+{
+    progress_frame_.setValue(value);
+}
+
+void MainStatusBar::popProgressStatus()
+{
+    info_status_.popText(STATUS_CTX_PROGRESS);
+    progress_frame_.hide();
+}
+
+void MainStatusBar::updateCaptureStatistics(capture_session *cap_session)
 {
     QString packets_str;
 
-#ifdef HAVE_LIBPCAP
+#ifndef HAVE_LIBPCAP
+    Q_UNUSED(cap_session)
+#else
     /* Do we have any packets? */
     if ((!cap_session || cap_session->cf == cap_file_) && cap_file_ && cap_file_->count) {
         packets_str.append(QString(tr("Packets: %1 %4 Displayed: %2 %4 Marked: %3"))
@@ -371,11 +413,13 @@ void MainStatusBar::updateCaptureStatistics(capture_session *cap_session _U_)
     pushPacketStatus(packets_str);
 }
 
-void MainStatusBar::updateCaptureFixedStatistics(capture_session *cap_session _U_)
+void MainStatusBar::updateCaptureFixedStatistics(capture_session *cap_session)
 {
     QString packets_str;
 
-#ifdef HAVE_LIBPCAP
+#ifndef HAVE_LIBPCAP
+    Q_UNUSED(cap_session)
+#else
     /* Do we have any packets? */
     if (cap_session->count) {
         packets_str.append(QString(tr("Packets: %1"))
@@ -427,7 +471,7 @@ void MainStatusBar::toggleBackground(bool enabled)
                       .arg(ws_css_warn_text, 6, 16, QChar('0'))
                       .arg(ws_css_warn_background, 6, 16, QChar('0')));
     } else {
-        setStyleSheet("");
+        setStyleSheet(QString());
     }
 }
 

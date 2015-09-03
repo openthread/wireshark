@@ -1465,9 +1465,8 @@ dissect_icmp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data)
 				if (pinfo->flags.in_gre_pkt)
 					conv_key[0] |= 0x00010000;	/* set a bit for "in GRE" */
 				conv_key[1] =
-				    (guint32) ((tvb_get_ntohs(tvb, 4) <<
-						16) | tvb_get_ntohs(tvb,
-								    6));
+				    ((guint32) tvb_get_ntohs(tvb, 4) << 16) |
+				     tvb_get_ntohs(tvb, 6);
 				trans =
 				    transaction_end(pinfo, icmp_tree,
 						    conv_key);
@@ -1488,9 +1487,8 @@ dissect_icmp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data)
 					conv_key[0] |= 0x00010000;	/* set a bit for "in GRE" */
 				}
 				conv_key[1] =
-				    (guint32) ((tvb_get_ntohs(tvb, 4) <<
-						16) | tvb_get_ntohs(tvb,
-								    6));
+				    ((guint32) tvb_get_ntohs(tvb, 4) << 16) |
+				     tvb_get_ntohs(tvb, 6);
 				trans =
 				    transaction_start(pinfo, icmp_tree,
 						      conv_key);
@@ -1590,6 +1588,13 @@ dissect_icmp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data)
 	case ICMP_MASKREPLY:
 		proto_tree_add_item(icmp_tree, hf_icmp_address_mask, tvb, 8, 4, ENC_BIG_ENDIAN);
 		break;
+	}
+
+	if (!PINFO_FD_VISITED(pinfo)) {
+		icmp_info_t *p_icmp_info = wmem_new(wmem_file_scope(), icmp_info_t);
+		p_icmp_info->type = icmp_type;
+		p_icmp_info->code = icmp_code;
+		p_add_proto_data(wmem_file_scope(), pinfo, proto_icmp, 0, p_icmp_info);
 	}
 
 	if (trans) {

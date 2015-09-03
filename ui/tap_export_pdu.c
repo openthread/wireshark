@@ -38,7 +38,7 @@
 #include "tap_export_pdu.h"
 
 /* Main entry point to the tap */
-static int
+static gboolean
 export_pdu_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, const void *data)
 {
     const exp_pdu_data_t *exp_pdu_data = (const exp_pdu_data_t *)data;
@@ -57,8 +57,8 @@ export_pdu_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, const 
         memcpy(packet_buf, exp_pdu_data->tlv_buffer, exp_pdu_data->tlv_buffer_len);
         g_free(exp_pdu_data->tlv_buffer);
     }
-    if(exp_pdu_data->tvb_length > 0){
-        tvb_memcpy(exp_pdu_data->pdu_tvb, packet_buf+exp_pdu_data->tlv_buffer_len, 0, exp_pdu_data->tvb_length);
+    if(exp_pdu_data->tvb_captured_length > 0){
+        tvb_memcpy(exp_pdu_data->pdu_tvb, packet_buf+exp_pdu_data->tlv_buffer_len, 0, exp_pdu_data->tvb_captured_length);
     }
     pkthdr.rec_type  = REC_TYPE_PACKET;
     pkthdr.ts.secs   = pinfo->fd->abs_ts.secs;
@@ -107,7 +107,6 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
     wtapng_iface_descriptions_t *idb_inf;
     wtapng_if_descr_t            int_data;
     GString                     *os_info_str;
-    char                        *appname;
 
     /* Choose a random name for the temporary import buffer */
     import_file_fd = create_tempfile(&tmpname, "Wireshark_PDU_");
@@ -117,9 +116,7 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
     os_info_str = g_string_new("");
     get_os_version_info(os_info_str);
 
-    appname = g_strdup_printf("Wireshark %s", get_ws_vcs_version_info());
-
-    shb_hdr = g_new(wtapng_section_t,1);
+    shb_hdr = g_new0(wtapng_section_t,1);
     shb_hdr->section_length = -1;
     /* options */
     shb_hdr->opt_comment    = g_strdup_printf("Dump of PDUs from %s", cfile.filename);
@@ -137,7 +134,7 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
      * UTF-8 string containing the name of the application used to create
      * this section.
      */
-    shb_hdr->shb_user_appl  = appname;
+    shb_hdr->shb_user_appl  = g_strdup_printf("Wireshark %s", get_ws_vcs_version_info());
 
     /* Create fake IDB info */
     idb_inf = g_new(wtapng_iface_descriptions_t,1);
@@ -145,14 +142,14 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
 
     /* create the fake interface data */
     int_data.wtap_encap            = WTAP_ENCAP_WIRESHARK_UPPER_PDU;
-    int_data.time_units_per_second = 1000000; /* default microsecond resolution */
+    int_data.time_units_per_second = 1000000000; /* default nanosecond resolution */
     int_data.link_type             = wtap_wtap_encap_to_pcap_encap(WTAP_ENCAP_WIRESHARK_UPPER_PDU);
     int_data.snap_len              = WTAP_MAX_PACKET_SIZE;
     int_data.if_name               = g_strdup("Fake IF, PDU->Export");
     int_data.opt_comment           = NULL;
     int_data.if_description        = NULL;
     int_data.if_speed              = 0;
-    int_data.if_tsresol            = 6;
+    int_data.if_tsresol            = 9;
     int_data.if_filter_str         = NULL;
     int_data.bpf_filter_len        = 0;
     int_data.if_filter_bpf_bytes   = NULL;
@@ -163,7 +160,9 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
 
     g_array_append_val(idb_inf->interface_data, int_data);
 
-    exp_pdu_tap_data->wdh = wtap_dump_fdopen_ng(import_file_fd, WTAP_FILE_TYPE_SUBTYPE_PCAPNG, WTAP_ENCAP_WIRESHARK_UPPER_PDU, WTAP_MAX_PACKET_SIZE, FALSE, shb_hdr, idb_inf, &err);
+    exp_pdu_tap_data->wdh = wtap_dump_fdopen_ng(import_file_fd, WTAP_FILE_TYPE_SUBTYPE_PCAPNG,
+                                                WTAP_ENCAP_WIRESHARK_UPPER_PDU, WTAP_MAX_PACKET_SIZE,
+                                                FALSE, shb_hdr, idb_inf, NULL, &err);
     if (exp_pdu_tap_data->wdh == NULL) {
         open_failure_alert_box(capfile_name, err, TRUE);
         goto end;
@@ -204,8 +203,8 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
 
 end:
     g_free(capfile_name);
-    g_free(shb_hdr);
-    g_free(appname);
+    wtap_free_shb(shb_hdr);
+    wtap_free_idb_info(idb_inf);
 }
 
 gboolean

@@ -21,9 +21,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-/* File format reference:
- *   https://www.winpcap.org/ntar/draft/PCAP-DumpFileFormat.html
- * File format specification:
+/* File format specification:
  *   https://github.com/pcapng/pcapng
  * Related Wiki page:
  *   https://wiki.wireshark.org/Development/PcapNg
@@ -66,7 +64,7 @@ static void
 pcapng_close(wtap *wth);
 
 
-/* pcapng: common block header for every block type */
+/* pcapng: common block header file encoding for every block type */
 typedef struct pcapng_block_header_s {
     guint32 block_type;
     guint32 block_total_length;
@@ -91,7 +89,7 @@ typedef struct pcapng_block_header_s {
  */
 #define MAX_BLOCK_SIZE  (16*1024*1024)
 
-/* pcapng: section header block */
+/* pcapng: section header block file encoding */
 typedef struct pcapng_section_header_block_s {
     /* pcapng_block_header_t */
     guint32 magic;
@@ -106,7 +104,7 @@ typedef struct pcapng_section_header_block_s {
  */
 #define MIN_SHB_SIZE    ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_section_header_block_t)))
 
-/* pcapng: interface description block */
+/* pcapng: interface description block file encoding */
 typedef struct pcapng_interface_description_block_s {
     guint16 linktype;
     guint16 reserved;
@@ -119,7 +117,7 @@ typedef struct pcapng_interface_description_block_s {
  */
 #define MIN_IDB_SIZE    ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_interface_description_block_t)))
 
-/* pcapng: packet block (obsolete) */
+/* pcapng: packet block file encoding (obsolete) */
 typedef struct pcapng_packet_block_s {
     guint16 interface_id;
     guint16 drops_count;
@@ -137,7 +135,7 @@ typedef struct pcapng_packet_block_s {
  */
 #define MIN_PB_SIZE     ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_packet_block_t)))
 
-/* pcapng: enhanced packet block */
+/* pcapng: enhanced packet block file encoding */
 typedef struct pcapng_enhanced_packet_block_s {
     guint32 interface_id;
     guint32 timestamp_high;
@@ -154,7 +152,7 @@ typedef struct pcapng_enhanced_packet_block_s {
  */
 #define MIN_EPB_SIZE    ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_enhanced_packet_block_t)))
 
-/* pcapng: simple packet block */
+/* pcapng: simple packet block file encoding */
 typedef struct pcapng_simple_packet_block_s {
     guint32 packet_len;
     /* ... Packet Data ... */
@@ -166,7 +164,7 @@ typedef struct pcapng_simple_packet_block_s {
  */
 #define MIN_SPB_SIZE    ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_simple_packet_block_t)))
 
-/* pcapng: name resolution block */
+/* pcapng: name resolution block file encoding */
 typedef struct pcapng_name_resolution_block_s {
     guint16 record_type;
     guint16 record_len;
@@ -179,7 +177,7 @@ typedef struct pcapng_name_resolution_block_s {
  */
 #define MIN_NRB_SIZE    ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_name_resolution_block_t)))
 
-/* pcapng: interface statistics block */
+/* pcapng: interface statistics block file encoding */
 typedef struct pcapng_interface_statistics_block_s {
     guint32 interface_id;
     guint32 timestamp_high;
@@ -192,7 +190,7 @@ typedef struct pcapng_interface_statistics_block_s {
  */
 #define MIN_ISB_SIZE    ((guint32)(MIN_BLOCK_SIZE + sizeof(pcapng_interface_statistics_block_t)))
 
-/* pcapng: common option header for every option type */
+/* pcapng: common option header file encoding for every option type */
 typedef struct pcapng_option_header_s {
     guint16 option_code;
     guint16 option_length;
@@ -205,88 +203,51 @@ struct option {
     guint16 value_length;
 };
 
-/* Block types */
-#define BLOCK_TYPE_IDB 0x00000001 /* Interface Description Block */
-#define BLOCK_TYPE_PB  0x00000002 /* Packet Block (obsolete) */
-#define BLOCK_TYPE_SPB 0x00000003 /* Simple Packet Block */
-#define BLOCK_TYPE_NRB 0x00000004 /* Name Resolution Block */
-#define BLOCK_TYPE_ISB 0x00000005 /* Interface Statistics Block */
-#define BLOCK_TYPE_EPB 0x00000006 /* Enhanced Packet Block */
-#define BLOCK_TYPE_SHB 0x0A0D0D0A /* Section Header Block */
 
-/* Options */
-#define OPT_EOFOPT        0
-#define OPT_COMMENT       1
-#define OPT_SHB_HARDWARE  2
-#define OPT_SHB_OS        3
-#define OPT_SHB_USERAPPL  4
-#define OPT_EPB_FLAGS     2
-#define OPT_EPB_HASH      3
-#define OPT_EPB_DROPCOUNT 4
+/* Option codes: 16-bit field */
+#define OPT_EOFOPT           0x0000
+#define OPT_COMMENT          0x0001
 
-/* Capture section */
-#if 0
-/* Moved to wtap.h */
-typedef struct wtapng_section_s {
-    /* mandatory */
-    guint64                         section_length;
-    /* options */
-    gchar                           *opt_comment;   /* NULL if not available */
-    gchar                           *shb_hardware;  /* NULL if not available */
-    gchar                           *shb_os;                /* NULL if not available */
-    gchar                           *shb_user_appl; /* NULL if not available */
-} wtapng_section_t;
-#endif
+#define OPT_SHB_HARDWARE     0x0002
+#define OPT_SHB_OS           0x0003
+#define OPT_SHB_USERAPPL     0x0004
 
-#if 0
-/* Moved to wtap.h */
+#define OPT_EPB_FLAGS        0x0002
+#define OPT_EPB_HASH         0x0003
+#define OPT_EPB_DROPCOUNT    0x0004
 
-/* Interface Description
- *
- * Options:
- * if_name        2  A UTF-8 string containing the name of the device used to capture data. "eth0" / "\Device\NPF_{AD1CE675-96D0-47C5-ADD0-2504B9126B68}" / ...
- * if_description 3  A UTF-8 string containing the description of the device used to capture data. "Broadcom NetXtreme" / "First Ethernet Interface" / ...
- * if_IPv4addr    4  Interface network address and netmask. This option can be repeated multiple times within the same Interface Description Block when multiple IPv4 addresses are assigned to the interface. 192 168 1 1 255 255 255 0
- * if_IPv6addr    5  Interface network address and prefix length (stored in the last byte). This option can be repeated multiple times within the same Interface Description Block when multiple IPv6 addresses are assigned to the interface. 2001:0db8:85a3:08d3:1319:8a2e:0370:7344/64 is written (in hex) as "20 01 0d b8 85 a3 08 d3 13 19 8a 2e 03 70 73 44 40"
- * if_MACaddr     6  Interface Hardware MAC address (48 bits). 00 01 02 03 04 05
- * if_EUIaddr     7  Interface Hardware EUI address (64 bits), if available. TODO: give a good example
- * if_speed       8  Interface speed (in bps). 100000000 for 100Mbps
- * if_tsresol     9  Resolution of timestamps. If the Most Significant Bit is equal to zero, the remaining bits indicates the resolution of the timestamp as as a negative power of 10 (e.g. 6 means microsecond resolution, timestamps are the number of microseconds since 1/1/1970). If the Most Significant Bit is equal to one, the remaining bits indicates the resolution as as negative power of 2 (e.g. 10 means 1/1024 of second). If this option is not present, a resolution of 10^-6 is assumed (i.e. timestamps have the same resolution of the standard 'libpcap' timestamps). 6
- * if_tzone      10  Time zone for GMT support (TODO: specify better). TODO: give a good example
- * if_filter     11  The filter (e.g. "capture only TCP traffic") used to capture traffic. The first byte of the Option Data keeps a code of the filter used (e.g. if this is a libpcap string, or BPF bytecode, and more). More details about this format will be presented in Appendix XXX (TODO). (TODO: better use different options for different fields? e.g. if_filter_pcap, if_filter_bpf, ...) 00 "tcp port 23 and host 10.0.0.5"
- * if_os         12  A UTF-8 string containing the name of the operating system of the machine in which this interface is installed. This can be different from the same information that can be contained by the Section Header Block (Section 3.1 (Section Header Block (mandatory))) because the capture can have been done on a remote machine. "Windows XP SP2" / "openSUSE 10.2" / ...
- * if_fcslen     13  An integer value that specified the length of the Frame Check Sequence (in bits) for this interface. For link layers whose FCS length can change during time, the Packet Block Flags Word can be used (see Appendix A (Packet Block Flags Word)). 4
- * if_tsoffset   14  A 64 bits integer value that specifies an offset (in seconds) that must be added to the timestamp of each packet to obtain the absolute timestamp of a packet. If the option is missing, the timestamps stored in the packet must be considered absolute timestamps. The time zone of the offset can be specified with the option if_tzone. TODO: won't a if_tsoffset_low for fractional second offsets be useful for highly synchronized capture systems? 1234
- */
+#define OPT_IDB_NAME         0x0002
+#define OPT_IDB_DESCR        0x0003
+#define OPT_IDB_IP4ADDR      0x0004
+#define OPT_IDB_IP6ADDR      0x0005
+#define OPT_IDB_MACADDR      0x0006
+#define OPT_IDB_EUIADDR      0x0007
+#define OPT_IDB_SPEED        0x0008
+#define OPT_IDB_TSRESOL      0x0009
+#define OPT_IDB_TZONE        0x000A
+#define OPT_IDB_FILTER       0x000B
+#define OPT_IDB_OS           0x000C
+#define OPT_IDB_FCSLEN       0x000D
+#define OPT_IDB_TSOFFSET     0x000E
 
-typedef struct wtapng_if_descr_s {
-    /* mandatory */
-    guint16  link_type;
-    guint    encap;
-    guint32  snap_len;
-    /* options */
-    gchar   *opt_comment;       /* NULL if not available */
-    gchar   *if_name;           /* NULL if not available, opt 2 A UTF-8 string containing the name of the device used to capture data. */
-    gchar   *if_description;    /* NULL if not available, opt 3 A UTF-8 string containing the description of the device used to capture data. */
-    /* XXX: if_IPv4addr opt 4  Interface network address and netmask.*/
-    /* XXX: if_IPv6addr opt 5  Interface network address and prefix length (stored in the last byte).*/
-    /* XXX: if_MACaddr  opt 6  Interface Hardware MAC address (48 bits).*/
-    /* XXX: if_EUIaddr  opt 7  Interface Hardware EUI address (64 bits)*/
-    guint64  if_speed;          /* 0 if unknown, opt 8  Interface speed (in bps). 100000000 for 100Mbps */
-    guint8   if_tsresol;     /* default is 6 for microsecond resolution, opt 9  Resolution of timestamps.
-                                                     * If the Most Significant Bit is equal to zero, the remaining bits indicates the resolution of the timestamp as as a negative power of 10
-                                                     */
-    /* XXX: if_tzone      10  Time zone for GMT support (TODO: specify better). */
-    gchar   *if_filter;     /* NULL if not available, opt 11  The filter (e.g. "capture only TCP traffic") used to capture traffic.
-                                                     * The first byte of the Option Data keeps a code of the filter used (e.g. if this is a libpcap string, or BPF bytecode, and more).
-                                                     */
-    gchar   *if_os;             /* NULL if not available, 12  A UTF-8 string containing the name of the operating system of the machine in which this interface is installed. */
-    gint8    if_fcslen;         /* -1 if unknown or changes between packets, opt 13  An integer value that specified the length of the Frame Check Sequence (in bits) for this interface. */
-    /* XXX: guint64 if_tsoffset; opt 14  A 64 bits integer value that specifies an offset (in seconds)...*/
-} wtapng_if_descr_t;
-#endif
+#define OPT_ISB_STARTTIME    0x0002
+#define OPT_ISB_ENDTIME      0x0003
+#define OPT_ISB_IFRECV       0x0004
+#define OPT_ISB_IFDROP       0x0005
+#define OPT_ISB_FILTERACCEPT 0x0006
+#define OPT_ISB_OSDROP       0x0007
+#define OPT_ISB_USRDELIV     0x0008
 
-/* Packets */
+#define OPT_NRB_DNSNAME      0x0002
+#define OPT_NRB_DNSV4ADDR    0x0003
+#define OPT_NRB_DNSV6ADDR    0x0004
+
+/* MSBit of option code means "local type" */
+#define OPT_LOCAL_FLAG       0x8000
+
+/* Note: many of the defined structures for block data are defined in wtap.h */
+
+/* Packet data - used for both Enhanced Packet Block and the obsolete Packet Block data */
 typedef struct wtapng_packet_s {
     /* mandatory */
     guint32                         ts_high;        /* seconds since 1.1.1970 */
@@ -300,7 +261,7 @@ typedef struct wtapng_packet_s {
     /* XXX - put the packet data / pseudo_header here as well? */
 } wtapng_packet_t;
 
-/* Simple Packets */
+/* Simple Packet data */
 typedef struct wtapng_simple_packet_s {
     /* mandatory */
     guint32                         cap_len;        /* data length in the file */
@@ -308,34 +269,9 @@ typedef struct wtapng_simple_packet_s {
     /* XXX - put the packet data / pseudo_header here as well? */
 } wtapng_simple_packet_t;
 
-/* Name Resolution */
-typedef struct wtapng_name_res_s {
-    /* options */
-    gchar                           *opt_comment;   /* NULL if not available */
-    /* XXX */
-} wtapng_name_res_t;
-
-#if 0
-/* Interface Statistics moved to wtap.h*/
-typedef struct wtapng_if_stats_s {
-    /* mandatory */
-    guint32                         interface_id;
-    guint32                         ts_high;
-    guint32                         ts_low;
-    /* options */
-    gchar                           *opt_comment;   /* NULL if not available */
-    guint64                         isb_starttime;
-    guint64                         isb_endtime;
-    guint64                         isb_ifrecv;
-    guint64                         isb_ifdrop;
-    guint64                         isb_filteraccept;
-    guint64                         isb_osdrop;
-    guint64                         isb_usrdeliv;
-} wtapng_if_stats_t;
-#endif
-
+/* Block data to be passed between functions during reading */
 typedef struct wtapng_block_s {
-    guint32                                 type;           /* block_type as defined by pcapng */
+    guint32                     type;           /* block_type as defined by pcapng */
     union {
         wtapng_section_t        section;
         wtapng_if_descr_t       if_descr;
@@ -454,47 +390,58 @@ register_pcapng_block_type_handler(guint block_type, block_reader read,
 
 static GHashTable *option_handlers[NUM_BT_INDICES];
 
+static gboolean
+get_block_type_index(guint block_type, guint *bt_index)
+{
+    g_assert(bt_index);
+
+    switch (block_type) {
+
+        case BLOCK_TYPE_SHB:
+            *bt_index = BT_INDEX_SHB;
+            break;
+
+        case BLOCK_TYPE_IDB:
+            *bt_index = BT_INDEX_IDB;
+            break;
+
+        case BLOCK_TYPE_PB:
+        case BLOCK_TYPE_EPB:
+        case BLOCK_TYPE_SPB:
+            *bt_index = BT_INDEX_PBS;
+            break;
+
+        case BLOCK_TYPE_NRB:
+            *bt_index = BT_INDEX_NRB;
+            break;
+
+        case BLOCK_TYPE_ISB:
+            *bt_index = BT_INDEX_ISB;
+            break;
+
+        default:
+            /*
+             * This is a block type we don't process; either we ignore it,
+             * in which case the options don't get processed, or there's
+             * a plugin routine to handle it, in which case that routine
+             * will do the option processing itself.
+             *
+             * XXX - report an error?
+             */
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
 void
 register_pcapng_option_handler(guint block_type, guint option_code,
                                option_handler handler)
 {
     guint bt_index;
 
-    switch (block_type) {
-
-    case BLOCK_TYPE_SHB:
-        bt_index = BT_INDEX_SHB;
-        break;
-
-    case BLOCK_TYPE_IDB:
-        bt_index = BT_INDEX_IDB;
-        break;
-
-    case BLOCK_TYPE_PB:
-    case BLOCK_TYPE_EPB:
-    case BLOCK_TYPE_SPB:
-        bt_index = BT_INDEX_PBS;
-        break;
-
-    case BLOCK_TYPE_NRB:
-        bt_index = BT_INDEX_NRB;
-        break;
-
-    case BLOCK_TYPE_ISB:
-        bt_index = BT_INDEX_ISB;
-        break;
-
-    default:
-        /*
-         * This is a block type we don't process; either we ignore it,
-         * in which case the options don't get processed, or there's
-         * a plugin routine to handle it, in which case that routine
-         * will do the option processing itself.
-         *
-         * XXX - report an error?
-         */
+    if (!get_block_type_index(block_type, &bt_index))
         return;
-    }
 
     if (option_handlers[bt_index] == NULL) {
         /*
@@ -897,14 +844,14 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
 
         /* handle option content */
         switch (oh.option_code) {
-            case(0): /* opt_endofopt */
+            case(OPT_EOFOPT): /* opt_endofopt */
                 if (to_read != 0) {
                     pcapng_debug1("pcapng_read_if_descr_block: %u bytes after opt_endofopt", to_read);
                 }
                 /* padding should be ok here, just get out of this */
                 to_read = 0;
                 break;
-            case(1): /* opt_comment */
+            case(OPT_COMMENT): /* opt_comment */
                 if (oh.option_length > 0 && oh.option_length < opt_cont_buf_len) {
                     wblock->data.if_descr.opt_comment = g_strndup((char *)option_content, oh.option_length);
                     pcapng_debug1("pcapng_read_if_descr_block: opt_comment %s", wblock->data.if_descr.opt_comment);
@@ -912,7 +859,7 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     pcapng_debug1("pcapng_read_if_descr_block: opt_comment length %u seems strange", oh.option_length);
                 }
                 break;
-            case(2): /* if_name */
+            case(OPT_IDB_NAME): /* if_name */
                 if (oh.option_length > 0 && oh.option_length < opt_cont_buf_len) {
                     wblock->data.if_descr.if_name = g_strndup((char *)option_content, oh.option_length);
                     pcapng_debug1("pcapng_read_if_descr_block: if_name %s", wblock->data.if_descr.if_name);
@@ -920,7 +867,7 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     pcapng_debug1("pcapng_read_if_descr_block: if_name length %u seems strange", oh.option_length);
                 }
                 break;
-            case(3): /* if_description */
+            case(OPT_IDB_DESCR): /* if_description */
                 if (oh.option_length > 0 && oh.option_length < opt_cont_buf_len) {
                     wblock->data.if_descr.if_description = g_strndup((char *)option_content, oh.option_length);
                     pcapng_debug1("pcapng_read_if_descr_block: if_description %s", wblock->data.if_descr.if_description);
@@ -928,13 +875,7 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     pcapng_debug1("pcapng_read_if_descr_block: if_description length %u seems strange", oh.option_length);
                 }
                 break;
-                /*
-                 * if_IPv4addr    4  Interface network address and netmask. This option can be repeated multiple times within the same Interface Description Block when multiple IPv4 addresses are assigned to the interface. 192 168 1 1 255 255 255 0
-                 * if_IPv6addr    5  Interface network address and prefix length (stored in the last byte). This option can be repeated multiple times within the same Interface Description Block when multiple IPv6 addresses are assigned to the interface. 2001:0db8:85a3:08d3:1319:8a2e:0370:7344/64 is written (in hex) as "20 01 0d b8 85 a3 08 d3 13 19 8a 2e 03 70 73 44 40"
-                 * if_MACaddr     6  Interface Hardware MAC address (48 bits). 00 01 02 03 04 05
-                 * if_EUIaddr     7  Interface Hardware EUI address (64 bits), if available. TODO: give a good example
-                 */
-            case(8): /* if_speed */
+            case(OPT_IDB_SPEED): /* if_speed */
                 if (oh.option_length == 8) {
                     /*  Don't cast a guint8 * into a guint64 *--the
                      *  guint8 * may not point to something that's
@@ -948,7 +889,7 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     pcapng_debug1("pcapng_read_if_descr_block: if_speed length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(9): /* if_tsresol */
+            case(OPT_IDB_TSRESOL): /* if_tsresol */
                 if (oh.option_length == 1) {
                     guint64 base;
                     guint64 result;
@@ -996,7 +937,7 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                 /*
                  * if_tzone      10  Time zone for GMT support (TODO: specify better). TODO: give a good example
                  */
-            case(11): /* if_filter */
+            case(OPT_IDB_FILTER): /* if_filter */
                 if (oh.option_length > 0 && oh.option_length < opt_cont_buf_len) {
                     /* The first byte of the Option Data keeps a code of the filter used (e.g. if this is a libpcap string,
                      * or BPF bytecode.
@@ -1007,13 +948,13 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     } else if (option_content[0] == 1) {
                         wblock->data.if_descr.bpf_filter_len = oh.option_length-1;
                         wblock->data.if_descr.if_filter_bpf_bytes = (gchar *)g_malloc(oh.option_length-1);
-                        memcpy(&wblock->data.if_descr.if_filter_bpf_bytes, (char *)option_content+1, oh.option_length-1);
+                        memcpy(wblock->data.if_descr.if_filter_bpf_bytes, (char *)option_content+1, oh.option_length-1);
                     }
                 } else {
                     pcapng_debug1("pcapng_read_if_descr_block: if_filter length %u seems strange", oh.option_length);
                 }
                 break;
-            case(12): /* if_os */
+            case(OPT_IDB_OS): /* if_os */
                 /*
                  * if_os         12  A UTF-8 string containing the name of the operating system of the machine in which this interface is installed.
                  * This can be different from the same information that can be contained by the Section Header Block (Section 3.1 (Section Header Block (mandatory)))
@@ -1026,7 +967,7 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     pcapng_debug1("pcapng_read_if_descr_block: if_os length %u seems strange", oh.option_length);
                 }
                 break;
-            case(13): /* if_fcslen */
+            case(OPT_IDB_FCSLEN): /* if_fcslen */
                 if (oh.option_length == 1) {
                     wblock->data.if_descr.if_fcslen = option_content[0];
                     pn->if_fcslen = wblock->data.if_descr.if_fcslen;
@@ -1036,11 +977,50 @@ pcapng_read_if_descr_block(wtap *wth, FILE_T fh, pcapng_block_header_t *bh,
                     pcapng_debug1("pcapng_read_if_descr_block: if_fcslen length %u not 1 as expected", oh.option_length);
                 }
                 break;
+
+            /* TODO: process these! */
+            case(OPT_IDB_IP4ADDR):
                 /*
-                 * if_tsoffset   14  A 64 bits integer value that specifies an offset (in seconds) that must be added to the timestamp of each packet
-                 * to obtain the absolute timestamp of a packet. If the option is missing, the timestamps stored in the packet must be considered absolute timestamps.
-                 * The time zone of the offset can be specified with the option if_tzone.
-                 * TODO: won't a if_tsoffset_low for fractional second offsets be useful for highly synchronized capture systems? 1234
+                 * Interface network address and netmask. This option can be
+                 * repeated multiple times within the same Interface
+                 * Description Block when multiple IPv4 addresses are assigned
+                 * to the interface. 192 168 1 1 255 255 255 0
+                 */
+            case(OPT_IDB_IP6ADDR):
+                /*
+                 * Interface network address and prefix length (stored in the
+                 * last byte). This option can be repeated multiple times
+                 * within the same Interface Description Block when multiple
+                 * IPv6 addresses are assigned to the interface.
+                 * 2001:0db8:85a3:08d3:1319:8a2e:0370:7344/64 is written (in
+                 * hex) as "20 01 0d b8 85 a3 08 d3 13 19 8a 2e 03 70 73 44
+                 * 40"
+                 */
+            case(OPT_IDB_MACADDR):
+                /*
+                 * Interface Hardware MAC address (48 bits). 00 01 02 03 04 05
+                 */
+            case(OPT_IDB_EUIADDR):
+                /*
+                 * Interface Hardware EUI address (64 bits), if available.
+                 * TODO: give a good example
+                 */
+            case(OPT_IDB_TZONE):
+                /*
+                 * Time zone for GMT support. TODO: specify better.
+                 * TODO: give a good example.
+                 */
+            case(OPT_IDB_TSOFFSET):
+                /*
+                 * A 64 bits integer value that specifies an offset (in
+                 * seconds) that must be added to the timestamp of each packet
+                 * to obtain the absolute timestamp of a packet. If the option
+                 * is missing, the timestamps stored in the packet must be
+                 * considered absolute timestamps. The time zone of the offset
+                 * can be specified with the option if_tzone.
+                 *
+                 * TODO: won't a if_tsoffset_low for fractional second offsets
+                 * be useful for highly synchronized capture systems? 1234
                  */
             default:
                 pcapng_debug2("pcapng_read_if_descr_block: unknown option %u - ignoring %u bytes",
@@ -1501,10 +1481,11 @@ pcapng_read_simple_packet_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t *
     /*
      * The captured length is not a field in the SPB; it can be
      * calculated as the minimum of the snapshot length from the
-     * IDB and the packet length, as per the pcap-ng spec.
+     * IDB and the packet length, as per the pcap-ng spec. An IDB
+     * snapshot length of 0 means no limit.
      */
     simple_packet.cap_len = simple_packet.packet_len;
-    if (simple_packet.cap_len > iface_info.snap_len)
+    if (simple_packet.cap_len > iface_info.snap_len && iface_info.snap_len != 0)
         simple_packet.cap_len = iface_info.snap_len;
 
     /*
@@ -1655,9 +1636,15 @@ pcapng_read_name_resolution_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t
     pcapng_name_resolution_block_t nrb;
     Buffer nrb_rec;
     guint32 v4_addr;
-    guint record_len;
+    guint record_len, opt_cont_buf_len;
     char *namep;
     int namelen;
+    int bytes_read;
+    pcapng_option_header_t oh;
+    guint8 *option_content;
+#ifdef HAVE_PLUGINS
+    option_handler handler;
+#endif
 
     /*
      * Is this block long enough to be an NRB?
@@ -1687,7 +1674,7 @@ pcapng_read_name_resolution_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t
         return FALSE;
     }
 
-    to_read = bh->block_total_length - 8 - 4; /* We have read the header adn should not read the final block_total_length */
+    to_read = bh->block_total_length - 8 - 4; /* We have read the header and should not read the final block_total_length */
 
     pcapng_debug1("pcapng_read_name_resolution_block, total %d bytes", bh->block_total_length);
 
@@ -1732,8 +1719,8 @@ pcapng_read_name_resolution_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t
         }
         switch (nrb.record_type) {
             case NRES_ENDOFRECORD:
-                /* There shouldn't be any more data */
-                to_read = 0;
+                /* There shouldn't be any more data - but there MAY be options */
+                goto read_options;
                 break;
             case NRES_IP4RECORD:
                 /*
@@ -1773,8 +1760,8 @@ pcapng_read_name_resolution_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t
                      */
                     memcpy(&v4_addr,
                            ws_buffer_start_ptr(&nrb_rec), 4);
-                    if (pn->byte_swapped)
-                        v4_addr = GUINT32_SWAP_LE_BE(v4_addr);
+                    /* IPv4 address is in big-endian order in the file always, which is how we store
+                       it internally as well, so don't byte-swap it */
                     for (namep = (char *)ws_buffer_start_ptr(&nrb_rec) + 4, record_len = nrb.record_len - 4;
                          record_len != 0;
                          namep += namelen, record_len -= namelen) {
@@ -1869,6 +1856,83 @@ pcapng_read_name_resolution_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t
         }
     }
 
+
+read_options:
+    to_read -= block_read;
+
+    /* Options
+     * opt_comment    1
+     *
+     * TODO:
+     * ns_dnsname     2
+     * ns_dnsIP4addr  3
+     * ns_dnsIP6addr  4
+     */
+
+    /* Allocate enough memory to hold all options */
+    opt_cont_buf_len = to_read;
+    option_content = (guint8 *)g_try_malloc(opt_cont_buf_len);
+    if (opt_cont_buf_len != 0 && option_content == NULL) {
+        *err = ENOMEM;  /* we assume we're out of memory */
+        ws_buffer_free(&nrb_rec);
+        return FALSE;
+    }
+
+    while (to_read != 0) {
+        /* read option */
+        bytes_read = pcapng_read_option(fh, pn, &oh, option_content, opt_cont_buf_len, to_read, err, err_info);
+        if (bytes_read <= 0) {
+            pcapng_debug0("pcapng_read_name_resolution_block: failed to read option");
+            g_free(option_content);
+            ws_buffer_free(&nrb_rec);
+            return FALSE;
+        }
+        to_read -= bytes_read;
+
+        /* handle option content */
+        switch (oh.option_code) {
+            case(OPT_EOFOPT):
+                if (to_read != 0) {
+                    pcapng_debug1("pcapng_read_name_resolution_block: %u bytes after opt_endofopt", to_read);
+                }
+                /* padding should be ok here, just get out of this */
+                to_read = 0;
+                break;
+            case(OPT_COMMENT):
+                if (oh.option_length > 0 && oh.option_length < opt_cont_buf_len) {
+                    wblock->data.name_res.opt_comment = g_strndup((char *)option_content, oh.option_length);
+                    pcapng_debug2("pcapng_read_name_resolution_block: length %u opt_comment '%s'", oh.option_length, wblock->data.name_res.opt_comment);
+                } else {
+                    pcapng_debug1("pcapng_read_name_resolution_block: opt_comment length %u seems strange", oh.option_length);
+                }
+                break;
+                break;
+            default:
+#ifdef HAVE_PLUGINS
+                /*
+                 * Do we have a handler for this network resolution block option code?
+                 */
+                if (option_handlers[BT_INDEX_NRB] != NULL &&
+                    (handler = (option_handler)g_hash_table_lookup(option_handlers[BT_INDEX_NRB],
+                                                                   GUINT_TO_POINTER((guint)oh.option_code))) != NULL) {
+                    /* Yes - call the handler. */
+                    if (!handler(pn->byte_swapped, oh.option_length,
+                                 option_content, err, err_info)) {
+
+                        g_free(option_content);
+                        ws_buffer_free(&nrb_rec);
+                        return FALSE;
+                    }
+                } else
+#endif
+                {
+                    pcapng_debug2("pcapng_read_name_resolution_block: unknown option %u - ignoring %u bytes",
+                                  oh.option_code, oh.option_length);
+                }
+        }
+    }
+
+    g_free(option_content);
     ws_buffer_free(&nrb_rec);
     return TRUE;
 }
@@ -1958,14 +2022,14 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
 
         /* handle option content */
         switch (oh.option_code) {
-            case(0): /* opt_endofopt */
+            case(OPT_EOFOPT): /* opt_endofopt */
                 if (to_read != 0) {
                     pcapng_debug1("pcapng_read_interface_statistics_block: %u bytes after opt_endofopt", to_read);
                 }
                 /* padding should be ok here, just get out of this */
                 to_read = 0;
                 break;
-            case(1): /* opt_comment */
+            case(OPT_COMMENT): /* opt_comment */
                 if (oh.option_length > 0 && oh.option_length < opt_cont_buf_len) {
                     wblock->data.if_stats.opt_comment = g_strndup((char *)option_content, oh.option_length);
                     pcapng_debug1("pcapng_read_interface_statistics_block: opt_comment %s", wblock->data.if_stats.opt_comment);
@@ -1973,7 +2037,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: opt_comment length %u seems strange", oh.option_length);
                 }
                 break;
-            case(2): /* isb_starttime */
+            case(OPT_ISB_STARTTIME): /* isb_starttime */
                 if (oh.option_length == 8) {
                     guint32 high, low;
 
@@ -1995,7 +2059,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: isb_starttime length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(3): /* isb_endtime */
+            case(OPT_ISB_ENDTIME): /* isb_endtime */
                 if (oh.option_length == 8) {
                     guint32 high, low;
 
@@ -2017,7 +2081,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: isb_starttime length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(4): /* isb_ifrecv */
+            case(OPT_ISB_IFRECV): /* isb_ifrecv */
                 if (oh.option_length == 8) {
                     /*  Don't cast a guint8 * into a guint64 *--the
                      *  guint8 * may not point to something that's
@@ -2031,7 +2095,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: isb_ifrecv length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(5): /* isb_ifdrop */
+            case(OPT_ISB_IFDROP): /* isb_ifdrop */
                 if (oh.option_length == 8) {
                     /*  Don't cast a guint8 * into a guint64 *--the
                      *  guint8 * may not point to something that's
@@ -2045,7 +2109,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: isb_ifdrop length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(6): /* isb_filteraccept 6 */
+            case(OPT_ISB_FILTERACCEPT): /* isb_filteraccept 6 */
                 if (oh.option_length == 8) {
                     /*  Don't cast a guint8 * into a guint64 *--the
                      *  guint8 * may not point to something that's
@@ -2059,7 +2123,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: isb_filteraccept length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(7): /* isb_osdrop 7 */
+            case(OPT_ISB_OSDROP): /* isb_osdrop 7 */
                 if (oh.option_length == 8) {
                     /*  Don't cast a guint8 * into a guint64 *--the
                      *  guint8 * may not point to something that's
@@ -2073,7 +2137,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
                     pcapng_debug1("pcapng_read_interface_statistics_block: isb_osdrop length %u not 8 as expected", oh.option_length);
                 }
                 break;
-            case(8): /* isb_usrdeliv 8  */
+            case(OPT_ISB_USRDELIV): /* isb_usrdeliv 8  */
                 if (oh.option_length == 8) {
                     /*  Don't cast a guint8 * into a guint64 *--the
                      *  guint8 * may not point to something that's
@@ -2102,7 +2166,7 @@ pcapng_read_interface_statistics_block(FILE_T fh, pcapng_block_header_t *bh, pca
 static gboolean
 pcapng_read_unknown_block(FILE_T fh, pcapng_block_header_t *bh, pcapng_t *pn _U_, wtapng_block_t *wblock _U_, int *err, gchar **err_info)
 {
-    int block_read;
+    guint32 block_read;
     guint32 block_total_length;
 #ifdef HAVE_PLUGINS
     block_handler *handler;
@@ -2269,6 +2333,7 @@ pcapng_process_idb(wtap *wth, pcapng_t *pcapng, wtapng_block_t *wblock)
 
     int_data.wtap_encap = wblock->data.if_descr.wtap_encap;
     int_data.time_units_per_second = wblock->data.if_descr.time_units_per_second;
+    int_data.tsprecision = wblock->data.if_descr.tsprecision;
     int_data.link_type = wblock->data.if_descr.link_type;
     int_data.snap_len = wblock->data.if_descr.snap_len;
     /* Options */
@@ -2640,6 +2705,7 @@ pcapng_write_section_header_block(wtap_dumper *wdh, int *err)
             }
             options_total_length = options_total_length + shb_user_appl_len + shb_user_appl_pad_len + 4 /* options tag */ ;
         }
+
         if (have_options) {
             /* End-of-options tag */
             options_total_length += 4;
@@ -2775,12 +2841,6 @@ pcapng_write_section_header_block(wtap_dumper *wdh, int *err)
     return TRUE;
 }
 
-#define IDB_OPT_IF_NAME         2
-#define IDB_OPT_IF_DESCR        3
-#define IDB_OPT_IF_SPEED        8
-#define IDB_OPT_IF_TSRESOL      9
-#define IDB_OPT_IF_FILTER       11
-#define IDB_OPT_IF_OS           12
 
 static gboolean
 pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *err)
@@ -2952,7 +3012,7 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
      * if_name        2  A UTF-8 string containing the name of the device used to capture data.
      */
     if (if_name_len !=0) {
-        option_hdr.type = IDB_OPT_IF_NAME;
+        option_hdr.type = OPT_IDB_NAME;
         option_hdr.value_length = if_name_len;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -2975,7 +3035,7 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
      * if_description 3  A UTF-8 string containing the description of the device used to capture data.
      */
     if (if_description_len != 0) {
-        option_hdr.type          = IDB_OPT_IF_NAME;
+        option_hdr.type          = OPT_IDB_NAME;
         option_hdr.value_length = if_description_len;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3004,7 +3064,7 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
      * if_speed       8  Interface speed (in bps). 100000000 for 100Mbps
      */
     if (int_data->if_speed != 0) {
-        option_hdr.type          = IDB_OPT_IF_SPEED;
+        option_hdr.type          = OPT_IDB_SPEED;
         option_hdr.value_length = 8;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3023,7 +3083,7 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
      * the resolution of the timestamp as as a negative power of 10
      */
     if (int_data->if_tsresol != 0) {
-        option_hdr.type          = IDB_OPT_IF_TSRESOL;
+        option_hdr.type          = OPT_IDB_TSRESOL;
         option_hdr.value_length = 1;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3046,7 +3106,7 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
      */
     /* Libpcap string variant */
     if (if_filter_str_len !=0) {
-        option_hdr.type          = IDB_OPT_IF_FILTER;
+        option_hdr.type          = OPT_IDB_FILTER;
         option_hdr.value_length = if_filter_str_len;
         /* if_filter_str_len includes the leading byte indicating filter type (libpcap str or BPF code) */
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
@@ -3076,7 +3136,7 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
      * if_os         12  A UTF-8 string containing the name of the operating system of the machine in which this interface is installed.
      */
     if (if_os_len != 0) {
-        option_hdr.type          = IDB_OPT_IF_OS;
+        option_hdr.type          = OPT_IDB_OS;
         option_hdr.value_length = if_os_len;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3120,14 +3180,6 @@ pcapng_write_if_descr_block(wtap_dumper *wdh, wtapng_if_descr_t *int_data, int *
 
     return TRUE;
 }
-
-#define ISB_STARTTIME     2
-#define ISB_ENDTIME       3
-#define ISB_IFRECV        4
-#define ISB_IFDROP        5
-#define ISB_FILTERACCEPT  6
-#define ISB_OSDROP        7
-#define ISB_USRDELIV      8
 
 static gboolean
 pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_stats, int *err)
@@ -3241,7 +3293,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     if (if_stats->isb_starttime != 0) {
         guint32 high, low;
 
-        option_hdr.type = ISB_STARTTIME;
+        option_hdr.type = OPT_ISB_STARTTIME;
         option_hdr.value_length = 8;
         high = (guint32)((if_stats->isb_starttime>>32) & 0xffffffff);
         low = (guint32)(if_stats->isb_starttime & 0xffffffff);
@@ -3262,7 +3314,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     if (if_stats->isb_endtime != 0) {
         guint32 high, low;
 
-        option_hdr.type = ISB_ENDTIME;
+        option_hdr.type = OPT_ISB_ENDTIME;
         option_hdr.value_length = 8;
         high = (guint32)((if_stats->isb_endtime>>32) & 0xffffffff);
         low = (guint32)(if_stats->isb_endtime & 0xffffffff);
@@ -3281,7 +3333,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     }
     /*guint64               isb_ifrecv;*/
     if (if_stats->isb_ifrecv != G_GUINT64_CONSTANT(0xFFFFFFFFFFFFFFFF)) {
-        option_hdr.type          = ISB_IFRECV;
+        option_hdr.type          = OPT_ISB_IFRECV;
         option_hdr.value_length  = 8;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3295,7 +3347,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     }
     /*guint64               isb_ifdrop;*/
     if (if_stats->isb_ifdrop != G_GUINT64_CONSTANT(0xFFFFFFFFFFFFFFFF)) {
-        option_hdr.type          = ISB_IFDROP;
+        option_hdr.type          = OPT_ISB_IFDROP;
         option_hdr.value_length  = 8;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3309,7 +3361,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     }
     /*guint64               isb_filteraccept;*/
     if (if_stats->isb_filteraccept != G_GUINT64_CONSTANT(0xFFFFFFFFFFFFFFFF)) {
-        option_hdr.type          = ISB_FILTERACCEPT;
+        option_hdr.type          = OPT_ISB_FILTERACCEPT;
         option_hdr.value_length  = 8;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3323,7 +3375,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     }
     /*guint64               isb_osdrop;*/
     if (if_stats->isb_osdrop != G_GUINT64_CONSTANT(0xFFFFFFFFFFFFFFFF)) {
-        option_hdr.type          = ISB_OSDROP;
+        option_hdr.type          = OPT_ISB_OSDROP;
         option_hdr.value_length  = 8;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3337,7 +3389,7 @@ pcapng_write_interface_statistics_block(wtap_dumper *wdh, wtapng_if_stats_t *if_
     }
     /*guint64               isb_usrdeliv;*/
     if (if_stats->isb_usrdeliv != G_GUINT64_CONSTANT(0xFFFFFFFFFFFFFFFF)) {
-        option_hdr.type          = ISB_USRDELIV;
+        option_hdr.type          = OPT_ISB_USRDELIV;
         option_hdr.value_length  = 8;
         if (!wtap_dump_file_write(wdh, &option_hdr, 4, err))
             return FALSE;
@@ -3415,7 +3467,7 @@ pcapng_write_enhanced_packet_block(wtap_dumper *wdh,
         options_total_length = options_total_length + 8;
     }
     if (have_options) {
-        /* End-of optios tag */
+        /* End-of options tag */
         options_total_length += 4;
     }
 
@@ -3536,7 +3588,7 @@ pcapng_write_enhanced_packet_block(wtap_dumper *wdh,
         wdh->bytes_dumped += 4;
         pcapng_debug1("pcapng_write_enhanced_packet_block: Wrote Options packet flags: %x", phdr->pack_flags);
     }
-    /* Write end of options if we have otions */
+    /* Write end of options if we have options */
     if (have_options) {
         if (!wtap_dump_file_write(wdh, &zero_pad, 4, err))
             return FALSE;
@@ -3560,7 +3612,10 @@ pcapng_write_name_resolution_block(wtap_dumper *wdh, int *err)
     pcapng_block_header_t bh;
     pcapng_name_resolution_block_t nrb;
     guint8 *rec_data;
-    gint rec_off, namelen, tot_rec_len;
+    guint32 rec_off;
+    size_t hostnamelen;
+    guint16 namelen;
+    guint32 tot_rec_len;
     hashipv4_t *ipv4_hash_list_entry;
     hashipv6_t *ipv6_hash_list_entry;
     int i;
@@ -3580,7 +3635,16 @@ pcapng_write_name_resolution_block(wtap_dumper *wdh, int *err)
         while(ipv4_hash_list_entry != NULL){
 
             nrb.record_type = NRES_IP4RECORD;
-            namelen = (gint)strlen(ipv4_hash_list_entry->name) + 1;
+            hostnamelen = strlen(ipv4_hash_list_entry->name);
+            if (hostnamelen > (G_MAXUINT16 - 4) - 1) {
+                /*
+                 * This won't fit in a maximum-sized record; discard it.
+                 */
+                i++;
+                ipv4_hash_list_entry = (hashipv4_t *)g_list_nth_data(wdh->addrinfo_lists->ipv4_addr_list, i);
+                continue;
+            }
+            namelen = (guint16)(hostnamelen + 1);
             nrb.record_len = 4 + namelen;
             tot_rec_len = 4 + nrb.record_len + PADDING4(nrb.record_len);
 
@@ -3633,13 +3697,28 @@ pcapng_write_name_resolution_block(wtap_dumper *wdh, int *err)
         while(ipv6_hash_list_entry != NULL){
 
             nrb.record_type = NRES_IP6RECORD;
-            namelen = (gint)strlen(ipv6_hash_list_entry->name) + 1;
+            hostnamelen = strlen(ipv6_hash_list_entry->name);
+            if (hostnamelen > (G_MAXUINT16 - 16) - 1) {
+                /*
+                 * This won't fit in a maximum-sized record; discard it.
+                 */
+                i++;
+                ipv6_hash_list_entry = (hashipv6_t *)g_list_nth_data(wdh->addrinfo_lists->ipv6_addr_list, i);
+                continue;
+            }
+            namelen = (guint16)(hostnamelen + 1);
             nrb.record_len = 16 + namelen;  /* 16 bytes IPv6 address length */
             /* 2 bytes record type, 2 bytes length field */
             tot_rec_len = 4 + nrb.record_len + PADDING4(nrb.record_len);
 
             if (rec_off + tot_rec_len > NRES_REC_MAX_SIZE){
-                /* We know the total length now; copy the block header. */
+                /*
+                 * This record would overflow our maximum size for Name
+                 * Resolution Blocks; write out all the records we created
+                 * before it, and start a new NRB.
+                 */
+
+                /* First, copy the block header. */
                 memcpy(rec_data, &bh, sizeof(bh));
 
                 /* End of record */
@@ -3679,6 +3758,90 @@ pcapng_write_name_resolution_block(wtap_dumper *wdh, int *err)
         }
         g_list_free(wdh->addrinfo_lists->ipv6_addr_list);
         wdh->addrinfo_lists->ipv6_addr_list = NULL;
+    }
+
+    /* add options, if any */
+    if (wdh->nrb_hdr) {
+        gboolean have_options = FALSE;
+        guint32 options_total_length = 0;
+        struct option option_hdr;
+        guint32 comment_len = 0, comment_pad_len = 0;
+        wtapng_name_res_t *nrb_hdr = wdh->nrb_hdr;
+        guint32 prev_rec_off = rec_off;
+
+        /* get lengths first to make sure we can fit this into the block */
+        if (nrb_hdr->opt_comment) {
+            have_options = TRUE;
+            comment_len = (guint32)strlen(nrb_hdr->opt_comment) & 0xffff;
+            if ((comment_len % 4)) {
+                comment_pad_len = 4 - (comment_len % 4);
+            } else {
+                comment_pad_len = 0;
+            }
+            options_total_length = options_total_length + comment_len + comment_pad_len + 4 /* comment options tag */ ;
+        }
+
+        if (have_options) {
+            /* End-of options tag */
+            options_total_length += 4;
+
+            if (rec_off + options_total_length > NRES_REC_MAX_SIZE) {
+                /*
+                 * This record would overflow our maximum size for Name
+                 * Resolution Blocks; write out all the records we created
+                 * before it, and start a new NRB.
+                 */
+
+                /* First, copy the block header. */
+                memcpy(rec_data, &bh, sizeof(bh));
+
+                /* End of record */
+                memset(rec_data + rec_off, 0, 4);
+                rec_off += 4;
+
+                memcpy(rec_data + rec_off, &bh.block_total_length, sizeof(bh.block_total_length));
+
+                pcapng_debug2("pcapng_write_name_resolution_block: Write bh.block_total_length bytes %d, rec_off %u", bh.block_total_length, rec_off);
+
+                if (!wtap_dump_file_write(wdh, rec_data, bh.block_total_length, err)) {
+                    g_free(rec_data);
+                    return FALSE;
+                }
+                wdh->bytes_dumped += bh.block_total_length;
+
+                /*Start a new NRB */
+                prev_rec_off = rec_off = 8; /* block type + block total length */
+                bh.block_type = BLOCK_TYPE_NRB;
+                bh.block_total_length = rec_off + 8; /* end-of-record + block total length */
+            }
+
+            bh.block_total_length += options_total_length;
+
+            if (comment_len > 0) {
+                option_hdr.type         = OPT_COMMENT;
+                option_hdr.value_length = comment_len;
+
+                memcpy(rec_data + rec_off, &option_hdr, sizeof(option_hdr));
+                rec_off += (guint32)sizeof(option_hdr);
+
+                /* Write the comments string */
+                memcpy(rec_data + rec_off, nrb_hdr->opt_comment, comment_len);
+                rec_off += comment_len;
+                memset(rec_data + rec_off, 0, comment_pad_len);
+                rec_off += comment_pad_len;
+
+                pcapng_debug2("pcapng_write_name_resolution_block: Wrote Options comments: comment_len %u, comment_pad_len %u",
+                              comment_len,
+                              comment_pad_len);
+            }
+
+            /* Write end of options */
+            memset(rec_data + rec_off, 0, 4);
+            rec_off += 4;
+
+            /* sanity check */
+            g_assert(options_total_length == rec_off - prev_rec_off);
+        }
     }
 
     /* We know the total length now; copy the block header. */
@@ -3756,7 +3919,7 @@ static gboolean pcapng_dump(wtap_dumper *wdh,
 
 /* Finish writing to a dump file.
    Returns TRUE on success, FALSE on failure. */
-static gboolean pcapng_dump_close(wtap_dumper *wdh, int *err _U_)
+static gboolean pcapng_dump_close(wtap_dumper *wdh, int *err)
 {
     guint i, j;
 

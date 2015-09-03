@@ -345,7 +345,7 @@ check_msrp_header(tvbuff_t *tvb)
      * is not longer than what's in the buffer, so the
      * "tvb_get_ptr()" calls below won't throw exceptions.   *
      */
-    if(tvb_length(tvb) < 4 ||  tvb_get_ntohl(tvb, 0) != 0x4d535250 /* MSRP */){
+    if(tvb_captured_length(tvb) < 4 ||  tvb_get_ntohl(tvb, 0) != 0x4d535250 /* MSRP */){
         return FALSE;
     }
 
@@ -720,7 +720,7 @@ dissect_msrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 
     }/* if tree */
     return message_end_offset;
-    /*  return tvb_length(tvb); */
+    /*  return tvb_captured_length(tvb); */
 
 /* If this protocol has a sub-dissector call it here, see section 1.8 */
 }
@@ -922,7 +922,7 @@ proto_reg_handoff_msrp(void)
 {
     msrp_handle = find_dissector("msrp");
     dissector_add_for_decode_as("tcp.port", msrp_handle);   /* for "decode-as" */
-    heur_dissector_add("tcp", dissect_msrp_heur, proto_msrp);
+    heur_dissector_add("tcp", dissect_msrp_heur, "MSRP over TCP", "msrp_tcp", proto_msrp, HEURISTIC_ENABLE);
     dissector_add_uint("tcp.port", TCP_PORT_MSRP, msrp_handle);
     media_type_dissector_table = find_dissector_table("media_type");
 }

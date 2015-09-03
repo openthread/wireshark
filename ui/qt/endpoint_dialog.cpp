@@ -33,7 +33,6 @@
 #include "wsutil/str_util.h"
 
 #include "qt_ui_utils.h"
-
 #include "wireshark_application.h"
 
 #include <QCheckBox>
@@ -54,6 +53,8 @@ EndpointDialog::EndpointDialog(QWidget &parent, CaptureFile &cf, int cli_proto_i
 
     connect(trafficTableTabWidget(), SIGNAL(currentChanged(int)), this, SLOT(tabChanged()));
 #endif
+
+    addProgressFrame(&parent);
 
     QList<int> endp_protos;
     for (GList *endp_tab = recent.endpoint_tabs; endp_tab; endp_tab = endp_tab->next) {
@@ -85,7 +86,7 @@ EndpointDialog::EndpointDialog(QWidget &parent, CaptureFile &cf, int cli_proto_i
 #endif
     itemSelectionChanged();
 
-    cap_file_.retapPackets();
+    cap_file_.delayedRetapPackets();
 }
 
 EndpointDialog::~EndpointDialog()
@@ -113,7 +114,6 @@ void EndpointDialog::captureFileClosing()
     // on a live capture file.
     for (int i = 0; i < trafficTableTabWidget()->count(); i++) {
         EndpointTreeWidget *cur_tree = qobject_cast<EndpointTreeWidget *>(trafficTableTabWidget()->widget(i));
-        remove_tap_listener(cur_tree->trafficTreeHash());
         disconnect(cur_tree, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
                    this, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
     }
@@ -158,16 +158,10 @@ bool EndpointDialog::addTrafficTable(register_ct_t *table)
 
     endp_tree->trafficTreeHash()->user_data = endp_tree;
 
-    GString *error_string = register_tap_listener(proto_get_protocol_filter_name(proto_id), endp_tree->trafficTreeHash(), filter, 0,
-                                                  EndpointTreeWidget::tapReset,
-                                                  get_hostlist_packet_func(table),
-                                                  EndpointTreeWidget::tapDraw);
-
-    if (error_string) {
-        QMessageBox::warning(this, tr("Endpoint %1 failed to register tap listener").arg(table_name),
-                             error_string->str);
-        g_string_free(error_string, TRUE);
-    }
+    registerTapListener(proto_get_protocol_filter_name(proto_id), endp_tree->trafficTreeHash(), filter, 0,
+                        EndpointTreeWidget::tapReset,
+                        get_hostlist_packet_func(table),
+                        EndpointTreeWidget::tapDraw);
 
 #ifdef HAVE_GEOIP
     connect(endp_tree, SIGNAL(geoIPStatusChanged()), this, SLOT(tabChanged()));
@@ -207,7 +201,6 @@ void EndpointDialog::on_buttonBox_helpRequested()
 
 void init_endpoint_table(struct register_ct* ct, const char *filter)
 {
-    Q_UNUSED(ct)
     wsApp->emitStatCommandSignal("Endpoints", filter, GINT_TO_POINTER(get_conversation_proto_id(ct)));
 }
 

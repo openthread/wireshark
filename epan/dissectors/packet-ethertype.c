@@ -40,6 +40,7 @@
 #include "packet-vlan.h"
 #include "packet-ieee8021ah.h"
 #include "packet-vines.h"
+#include "packet-llc.h"
 
 
 void proto_register_ethertype(void);
@@ -183,6 +184,7 @@ const value_string etype_vals[] = {
 	{ ETHERTYPE_HSR,                  "High-availability Seamless Redundancy (IEC62439 Part 3)" },
 	{ ETHERTYPE_BPQ,                  "AX.25"},
 	{ ETHERTYPE_CMD,                  "CiscoMetaData"},
+	{ ETHERTYPE_XIP,                  "eXpressive Internet Protocol"},
 	{ 0, NULL }
 };
 
@@ -232,6 +234,9 @@ capture_ethertype(guint16 etype, const guchar *pd, int offset, int len,
 	case ETHERTYPE_BPQ:
 		capture_bpq(pd, offset, len, ld);
 		break;
+	case ETHERTYPE_JUMBO_LLC:
+		capture_llc(pd, offset, len, ld);
+		break;
 	default:
 		ld->other++;
 		break;
@@ -266,7 +271,7 @@ dissect_ethertype(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
 	/* Get the captured length and reported length of the data
 	   after the Ethernet type. */
-	captured_length = tvb_length_remaining(tvb, ethertype_data->offset_after_ethertype);
+	captured_length = tvb_captured_length_remaining(tvb, ethertype_data->offset_after_ethertype);
 	reported_length = tvb_reported_length_remaining(tvb,
 							ethertype_data->offset_after_ethertype);
 
@@ -336,7 +341,7 @@ dissect_ethertype(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 	add_dix_trailer(pinfo, tree, ethertype_data->fh_tree, ethertype_data->trailer_id, tvb, next_tvb, ethertype_data->offset_after_ethertype,
 			length_before, ethertype_data->fcs_len);
 
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 static void

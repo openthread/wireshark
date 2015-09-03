@@ -1700,11 +1700,17 @@ dvbci_init(void)
 {
     buf_size_cam  = 0;
     buf_size_host = 0;
-
     reassembly_table_init(&tpdu_reassembly_table,
                           &addresses_reassembly_table_functions);
     reassembly_table_init(&spdu_reassembly_table,
                           &addresses_reassembly_table_functions);
+}
+
+static void
+dvbci_cleanup(void)
+{
+    reassembly_table_destroy(&tpdu_reassembly_table);
+    reassembly_table_destroy(&spdu_reassembly_table);
 }
 
 
@@ -2430,7 +2436,7 @@ end:
 }
 
 #else
-/* HAVE_LIBGRYPT is not set */
+/* HAVE_LIBGCRYPT is not set */
 static gint
 pref_key_string_to_bin(const gchar *key_string _U_, unsigned char **key_bin _U_)
 {
@@ -3442,7 +3448,7 @@ dissect_sac_msg(guint32 tag, tvbuff_t *tvb, gint offset,
         tags[0] = 0;
         tags[1] = EXP_PDU_TAG_DVBCI_EVT_BIT;
         exp_pdu_data = load_export_pdu_tags(
-                pinfo, EXPORTED_SAC_MSG_PROTO, -1, tags, 2);
+                pinfo, EXP_PDU_TAG_PROTO_NAME, EXPORTED_SAC_MSG_PROTO, tags, 2);
 
         exp_pdu_data->tvb_captured_length = tvb_captured_length(clear_sac_msg_tvb);
         exp_pdu_data->tvb_reported_length = tvb_reported_length(clear_sac_msg_tvb);
@@ -6328,6 +6334,7 @@ proto_register_dvbci(void)
                 "SAS application id", FT_STRING, STR_ASCII);
 
     register_init_routine(dvbci_init);
+    register_cleanup_routine(dvbci_cleanup);
 
     /* the dissector for decrypted CI+ SAC messages which we can export */
     new_register_dissector(EXPORTED_SAC_MSG_PROTO,

@@ -67,7 +67,7 @@ static guint32 presentation_context_identifier;
 typedef struct _pres_ctx_oid_t {
 	guint32 ctx_id;
 	char *oid;
-	guint32 index;
+	guint32 idx;
 } pres_ctx_oid_t;
 static GHashTable *pres_ctx_oid_table = NULL;
 
@@ -111,19 +111,21 @@ pres_ctx_oid_equal(gconstpointer k1, gconstpointer k2)
 {
 	const pres_ctx_oid_t *pco1=(const pres_ctx_oid_t *)k1;
 	const pres_ctx_oid_t *pco2=(const pres_ctx_oid_t *)k2;
-	return (pco1->ctx_id==pco2->ctx_id && pco1->index==pco2->index);
+	return (pco1->ctx_id==pco2->ctx_id && pco1->idx==pco2->idx);
 }
 
 static void
 pres_init(void)
 {
-	if( pres_ctx_oid_table ){
-		g_hash_table_destroy(pres_ctx_oid_table);
-		pres_ctx_oid_table = NULL;
-	}
 	pres_ctx_oid_table = g_hash_table_new(pres_ctx_oid_hash,
 			pres_ctx_oid_equal);
 
+}
+
+static void
+pres_cleanup(void)
+{
+	g_hash_table_destroy(pres_ctx_oid_table);
 }
 
 static void
@@ -143,9 +145,9 @@ register_ctx_id_and_oid(packet_info *pinfo _U_, guint32 idx, const char *oid)
 	conversation=find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
 			pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 	if (conversation) {
-		pco->index = conversation->index;
+		pco->idx = conversation->index;
 	} else {
-		pco->index = 0;
+		pco->idx = 0;
 	}
 
 	/* if this ctx already exists, remove the old one first */
@@ -185,9 +187,9 @@ find_oid_by_pres_ctx_id(packet_info *pinfo, guint32 idx)
 	conversation=find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
 			pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 	if (conversation) {
-		pco.index = conversation->index;
+		pco.idx = conversation->index;
 	} else {
-		pco.index = 0;
+		pco.idx = 0;
 	}
 
 	tmppco=(pres_ctx_oid_t *)g_hash_table_lookup(pres_ctx_oid_table, &pco);
@@ -441,6 +443,7 @@ void proto_register_pres(void) {
   expert_pres = expert_register_protocol(proto_pres);
   expert_register_field_array(expert_pres, ei, array_length(ei));
   register_init_routine(pres_init);
+  register_cleanup_routine(pres_cleanup);
 
   pres_module = prefs_register_protocol(proto_pres, NULL);
 

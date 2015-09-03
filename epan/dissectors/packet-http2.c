@@ -79,7 +79,7 @@ typedef struct {
             guint datalen;
             /* name index or name/value index if type is one of
                HTTP2_HD_INDEXED and HTTP2_HD_*_INDEXED_NAMEs */
-            guint index;
+            guint idx;
         } data;
         /* header table size if type == HTTP2_HD_HEADER_TABLE_SIZE_UPDATE */
         guint header_table_size;
@@ -150,10 +150,6 @@ static const guint8* st_str_http2_type = "Type";
 
 static int st_node_http2 = -1;
 static int st_node_http2_type = -1;
-
-/* Heuristic dissection */
-static gboolean global_http2_heur = FALSE;
-
 
 /* Packet Header */
 static int proto_http2 = -1;
@@ -689,7 +685,7 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
 
                 out->type = header_repr_info->type;
                 out->length = rv;
-                out->table.data.index = header_repr_info->integer;
+                out->table.data.idx = header_repr_info->integer;
 
                 out->table.data.datalen = (guint)(4 + nv.namelen + 4 + nv.valuelen);
 
@@ -824,7 +820,7 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
            in->type == HTTP2_HD_LITERAL_INDEXING_INDEXED_NAME ||
            in->type == HTTP2_HD_LITERAL_INDEXED_NAME ||
            in->type == HTTP2_HD_LITERAL_NEVER_INDEXING_INDEXED_NAME) {
-            proto_tree_add_uint(header_tree, hf_http2_header_index, tvb, offset, in->length, in->table.data.index);
+            proto_tree_add_uint(header_tree, hf_http2_header_index, tvb, offset, in->length, in->table.data.idx);
         }
 
         proto_item_append_text(header, ": %s: %s", header_name, header_value);
@@ -1433,14 +1429,9 @@ dissect_http2_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
       return TRUE;
     }
 
-
     if (tvb_memeql(tvb, 0, kMagicHello, MAGIC_FRAME_LENGTH) != 0) {
-        /* we couldn't find the Magic Hello (PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n)
-           see if there's a valid frame type (0-11 are defined at the moment).
-           This is weak heuristics, so it is disabled by default. */
-        if (!global_http2_heur ||
-            tvb_captured_length(tvb)<4 || tvb_get_guint8(tvb, 3)>HTTP2_BLOCKED)
-            return FALSE;
+        /* we couldn't find the Magic Hello (PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n). */
+        return FALSE;
     }
 
     /* Remember http2 conversation. */
@@ -1861,11 +1852,7 @@ proto_register_http2(void)
 
     http2_module = prefs_register_protocol(proto_http2, NULL);
 
-    prefs_register_bool_preference(http2_module, "heuristic_http2",
-        "Enable weak HTTP2 detection heuristic",
-        "The weak HTTP2 heuristic has some false positives and is disabled by "
-        "default. The stronger HTTP2 Magic Hello heuristic is always enabled.",
-        &global_http2_heur);
+    prefs_register_obsolete_preference(http2_module, "heuristic_http2");
 
     new_register_dissector("http2", dissect_http2, proto_http2);
 
@@ -1897,8 +1884,8 @@ proto_reg_handoff_http2(void)
     http2_handle = new_create_dissector_handle(dissect_http2, proto_http2);
     dissector_add_for_decode_as("tcp.port", http2_handle);
 
-    heur_dissector_add("ssl", dissect_http2_heur, proto_http2);
-    heur_dissector_add("http", dissect_http2_heur, proto_http2);
+    heur_dissector_add("ssl", dissect_http2_heur, "HTTP2 over SSL", "http2_ssl", proto_http2, HEURISTIC_ENABLE);
+    heur_dissector_add("http", dissect_http2_heur, "HTTP2 over TCP", "http2_tcp", proto_http2, HEURISTIC_ENABLE);
 
     stats_tree_register("http2", "http2", "HTTP2", 0, http2_stats_tree_packet, http2_stats_tree_init, NULL);
 }

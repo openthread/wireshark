@@ -110,18 +110,21 @@ mcaststream_reset(mcaststream_tapinfo_t *tapinfo)
     g_free(tapinfo->allstreams);
     tapinfo->allstreams = NULL;
 
-    tapinfo->nstreams = 0;
     tapinfo->npackets = 0;
-
-    ++(tapinfo->launch_count);
 
     return;
 }
 
 static void
-mcaststream_reset_cb(void *arg)
+mcaststream_reset_cb(void *ti_ptr)
 {
-    mcaststream_reset((mcaststream_tapinfo_t *)arg);
+    mcaststream_tapinfo_t *tapinfo = (mcaststream_tapinfo_t *)ti_ptr;
+    if (tapinfo) {
+        if (tapinfo->tap_reset) {
+           tapinfo->tap_reset(ti_ptr);
+        }
+        mcaststream_reset(tapinfo);
+    }
 }
 
 /****************************************************************************/
@@ -143,7 +146,7 @@ mcaststream_draw(void *ti_ptr)
 
 /****************************************************************************/
 /* whenever a udp packet is seen by the tap listener */
-static int
+static gboolean
 mcaststream_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const void *arg2 _U_)
 {
     mcaststream_tapinfo_t *tapinfo = (mcaststream_tapinfo_t *)arg;
@@ -153,20 +156,32 @@ mcaststream_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
     nstime_t delta;
     double deltatime;
 
-    /* gather infos on the stream this packet is part of */
-    COPY_ADDRESS(&(tmp_strinfo.src_addr), &(pinfo->src));
-    tmp_strinfo.src_port = pinfo->srcport;
-    COPY_ADDRESS(&(tmp_strinfo.dest_addr), &(pinfo->dst));
-    tmp_strinfo.dest_port = pinfo->destport;
-
-    /* first we ignore non multicast packets; we filter out only those ethernet packets
-     * which start with the 01:00:5E multicast address (for IPv4) and 33:33 multicast
-     * address (for IPv6).
+    /*
+     * Restrict statistics to standard multicast IPv4 and IPv6 addresses.
+     * We might want to check for and allow ethernet addresses starting
+     * with 01:00:05 and 33:33 as well.
      */
-    if ((pinfo->dl_dst.type != AT_ETHER) ||
-        ((g_ascii_strncasecmp("01005E", bytes_to_str(pinfo->pool, (const guint8 *)pinfo->dl_dst.data, pinfo->dl_dst.len), 6) != 0) &&
-         (g_ascii_strncasecmp("3333", bytes_to_str(pinfo->pool, (const guint8 *)pinfo->dl_dst.data, pinfo->dl_dst.len), 4) != 0)) )
-        return 0;
+    switch (pinfo->net_dst.type) {
+        case AT_IPv4:
+            /* 224.0.0.0/4 */
+            if (pinfo->net_dst.len == 0 || (((const guint8*)pinfo->net_dst.data)[0] & 0xf0) != 0xe0)
+                return FALSE;
+            break;
+        case AT_IPv6:
+            /* ff00::/8 */
+            /* XXX This includes DHCPv6. */
+            if (pinfo->net_dst.len == 0 || ((const guint8*)pinfo->net_dst.data)[0] != 0xff)
+                return FALSE;
+            break;
+        default:
+            return FALSE;
+    }
+
+    /* gather infos on the stream this packet is part of */
+    COPY_ADDRESS(&(tmp_strinfo.src_addr), &(pinfo->net_src));
+    tmp_strinfo.src_port = pinfo->srcport;
+    COPY_ADDRESS(&(tmp_strinfo.dest_addr), &(pinfo->net_dst));
+    tmp_strinfo.dest_port = pinfo->destport;
 
     /* check whether we already have a stream with these parameters in the list */
     list = g_list_first(tapinfo->strinfo_list);
@@ -244,12 +259,16 @@ mcaststream_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 
     /* calculate average bandwidth for this stream */
     strinfo->total_bytes = strinfo->total_bytes + pinfo->fd->pkt_len;
-    if (deltatime > 0)
-        strinfo->average_bw = (((double)(strinfo->total_bytes*8) / deltatime) / 1000000);
 
     /* increment the packets counter for this stream and calculate average pps */
     ++(strinfo->npackets);
-    strinfo->apackets = (guint32) (strinfo->npackets / deltatime);
+    
+    if (deltatime > 0) {
+        strinfo->apackets = strinfo->npackets / deltatime;
+        strinfo->average_bw = ((double)(strinfo->total_bytes*8) / deltatime);
+    } else {
+        strinfo->apackets = strinfo->average_bw = 0.0;
+    }
 
     /* time between first and last packet in any group */
     tapinfo->allstreams->stop_rel = pinfo->rel_ts;
@@ -262,7 +281,7 @@ mcaststream_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
     /* calculate average bandwidth for all streams */
     tapinfo->allstreams->total_bytes = tapinfo->allstreams->total_bytes + pinfo->fd->pkt_len;
     if (deltatime > 0)
-        tapinfo->allstreams->average_bw = (((double)(tapinfo->allstreams->total_bytes *8) / deltatime) / 1000000);
+        tapinfo->allstreams->average_bw = ((double)(tapinfo->allstreams->total_bytes*8) / deltatime);
 
     /* sliding window and buffercalc for this group*/
     slidingwindow(strinfo, pinfo);
@@ -427,7 +446,7 @@ slidingwindow(mcast_stream_info_t *strinfo, packet_info *pinfo)
     strinfo->element.burstsize = diff;
     if(strinfo->element.burstsize > strinfo->element.topburstsize) {
         strinfo->element.topburstsize = strinfo->element.burstsize;
-        strinfo->element.maxbw = (double)(strinfo->element.topburstsize) * 1000 / mcast_stream_burstint * pinfo->fd->pkt_len * 8 / 1000000;
+        strinfo->element.maxbw = (double)(strinfo->element.topburstsize) * 1000 / mcast_stream_burstint * pinfo->fd->pkt_len * 8;
     }
 
     strinfo->element.last++;

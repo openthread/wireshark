@@ -33,6 +33,7 @@
 #include <epan/reassemble.h>
 #include <epan/conversation_table.h>
 #include <epan/etypes.h>
+#include <epan/srt_table.h>
 #include "packet-fc.h"
 #include "packet-fclctl.h"
 #include "packet-fcbls.h"
@@ -138,6 +139,8 @@ static gint ett_fcbls = -1;
 static gint ett_fc_vft = -1;
 
 static expert_field ei_fccrc = EI_INIT;
+static expert_field ei_short_hdr = EI_INIT;
+static expert_field ei_frag_size = EI_INIT;
 
 static dissector_handle_t fc_handle, fcsof_handle;
 static dissector_table_t fcftype_dissector_table;
@@ -194,11 +197,14 @@ fc_exchange_init_protocol(void)
 {
     reassembly_table_init(&fc_reassembly_table,
                           &addresses_reassembly_table_functions);
-
-    if (fcseq_req_hash)
-        g_hash_table_destroy(fcseq_req_hash);
-
     fcseq_req_hash = g_hash_table_new(fcseq_hash, fcseq_equal);
+}
+
+static void
+fc_exchange_cleanup_protocol(void)
+{
+    reassembly_table_destroy(&fc_reassembly_table);
+    g_hash_table_destroy(fcseq_req_hash);
 }
 
 static const char* fc_conv_get_filter_type(conv_item_t* conv, conv_filter_type_e filter)
@@ -252,6 +258,47 @@ fc_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const
 
     return 1;
 }
+
+#define FC_NUM_PROCEDURES     256
+
+static void
+fcstat_init(struct register_srt* srt _U_, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+{
+    srt_stat_table *fc_srt_table;
+    guint32 i;
+
+    fc_srt_table = init_srt_table("Fibre Channel Types", NULL, srt_array, FC_NUM_PROCEDURES, NULL, NULL, gui_callback, gui_data, NULL);
+    for (i = 0; i < FC_NUM_PROCEDURES; i++)
+    {
+        gchar* tmp_str = val_to_str_wmem(NULL, i, fc_fc4_val, "Unknown(0x%02x)");
+        init_srt_table_row(fc_srt_table, i, tmp_str);
+        wmem_free(NULL, tmp_str);
+    }
+}
+
+static int
+fcstat_packet(void *pss, packet_info *pinfo, epan_dissect_t *edt _U_, const void *prv)
+{
+    guint i = 0;
+    srt_stat_table *fc_srt_table;
+    srt_data_t *data = (srt_data_t *)pss;
+    const fc_hdr *fc=(const fc_hdr *)prv;
+
+    /* we are only interested in reply packets */
+    if(!(fc->fctl&FC_FCTL_EXCHANGE_RESPONDER)){
+	    return 0;
+    }
+    /* if we havnt seen the request, just ignore it */
+    if ( (!fc->fc_ex) || (fc->fc_ex->first_exchange_frame==0) ){
+	    return 0;
+    }
+
+    fc_srt_table = g_array_index(data->srt_array, srt_stat_table*, i);
+    add_srt_table_data(fc_srt_table, fc->type, &fc->fc_ex->fc_time, pinfo);
+
+    return 1;
+}
+
 
 const value_string fc_fc4_val[] = {
     {FC_TYPE_BLS,        "Basic Link Svc"},
@@ -976,8 +1023,11 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
         is_exchg_resp = (f_ctl & FC_FCTL_EXCHANGE_RESPONDER) != 0;
     }
 
-    if (tvb_reported_length (tvb) < FC_HEADER_SIZE)
-        THROW(ReportedBoundsError);
+    if (tvb_reported_length (tvb) < FC_HEADER_SIZE) {
+        proto_tree_add_expert(fc_tree, pinfo, &ei_short_hdr,
+                tvb, 0, tvb_reported_length(tvb));
+        return;
+    }
 
     frag_size = tvb_reported_length (tvb)-FC_HEADER_SIZE;
 
@@ -989,14 +1039,20 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     if ((fc_data->ethertype == ETHERTYPE_UNK) || (fc_data->ethertype == ETHERTYPE_FCFT)) {
         if ((frag_size < MDSHDR_TRAILER_SIZE) ||
             ((frag_size == MDSHDR_TRAILER_SIZE) && (ftype != FC_FTYPE_LINKCTL) &&
-             (ftype != FC_FTYPE_BLS) && (ftype != FC_FTYPE_OHMS)))
-            THROW(ReportedBoundsError);
+             (ftype != FC_FTYPE_BLS) && (ftype != FC_FTYPE_OHMS))) {
+            proto_tree_add_expert(fc_tree, pinfo, &ei_short_hdr,
+                    tvb, FC_HEADER_SIZE, frag_size);
+            return;
+        }
         frag_size -= MDSHDR_TRAILER_SIZE;
     } else if (fc_data->ethertype == ETHERTYPE_BRDWALK) {
         if ((frag_size <= 8) ||
             ((frag_size == MDSHDR_TRAILER_SIZE) && (ftype != FC_FTYPE_LINKCTL) &&
-             (ftype != FC_FTYPE_BLS) && (ftype != FC_FTYPE_OHMS)))
-            THROW(ReportedBoundsError);
+             (ftype != FC_FTYPE_BLS) && (ftype != FC_FTYPE_OHMS))) {
+            proto_tree_add_expert(fc_tree, pinfo, &ei_short_hdr,
+                    tvb, FC_HEADER_SIZE, frag_size);
+            return;
+        }
         frag_size -= 8;         /* 4 byte of FC CRC +
                                    4 bytes of error+EOF = 8 bytes  */
     }
@@ -1188,7 +1244,7 @@ dissect_fc (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
        return 0;
 
     dissect_fc_helper (tvb, pinfo, tree, FALSE, fc_data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -1200,7 +1256,7 @@ dissect_fc_wtap (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     fc_data.sof_eof = 0;
 
     dissect_fc_helper (tvb, pinfo, tree, FALSE, &fc_data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -1212,7 +1268,7 @@ dissect_fc_ifcp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
        return 0;
 
     dissect_fc_helper (tvb, pinfo, tree, TRUE, fc_data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -1473,7 +1529,14 @@ proto_register_fc(void)
     };
 
     static ei_register_info ei[] = {
-        { &ei_fccrc, { "fc.crc.bad", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+        { &ei_fccrc,
+            { "fc.crc.bad", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+        { &ei_short_hdr,
+            { "fc.short_hdr", PI_MALFORMED, PI_ERROR,
+                "Packet length is shorter than the required header", EXPFILL }},
+        { &ei_frag_size,
+            { "fc.frag_size", PI_MALFORMED, PI_ERROR,
+                "Invalid fragment size", EXPFILL }}
     };
 
     module_t *fc_module;
@@ -1533,6 +1596,7 @@ proto_register_fc(void)
                                     &fc_max_frame_size);
 
     register_init_routine (fc_exchange_init_protocol);
+    register_cleanup_routine (fc_exchange_cleanup_protocol);
 
 
     /* Register FC SOF/EOF */
@@ -1544,6 +1608,7 @@ proto_register_fc(void)
     fcsof_handle = register_dissector("fcsof", dissect_fcsof, proto_fcsof);
 
     register_conversation_table(proto_fc, TRUE, fc_conversation_packet, fc_hostlist_packet);
+    register_srt_table(proto_fc, NULL, 1, fcstat_packet, fcstat_init, NULL);
 }
 
 

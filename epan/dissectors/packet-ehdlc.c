@@ -30,6 +30,7 @@
 
 #include <epan/packet.h>
 #include <epan/xdlc.h>
+#include "packet-l2tp.h"
 
 void proto_register_ehdlc(void);
 void proto_reg_handoff_ehdlc(void);
@@ -135,7 +136,7 @@ dissect_ehdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			/* Use MIN(...,...) in the following to prevent a premature */
 			/* exception before we try to dissect whatever is available. */
 			ti = proto_tree_add_protocol_format(tree, proto_ehdlc,
-					tvb, offset, MIN(len, tvb_length_remaining(tvb,offset)),
+					tvb, offset, MIN(len, tvb_captured_length_remaining(tvb,offset)),
 					"Ericsson HDLC protocol, type: %s",
 					val_to_str(msg_type, ehdlc_protocol_vals,
 						   "unknown 0x%02x"));
@@ -317,9 +318,14 @@ proto_register_ehdlc(void)
 void
 proto_reg_handoff_ehdlc(void)
 {
+    dissector_handle_t ehdlc_handle;
+
 	sub_handles[SUB_RSL]  = find_dissector("gsm_abis_rsl");
 	sub_handles[SUB_OML]  = find_dissector("gsm_abis_oml");
 	sub_handles[SUB_DATA] = find_dissector("data");
+
+    ehdlc_handle = create_dissector_handle( dissect_ehdlc, proto_ehdlc );
+	dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_ERICSSON, ehdlc_handle);
 }
 
 /*

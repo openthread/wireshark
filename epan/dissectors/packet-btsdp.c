@@ -573,9 +573,6 @@ static expert_field ei_data_element_value_large = EI_INIT;
 
 static dissector_handle_t btsdp_handle;
 
-static dissector_table_t btrfcomm_service_table;
-static dissector_table_t btl2cap_service_table;
-
 static wmem_tree_t *tid_requests           = NULL;
 static wmem_tree_t *continuation_states    = NULL;
 static wmem_tree_t *record_handle_services = NULL;
@@ -1124,9 +1121,9 @@ get_specified_uuid(wmem_array_t  *uuid_array)
 
         for (i_uuid = 0; i_uuid < size; i_uuid += 1) {
             p_uuid = (bluetooth_uuid_t *) wmem_array_index(uuid_array, i_uuid);
-            if (dissector_get_uint_handle(btrfcomm_service_table, p_uuid->bt_uuid))
+            if (p_uuid->size == 16) /* CustomUUID (UUID128) is always ok */
                 break;
-            if (dissector_get_uint_handle(btl2cap_service_table, p_uuid->bt_uuid))
+            if (dissector_get_string_handle(bluetooth_uuid_table, print_numeric_uuid(p_uuid)))
                 break;
         }
 
@@ -3594,8 +3591,8 @@ dissect_sdp_service_attribute(proto_tree *tree, tvbuff_t *tvb, gint offset,
     const gchar         *attribute_name;
     wmem_strbuf_t       *attribute_value = NULL;
     guint16              id;
-    gint                 service_did_vendor_id = 0;
-    gint                 service_did_vendor_id_source = 0;
+    gint                 service_did_vendor_id = -1;
+    gint                 service_did_vendor_id_source = -1;
     gint                 hfx_attribute_id = hf_service_attribute_id_generic;
     const value_string  *name_vals = NULL;
     const guint8        *profile_speficic = "";
@@ -3612,8 +3609,10 @@ dissect_sdp_service_attribute(proto_tree *tree, tvbuff_t *tvb, gint offset,
             hfx_attribute_id = hf_service_attribute_id_did;
             profile_speficic = "(DID) ";
 
-            service_did_vendor_id_source = findDidVendorIdSource(tvb, service_offset, number_of_attributes);
-            service_did_vendor_id = findDidVendorId(tvb, service_offset, number_of_attributes);
+            if (number_of_attributes > 1) {
+                service_did_vendor_id_source = findDidVendorIdSource(tvb, service_offset, number_of_attributes);
+                service_did_vendor_id = findDidVendorId(tvb, service_offset, number_of_attributes);
+            }
             break;
         case BTSDP_HID_SERVICE_UUID:
             name_vals = vs_hid_attribute_id;
@@ -6543,9 +6542,6 @@ proto_reg_handoff_btsdp(void)
 {
     dissector_add_uint("btl2cap.psm", BTL2CAP_PSM_SDP, btsdp_handle);
     dissector_add_for_decode_as("btl2cap.cid", btsdp_handle);
-
-    btrfcomm_service_table = find_dissector_table("btrfcomm.service");
-    btl2cap_service_table = find_dissector_table("btl2cap.service");
 }
 
 /*

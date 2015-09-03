@@ -163,9 +163,6 @@ int dissect_lua(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data 
     lua_pinfo = pinfo;
     lua_tvb = tvb;
 
-    lua_tree = create_TreeItem(tree, proto_tree_add_item(tree, hf_wslua_fake, tvb, 0, 0, ENC_NA));
-    PROTO_ITEM_SET_HIDDEN(lua_tree->item);
-
     /*
      * almost equivalent to Lua:
      * dissectors[current_proto](tvb,pinfo,tree)
@@ -185,7 +182,8 @@ int dissect_lua(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data 
 
         push_Tvb(L,tvb);
         push_Pinfo(L,pinfo);
-        push_TreeItem(L,lua_tree);
+        lua_tree = push_TreeItem(L, tree, proto_tree_add_item(tree, hf_wslua_fake, tvb, 0, 0, ENC_NA));
+        PROTO_ITEM_SET_HIDDEN(lua_tree->item);
 
         if  ( lua_pcall(L,3,1,0) ) {
             proto_tree_add_expert_format(tree, pinfo, &ei_lua_error, tvb, 0, 0, "Lua Error: %s", lua_tostring(L,-1));
@@ -278,12 +276,10 @@ gboolean heur_dissect_lua(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, v
         return FALSE;
     }
 
-    lua_tree = create_TreeItem(tree, proto_tree_add_item(tree, hf_wslua_fake, tvb, 0, 0, ENC_NA));
-    PROTO_ITEM_SET_HIDDEN(lua_tree->item);
-
     push_Tvb(L,tvb);
     push_Pinfo(L,pinfo);
-    push_TreeItem(L,lua_tree);
+    lua_tree = push_TreeItem(L, tree, proto_tree_add_item(tree, hf_wslua_fake, tvb, 0, 0, ENC_NA));
+    PROTO_ITEM_SET_HIDDEN(lua_tree->item);
 
     if  ( lua_pcall(L,3,1,0) ) {
         proto_tree_add_expert_format(tree, pinfo, &ei_lua_error, tvb, 0, 0,
@@ -353,18 +349,34 @@ static int init_error_handler(lua_State* LS) {
 }
 
 
+static gboolean init_routine_initialized = FALSE;
 static void wslua_init_routine(void) {
-    static gboolean initialized = FALSE;
 
-    if ( ! initialized ) {
+    if ( ! init_routine_initialized ) {
+        /*
+         * This must be done only once during the entire life of
+         * tshark/wireshark, because it must be done only once per the life of
+         * the Lua state/engine, so we guard this with the boolean above;
+         * otherwise it would occur every time a file is opened (every time
+         * epan_new() is called).
+         *
+         * If we ever allow the Lua state to be restarted, or to have multiple
+         * Lua states, we'll need to change this.
+         */
         lua_prime_all_fields(NULL);
-        initialized = TRUE;
+        init_routine_initialized = TRUE;
     }
 
     if (L) {
         iter_table_and_call(L, WSLUA_INIT_ROUTINES,init_error_handler);
     }
 
+}
+
+static void wslua_cleanup_routine(void) {
+    if (L) {
+        iter_table_and_call(L, WSLUA_INIT_ROUTINES,init_error_handler);
+    }
 }
 
 static int prefs_changed_error_handler(lua_State* LS) {
@@ -394,7 +406,7 @@ static int lua_main_error_handler(lua_State* LS) {
     return 0;
 }
 
-static void wslua_add_plugin(gchar *name, gchar *version, gchar *filename)
+static void wslua_add_plugin(const gchar *name, const gchar *version, const gchar *filename)
 {
     wslua_plugin *new_plug, *lua_plug;
 
@@ -410,10 +422,24 @@ static void wslua_add_plugin(gchar *name, gchar *version, gchar *filename)
         lua_plug->next = new_plug;
     }
 
-    new_plug->name = name;
-    new_plug->version = version;
-    new_plug->filename = filename;
+    new_plug->name = g_strdup(name);
+    new_plug->version = g_strdup(version);
+    new_plug->filename = g_strdup(filename);
     new_plug->next = NULL;
+}
+
+static void wslua_clear_plugin_list(void)
+{
+    wslua_plugin *lua_plug;
+
+    while (wslua_plugin_list) {
+        lua_plug = wslua_plugin_list;
+        wslua_plugin_list = wslua_plugin_list->next;
+        g_free (lua_plug->name);
+        g_free (lua_plug->version);
+        g_free (lua_plug->filename);
+        g_free (lua_plug);
+    }
 }
 
 static int lua_script_push_args(const int script_num) {
@@ -480,6 +506,7 @@ static void set_file_environment(const gchar* filename, const gchar* dirname) {
     g_free(personal);
 }
 
+
 /* If file_count > 0 then it's a command-line-added user script, and the count
  * represents which user script it is (first=1, second=2, etc.).
  * If dirname != NULL, then it's a user script and the dirname will get put in a file environment
@@ -532,6 +559,30 @@ static gboolean lua_load_script(const gchar* filename, const gchar* dirname, con
             return FALSE;
     }
 }
+
+/* This one is used to load the init.lua scripts, or anything else
+ * that shouldn't really be considered a real plugin.
+ */
+static gboolean lua_load_internal_script(const gchar* filename) {
+    return lua_load_script(filename, NULL, 0);
+}
+
+/* This one is used to load plugins: either from the plugin directories,
+ *   or from the command line.
+ */
+static gboolean lua_load_plugin_script(const gchar* name,
+                                       const gchar* filename,
+                                       const gchar* dirname,
+                                       const int file_count)
+{
+    if (lua_load_script(filename, dirname, file_count)) {
+        wslua_add_plugin(name, get_current_plugin_version(), filename);
+        clear_current_plugin_version();
+        return TRUE;
+    }
+    return FALSE;
+}
+
 
 static void basic_logger(const gchar *log_domain _U_,
                           GLogLevelFlags log_level _U_,
@@ -586,9 +637,7 @@ static int lua_load_plugins(const char *dirname, register_cb cb, gpointer client
                 if (!count_only) {
                     if (cb)
                         (*cb)(RA_LUA_PLUGINS, name, client_data);
-                    if (lua_load_script(filename, is_user ? dirname : NULL, 0)) {
-                        wslua_add_plugin(g_strdup(name), g_strdup(""), g_strdup(filename));
-                    }
+                    lua_load_plugin_script(name, filename, is_user ? dirname : NULL, 0);
                 }
                 plugins_counter++;
             }
@@ -668,13 +717,14 @@ wslua_get_expert_field(const int group, const int severity)
     return &ei_lua_error;
 }
 
-int wslua_init(register_cb cb, gpointer client_data) {
+void wslua_init(register_cb cb, gpointer client_data) {
     gchar* filename;
     const gchar *script_filename;
     const funnel_ops_t* ops = funnel_get_funnel_ops();
     gboolean run_anyway = FALSE;
     expert_module_t* expert_lua;
     int file_count = 1;
+    static gboolean first_time = TRUE;
 
     static hf_register_info hf[] = {
         { &hf_wslua_fake,
@@ -766,17 +816,19 @@ int wslua_init(register_cb cb, gpointer client_data) {
         { &ei_lua_error, { "_ws.lua.error", PI_UNDECODED, PI_ERROR ,"Lua Error", EXPFILL }},
     };
 
-    ws_lua_ei = ei;
-    ws_lua_ei_len = array_length(ei);
+    if (first_time) {
+        ws_lua_ei = ei;
+        ws_lua_ei_len = array_length(ei);
 
-    /* set up the logger */
-    g_log_set_handler(LOG_DOMAIN_LUA, (GLogLevelFlags)(G_LOG_LEVEL_CRITICAL|
+        /* set up the logger */
+        g_log_set_handler(LOG_DOMAIN_LUA, (GLogLevelFlags)(G_LOG_LEVEL_CRITICAL|
                       G_LOG_LEVEL_WARNING|
                       G_LOG_LEVEL_MESSAGE|
                       G_LOG_LEVEL_INFO|
                       G_LOG_LEVEL_DEBUG),
                       ops ? ops->logger : basic_logger,
                       NULL);
+    }
 
     if (!L) {
         L = luaL_newstate();
@@ -784,10 +836,12 @@ int wslua_init(register_cb cb, gpointer client_data) {
 
     WSLUA_INIT(L);
 
-    proto_lua = proto_register_protocol("Lua Dissection", "Lua Dissection", "_ws.lua");
-    proto_register_field_array(proto_lua, hf, array_length(hf));
-    expert_lua = expert_register_protocol(proto_lua);
-    expert_register_field_array(expert_lua, ei, array_length(ei));
+    if (first_time) {
+        proto_lua = proto_register_protocol("Lua Dissection", "Lua Dissection", "_ws.lua");
+        proto_register_field_array(proto_lua, hf, array_length(hf));
+        expert_lua = expert_register_protocol(proto_lua);
+        expert_register_field_array(expert_lua, ei, array_length(ei));
+    }
 
     lua_atpanic(L,wslua_panic);
 
@@ -828,7 +882,7 @@ int wslua_init(register_cb cb, gpointer client_data) {
     }
 
     if (( file_exists(filename))) {
-        lua_load_script(filename, NULL, 0);
+        lua_load_internal_script(filename);
     }
 
     g_free(filename);
@@ -841,7 +895,7 @@ int wslua_init(register_cb cb, gpointer client_data) {
         /* disable lua */
         lua_close(L);
         L = NULL;
-        return 0;
+        first_time = FALSE;
     }
     lua_pop(L,1);  /* pop the getglobal result */
 
@@ -863,7 +917,7 @@ int wslua_init(register_cb cb, gpointer client_data) {
         if ((file_exists(filename))) {
             if (cb)
                 (*cb)(RA_LUA_PLUGINS, get_basename(filename), client_data);
-            lua_load_script(filename, NULL, 0);
+            lua_load_internal_script(filename);
         }
         g_free(filename);
 
@@ -880,14 +934,20 @@ int wslua_init(register_cb cb, gpointer client_data) {
             if (cb)
                 (*cb)(RA_LUA_PLUGINS, get_basename(script_filename), client_data);
 
-            lua_load_script(script_filename, dname ? dname : "", file_count);
+            lua_load_plugin_script(ws_dir_get_name(script_filename),
+                                   script_filename,
+                                   dname ? dname : "",
+                                   file_count);
             file_count++;
             g_free(dirname);
         }
     }
 
-    /* at this point we're set up so register the init routine */
-    register_init_routine(wslua_init_routine);
+    if (first_time) {
+        /* at this point we're set up so register the init and cleanup routines */
+        register_init_routine(wslua_init_routine);
+        register_cleanup_routine(wslua_cleanup_routine);
+    }
 
     /*
      * after this point it is too late to register a menu
@@ -905,16 +965,36 @@ int wslua_init(register_cb cb, gpointer client_data) {
 
     Proto_commit(L);
 
-    return 0;
+    first_time = FALSE;
 }
 
-int wslua_cleanup(void) {
+void wslua_reload_plugins (register_cb cb, gpointer client_data) {
+    const funnel_ops_t* ops = funnel_get_funnel_ops();
+
+    if (cb)
+        (*cb)(RA_LUA_DEREGISTER, NULL, client_data);
+
+    if (ops->close_dialogs)
+        ops->close_dialogs();
+
+    wslua_deregister_protocols(L);
+    wslua_deregister_dissector_tables(L);
+    wslua_deregister_listeners(L);
+    wslua_deregister_filehandlers(L);
+    wslua_deregister_menus();
+    wslua_clear_plugin_list();
+
+    wslua_cleanup();
+    wslua_init(cb, client_data);    /* reinitialize */
+}
+
+void wslua_cleanup(void) {
     /* cleanup lua */
-    if (!L) {
+    if (L) {
         lua_close(L);
         L = NULL;
     }
-    return 0;
+    init_routine_initialized = FALSE;
 }
 
 lua_State* wslua_state(void) { return L; }

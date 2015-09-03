@@ -1240,6 +1240,7 @@ static gint hf_epl_mtyp          = -1;
 static gint hf_epl_node          = -1;
 static gint hf_epl_dest          = -1;
 static gint hf_epl_src           = -1;
+static gint hf_epl_payload_real  = -1;
 
 static gint hf_epl_soc           = -1;
 static gint hf_epl_soc_mc        = -1;
@@ -1413,6 +1414,7 @@ static gint hf_epl_asnd_sdo_cmd                              = -1;
 static gint hf_epl_asnd_sdo_cmd_transaction_id               = -1;
 static gint hf_epl_asnd_sdo_cmd_response                     = -1;
 static gint hf_epl_asnd_sdo_cmd_abort                        = -1;
+static gint hf_epl_asnd_sdo_cmd_sub_abort                    = -1;
 static gint hf_epl_asnd_sdo_cmd_segmentation                 = -1;
 static gint hf_epl_asnd_sdo_cmd_command_id                   = -1;
 static gint hf_epl_asnd_sdo_cmd_segment_size                 = -1;
@@ -1502,6 +1504,7 @@ static expert_field ei_recvseq_value          = EI_INIT;
 static expert_field ei_sendseq_value          = EI_INIT;
 static expert_field ei_recvcon_value          = EI_INIT;
 static expert_field ei_sendcon_value          = EI_INIT;
+static expert_field ei_real_length_differs    = EI_INIT;
 
 static dissector_handle_t epl_handle;
 
@@ -1647,6 +1650,12 @@ setup_dissector(void)
 	memset(&epl_asnd_sdo_reassembly_read, 0, sizeof(epl_sdo_reassembly));
 	/* create reassembly table */
 	reassembly_table_init(&epl_reassembly_table, &addresses_reassembly_table_functions);
+}
+
+static void
+cleanup_dissector(void)
+{
+	reassembly_table_destroy(&epl_reassembly_table);
 }
 
 /* preference whether or not display the SoC flags in info column */
@@ -1880,15 +1889,25 @@ decode_epl_address (guchar adr)
 static gint
 dissect_epl_payload ( proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo, gint offset, gint len, guint8 msgType )
 {
-	gint off = 0;
+	gint off = 0, rem_len = 0, pld_rem_len = 0;
 	tvbuff_t * payload_tvb = NULL;
 	heur_dtbl_entry_t *hdtbl_entry = NULL;
+	proto_item * item = NULL;
 
 	off = offset;
 
 	if (len > 0)
 	{
-		payload_tvb = tvb_new_subset(tvb, off, len, tvb_reported_length_remaining(tvb, offset) );
+		rem_len = tvb_captured_length_remaining(tvb, 0);
+		payload_tvb = tvb_new_subset_length(tvb, off, len > rem_len ? rem_len : len);
+		pld_rem_len = tvb_captured_length_remaining(payload_tvb, 0);
+		if ( pld_rem_len < len )
+		{
+			item = proto_tree_add_uint(epl_tree, hf_epl_payload_real, tvb, off, pld_rem_len, pld_rem_len);
+			PROTO_ITEM_SET_GENERATED(item);
+			expert_add_info(pinfo, item, &ei_real_length_differs );
+		}
+
 		if ( ! dissector_try_heuristic(heur_epl_data_subdissector_list, payload_tvb, pinfo, epl_tree, &hdtbl_entry, &msgType))
 			call_dissector(data_dissector, payload_tvb, pinfo, epl_tree);
 
@@ -2777,7 +2796,7 @@ dissect_epl_sdo_command(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo,
 	guint8  segmented, command_id, transaction_id;
 	gboolean response, abort_flag;
 	guint32 abort_code = 0;
-	guint32 fragmentId = 0;
+	guint32 fragmentId = 0, remlength = 0;
 	guint16 segment_size;
 	proto_tree *sdo_cmd_tree = NULL;
 	proto_tree *payload = NULL;
@@ -2864,10 +2883,37 @@ dissect_epl_sdo_command(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo,
 		}
 		if (abort_flag)
 		{
-			abort_code = tvb_get_letohl(tvb, offset);
-			/* if AbortBit is set then print AbortMessage */
-			proto_tree_add_uint(sdo_cmd_tree, hf_epl_asnd_sdo_cmd_abort_code, tvb, offset, 4, abort_code);
-			col_append_fstr(pinfo->cinfo, COL_INFO, "Abort:0x%08X (%s)", abort_code, val_to_str_ext_const(abort_code, &sdo_cmd_abort_code_ext, "Unknown"));
+			remlength = tvb_captured_length_remaining(tvb, offset);
+			if (command_id == EPL_ASND_SDO_COMMAND_WRITE_MULTIPLE_PARAMETER_BY_INDEX && response)
+			{
+				/* the SDO response can contain several abort codes for multiple transfers */
+				while (remlength > 0)
+				{
+					proto_tree_add_item(sdo_cmd_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+					offset += 2;
+
+					proto_tree_add_item(sdo_cmd_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+					offset += 1;
+
+					proto_tree_add_item(sdo_cmd_tree, hf_epl_asnd_sdo_cmd_sub_abort, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+					offset += 1;
+
+					abort_code = tvb_get_letohl(tvb, offset);
+					/* if AbortBit is set then print AbortMessage */
+					proto_tree_add_uint(sdo_cmd_tree, hf_epl_asnd_sdo_cmd_abort_code, tvb, offset, 4, abort_code);
+					col_append_fstr(pinfo->cinfo, COL_INFO, "Abort:0x%08X (%s)", abort_code, val_to_str_ext_const(abort_code, &sdo_cmd_abort_code_ext, "Unknown"));
+					offset += 4;
+
+					remlength = tvb_captured_length_remaining(tvb, offset);
+				}
+			}
+			else
+			{
+				abort_code = tvb_get_letohl(tvb, offset);
+				/* if AbortBit is set then print AbortMessage */
+				proto_tree_add_uint(sdo_cmd_tree, hf_epl_asnd_sdo_cmd_abort_code, tvb, offset, 4, abort_code);
+				col_append_fstr(pinfo->cinfo, COL_INFO, "Abort:0x%08X (%s)", abort_code, val_to_str_ext_const(abort_code, &sdo_cmd_abort_code_ext, "Unknown"));
+			}
 		}
 		else
 		{
@@ -2918,7 +2964,7 @@ dissect_epl_sdo_command_write_by_index(proto_tree *epl_tree, tvbuff_t *tvb, pack
 			/* get index offset */
 			idx = tvb_get_letohs(tvb, offset);
 			/* add index item */
-			psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset, 2, idx, "OD Index: 0x%04X", idx);
+			psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
 			/* value to string */
 			index_str = rval_to_str_const(idx, sod_cmd_str, "unknown");
 			/* get index string value */
@@ -2981,16 +3027,16 @@ dissect_epl_sdo_command_write_by_index(proto_tree *epl_tree, tvbuff_t *tvb, pack
 			if((idx == EPL_SOD_STORE_PARAM && subindex <= 0x7F && subindex >= 0x04) ||
 			   (idx == EPL_SOD_RESTORE_PARAM && subindex <= 0x7F && subindex >= 0x04))
 			{
-				psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%02X", subindex);
+				psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, ENC_LITTLE_ENDIAN);
 				proto_item_append_text(psf_item, " (ManufacturerParam_%02Xh_U32)", subindex);
 				col_append_fstr(pinfo->cinfo, COL_INFO, "/ManufacturerParam_%02Xh_U32)", subindex);
 			}
 			/* if the subindex is a EPL_SOD_PDO_RX_MAPP */
 			/* if the subindex is a EPL_SOD_PDO_TX_MAPP */
 			else if((idx == EPL_SOD_PDO_RX_MAPP && subindex >= 0x01 && subindex <= 0xfe) ||
-			        (idx == EPL_SOD_PDO_TX_MAPP && subindex >= 0x01 && subindex <= 0xfe))
+				(idx == EPL_SOD_PDO_TX_MAPP && subindex >= 0x01 && subindex <= 0xfe))
 			{
-				psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%02X", subindex);
+				psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, ENC_LITTLE_ENDIAN);
 				proto_item_append_text(psf_item, " (ObjectMapping)");
 				col_append_fstr(pinfo->cinfo, COL_INFO, "/ObjectMapping)");
 			}
@@ -3002,13 +3048,13 @@ dissect_epl_sdo_command_write_by_index(proto_tree *epl_tree, tvbuff_t *tvb, pack
 			/* if the subindex has the value 0x00 */
 			else if(subindex == entries)
 			{
-				psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%02X", subindex);
+				psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, ENC_LITTLE_ENDIAN);
 				proto_item_append_text(psf_item, " (NumberOfEntries)");
 				col_append_fstr(pinfo->cinfo, COL_INFO, "/NumberOfEntries)");
 			}
 			else
 			{
-				psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%02X", subindex);
+				psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, ENC_LITTLE_ENDIAN);
 				proto_item_append_text(psf_item, " (%s)", val_to_str_ext_const((subindex | (idx << 16)), &sod_index_names, "User Defined"));
 				col_append_fstr(pinfo->cinfo, COL_INFO, "/%s)",val_to_str_ext_const((subindex | (idx << 16)), &sod_index_names, "User Defined"));
 			}
@@ -3197,7 +3243,7 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 				/* get SDO index value */
 				idx = tvb_get_letohs(tvb, dataoffset);
 				/* add index item */
-				psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset+4, 2, idx, "OD Index: 0x%04X", idx);
+				psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset+4, 2, ENC_LITTLE_ENDIAN);
 				/* value to string */
 				index_str = rval_to_str_const(idx, sod_cmd_str, "unknown");
 				/* get index string value */
@@ -3249,37 +3295,37 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 				/* if the subindex is a EPL_SOD_STORE_PARAM */
 				if(idx == EPL_SOD_STORE_PARAM && subindex <= 0x7F && subindex >= 0x04)
 				{
-					psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%d", subindex);
+					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (ManufacturerParam_%02Xh_U32)", subindex);
 				}
 				/* if the subindex is a EPL_SOD_RESTORE_PARAM */
 				else if(idx == EPL_SOD_RESTORE_PARAM && subindex <= 0x7F && subindex >= 0x04)
 				{
-					psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%d", subindex);
+					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (ManufacturerParam_%02Xh_U32)", subindex);
 				}
 				/* if the subindex is a EPL_SOD_PDO_RX_MAPP */
 				else if(idx == EPL_SOD_PDO_RX_MAPP && subindex >= 0x01 && subindex <= 0xfe)
 				{
-					psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%d", subindex);
+					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (ObjectMapping)");
 				}
 				/* if the subindex is a EPL_SOD_PDO_TX_MAPP */
 				else if(idx == EPL_SOD_PDO_TX_MAPP && subindex >= 0x01 && subindex <= 0xfe)
 				{
-					psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%d", subindex);
+					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (ObjectMapping)");
 				}
 				/* if the subindex has the value 0x00 */
 				else if(subindex == entries)
 				{
-					psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%d", subindex);
+					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (NumberOfEntries)");
 				}
 				/* subindex */
 				else
 				{
-					psf_item = proto_tree_add_uint_format(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, offset, 1, subindex, "OD SubIndex: 0x%d", subindex);
+					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (%s)", val_to_str_ext_const((subindex | (idx << 16)), &sod_index_names, "User Defined"));
 				}
 
@@ -3467,6 +3513,10 @@ proto_register_epl(void)
 		{ &hf_epl_src,
 			{ "Source", "epl.src",
 				FT_UINT8, BASE_DEC_HEX, NULL, 0x00, NULL, HFILL }
+		},
+		{ &hf_epl_payload_real,
+			{ "Captured Size", "epl.payload.capture_size",
+				FT_UINT16, BASE_DEC, NULL, 0x00, NULL, HFILL }
 		},
 
 		/* SoC data fields*/
@@ -4096,6 +4146,11 @@ proto_register_epl(void)
 				FT_UINT8, BASE_DEC,
 				VALS(epl_sdo_asnd_cmd_abort), 0x40, NULL, HFILL }
 		},
+		{ &hf_epl_asnd_sdo_cmd_sub_abort,
+			{ "SDO Sub Transfer", "epl.asnd.sdo.cmd.sub.abort",
+				FT_UINT8, BASE_DEC,
+				VALS(epl_sdo_asnd_cmd_abort), 0x80, NULL, HFILL }
+		},
 		{ &hf_epl_asnd_sdo_cmd_segmentation,
 			{ "SDO Segmentation", "epl.asnd.sdo.cmd.segmentation",
 				FT_UINT8, BASE_DEC,
@@ -4247,6 +4302,10 @@ proto_register_epl(void)
 			{ "epl.error.send.connection", PI_PROTOCOL, PI_ERROR,
 				"Invalid Value for SendCon", EXPFILL }
 		},
+		{ &ei_real_length_differs,
+			{ "epl.error.payload.length.differs", PI_PROTOCOL, PI_ERROR,
+				"Captured length differs from header information", EXPFILL }
+		}
 	};
 
 	module_t *epl_module;
@@ -4259,7 +4318,7 @@ proto_register_epl(void)
 	heur_epl_subdissector_list = register_heur_dissector_list("epl");
 	heur_epl_data_subdissector_list = register_heur_dissector_list("epl_data");
 	epl_asnd_dissector_table = register_dissector_table("epl.asnd",
-	        "Manufacturer specific ASND service", FT_UINT8, BASE_DEC);
+		"Manufacturer specific ASND service", FT_UINT8, BASE_DEC);
 
 	/* Registering protocol to be called by another dissector */
 	epl_handle = new_register_dissector("epl", dissect_epl, proto_epl);
@@ -4301,6 +4360,7 @@ proto_reg_handoff_epl(void)
 
 	/* register frame init routine */
 	register_init_routine( setup_dissector );
+	register_cleanup_routine( cleanup_dissector );
 }
 
 /*

@@ -53,10 +53,25 @@ extern "C" {
 #ifdef NGHTTP2_STATICLIB
 #define NGHTTP2_EXTERN
 #elif defined(WIN32)
+#ifdef BUILDING_NGHTTP2
 #define NGHTTP2_EXTERN __declspec(dllexport)
-#else /* !defined(WIN32) */
+#else /* !BUILDING_NGHTTP2 */
+#define NGHTTP2_EXTERN __declspec(dllimport)
+#endif /* !BUILDING_NGHTTP2 */
+#else  /* !defined(WIN32) */
 #define NGHTTP2_EXTERN
 #endif /* !defined(WIN32) */
+
+/*
+ * When we're building this as part of Wireshark, we want to treat
+ * all these routines as internal to libwireshark.
+ */
+
+#include "ws_symbol_export.h"
+
+#undef NGHTTP2_EXTERN
+#define NGHTTP2_EXTERN WS_DLL_LOCAL
+
 
 /**
  * @macro
@@ -348,8 +363,10 @@ typedef enum {
    */
   NGHTTP2_ERR_PUSH_DISABLED = -528,
   /**
-   * DATA frame for a given stream has been already submitted and has
-   * not been fully processed yet.
+   * DATA or HEADERS frame for a given stream has been already
+   * submitted and has not been fully processed yet.  Application
+   * should wait for the transmission of the previously submitted
+   * frame before submitting another.
    */
   NGHTTP2_ERR_DATA_EXIST = -529,
   /**
@@ -1150,6 +1167,15 @@ typedef union {
  *
  * To set this callback to :type:`nghttp2_session_callbacks`, use
  * `nghttp2_session_callbacks_set_send_callback()`.
+ *
+ * .. note::
+ *
+ *   The |length| may be very small.  If that is the case, and
+ *   application disables Nagle algorithm (``TCP_NODELAY``), then just
+ *   writing |data| to the network stack leads to very small packet,
+ *   and it is very inefficient.  An application should be responsible
+ *   to buffer up small chunks of data as necessary to avoid this
+ *   situation.
  */
 typedef ssize_t (*nghttp2_send_callback)(nghttp2_session *session,
                                          const uint8_t *data, size_t length,
@@ -1512,7 +1538,7 @@ typedef int (*nghttp2_on_begin_headers_callback)(nghttp2_session *session,
  * used, nghttp2 library does perform validation against the |name|
  * and the |value| using `nghttp2_check_header_name()` and
  * `nghttp2_check_header_value()`.  In addition to this, nghttp2
- * performs vaidation based on HTTP Messaging rule, which is briefly
+ * performs validation based on HTTP Messaging rule, which is briefly
  * explained in :ref:`http-messaging` section.
  *
  * If the application uses `nghttp2_session_mem_recv()`, it can return
@@ -2021,6 +2047,25 @@ NGHTTP2_EXTERN void nghttp2_option_set_no_http_messaging(nghttp2_option *option,
 /**
  * @function
  *
+ * RFC 7540 does not enforce any limit on the number of incoming
+ * reserved streams (in RFC 7540 terms, streams in reserved (remote)
+ * state).  This only affects client side, since only server can push
+ * streams.  Malicious server can push arbitrary number of streams,
+ * and make client's memory exhausted.  This option can set the
+ * maximum number of such incoming streams to avoid possible memory
+ * exhaustion.  If this option is set, and pushed streams are
+ * automatically closed on reception, without calling user provided
+ * callback, if they exceed the given limit.  The default value is
+ * 200.  If session is configured as server side, this option has no
+ * effect.  Server can control the number of streams to push.
+ */
+NGHTTP2_EXTERN void
+nghttp2_option_set_max_reserved_remote_streams(nghttp2_option *option,
+                                               uint32_t val);
+
+/**
+ * @function
+ *
  * Initializes |*session_ptr| for client use.  The all members of
  * |callbacks| are copied to |*session_ptr|.  Therefore |*session_ptr|
  * does not store |callbacks|.  The |user_data| is an arbitrary user
@@ -2258,6 +2303,15 @@ NGHTTP2_EXTERN int nghttp2_session_send(nghttp2_session *session);
  *
  * :enum:`NGHTTP2_ERR_NOMEM`
  *     Out of memory.
+ *
+ * .. note::
+ *
+ *   This function may produce very small byte string.  If that is the
+ *   case, and application disables Nagle algorithm (``TCP_NODELAY``),
+ *   then writing this small chunk leads to very small packet, and it
+ *   is very inefficient.  An application should be responsible to
+ *   buffer up small chunks of data as necessary to avoid this
+ *   situation.
  */
 NGHTTP2_EXTERN ssize_t nghttp2_session_mem_send(nghttp2_session *session,
                                                 const uint8_t **data_ptr);
@@ -2980,6 +3034,11 @@ NGHTTP2_EXTERN int32_t
  *     Out of memory.
  * :enum:`NGHTTP2_ERR_INVALID_ARGUMENT`
  *     The |stream_id| is 0.
+ * :enum:`NGHTTP2_ERR_DATA_EXIST`
+ *     DATA or HEADERS has been already submitted and not fully
+ *     processed yet.  Normally, this does not happen, but when
+ *     application wrongly calls `nghttp2_submit_response()` twice,
+ *     this may happen.
  *
  * .. warning::
  *
@@ -3089,7 +3148,8 @@ NGHTTP2_EXTERN int nghttp2_submit_trailer(nghttp2_session *session,
  *
  * This function is low-level in a sense that the application code can
  * specify flags directly.  For usual HTTP request,
- * `nghttp2_submit_request()` is useful.
+ * `nghttp2_submit_request()` is useful.  Likewise, for HTTP response,
+ * prefer `nghttp2_submit_response()`.
  *
  * This function returns newly assigned stream ID if it succeeds and
  * |stream_id| is -1.  Otherwise, this function returns 0 if it
@@ -3102,6 +3162,10 @@ NGHTTP2_EXTERN int nghttp2_submit_trailer(nghttp2_session *session,
  *     reached.
  * :enum:`NGHTTP2_ERR_INVALID_ARGUMENT`
  *     The |stream_id| is 0.
+ * :enum:`NGHTTP2_ERR_DATA_EXIST`
+ *     DATA or HEADERS has been already submitted and not fully
+ *     processed yet.  This happens if stream denoted by |stream_id|
+ *     is in reserved state.
  *
  * .. warning::
  *
@@ -3136,7 +3200,8 @@ NGHTTP2_EXTERN int32_t
  * :enum:`NGHTTP2_ERR_NOMEM`
  *     Out of memory.
  * :enum:`NGHTTP2_ERR_DATA_EXIST`
- *     DATA has been already submitted and not fully processed yet.
+ *     DATA or HEADERS has been already submitted and not fully
+ *     processed yet.
  * :enum:`NGHTTP2_ERR_INVALID_ARGUMENT`
  *     The |stream_id| is 0.
  * :enum:`NGHTTP2_ERR_STREAM_CLOSED`
@@ -3144,14 +3209,19 @@ NGHTTP2_EXTERN int32_t
  *
  * .. note::
  *
- *   Currently, only one data is allowed for a stream at a time.
- *   Submitting data more than once before first data is finished
- *   results in :enum:`NGHTTP2_ERR_DATA_EXIST` error code.  The
- *   earliest callback which tells that previous data is done is
- *   :type:`nghttp2_on_frame_send_callback`.  In side that callback,
- *   new data can be submitted using `nghttp2_submit_data()`.  Of
- *   course, all data except for last one must not have
- *   :enum:`NGHTTP2_FLAG_END_STREAM` flag set in |flags|.
+ *   Currently, only one DATA or HEADERS is allowed for a stream at a
+ *   time.  Submitting these frames more than once before first DATA
+ *   or HEADERS is finished results in :enum:`NGHTTP2_ERR_DATA_EXIST`
+ *   error code.  The earliest callback which tells that previous
+ *   frame is done is :type:`nghttp2_on_frame_send_callback`.  In side
+ *   that callback, new data can be submitted using
+ *   `nghttp2_submit_data()`.  Of course, all data except for last one
+ *   must not have :enum:`NGHTTP2_FLAG_END_STREAM` flag set in
+ *   |flags|.  This sounds a bit complicated, and we recommend to use
+ *   `nghttp2_submit_request()` and `nghttp2_submit_response()` to
+ *   avoid this cascading issue.  The experience shows that for HTTP
+ *   use, these two functions are enough to implement both client and
+ *   server.
  */
 NGHTTP2_EXTERN int nghttp2_submit_data(nghttp2_session *session, uint8_t flags,
                                        int32_t stream_id,
@@ -3240,10 +3310,6 @@ NGHTTP2_EXTERN int nghttp2_submit_rst_stream(nghttp2_session *session,
  * :enum:`NGHTTP2_ERR_INVALID_ARGUMENT`
  *     The |iv| contains invalid value (e.g., initial window size
  *     strictly greater than (1 << 31) - 1.
- * :enum:`NGHTTP2_ERR_TOO_MANY_INFLIGHT_SETTINGS`
- *     There is already another in-flight SETTINGS.  Note that the
- *     current implementation only allows 1 in-flight SETTINGS frame
- *     without ACK flag set.
  * :enum:`NGHTTP2_ERR_NOMEM`
  *     Out of memory.
  */
@@ -3739,11 +3805,22 @@ NGHTTP2_EXTERN void nghttp2_hd_inflate_del(nghttp2_hd_inflater *inflater);
  * The |settings_hd_table_bufsize_max| should be the value transmitted
  * in SETTINGS_HEADER_TABLE_SIZE.
  *
+ * This function must not be called while header block is being
+ * inflated.  In other words, this function must be called after
+ * initialization of |inflater|, but before calling
+ * `nghttp2_hd_inflate_hd()`, or after
+ * `nghttp2_hd_inflate_end_headers()`.  Otherwise,
+ * `NGHTTP2_ERR_INVALID_STATE` was returned.
+ *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
  * :enum:`NGHTTP2_ERR_NOMEM`
  *     Out of memory.
+ * :enum:`NGHTTP2_ERR_INVALID_STATE`
+ *     The function is called while header block is being inflated.
+ *     Probably, application missed to call
+ *     `nghttp2_hd_inflate_end_headers()`.
  */
 NGHTTP2_EXTERN int
 nghttp2_hd_inflate_change_table_size(nghttp2_hd_inflater *inflater,
@@ -3861,6 +3938,134 @@ NGHTTP2_EXTERN ssize_t nghttp2_hd_inflate_hd(nghttp2_hd_inflater *inflater,
  */
 NGHTTP2_EXTERN int
 nghttp2_hd_inflate_end_headers(nghttp2_hd_inflater *inflater);
+
+struct nghttp2_stream;
+
+/**
+ * @typedef
+ *
+ * The structure to represent HTTP/2 stream.  The details of this
+ * structure are intentionally hidden from the public API.
+ */
+typedef struct nghttp2_stream nghttp2_stream;
+
+/**
+ * @function
+ *
+ * Returns pointer to :type:`nghttp2_stream` object denoted by
+ * |stream_id|.  If stream was not found, returns NULL.
+ *
+ * Returns imaginary root stream (see
+ * `nghttp2_session_get_root_stream()`) if 0 is given in |stream_id|.
+ *
+ * Unless |stream_id| == 0, the returned pointer is valid until next
+ * call of `nghttp2_session_send()`, `nghttp2_session_mem_send()`,
+ * `nghttp2_session_recv()`, and `nghttp2_session_mem_recv()`.
+ */
+nghttp2_stream *nghttp2_session_find_stream(nghttp2_session *session,
+                                            int32_t stream_id);
+
+/**
+ * @enum
+ *
+ * State of stream as described in RFC 7540.
+ */
+typedef enum {
+  /**
+   * idle state.
+   */
+  NGHTTP2_STREAM_STATE_IDLE = 1,
+  /**
+   * open state.
+   */
+  NGHTTP2_STREAM_STATE_OPEN,
+  /**
+   * reserved (local) state.
+   */
+  NGHTTP2_STREAM_STATE_RESERVED_LOCAL,
+  /**
+   * reserved (remote) state.
+   */
+  NGHTTP2_STREAM_STATE_RESERVED_REMOTE,
+  /**
+   * half closed (local) state.
+   */
+  NGHTTP2_STREAM_STATE_HALF_CLOSED_LOCAL,
+  /**
+   * half closed (remote) state.
+   */
+  NGHTTP2_STREAM_STATE_HALF_CLOSED_REMOTE,
+  /**
+   * closed state.
+   */
+  NGHTTP2_STREAM_STATE_CLOSED
+} nghttp2_stream_proto_state;
+
+/**
+ * @function
+ *
+ * Returns state of |stream|.  The root stream retrieved by
+ * `nghttp2_session_get_root_stream()` will have stream state
+ * :enum:`NGHTTP2_STREAM_STATE_IDLE`.
+ */
+nghttp2_stream_proto_state nghttp2_stream_get_state(nghttp2_stream *stream);
+
+/**
+ * @function
+ *
+ * Returns root of dependency tree, which is imaginary stream with
+ * stream ID 0.  The returned pointer is valid until |session| is
+ * freed by `nghttp2_session_del()`.
+ */
+nghttp2_stream *nghttp2_session_get_root_stream(nghttp2_session *session);
+
+/**
+ * @function
+ *
+ * Returns the parent stream of |stream| in dependency tree.  Returns
+ * NULL if there is no such stream.
+ */
+nghttp2_stream *nghttp2_stream_get_parent(nghttp2_stream *stream);
+
+int32_t nghttp2_stream_get_stream_id(nghttp2_stream *stream);
+
+/**
+ * @function
+ *
+ * Returns the next sibling stream of |stream| in dependency tree.
+ * Returns NULL if there is no such stream.
+ */
+nghttp2_stream *nghttp2_stream_get_next_sibling(nghttp2_stream *stream);
+
+/**
+ * @function
+ *
+ * Returns the previous sibling stream of |stream| in dependency tree.
+ * Returns NULL if there is no such stream.
+ */
+nghttp2_stream *nghttp2_stream_get_previous_sibling(nghttp2_stream *stream);
+
+/**
+ * @function
+ *
+ * Returns the first child stream of |stream| in dependency tree.
+ * Returns NULL if there is no such stream.
+ */
+nghttp2_stream *nghttp2_stream_get_first_child(nghttp2_stream *stream);
+
+/**
+ * @function
+ *
+ * Returns dependency weight to the parent stream of |stream|.
+ */
+int32_t nghttp2_stream_get_weight(nghttp2_stream *stream);
+
+/**
+ * @function
+ *
+ * Returns the sum of the weight for |stream|'s children.
+ */
+int32_t nghttp2_stream_get_sum_dependency_weight(nghttp2_stream *stream);
 
 #ifdef __cplusplus
 }

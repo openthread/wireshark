@@ -69,8 +69,8 @@ protected slots:
 private:
     Ui::CaptureFilePropertiesDialog *ui;
 
-    QString timeToString(time_t ti_time);
     QString summaryToHtml();
+    void fillDetails();
 
 private slots:
     void updateWidgets();

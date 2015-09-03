@@ -15,8 +15,6 @@
 ** Description: OpcUa Protocol Decoder.
 **
 ** Author: Gerhard Gappmeier <gerhard.gappmeier@ascolab.com>
-** Last change by: $Author: gergap $
-**
 ******************************************************************************/
 
 #include "config.h"
@@ -332,22 +330,15 @@ static int dissect_opcua_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
         /* display the service type in addition to the message type */
         if (iServiceId != -1)
         {
-            int indx = 0;
-            while (indx < g_NumServices)
+            const gchar *szServiceName = val_to_str((guint32)iServiceId, g_requesttypes, "ServiceId %d");
+
+            if (bIsLastFragment == FALSE)
             {
-                if (g_requesttypes[indx].value == (guint32)iServiceId)
-                {
-                    if (bIsLastFragment == FALSE)
-                    {
-                        col_add_fstr(pinfo->cinfo, COL_INFO, "%s: %s", g_szMessageTypes[msgtype], g_requesttypes[indx].strptr);
-                    }
-                    else
-                    {
-                        col_add_fstr(pinfo->cinfo, COL_INFO, "%s: %s (Message Reassembled)", g_szMessageTypes[msgtype], g_requesttypes[indx].strptr);
-                    }
-                    break;
-                }
-                indx++;
+                col_add_fstr(pinfo->cinfo, COL_INFO, "%s: %s", g_szMessageTypes[msgtype], szServiceName);
+            }
+            else
+            {
+                col_add_fstr(pinfo->cinfo, COL_INFO, "%s: %s (Message Reassembled)", g_szMessageTypes[msgtype], szServiceName);
             }
         }
     }
@@ -383,6 +374,12 @@ init_opcua(void)
 {
     reassembly_table_init(&opcua_reassembly_table,
                           &addresses_reassembly_table_functions);
+}
+
+static void
+cleanup_opcua(void)
+{
+    reassembly_table_destroy(&opcua_reassembly_table);
 }
 
 /** plugin entry functions.
@@ -443,6 +440,7 @@ void proto_register_opcua(void)
     proto_register_field_array(proto_opcua, hf, array_length(hf));
 
     register_init_routine(&init_opcua);
+    register_cleanup_routine(&cleanup_opcua);
 
     /* register user preferences */
     opcua_module = prefs_register_protocol(proto_opcua, proto_reg_handoff_opcua);

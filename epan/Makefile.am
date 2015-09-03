@@ -42,7 +42,7 @@ ACLOCAL_AMFLAGS = `../aclocal-flags`
 noinst_LTLIBRARIES = libwireshark_generated.la libwireshark_asmopt.la
 lib_LTLIBRARIES = libwireshark.la
 # http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-libwireshark_la_LDFLAGS = -version-info 0:7:0 @LDFLAGS_SHAREDLIB@
+libwireshark_la_LDFLAGS = -version-info 0:10:0 @LDFLAGS_SHAREDLIB@
 
 include Makefile.common
 
@@ -183,7 +183,7 @@ LEMON=../tools/lemon
 
 dtd_grammar.h: dtd_grammar.c
 dtd_grammar.c : $(LEMON)/lemon$(EXEEXT) $(srcdir)/$(LEMON)/lempar.c $(srcdir)/dtd_grammar.lemon
-	$(AM_V_LEMON)$(LEMON)/lemon$(EXEEXT) t=$(srcdir)/$(LEMON)/lempar.c $(srcdir)/dtd_grammar.lemon
+	$(AM_V_LEMON)$(LEMON)/lemon$(EXEEXT) T=$(srcdir)/$(LEMON)/lempar.c $(srcdir)/dtd_grammar.lemon
 
 tvbtest.o exntest.o oids_test.o: exceptions.h
 

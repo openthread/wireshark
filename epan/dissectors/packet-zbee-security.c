@@ -71,6 +71,7 @@ static gint ett_zbee_sec = -1;
 static gint ett_zbee_sec_control = -1;
 
 static expert_field ei_zbee_sec_encrypted_payload = EI_INIT;
+static expert_field ei_zbee_sec_encrypted_payload_sliced = EI_INIT;
 static expert_field ei_zbee_sec_extended_source_unknown = EI_INIT;
 
 static dissector_handle_t   data_handle;
@@ -284,6 +285,7 @@ void zbee_security_register(module_t *zbee_prefs, int proto)
 
     static ei_register_info ei[] = {
         { &ei_zbee_sec_encrypted_payload, { "zbee_sec.encrypted_payload", PI_UNDECODED, PI_WARN, "Encrypted Payload", EXPFILL }},
+        { &ei_zbee_sec_encrypted_payload_sliced, { "zbee_sec.encrypted_payload_sliced", PI_UNDECODED, PI_WARN, "Encrypted payload, cut short when capturing - can't decrypt", EXPFILL }},
         { &ei_zbee_sec_extended_source_unknown, { "zbee_sec.extended_source_unknown", PI_PROTOCOL, PI_NOTE, "Extended Source: Unknown", EXPFILL }},
     };
 
@@ -531,17 +533,13 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
 
     /* Get and display the frame counter field. */
     packet.counter = tvb_get_letohl(tvb, offset);
-    if (tree) {
-        proto_tree_add_uint(sec_tree, hf_zbee_sec_counter, tvb, offset, 4, packet.counter);
-    }
+    proto_tree_add_uint(sec_tree, hf_zbee_sec_counter, tvb, offset, 4, packet.counter);
     offset += 4;
 
     if (packet.nonce) {
         /* Get and display the source address of the device that secured this payload. */
         packet.src64 = tvb_get_letoh64(tvb, offset);
-        if (tree) {
-            proto_tree_add_item(sec_tree, hf_zbee_sec_src64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-        }
+        proto_tree_add_item(sec_tree, hf_zbee_sec_src64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
 #if 1
         if (!pinfo->fd->flags.visited) {
             switch ( packet.key_id ) {
@@ -596,9 +594,7 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     if (packet.key_id == ZBEE_SEC_KEY_NWK) {
         /* Get and display the key sequence number. */
         packet.key_seqno = tvb_get_guint8(tvb, offset);
-        if (tree) {
-            proto_tree_add_uint(sec_tree, hf_zbee_sec_key_seqno, tvb, offset, 1, packet.key_seqno);
-        }
+        proto_tree_add_uint(sec_tree, hf_zbee_sec_key_seqno, tvb, offset, 1, packet.key_seqno);
         offset += 1;
     }
 
@@ -629,18 +625,14 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     /* Get and display the MIC. */
     if (mic_len) {
         /* Display the MIC. */
-        if (tree) {
-            proto_tree_add_item(sec_tree, hf_zbee_sec_mic, tvb, (gint)(tvb_captured_length(tvb)-mic_len),
-                   mic_len, ENC_NA);
-        }
+        proto_tree_add_item(sec_tree, hf_zbee_sec_mic, tvb, (gint)(tvb_captured_length(tvb)-mic_len),
+                mic_len, ENC_NA);
     }
 
     /* Check for null payload. */
-    if ( !(payload_len = tvb_reported_length_remaining(tvb, offset+mic_len)) ) {
+    payload_len = tvb_reported_length_remaining(tvb, offset+mic_len);
+    if (payload_len == 0)
         return NULL;
-    } else if ( payload_len < 0 ) {
-        THROW(ReportedBoundsError);
-    }
 
     /**********************************************
      *  Perform Security Operations on the Frame  *
@@ -656,6 +648,26 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     }
 
 #ifdef HAVE_LIBGCRYPT
+    /* Have we captured all the payload? */
+    if (tvb_captured_length_remaining(tvb, offset+mic_len) < payload_len) {
+        /*
+         * No - don't try to decrypt it.
+         *
+         * XXX - it looks as if the decryption code is assuming we have the
+         * MIC, which won't be the case if the packet was cut short.  Is
+         * that in fact that case, or can we still make this work with a
+         * partially-captured packet?
+         */
+        /* Add expert info. */
+        expert_add_info(pinfo, sec_tree, &ei_zbee_sec_encrypted_payload_sliced);
+        /* Create a buffer for the undecrypted payload. */
+        payload_tvb = tvb_new_subset_length(tvb, offset, payload_len);
+        /* Dump the payload to the data dissector. */
+        call_dissector(data_handle, payload_tvb, pinfo, tree);
+        /* Couldn't decrypt, so return NULL. */
+        return NULL;
+    }
+
     /* Allocate memory to decrypt the payload into. */
     dec_buffer = (guint8 *)g_malloc(payload_len);
 
@@ -770,7 +782,7 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     /* Add expert info. */
     expert_add_info(pinfo, sec_tree, &ei_zbee_sec_encrypted_payload);
     /* Create a buffer for the undecrypted payload. */
-    payload_tvb = tvb_new_subset(tvb, offset, payload_len, -1);
+    payload_tvb = tvb_new_subset_length(tvb, offset, payload_len);
     /* Dump the payload to the data dissector. */
     call_dissector(data_handle, payload_tvb, pinfo, tree);
     /* Couldn't decrypt, so return NULL. */

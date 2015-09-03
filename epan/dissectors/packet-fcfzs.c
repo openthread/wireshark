@@ -114,10 +114,13 @@ fcfzs_hash(gconstpointer v)
 static void
 fcfzs_init_protocol(void)
 {
-    if (fcfzs_req_hash)
-        g_hash_table_destroy(fcfzs_req_hash);
-
     fcfzs_req_hash = g_hash_table_new(fcfzs_hash, fcfzs_equal);
+}
+
+static void
+fcfzs_cleanup_protocol(void)
+{
+    g_hash_table_destroy(fcfzs_req_hash);
 }
 
 /* Code to actually dissect the packets */
@@ -440,7 +443,7 @@ dissect_fcfzs_arzm(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, gboolean
                                 len, ENC_ASCII|ENC_NA);
 
             len += (len % 4);
-            plen = tvb_length(tvb) - offset - len;
+            plen = tvb_reported_length(tvb) - offset - len;
 
             numrec = plen/12;   /* each mbr rec is 12 bytes long */
 
@@ -540,7 +543,7 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 
     if (tree) {
         ti = proto_tree_add_protocol_format(tree, proto_fcfzs, tvb, 0,
-                                            tvb_length(tvb),
+                                            tvb_captured_length(tvb),
                                             "Zone Server");
         fcfzs_tree = proto_item_add_subtree(ti, ett_fcfzs);
         proto_tree_add_item(fcfzs_tree, hf_fcfzs_opcode, tvb, offset+8, 2, ENC_BIG_ENDIAN);
@@ -688,7 +691,7 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         break;
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -867,6 +870,7 @@ proto_register_fcfzs(void)
     expert_fcfzs = expert_register_protocol(proto_fcfzs);
     expert_register_field_array(expert_fcfzs, ei, array_length(ei));
     register_init_routine(&fcfzs_init_protocol);
+    register_cleanup_routine(&fcfzs_cleanup_protocol);
 
 }
 

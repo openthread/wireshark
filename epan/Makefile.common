@@ -51,12 +51,11 @@ LIBWIRESHARK_SRC =		\
 	except.c		\
 	expert.c		\
 	exported_pdu.c		\
-	ext_menubar.c		\
+	plugin_if.c		\
 	filter_expressions.c	\
 	follow.c		\
 	frame_data.c		\
 	frame_data_sequence.c	\
-	frequency-utils.c	\
 	funnel.c		\
 	g_int64_hash_routines.c	\
 	gcp.c			\
@@ -80,8 +79,10 @@ LIBWIRESHARK_SRC =		\
 	reassemble.c		\
 	reedsolomon.c		\
 	req_resp_hdrs.c		\
+	rtd_table.c	\
 	show_exception.c	\
 	sminmpec.c		\
+	srt_table.c	\
 	stat_tap_ui.c		\
 	stats_tree.c		\
 	strutil.c		\
@@ -191,12 +192,11 @@ LIBWIRESHARK_INCLUDES =		\
 	exceptions.h		\
 	expert.h		\
 	exported_pdu.h		\
-	ext_menubar.h      \
+	plugin_if.h      \
 	filter_expressions.h	\
 	follow.h		\
 	frame_data.h		\
 	frame_data_sequence.h	\
-	frequency-utils.h	\
 	funnel.h		\
 	g_int64_hash_routines.h	\
 	garrayfix.h		\
@@ -233,11 +233,13 @@ LIBWIRESHARK_INCLUDES =		\
 	reassemble.h		\
 	reedsolomon.h		\
 	req_resp_hdrs.h		\
+	rtd_table.h	\
 	rtp_pt.h		\
 	sctpppids.h		\
 	show_exception.h	\
 	slow_protocol_subtypes.h \
 	sminmpec.h		\
+	srt_table.h	\
 	stat_tap_ui.h		\
 	stat_groups.h		\
 	stats_tree.h		\

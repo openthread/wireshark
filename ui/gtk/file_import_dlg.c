@@ -461,7 +461,6 @@ file_import_open(text_import_info_t *info)
     wtapng_iface_descriptions_t *idb_inf;
     wtapng_if_descr_t            int_data;
     GString                     *os_info_str;
-    char                        *appname;
 
     /* Choose a random name for the temporary import buffer */
     import_file_fd = create_tempfile(&tmpname, "import");
@@ -470,8 +469,6 @@ file_import_open(text_import_info_t *info)
     /* Create data for SHB  */
     os_info_str = g_string_new("");
     get_os_version_info(os_info_str);
-
-    appname = g_strdup_printf("Wireshark %s", get_ws_vcs_version_info());
 
     shb_hdr = g_new(wtapng_section_t,1);
     shb_hdr->section_length = -1;
@@ -491,7 +488,7 @@ file_import_open(text_import_info_t *info)
      * UTF-8 string containing the name of the application used to create
      * this section.
      */
-    shb_hdr->shb_user_appl  = appname;
+    shb_hdr->shb_user_appl  = g_strdup_printf("Wireshark %s", get_ws_vcs_version_info());
 
 
     /* Create fake IDB info */
@@ -518,7 +515,9 @@ file_import_open(text_import_info_t *info)
 
     g_array_append_val(idb_inf->interface_data, int_data);
 
-    info->wdh = wtap_dump_fdopen_ng(import_file_fd, WTAP_FILE_TYPE_SUBTYPE_PCAPNG, info->encapsulation, info->max_frame_length, FALSE, shb_hdr, idb_inf, &err);
+    info->wdh = wtap_dump_fdopen_ng(import_file_fd, WTAP_FILE_TYPE_SUBTYPE_PCAPNG, info->encapsulation,
+                                    info->max_frame_length, FALSE,
+                                    shb_hdr, idb_inf, NULL, &err);
     if (info->wdh == NULL) {
         open_failure_alert_box(capfile_name, err, TRUE);
         fclose(info->import_text_file);
@@ -567,8 +566,8 @@ end:
     g_free(info->date_timestamp_format);
     g_free(info);
     g_free(capfile_name);
-    g_free(shb_hdr);
-    g_free(appname);
+    wtap_free_shb(shb_hdr);
+    wtap_free_idb_info(idb_inf);
     window_destroy(file_import_dlg_w);
 }
 

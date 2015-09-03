@@ -365,6 +365,7 @@ extern "C" {
 #define WTAP_TSPREC_MSEC        3
 #define WTAP_TSPREC_USEC        6
 #define WTAP_TSPREC_NSEC        9
+/* if you add to the above, update wtap_tsprec_string() */
 
 /*
  * Maximum packet size we'll support.
@@ -389,28 +390,6 @@ extern "C" {
  * of that.
  */
 
-
-struct nstr_phdr {
-    gint64 rec_offset;
-    gint32 rec_len;
-    guint8 nicno_offset;
-    guint8 nicno_len;
-    guint8 dir_offset;
-    guint8 dir_len;
-    guint8 eth_offset;
-    guint8 pcb_offset;
-    guint8 l_pcb_offset;
-    guint8 rec_type;
-    guint8 vlantag_offset;
-    guint8 coreid_offset;
-    guint8 srcnodeid_offset;
-    guint8 destnodeid_offset;
-    guint8 clflags_offset;
-    guint8 src_vmname_len_offset;
-    guint8 dst_vmname_len_offset;
-    guint8 ns_activity_offset;
-    guint8 data_offset;
-};
 
 /* Packet "pseudo-header" information for Ethernet capture files. */
 struct eth_phdr {
@@ -524,12 +503,6 @@ struct atm_phdr {
     guint32 aal5t_chksum;   /* checksum for AAL5 packet */
 };
 
-/* Packet "pseudo-header" for Nokia output */
-struct nokia_phdr {
-    struct eth_phdr eth;
-    guint8 stuff[4];    /* mysterious stuff */
-};
-
 /* Packet "pseudo-header" for the output from "wandsession", "wannext",
    "wandisplay", and similar commands on Lucent/Ascend access equipment. */
 
@@ -566,7 +539,10 @@ struct p2p_phdr {
  * Radio information is only present in this form for
  * WTAP_ENCAP_IEEE_802_11_WITH_RADIO.  This is used for file formats in
  * which the radio information isn't provided as a pseudo-header in the
- * packet data.
+ * packet data.  It is also used by the dissectors for the pseudo-headers
+ * in the packet data to supply radio information, in a form independent
+ * of the file format and pseudo-header format, to the "802.11 radio"
+ * dissector.
  *
  * Signal strength, etc. information:
  *
@@ -582,22 +558,241 @@ struct p2p_phdr {
  * The signal strength can be represented as a percentage, which is 100
  * times the ratio of the RSSI and the maximum RSSI.
  */
-struct ieee_802_11_phdr {
-    guint32  presence_flags; /* Flags indicating presence of certain fields */
-    guint32  flags_11n;      /* Various flags for 802.11n traffic */
-    gint     fcs_len;        /* Number of bytes of FCS - -1 means "unknown" */
-    gboolean decrypted;      /* TRUE if frame is decrypted even if "protected" bit is set */
-    guint16  channel;        /* Channel number */
-    guint16  data_rate;      /* Data rate, in .5 Mb/s units */
+
+/*
+ * PHY types.
+ */
+#define PHDR_802_11_PHY_UNKNOWN        0 /* PHY not known */
+#define PHDR_802_11_PHY_11_FHSS        1 /* 802.11 FHSS */
+#define PHDR_802_11_PHY_11_IR          2 /* 802.11 IR */
+#define PHDR_802_11_PHY_11_DSSS        3 /* 802.11 DSSS */
+#define PHDR_802_11_PHY_11B            4 /* 802.11b */
+#define PHDR_802_11_PHY_11A            5 /* 802.11a */
+#define PHDR_802_11_PHY_11G            6 /* 802.11g */
+#define PHDR_802_11_PHY_11N            7 /* 802.11n */
+#define PHDR_802_11_PHY_11AC           8 /* 802.11ac */
+#define PHDR_802_11_PHY_11AD           9 /* 802.11ad */
+
+/*
+ * PHY-specific information.
+ */
+
+/*
+ * 802.11 legacy FHSS.
+ */
+struct ieee_802_11_fhss {
+    guint32  presence_flags; /* Which of this information is present? */
+    guint8   hop_set;        /* Hop set */
+    guint8   hop_pattern;    /* Hop pattern */
+    guint8   hop_index;      /* Hop index */
+};
+
+/*
+ * Presence flags.
+ */
+#define PHDR_802_11_FHSS_HAS_HOP_SET      0x0000001
+#define PHDR_802_11_FHSS_HAS_HOP_PATTERN  0x0000002
+#define PHDR_802_11_FHSS_HAS_HOP_INDEX    0x0000004
+
+/*
+ * 802.11b.
+ */
+struct ieee_802_11b {
+    guint32  presence_flags; /* Which of this information is present? */
+    gboolean short_preamble; /* Short preamble */
+};
+
+/*
+ * Presence flags.
+ */
+#define PHDR_802_11B_HAS_SHORT_PREAMBLE  0x0000001  /* Short preamble */
+
+/*
+ * 802.11a.
+ */
+struct ieee_802_11a {
+    guint32  presence_flags; /* Which of this information is present? */
+    guint    channel_type:2;
+    guint    turbo_type:2;
+};
+
+/*
+ * Presence flags.
+ */
+#define PHDR_802_11A_HAS_CHANNEL_TYPE  0x0000001  /* Normal, half-clocked, quarter-clocked */
+#define PHDR_802_11A_HAS_TURBO_TYPE    0x0000002  /* Normal, turbo, "static turbo" */
+
+/*
+ * Channel type values.
+ */
+#define PHDR_802_11A_CHANNEL_TYPE_NORMAL           0
+#define PHDR_802_11A_CHANNEL_TYPE_HALF_CLOCKED     1
+#define PHDR_802_11A_CHANNEL_TYPE_QUARTER_CLOCKED  2
+
+/*
+ * "Turbo" is an Atheros proprietary extension with 40 MHz-wide channels.
+ * It can be dynamic or static.
+ *
+ * See
+ *
+ *    http://wifi-insider.com/atheros/turbo.htm
+ */
+#define PHDR_802_11A_TURBO_TYPE_NORMAL           0
+#define PHDR_802_11A_TURBO_TYPE_TURBO            1  /* If we don't know wehther it's static or dynamic */
+#define PHDR_802_11A_TURBO_TYPE_DYNAMIC_TURBO    2
+#define PHDR_802_11A_TURBO_TYPE_STATIC_TURBO     3
+
+/*
+ * 802.11g.
+ */
+struct ieee_802_11g {
+    guint32  presence_flags; /* Which of this information is present? */
+    gboolean short_preamble; /* Short preamble */
+    guint32  mode;           /* Various proprietary extensions */
+};
+
+/*
+ * Presence flags.
+ */
+#define PHDR_802_11G_HAS_SHORT_PREAMBLE  0x0000001  /* Short preamble */
+#define PHDR_802_11G_HAS_MODE            0x0000002  /* Proprietary extensions */
+
+/*
+ * Mode values.
+ */
+#define PHDR_802_11G_MODE_NORMAL    0
+#define PHDR_802_11G_MODE_SUPER_G   1  /* Atheros Super G */
+
+/*
+ * 802.11n.
+ */
+struct ieee_802_11n {
+    guint32  presence_flags; /* Which of this information is present? */
     guint16  mcs_index;      /* MCS index */
-    guint    bandwidth:2;    /* Bandwidth = 20 MHz, 40 MHz, 20+20L, 20+20U */
+    guint    bandwidth;      /* Bandwidth = 20 MHz, 40 MHz, etc. */
     guint    short_gi:1;     /* True for short guard interval */
     guint    greenfield:1;   /* True for greenfield, short for mixed */
-    guint    ldpc:1;         /* Tue for LDPC FEC */
+    guint    fec:1;          /* FEC: 0 = BCC, 1 = LDPC */
     guint    stbc_streams:2; /* Number of STBC streams */
-    guint    ness:1;         /* Number of extension spatial streams */
-    guint16  mcs_info;       /* 11n flags and bandwidth */
+    guint    ness;           /* Number of extension spatial streams */
+};
+
+/*
+ * Presence flags.
+ */
+#define PHDR_802_11N_HAS_MCS_INDEX      0x00000001 /* mcs */
+#define PHDR_802_11N_HAS_BANDWIDTH      0x00000002 /* bandwidth */
+#define PHDR_802_11N_HAS_SHORT_GI       0x00000004 /* short_gi */
+#define PHDR_802_11N_HAS_GREENFIELD     0x00000008 /* greenfield */
+#define PHDR_802_11N_HAS_FEC            0x00000010 /* fec */
+#define PHDR_802_11N_HAS_STBC_STREAMS   0x00000020 /* stbc_streams */
+#define PHDR_802_11N_HAS_NESS           0x00000040 /* ness */
+
+/*
+ * Bandwidth values; used for both 11n and 11ac.
+ */
+#define PHDR_802_11_BANDWIDTH_20_MHZ   0  /* 20 MHz */
+#define PHDR_802_11_BANDWIDTH_40_MHZ   1  /* 40 MHz */
+#define PHDR_802_11_BANDWIDTH_20_20L   2  /* 20 + 20L, 40 MHz */
+#define PHDR_802_11_BANDWIDTH_20_20U   3  /* 20 + 20U, 40 MHz */
+#define PHDR_802_11_BANDWIDTH_80_MHZ   4  /* 80 MHz */
+#define PHDR_802_11_BANDWIDTH_40_40L   5  /* 40 + 40L MHz, 80 MHz */
+#define PHDR_802_11_BANDWIDTH_40_40U   6  /* 40 + 40U MHz, 80 MHz */
+#define PHDR_802_11_BANDWIDTH_20LL     7  /* ???, 80 MHz */
+#define PHDR_802_11_BANDWIDTH_20LU     8  /* ???, 80 MHz */
+#define PHDR_802_11_BANDWIDTH_20UL     9  /* ???, 80 MHz */
+#define PHDR_802_11_BANDWIDTH_20UU     10 /* ???, 80 MHz */
+#define PHDR_802_11_BANDWIDTH_160_MHZ  11 /* 160 MHz */
+#define PHDR_802_11_BANDWIDTH_80_80L   12 /* 80 + 80L, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_80_80U   13 /* 80 + 80U, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_40LL     14 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_40LU     15 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_40UL     16 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_40UU     17 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20LLL    18 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20LLU    19 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20LUL    20 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20LUU    21 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20ULL    22 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20ULU    23 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20UUL    24 /* ???, 160 MHz */
+#define PHDR_802_11_BANDWIDTH_20UUU    25 /* ???, 160 MHz */
+
+/*
+ * 802.11ac.
+ */
+struct ieee_802_11ac {
+    guint32  presence_flags; /* Which of this information is present? */
+    guint    stbc:1;         /* 1 if all spatial streams have STBC */
+    guint    txop_ps_not_allowed:1;
+    guint    short_gi:1;     /* True for short guard interval */
+    guint    short_gi_nsym_disambig:1;
+    guint    ldpc_extra_ofdm_symbol:1;
+    guint    beamformed:1;
+    guint8   bandwidth;      /* Bandwidth = 20 MHz, 40 MHz, etc. */
+    guint8   mcs[4];         /* MCS index per user */
+    guint8   nss[4];         /* NSS per user */
+    guint8   fec;            /* Bit array of FEC per user: 0 = BCC, 1 = LDPC */
+    guint8   group_id;
+    guint16  partial_aid;
+};
+
+/*
+ * 802.11ac presence flags.
+ */
+#define PHDR_802_11AC_HAS_STBC                    0x00000001 /* stbc */
+#define PHDR_802_11AC_HAS_TXOP_PS_NOT_ALLOWED     0x00000002 /* txop_ps_not_allowed */
+#define PHDR_802_11AC_HAS_SHORT_GI                0x00000004 /* short_gi */
+#define PHDR_802_11AC_HAS_SHORT_GI_NSYM_DISAMBIG  0x00000008 /* short_gi_nsym_disambig */
+#define PHDR_802_11AC_HAS_LDPC_EXTRA_OFDM_SYMBOL  0x00000010 /* ldpc_extra_ofdm_symbol */
+#define PHDR_802_11AC_HAS_BEAMFORMED              0x00000020 /* beamformed */
+#define PHDR_802_11AC_HAS_BANDWIDTH               0x00000040 /* bandwidth */
+#define PHDR_802_11AC_HAS_FEC                     0x00000080 /* fec */
+#define PHDR_802_11AC_HAS_GROUP_ID                0x00000100 /* group_id */
+#define PHDR_802_11AC_HAS_PARTIAL_AID             0x00000200 /* partial_aid */
+
+/*
+ * 802.11ad.
+ */
+
+/*
+ * Min and Max frequencies for 802.11ad and a macro for checking for 802.11ad.
+ */
+
+#define PHDR_802_11AD_MIN_FREQUENCY    57000
+#define PHDR_802_11AD_MAX_FREQUENCY    66000
+
+#define IS_80211AD(frequency) (((frequency) >= PHDR_802_11AD_MIN_FREQUENCY) &&\
+                               ((frequency) <= PHDR_802_11AD_MAX_FREQUENCY))
+
+struct ieee_802_11ad {
+    guint32 presence_flags; /* Which of this information is present? */
+    guint8  mcs;            /* MCS index */
+};
+
+/*
+ * 802.11ad presence flags.
+ */
+#define PHDR_802_11AD_HAS_MCS_INDEX               0x00000001 /* mcs */
+
+struct ieee_802_11_phdr {
+    gint     fcs_len;        /* Number of bytes of FCS - -1 means "unknown" */
+    gboolean decrypted;      /* TRUE if frame is decrypted even if "protected" bit is set */
+    gboolean datapad;        /* TRUE if frame has padding between 802.11 header and payload */
+    guint    phy;            /* PHY type */
+    union {
+        struct ieee_802_11_fhss info_11_fhss;
+        struct ieee_802_11b info_11b;
+        struct ieee_802_11a info_11a;
+        struct ieee_802_11g info_11g;
+        struct ieee_802_11n info_11n;
+        struct ieee_802_11ac info_11ac;
+        struct ieee_802_11ad info_11ad;
+    } phy_info;
+    guint32  presence_flags; /* Flags indicating presence of fields below */
+    guint16  channel;        /* Channel number */
     guint32  frequency;      /* Channel center frequency */
+    guint16  data_rate;      /* Data rate, in .5 Mb/s units */
     guint8   signal_percent; /* Signal level, as a percentage */
     guint8   noise_percent;  /* Noise level, as a percentage */
     gint8    signal_dbm;     /* Signal level, in dBm */
@@ -605,26 +800,17 @@ struct ieee_802_11_phdr {
     guint64  tsf_timestamp;
 };
 
-#define PHDR_802_11_HAS_CHANNEL        0x00000001 /* channel */
-#define PHDR_802_11_HAS_DATA_RATE      0x00000002 /* data_rate */
-#define PHDR_802_11_HAS_MCS_INDEX      0x00000004 /* mcs */
-#define PHDR_802_11_HAS_BANDWIDTH      0x00000008 /* bandwidth */
-#define PHDR_802_11_HAS_SHORT_GI       0x00000010 /* short_gi */
-#define PHDR_802_11_HAS_GREENFIELD     0x00000020 /* greenfield */
-#define PHDR_802_11_HAS_LDPC           0x00000040 /* ldpc */
-#define PHDR_802_11_HAS_STBC_STREAMS   0x00000080 /* stbc_streams */
-#define PHDR_802_11_HAS_NESS           0x00000100 /* ness */
-#define PHDR_802_11_HAS_FREQUENCY      0x00000200 /* frequency */
-#define PHDR_802_11_HAS_SIGNAL_PERCENT 0x00000400 /* signal_percent */
-#define PHDR_802_11_HAS_NOISE_PERCENT  0x00000800 /* noise_percent */
-#define PHDR_802_11_HAS_SIGNAL_DBM     0x00001000 /* signal_dbm */
-#define PHDR_802_11_HAS_NOISE_DBM      0x00002000 /* noise_dbm */
-#define PHDR_802_11_HAS_TSF_TIMESTAMP  0x00004000 /* tsf_timestamp */
-
-#define PHDR_802_11_BANDWIDTH_20_MHZ   0 /* 20 MHz */
-#define PHDR_802_11_BANDWIDTH_40_MHZ   1 /* 40 MHz */
-#define PHDR_802_11_BANDWIDTH_20_20L   2 /* 20 + 20L */
-#define PHDR_802_11_BANDWIDTH_20_20U   3 /* 20 + 20U */
+/*
+ * Presence bits for non-PHY-specific data.
+ */
+#define PHDR_802_11_HAS_CHANNEL         0x00000001 /* channel */
+#define PHDR_802_11_HAS_FREQUENCY       0x00000002 /* frequency */
+#define PHDR_802_11_HAS_DATA_RATE       0x00000004 /* data_rate */
+#define PHDR_802_11_HAS_SIGNAL_PERCENT  0x00000008 /* signal_percent */
+#define PHDR_802_11_HAS_NOISE_PERCENT   0x00000010 /* noise_percent */
+#define PHDR_802_11_HAS_SIGNAL_DBM      0x00000020 /* signal_dbm */
+#define PHDR_802_11_HAS_NOISE_DBM       0x00000040 /* noise_dbm */
+#define PHDR_802_11_HAS_TSF_TIMESTAMP   0x00000080 /* tsf_timestamp */
 
 /* Packet "pseudo-header" for the output from CoSine L2 debug output. */
 
@@ -746,36 +932,6 @@ struct catapult_dct2000_phdr
     struct wtap *wth;
 };
 
-#define LIBPCAP_BT_PHDR_SENT    0
-#define LIBPCAP_BT_PHDR_RECV    1
-
-/*
- * Header prepended by libpcap to each bluetooth hci h4 frame.
- * Values in network byte order
- */
-struct libpcap_bt_phdr {
-    guint32 direction;     /* Bit 0 hold the frame direction. */
-};
-
-/*
- * Header prepended by libpcap to each bluetooth monitor frame
- * Values in network byte order
- */
-struct libpcap_bt_monitor_phdr {
-    guint16 adapter_id;
-    guint16 opcode;
-};
-
-#define LIBPCAP_PPP_PHDR_RECV    0
-#define LIBPCAP_PPP_PHDR_SENT    1
-
-/*
- * Header prepended by libpcap to each ppp frame.
- */
-struct libpcap_ppp_phdr {
-    guint8 direction;
-};
-
 /*
  * Endace Record Format pseudo header
  */
@@ -807,12 +963,6 @@ struct erf_mc_phdr {
         guint16 eth_hdr;
         guint32 mc_hdr;
     } subhdr;
-};
-
-#define LLCP_PHDR_FLAG_SENT 0
-struct llcp_phdr {
-    guint8 adapter;
-    guint8 flags;
 };
 
 #define SITA_FRAME_DIR_TXED            (0x00)  /* values of sita_phdr.flags */
@@ -928,6 +1078,41 @@ struct gsm_um_phdr {
 #define GSM_UM_CHANNEL_RACH     6
 #define GSM_UM_CHANNEL_AGCH     7
 #define GSM_UM_CHANNEL_PCH      8
+
+/* Pseudo-header for nstrace packets */
+struct nstr_phdr {
+    gint64 rec_offset;
+    gint32 rec_len;
+    guint8 nicno_offset;
+    guint8 nicno_len;
+    guint8 dir_offset;
+    guint8 dir_len;
+    guint8 eth_offset;
+    guint8 pcb_offset;
+    guint8 l_pcb_offset;
+    guint8 rec_type;
+    guint8 vlantag_offset;
+    guint8 coreid_offset;
+    guint8 srcnodeid_offset;
+    guint8 destnodeid_offset;
+    guint8 clflags_offset;
+    guint8 src_vmname_len_offset;
+    guint8 dst_vmname_len_offset;
+    guint8 ns_activity_offset;
+    guint8 data_offset;
+};
+
+/* Packet "pseudo-header" for Nokia output */
+struct nokia_phdr {
+    struct eth_phdr eth;
+    guint8 stuff[4];    /* mysterious stuff */
+};
+
+#define LLCP_PHDR_FLAG_SENT 0
+struct llcp_phdr {
+    guint8 adapter;
+    guint8 flags;
+};
 
 /* pseudo header for WTAP_ENCAP_LOGCAT */
 struct logcat_phdr {
@@ -1064,6 +1249,9 @@ typedef struct wtapng_section_s {
                                          *     following section.
                                          *     Section Length equal -1 (0xFFFFFFFFFFFFFFFF) means
                                          *     that the size of the section is not specified
+                                         *   Note: if writing to a new file, this length will
+                                         *     be invalid if anything changes, such as the other
+                                         *     members of this struct, or the packets written.
                                          */
     /* options */
     gchar               *opt_comment;   /**< NULL if not available */
@@ -1074,7 +1262,7 @@ typedef struct wtapng_section_s {
     gchar               *shb_os;        /**< NULL if not available, UTF-8 string containing the
                                          *     name of the operating system used to create this section.
                                          */
-    gchar         *shb_user_appl;       /**< NULL if not available, UTF-8 string containing the
+    gchar               *shb_user_appl; /**< NULL if not available, UTF-8 string containing the
                                          *     name of the application used to create this section.
                                          */
 } wtapng_section_t;
@@ -1236,6 +1424,14 @@ typedef struct wtapng_if_stats_s {
     guint64  isb_osdrop;
     guint64  isb_usrdeliv;
 } wtapng_if_stats_t;
+
+
+/* Name Resolution, pcap-ng Name Resolution Block (NRB). */
+typedef struct wtapng_name_res_s {
+    /* options */
+    gchar  *opt_comment;    /**< NULL if not available */
+    /* XXX */
+} wtapng_name_res_t;
 
 
 /** A struct with lists of resolved addresses.
@@ -1493,12 +1689,151 @@ WS_DLL_PUBLIC
 int wtap_file_encap(wtap *wth);
 WS_DLL_PUBLIC
 int wtap_file_tsprec(wtap *wth);
+
+/**
+ * @brief Gets existing section header block, not for new file.
+ * @details Returns the pointer to the existing SHB, without creating a
+ *          new one. This should only be used for accessing info, not
+ *          for creating a new file based on existing SHB info. Use
+ *          wtap_file_get_shb_for_new_file() for that.
+ *
+ * @param wth The wiretap session.
+ * @return The existing section header, which must NOT be g_free'd.
+ */
 WS_DLL_PUBLIC
-wtapng_section_t* wtap_file_get_shb_info(wtap *wth);
+const wtapng_section_t* wtap_file_get_shb(wtap *wth);
+
+/**
+ * @brief Gets new section header block for new file, based on existing info.
+ * @details Creates a new wtapng_section_t section header block and only
+ *          copies appropriate members of the SHB for a new file. In
+ *          particular, the comment string is copied, and any custom options
+ *          which should be copied are copied. The os, hardware, and
+ *          application strings are *not* copied.
+ *
+ * @note Use wtap_free_shb() to free the returned section header.
+ *
+ * @param wth The wiretap session.
+ * @return The new section header, which must be wtap_free_shb'd.
+ */
 WS_DLL_PUBLIC
-wtapng_iface_descriptions_t *wtap_file_get_idb_info(wtap *wth);
+wtapng_section_t* wtap_file_get_shb_for_new_file(wtap *wth);
+
+/**
+ * Free's a section header block and all of its members.
+ */
+WS_DLL_PUBLIC
+void wtap_free_shb(wtapng_section_t *shb_hdr);
+
+/**
+ * @brief Gets the section header comment string.
+ * @details This gets the pointer, without duplicating the string.
+ *
+ * @param wth The wtap session.
+ * @return The comment string.
+ */
+WS_DLL_PUBLIC
+const gchar* wtap_file_get_shb_comment(wtap *wth);
+
+/**
+ * @brief Sets or replaces the section header comment.
+ * @details The passed-in comment string is set to be the comment
+ *          for the section header block. The passed-in string's
+ *          ownership will be owned by the block, so it should be
+ *          duplicated before passing into this function.
+ *
+ * @param wth The wiretap session.
+ * @param comment The comment string.
+ */
 WS_DLL_PUBLIC
 void wtap_write_shb_comment(wtap *wth, gchar *comment);
+
+/**
+ * @brief Gets existing interface descriptions.
+ * @details Returns a new struct containing a pointer to the existing
+ *          description, without creating new descriptions internally.
+ * @note The returned pointer must be g_free'd, but its internal
+ *       interface_data must not.
+ *
+ * @param wth The wiretap session.
+ * @return A new struct of the existing section descriptions, which must be g_free'd.
+ */
+WS_DLL_PUBLIC
+wtapng_iface_descriptions_t *wtap_file_get_idb_info(wtap *wth);
+
+/**
+ * @brief Free's a interface description block and all of its members.
+ *
+ * @details This free's all of the interface descriptions inside the passed-in
+ *     struct, including their members (e.g., comments); and then free's the
+ *     passed-in struct as well.
+ *
+ * @warning Do not use this for the struct returned by
+ *     wtap_file_get_idb_info(), as that one did not create the internal
+ *     interface descriptions; for that case you can simply g_free() the new
+ *     struct.
+ */
+WS_DLL_PUBLIC
+void wtap_free_idb_info(wtapng_iface_descriptions_t *idb_info);
+
+/**
+ * @brief Gets a debug string of an interface description.
+ * @details Returns a newly allocated string of debug information about
+ *          the given interface descrption, useful for debugging.
+ * @note The returned pointer must be g_free'd.
+ *
+ * @param if_descr The interface description.
+ * @param indent Number of spaces to indent each line by.
+ * @param line_end A string to append to each line (e.g., "\n" or ", ").
+ * @return A newly allocated gcahr array string, which must be g_free'd.
+ */
+WS_DLL_PUBLIC
+gchar *wtap_get_debug_if_descr(const wtapng_if_descr_t *if_descr,
+                               const int indent,
+                               const char* line_end);
+
+/**
+ * @brief Gets new name resolution info for new file, based on existing info.
+ * @details Creates a new wtapng_name_res_t name resolution info and only
+ *          copies appropriate members for a new file.
+ *
+ * @note Use wtap_free_nrb() to free the returned pointer.
+ *
+ * @param wth The wiretap session.
+ * @return The new name resolution info, which must be wtap_free_nrb'd.
+ */
+WS_DLL_PUBLIC
+wtapng_name_res_t* wtap_file_get_nrb_for_new_file(wtap *wth);
+
+/**
+ * Free's the name resolution info and all of its members.
+ */
+WS_DLL_PUBLIC
+void wtap_free_nrb(wtapng_name_res_t *nrb_hdr);
+
+/**
+ * @brief Gets the name resolution comment, if any.
+ * @details This retrieves the name resolution comment string pointer,
+ *          possibly NULL.
+ *
+ * @param wth The wiretap session.
+ * @return The comment string.
+ */
+WS_DLL_PUBLIC
+const gchar* wtap_get_nrb_comment(wtap *wth);
+
+/**
+ * @brief Sets or replaces the name resolution comment.
+ * @details The passed-in comment string is set to be the comment
+ *          for the name resolution block. The passed-in string's
+ *          ownership will be owned by the block, so it should be
+ *          duplicated before passing into this function.
+ *
+ * @param wth The wiretap session.
+ * @param comment The comment string.
+ */
+WS_DLL_PUBLIC
+void wtap_write_nrb_comment(wtap *wth, gchar *comment);
 
 /*** close the file descriptors for the current file ***/
 WS_DLL_PUBLIC
@@ -1547,20 +1882,57 @@ WS_DLL_PUBLIC
 gboolean wtap_dump_supports_comment_types(int filetype, guint32 comment_types);
 
 WS_DLL_PUBLIC
-wtap_dumper* wtap_dump_open(const char *filename, int filetype, int encap,
+wtap_dumper* wtap_dump_open(const char *filename, int file_type_subtype, int encap,
     int snaplen, gboolean compressed, int *err);
 
+/**
+ * @brief Opens a new capture file for writing.
+ *
+ * @note The shb_hdr, idb_inf, and nrb_hdr arguments will be used until
+ *     wtap_dump_close() is called, but will not be free'd by the dumper. If
+ *     you created them, you must free them yourself after wtap_dump_close().
+ *
+ * @param filename The new file's name.
+ * @param file_type_subtype The WTAP_FILE_TYPE_SUBTYPE_XXX file type.
+ * @param encap The WTAP_ENCAP_XXX encapsulation type (WTAP_ENCAP_PER_PACKET for multi)
+ * @param snaplen The maximum packet capture length.
+ * @param compressed True if file should be compressed.
+ * @param shb_hdr The section header block information, or NULL.
+ * @param idb_inf The interface description information, or NULL.
+ * @param nrb_hdr The name resolution comment/custom_opts information, or NULL.
+ * @param[out] err Will be set to an error code on failure.
+ * @return The newly created dumper object, or NULL on failure.
+ */
 WS_DLL_PUBLIC
-wtap_dumper* wtap_dump_open_ng(const char *filename, int filetype, int encap,
-    int snaplen, gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf, int *err);
+wtap_dumper* wtap_dump_open_ng(const char *filename, int file_type_subtype, int encap,
+    int snaplen, gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+    wtapng_name_res_t *nrb_hdr, int *err);
 
 WS_DLL_PUBLIC
-wtap_dumper* wtap_dump_fdopen(int fd, int filetype, int encap, int snaplen,
+wtap_dumper* wtap_dump_fdopen(int fd, int file_type_subtype, int encap, int snaplen,
     gboolean compressed, int *err);
 
+/**
+ * @brief Creates a dumper for an existing file descriptor.
+ *
+ * @note The shb_hdr, idb_inf, and nrb_hdr arguments will be used until
+ *     wtap_dump_close() is called, but will not be free'd by the dumper. If
+ *     you created them, you must free them yourself after wtap_dump_close().
+ *
+ * @param file_type_subtype The WTAP_FILE_TYPE_SUBTYPE_XXX file type.
+ * @param encap The WTAP_ENCAP_XXX encapsulation type (WTAP_ENCAP_PER_PACKET for multi)
+ * @param snaplen The maximum packet capture length.
+ * @param compressed True if file should be compressed.
+ * @param shb_hdr The section header block information, or NULL.
+ * @param idb_inf The interface description information, or NULL.
+ * @param nrb_hdr The name resolution comment/custom_opts information, or NULL.
+ * @param[out] err Will be set to an error code on failure.
+ * @return The newly created dumper object, or NULL on failure.
+ */
 WS_DLL_PUBLIC
-wtap_dumper* wtap_dump_fdopen_ng(int fd, int filetype, int encap, int snaplen,
-                gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf, int *err);
+wtap_dumper* wtap_dump_fdopen_ng(int fd, int file_type_subtype, int encap, int snaplen,
+                gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+                wtapng_name_res_t *nrb_hdr, int *err);
 
 
 WS_DLL_PUBLIC
@@ -1618,6 +1990,9 @@ WS_DLL_PUBLIC
 const char *wtap_encap_short_string(int encap);
 WS_DLL_PUBLIC
 int wtap_short_string_to_encap(const char *short_name);
+
+WS_DLL_PUBLIC
+const char* wtap_tsprec_string(int tsprec);
 
 WS_DLL_PUBLIC
 const char *wtap_strerror(int err);

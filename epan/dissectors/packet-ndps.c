@@ -2026,7 +2026,7 @@ static const value_string ndps_get_resman_session_type_enum[] = {
 static int
 align_4(tvbuff_t *tvb, int aoffset)
 {
-    if(tvb_length_remaining(tvb, aoffset) > 4 )
+    if(tvb_captured_length_remaining(tvb, aoffset) > 4 )
     {
         return (aoffset%4);
     }
@@ -2318,7 +2318,7 @@ objectidentification(tvbuff_t* tvb, proto_tree *ndps_tree, int foffset)
             break;
         case 3:         /* Object Name */
             foffset = ndps_string(tvb, hf_object_name, atree, foffset, NULL);
-            if (foffset > tvb_length_remaining(tvb, foffset)) {
+            if (foffset > tvb_captured_length_remaining(tvb, foffset)) {
                 return foffset;
             }
             foffset = name_or_id(tvb, atree, foffset);
@@ -4079,14 +4079,16 @@ ndps_hash(gconstpointer v)
 static void
 ndps_init_protocol(void)
 {
-    /* fragment */
     reassembly_table_init(&ndps_reassembly_table,
                           &addresses_reassembly_table_functions);
-
-    if (ndps_req_hash)
-        g_hash_table_destroy(ndps_req_hash);
-
     ndps_req_hash = g_hash_table_new(ndps_hash, ndps_equal);
+}
+
+static void
+ndps_cleanup_protocol(void)
+{
+    reassembly_table_destroy(&ndps_reassembly_table);
+    /* ndps_req_hash is already destroyed by ndps_postseq_cleanup */
 }
 
 /* After the sequential run, we don't need the ncp_request hash and keys
@@ -4100,7 +4102,7 @@ ndps_postseq_cleanup(void)
         g_hash_table_destroy(ndps_req_hash);
         ndps_req_hash = NULL;
     }
-    /* Don't free the ncp_req_hash_values, as they're
+    /* Don't free the ndps_req_hash_value values of ndps_req_hash, as they're
      * needed during random-access processing of the proto_tree.*/
 }
 
@@ -4279,7 +4281,7 @@ dissect_ndps_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     ndps_tree = proto_item_add_subtree(ti, ett_ndps);
 
     dissect_ndps(tvb, pinfo, ndps_tree);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /*
@@ -4362,7 +4364,7 @@ ndps_defrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, spx_info *spx_i
          */
         tid = (pinfo->srcport+pinfo->destport);
         len = tvb_reported_length(tvb);
-        if (tvb_length(tvb) >= len)
+        if (tvb_captured_length(tvb) >= len)
         {
             fd_head = fragment_add_seq_next(&ndps_reassembly_table, tvb, 0, pinfo, tid, NULL, len, !spx_info_p->eom);
             if (fd_head != NULL)
@@ -4444,7 +4446,7 @@ static int
 dissect_ndps_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     tcp_dissect_pdus(tvb, pinfo, tree, ndps_desegment, 4, get_ndps_pdu_len, dissect_ndps_pdu, data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -4466,7 +4468,7 @@ dissect_ndps_ipx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     ndps_tree = proto_item_add_subtree(ti, ett_ndps);
 
     ndps_defrag(tvb, pinfo, ndps_tree, (spx_info*)data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -4637,7 +4639,7 @@ dissect_ndps_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, g
                         length = tvb_get_ntohl(tvb, foffset);
                         proto_tree_add_uint(btree, hf_ndps_included_doc_len, tvb, foffset, 4, length);
                         foffset += 4;
-                        length_remaining = tvb_length_remaining(tvb, foffset);
+                        length_remaining = tvb_reported_length_remaining(tvb, foffset);
                         if (length_remaining == -1 || length > (guint32) length_remaining) /* Segmented Data */
                         {
                             proto_tree_add_item(btree, hf_ndps_data, tvb, foffset, -1, ENC_NA);
@@ -6241,7 +6243,7 @@ dissect_ndps_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, g
                 }
                 atree = proto_tree_add_subtree_format(ndps_tree, tvb, foffset, -1, ett_ndps, &aitem, "Item %d", ii+1);
                 length=tvb_get_ntohl(tvb, foffset);
-                length_remaining = tvb_length_remaining(tvb, foffset);
+                length_remaining = tvb_reported_length_remaining(tvb, foffset);
                 if(length_remaining == -1 || (guint32) length_remaining < length)
                 {
                     return foffset;
@@ -6582,7 +6584,7 @@ ndps_error(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int foffset
         foffset += 4;
         proto_tree_add_item(ndps_tree, hf_ndps_other_error_2, tvb, foffset, 4, ENC_BIG_ENDIAN);
         foffset += 4;
-        if (tvb_length_remaining(tvb, foffset) >= 4) {
+        if (tvb_reported_length_remaining(tvb, foffset) >= 4) {
             foffset = ndps_string(tvb, hf_ndps_other_error_string, ndps_tree, foffset, NULL);
         }
         break;
@@ -6789,7 +6791,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
            request_value->ndps_frame_num);
     }
 
-    if (tvb_length_remaining(tvb, foffset) < 12 && tvb_get_ntohl(tvb, foffset) == 0) /* No error and no return data */
+    if (tvb_reported_length_remaining(tvb, foffset) < 12 && tvb_get_ntohl(tvb, foffset) == 0) /* No error and no return data */
     {
         proto_tree_add_uint(ndps_tree, hf_ndps_error_val, tvb, foffset, 4, error_val);
         col_append_str(pinfo->cinfo, COL_INFO, "- Ok");
@@ -6803,13 +6805,13 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
             expert_add_info_format(pinfo, expert_item, &ei_ndps_rpc_acc_stat, "Fault: %s", val_to_str(expert_status, accept_stat, "Unknown NDPS Error (0x%08x)"));
         }
         foffset += 4;
-        if (tvb_length_remaining(tvb,foffset) < 4 ) {
+        if (tvb_reported_length_remaining(tvb,foffset) < 4 ) {
             col_append_str(pinfo->cinfo, COL_INFO, "- Error");
             return foffset;
         }
         proto_tree_add_item(ndps_tree, hf_ndps_rpc_acc_results, tvb, foffset, 4, ENC_BIG_ENDIAN);
         foffset += 4;
-        if (tvb_length_remaining(tvb,foffset) < 4) {
+        if (tvb_reported_length_remaining(tvb,foffset) < 4) {
             col_append_str(pinfo->cinfo, COL_INFO, "- Error");
             return foffset;
         }
@@ -6818,7 +6820,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
     proto_tree_add_uint(ndps_tree, hf_ndps_error_val, tvb, foffset, 4, error_val);
     foffset += 4;
     /* Some functions return an error with no data, 0 is ok */
-    if (try_val_to_str_ext(tvb_get_ntohl(tvb, foffset), &ndps_error_types_ext) && tvb_length_remaining(tvb,foffset) < 8 && (tvb_get_ntohl(tvb, foffset)!=0))
+    if (try_val_to_str_ext(tvb_get_ntohl(tvb, foffset), &ndps_error_types_ext) && tvb_reported_length_remaining(tvb,foffset) < 8 && (tvb_get_ntohl(tvb, foffset)!=0))
     {
         expert_status = tvb_get_ntohl(tvb, foffset);
         expert_item = proto_tree_add_item(ndps_tree, hf_ndps_return_code, tvb, foffset, 4, ENC_BIG_ENDIAN);
@@ -6838,7 +6840,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
             if(error_val != 0)
             {
                 foffset = ndps_error(tvb, pinfo, ndps_tree, foffset);
-                if(tvb_length_remaining(tvb, foffset) < 4)
+                if(tvb_reported_length_remaining(tvb, foffset) < 4)
                 {
                     break;
                 }
@@ -6855,7 +6857,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
             if(error_val != 0)
             {
                 foffset = ndps_error(tvb, pinfo, ndps_tree, foffset);
-                if(tvb_length_remaining(tvb, foffset) < 4)
+                if(tvb_reported_length_remaining(tvb, foffset) < 4)
                 {
                     break;
                 }
@@ -6918,7 +6920,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
                 }
                 btree = proto_tree_add_subtree_format(atree, tvb, foffset, -1, ett_ndps, &bitem, "Option %d", ii+1);
                 length=tvb_get_ntohl(tvb, foffset);
-                length_remaining = tvb_length_remaining(tvb, foffset);
+                length_remaining = tvb_reported_length_remaining(tvb, foffset);
                 if(length_remaining == -1 || (guint32) length_remaining < length)
                 {
                     return foffset;
@@ -8009,7 +8011,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
                 }
                 btree = proto_tree_add_subtree_format(atree, tvb, foffset, -1, ett_ndps, &bitem, "Item %d", ii+1);
                 length=tvb_get_ntohl(tvb, foffset);
-                length_remaining = tvb_length_remaining(tvb, foffset);
+                length_remaining = tvb_reported_length_remaining(tvb, foffset);
                 if(length_remaining == -1 || (guint32) length_remaining < length)
                 {
                     return foffset;
@@ -9513,6 +9515,7 @@ proto_register_ndps(void)
                                    &ndps_show_oids);
 
     register_init_routine(&ndps_init_protocol);
+    register_cleanup_routine(&ndps_cleanup_protocol);
     register_postseq_cleanup_routine(&ndps_postseq_cleanup);
 }
 

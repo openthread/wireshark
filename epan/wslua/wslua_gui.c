@@ -121,8 +121,9 @@ WSLUA_FUNCTION wslua_register_menu(lua_State* L) { /*  Register a menu item in o
     WSLUA_RETURN(0);
 }
 
-
-
+void wslua_deregister_menus(void) {
+    funnel_deregister_menus(lua_menu_callback);
+}
 
 struct _dlg_cb_data {
     lua_State* L;
@@ -292,7 +293,7 @@ WSLUA_CONSTRUCTOR ProgDlg_new(lua_State* L) { /* Creates a new `ProgDlg` progres
     pd->stopped = FALSE;
 
     if (ops->new_progress_window) {
-        pd->pw = ops->new_progress_window(pd->title,pd->task,TRUE,&(pd->stopped));
+        pd->pw = ops->new_progress_window(ops->ops_id, pd->title, pd->task, TRUE, &(pd->stopped));
     } else {
         WSLUA_ERROR(ProgDlg_new, "GUI not available");
         return 0;
@@ -553,6 +554,20 @@ WSLUA_METHOD TextWindow_get_text(lua_State* L) { /* Get the text of the window *
     WSLUA_RETURN(1); /* The `TextWindow`'s text. */
 }
 
+WSLUA_METHOD TextWindow_close(lua_State* L) { /* Close the window */
+    TextWindow tw = checkTextWindow(L,1);
+
+    if (!ops->destroy_text_window) {
+        WSLUA_ERROR(TextWindow_get_text,"GUI not available");
+        return 0;
+    }
+
+    ops->destroy_text_window(tw->ws_tw);
+    tw->ws_tw = NULL;
+
+    return 0;
+}
+
 /* Gets registered as metamethod automatically by WSLUA_REGISTER_CLASS/META */
 static int TextWindow__gc(lua_State* L) {
     TextWindow tw = toTextWindow(L,1);
@@ -666,7 +681,6 @@ WSLUA_METHOD TextWindow_add_button(lua_State* L) {
 WSLUA_METHODS TextWindow_methods[] = {
     WSLUA_CLASS_FNREG(TextWindow,new),
     WSLUA_CLASS_FNREG(TextWindow,set),
-    WSLUA_CLASS_FNREG(TextWindow,new),
     WSLUA_CLASS_FNREG(TextWindow,append),
     WSLUA_CLASS_FNREG(TextWindow,prepend),
     WSLUA_CLASS_FNREG(TextWindow,clear),
@@ -674,6 +688,7 @@ WSLUA_METHODS TextWindow_methods[] = {
     WSLUA_CLASS_FNREG(TextWindow,set_editable),
     WSLUA_CLASS_FNREG(TextWindow,get_text),
     WSLUA_CLASS_FNREG(TextWindow,add_button),
+    WSLUA_CLASS_FNREG(TextWindow,close),
     { NULL, NULL }
 };
 
@@ -697,7 +712,7 @@ WSLUA_FUNCTION wslua_retap_packets(lua_State* L) {
      Rescan all packets and just run taps - don't reconstruct the display.
      */
     if ( ops->retap_packets ) {
-        ops->retap_packets();
+        ops->retap_packets(ops->ops_id);
     } else {
         WSLUA_ERROR(wslua_retap_packets, "GUI not available");
     }
@@ -737,7 +752,7 @@ WSLUA_FUNCTION wslua_open_capture_file(lua_State* L) { /* Open and display a cap
         return 0;
     }
 
-    if (! ops->open_file(fname,filter,&error) ) {
+    if (! ops->open_file(ops->ops_id, fname, filter, &error) ) {
         lua_pushboolean(L,FALSE);
 
         if (error) {
@@ -761,7 +776,7 @@ WSLUA_FUNCTION wslua_get_filter(lua_State* L) { /* Get the main filter text. */
         return 0;
     }
 
-    filter_str = ops->get_filter();
+    filter_str = ops->get_filter(ops->ops_id);
     lua_pushstring(L,filter_str);
 
     return 1;
@@ -776,7 +791,7 @@ WSLUA_FUNCTION wslua_set_filter(lua_State* L) { /* Set the main filter text. */
         return 0;
     }
 
-    ops->set_filter(filter_str);
+    ops->set_filter(ops->ops_id, filter_str);
 
     return 0;
 }
@@ -803,7 +818,7 @@ WSLUA_FUNCTION wslua_apply_filter(lua_State* L) { /* Apply the filter in the mai
         return 0;
     }
 
-    ops->apply_filter();
+    ops->apply_filter(ops->ops_id);
 
     return 0;
 }
@@ -816,7 +831,7 @@ WSLUA_FUNCTION wslua_reload(lua_State* L) { /* Reload the current capture file. 
         return 0;
     }
 
-    ops->reload();
+    ops->reload(ops->ops_id);
 
     return 0;
 }

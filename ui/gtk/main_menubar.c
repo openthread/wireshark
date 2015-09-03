@@ -36,7 +36,7 @@
 #include <epan/epan_dissect.h>
 #include <epan/column.h>
 #include <epan/stats_tree_priv.h>
-#include <epan/ext_menubar.h>
+#include <epan/plugin_if.h>
 
 #include "globals.h"
 #include "color_filters.h"
@@ -1059,7 +1059,6 @@ static const char *ui_desc_menubar =
 "        <menuitem name='http_srv' action='/Statistics/HTTP/http_srv'/>\n"
 "      </menu>\n"
 "      <menuitem name='HTTP2' action='/Statistics/http2'/>\n"
-"      <menuitem name='ONC-RPC-Programs' action='/Statistics/ONC-RPC-Programs'/>\n"
 "      <menu name= 'SametimeMenu' action='/Statistics/Sametime'>\n"
 "        <menuitem name='sametime' action='/Statistics/Sametime/sametime'/>\n"
 "      </menu>\n"
@@ -1075,25 +1074,9 @@ static const char *ui_desc_menubar =
 "      <separator/>\n"
 "    </menu>\n"
 "    <menu name= 'TelephonyMenu' action='/Telephony'>\n"
-"      <menu name= 'ANSI' action='/Telephony/ANSI'>\n"
-"        <menuitem name='BSMAP' action='/Telephony/ANSI/BSMAP'/>\n"
-"        <menuitem name='DTAP' action='/Telephony/ANSI/DTAP'/>\n"
-"        <menuitem name='MAP-OP' action='/Telephony/ANSI/MAP-OP'/>\n"
+"      <menu name= 'ANSImenu' action='/Telephony/ANSI'>\n"
 "      </menu>\n"
 "      <menu name= 'GSM' action='/Telephony/GSM'>\n"
-"        <menuitem name='BSSMAP' action='/Telephony/GSM/BSSMAP'/>\n"
-"        <menu name='GSM-DTAP' action='/Telephony/GSM/DTAP'>\n"
-"          <menuitem name='CallControl' action='/Telephony/GSM/DTAP/CC'/>\n"
-"          <menuitem name='GPRS-MM' action='/Telephony/GSM/DTAP/GMM'/>\n"
-"          <menuitem name='GPRS-SM' action='/Telephony/GSM/DTAP/SM'/>\n"
-"          <menuitem name='MM' action='/Telephony/GSM/DTAP/MM'/>\n"
-"          <menuitem name='RR' action='/Telephony/GSM/DTAP/RR'/>\n"
-"          <menuitem name='SMS' action='/Telephony/GSM/DTAP/SMS'/>\n"
-"          <menuitem name='TP' action='/Telephony/GSM/DTAP/TP'/>\n"
-"          <menuitem name='SS' action='/Telephony/GSM/DTAP/SS'/>\n"
-"        </menu>\n"
-"        <menuitem name='SACCH' action='/Telephony/GSM/SACCH'/>\n"
-"        <menuitem name='MAP-OP' action='/Telephony/GSM/MAP-OP'/>\n"
 "        <menuitem name='MAP-Summary' action='/Telephony/GSM/MAPSummary'/>\n"
 "      </menu>\n"
 "      <menu name= 'IAX2menu' action='/Telephony/IAX2'>\n"
@@ -1104,7 +1087,6 @@ static const char *ui_desc_menubar =
 "        <menuitem name='LTE_RLC_Graph' action='/Telephony/LTE/RLCGraph'/>\n"
 "      </menu>\n"
 "      <menu name= 'MTP3menu' action='/Telephony/MTP3'>\n"
-"        <menuitem name='MSUs' action='/Telephony/MTP3/MSUs'/>\n"
 "        <menuitem name='MSUSummary' action='/Telephony/MTP3/MSUSummary'/>\n"
 "      </menu>\n"
 "      <menu name= 'RTPmenu' action='/Telephony/RTP'>\n"
@@ -1493,7 +1475,6 @@ static const GtkActionEntry main_menu_bar_entries[] = {
    { "/Statistics/HTTP/http_req",                   NULL,       "Requests",                         NULL, NULL, G_CALLBACK(gtk_stats_tree_cb) },
    { "/Statistics/HTTP/http_srv",                   NULL,       "Load Distribution",                NULL, NULL, G_CALLBACK(gtk_stats_tree_cb) },
    { "/Statistics/http2",                           NULL,       "HTTP2",                          NULL, NULL, G_CALLBACK(gtk_stats_tree_cb) },
-   { "/Statistics/ONC-RPC-Programs",                NULL,       "ONC-RPC Programs",                 NULL, NULL, G_CALLBACK(gtk_rpcprogs_cb) },
    { "/Statistics/Sametime",                        NULL,       "Sametime",                         NULL, NULL, NULL },
    { "/Statistics/Sametime/sametime",               NULL,       "Messages",                         NULL, NULL, G_CALLBACK(gtk_stats_tree_cb) },
    { "/Statistics/TCPStreamGraphMenu",  NULL,           "TCP StreamGraph",                          NULL, NULL, NULL },
@@ -1516,25 +1497,7 @@ static const GtkActionEntry main_menu_bar_entries[] = {
    { "/Statistics/plen",                        NULL,               "Packet Lengths...",        NULL,                       NULL,               G_CALLBACK(gtk_stats_tree_cb) },
 
    { "/Telephony/ANSI",                 NULL,                       "_ANSI",                    NULL, NULL, NULL },
-   { "/Telephony/ANSI/BSMAP",           NULL,                       "A-Interface BSMAP",        NULL,                       NULL,               G_CALLBACK(ansi_a_stat_gtk_bsmap_cb) },
-   { "/Telephony/ANSI/DTAP",            NULL,                       "A-Interface DTAP",         NULL,                       NULL,               G_CALLBACK(ansi_a_stat_gtk_dtap_cb) },
-   { "/Telephony/ANSI/MAP-OP",          NULL,                       "MAP Operation",            NULL,                       NULL,               G_CALLBACK(ansi_map_stat_gtk_cb) },
-
    { "/Telephony/GSM",                  NULL,                       "_GSM",                     NULL, NULL, NULL },
-   { "/Telephony/GSM/BSSMAP",           NULL,                       "A-Interface BSSMAP",  NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_bssmap_cb) },
-
-   { "/Telephony/GSM/DTAP",             NULL,                       "A-Interface DTAP",    NULL, NULL, NULL },
-   { "/Telephony/GSM/DTAP/CC",          NULL,                       "Call Control",             NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_cc_cb) },
-   { "/Telephony/GSM/DTAP/GMM",         NULL,                       "GPRS Mobility Management", NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_gmm_cb) },
-   { "/Telephony/GSM/DTAP/SM",          NULL,                       "GPRS Session Management",  NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_sm_cb) },
-   { "/Telephony/GSM/DTAP/MM",          NULL,                       "Mobility Management",      NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_mm_cb) },
-   { "/Telephony/GSM/DTAP/RR",          NULL,                       "Radio Resource Management",NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_rr_cb) },
-   { "/Telephony/GSM/DTAP/SMS",         NULL,                       "Short Message Service",    NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_sms_cb) },
-   { "/Telephony/GSM/DTAP/TP",          NULL,       "Special Conformance Testing Functions",    NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_tp_cb) },
-   { "/Telephony/GSM/DTAP/SS",          NULL,                       "Supplementary Services",   NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_dtap_ss_cb) },
-
-   { "/Telephony/GSM/SACCH",            NULL,                       "A-Interface SACCH",   NULL,                       NULL,               G_CALLBACK(gsm_a_stat_gtk_sacch_rr_cb) },
-   { "/Telephony/GSM/MAP-OP",           NULL,                       "MAP Operation",       NULL,                       NULL,               G_CALLBACK(gsm_map_stat_gtk_cb) },
    { "/Telephony/GSM/MAPSummary",       NULL,                       "MAP Summary",              NULL,                       NULL,               G_CALLBACK(gsm_map_stat_gtk_sum_cb) },
 
    { "/Telephony/IAX2",                 NULL,                       "IA_X2",                    NULL, NULL, NULL },
@@ -1545,7 +1508,6 @@ static const GtkActionEntry main_menu_bar_entries[] = {
    { "/Telephony/LTE",                  NULL,                       "_LTE",                     NULL, NULL, NULL },
    { "/Telephony/LTE/RLCGraph",         NULL,                       "RLC _Graph...",            NULL,                       NULL,               G_CALLBACK(rlc_lte_graph_cb) },
    { "/Telephony/MTP3",                 NULL,                       "_MTP3",                    NULL, NULL, NULL },
-   { "/Telephony/MTP3/MSUs",            NULL,                       "MSUs",                     NULL,                       NULL,               G_CALLBACK(mtp3_stat_gtk_cb) },
    { "/Telephony/MTP3/MSUSummary",      NULL,                       "MSU Summary",              NULL,                       NULL,               G_CALLBACK(mtp3_sum_gtk_sum_cb) },
    { "/Telephony/RTP",                  NULL,                       "_RTP",                     NULL, NULL, NULL },
    { "/Telephony/RTP/StreamAnalysis",   NULL,                       "Stream Analysis...",       NULL,                       NULL,               G_CALLBACK(rtp_analysis_cb) },
@@ -3454,7 +3416,7 @@ add_menu_item_to_main_menubar(const gchar *path, const gchar *name, const menu_i
                  * developer to see the problem and fix it.
                  */
                 item_name = tok;
-                action_name = g_strdup_printf("/%s", tok);
+                action_name = g_strconcat("/", tok, NULL);
                 if (menu_item_data != NULL) {
                     action = (GtkAction *)g_object_new (
                             GTK_TYPE_ACTION,
@@ -3505,10 +3467,10 @@ add_menu_item_to_main_menubar(const gchar *path, const gchar *name, const menu_i
                         if (name_action_tokens[1][i] == '#')
                             name_action_tokens[1][i] = '/';
                     item_name = name_action_tokens[0];
-                    action_name = g_strdup_printf("/%s", name_action_tokens[1]);
+                    action_name = g_strconcat("/", name_action_tokens[1], NULL);
                 } else {
                     item_name = tok;
-                    action_name = g_strdup_printf("/%s", tok);
+                    action_name = g_strconcat("/", tok, NULL);
                 }
 
                 if (menu_item_data != NULL) {
@@ -3573,9 +3535,11 @@ stat_group_name(register_stat_group_t group)
         {REGISTER_STAT_GROUP_ENDPOINT_LIST,          "/Menubar/StatisticsMenu|Statistics/EndpointListMenu|Statistics#EndpointList"},               /* member of the endpoint list */
         {REGISTER_STAT_GROUP_RESPONSE_TIME,          "/Menubar/StatisticsMenu|Statistics/ServiceResponseTimeMenu|Statistics#ServiceResponseTime"}, /* member of the service response time list */
         {REGISTER_STAT_GROUP_TELEPHONY,              "/Menubar/TelephonyMenu|Telephony"},                                                          /* telephony specific */
-        {REGISTER_STAT_GROUP_TELEPHONY_GSM,          "/Menubar/TelephonyMenu|Telephony/GSM|Telephony#GSM"},                                                          /* GSM-specific */
-        {REGISTER_STAT_GROUP_TELEPHONY_LTE,          "/Menubar/TelephonyMenu|Telephony/LTEmenu|Telephony#LTE"},                                                          /* LTE-specific */
-        {REGISTER_STAT_GROUP_TELEPHONY_SCTP,         "/Menubar/TelephonyMenu|Telephony/SCTPmenu|Telephony#SCTP"},                                                          /* SCTP-specific */
+        {REGISTER_STAT_GROUP_TELEPHONY_ANSI,         "/Menubar/TelephonyMenu|Telephony/ANSI|Telephony#ANSI"},                                      /* ANSI-specific */
+        {REGISTER_STAT_GROUP_TELEPHONY_GSM,          "/Menubar/TelephonyMenu|Telephony/GSM|Telephony#GSM"},                                        /* GSM-specific */
+        {REGISTER_STAT_GROUP_TELEPHONY_LTE,          "/Menubar/TelephonyMenu|Telephony/LTEmenu|Telephony#LTE"},                                    /* LTE-specific */
+        {REGISTER_STAT_GROUP_TELEPHONY_MTP3,         "/Menubar/TelephonyMenu|Telephony/MTP3menu|Telephony#MTP3"},                                  /* MTP3-specific */
+        {REGISTER_STAT_GROUP_TELEPHONY_SCTP,         "/Menubar/TelephonyMenu|Telephony/SCTPmenu|Telephony#SCTP"},                                  /* SCTP-specific */
         {REGISTER_TOOLS_GROUP_UNSORTED,              "/Menubar/ToolsMenu|Tools"},                                                                  /* unsorted tools */
         {0, NULL}
     };
@@ -3643,11 +3607,12 @@ set_menu_object_data (const gchar *path, const gchar *key, gpointer data)
 static GList *
 remove_present_file_name(GList *recent_files_list, const gchar *cf_name)
 {
-    GList *li;
+    GList *li, *next;
     gchar *widget_cf_name;
 
-    for (li = g_list_first(recent_files_list); li; li = li->next) {
+    for (li = g_list_first(recent_files_list); li; li = next) {
         widget_cf_name = (gchar *)li->data;
+        next = li->next;
         if (
 #ifdef _WIN32
             /* do a case insensitive compare on win32 */
@@ -4578,7 +4543,7 @@ set_menus_for_selected_packet(capture_file *cf)
            than one time reference frame or the current frame isn't a
            time reference frame). (XXX - why check frame_selected?) */
     if (cf->edt)
-        proto_get_frame_protocols(cf->edt->pi.layers, &is_ip, &is_tcp, &is_udp, &is_sctp, &is_ssl);
+        proto_get_frame_protocols(cf->edt->pi.layers, &is_ip, &is_tcp, &is_udp, &is_sctp, &is_ssl, NULL);
 
     if (cf->edt && cf->edt->tree) {
         GPtrArray          *ga;
@@ -5432,6 +5397,8 @@ ws_menubar_create_ui(ext_menu_t * menu, const char * xpath_parent, GtkActionGrou
     ext_menubar_t * item = NULL;
     GList * children = NULL;
     gchar * xpath, * submenu_xpath;
+    GtkAction * menu_action;
+    gchar *action_name;
     gchar ** paths = NULL;
 
     /* There must exists an xpath parent */
@@ -5443,8 +5410,18 @@ ws_menubar_create_ui(ext_menu_t * menu, const char * xpath_parent, GtkActionGrou
     /* Create a correct xpath, and just keep the necessary action ref [which will be paths [1]] */
     xpath = g_strconcat(xpath_parent, menu->name, NULL);
 
+    /* Create the action for the menu item and add it to the action group */
+    action_name = g_strconcat("/", menu->name, NULL);
+    menu_action = (GtkAction *)g_object_new ( GTK_TYPE_ACTION,
+            "name", action_name, "label", menu->label, NULL );
+    g_free(action_name);
+
+    gtk_action_group_add_action(action_group, menu_action);
+    g_object_unref(menu_action);
+
     children = menu->children;
-    /* Iterate the child entries */
+
+    /* Iterate children to create submenus */
     while ( children != NULL && children->data != NULL )
     {
         item = (ext_menubar_t *) children->data;
@@ -5458,6 +5435,17 @@ ws_menubar_create_ui(ext_menu_t * menu, const char * xpath_parent, GtkActionGrou
         }
         else if ( item->type != EXT_MENUBAR_SEPARATOR )
         {
+            action_name = g_strconcat("/", item->name, NULL);
+            menu_action = (GtkAction*) g_object_new( GTK_TYPE_ACTION,
+                    "name", action_name,
+                    "label", item->label,
+                    "tooltip", item->tooltip,
+                    NULL);
+            g_signal_connect(menu_action, "activate", G_CALLBACK(ws_menubar_external_cb), item );
+            gtk_action_group_add_action(action_group, menu_action);
+            g_object_unref(menu_action);
+            g_free(action_name);
+
             /* Create the correct action path */
             paths = g_strsplit(xpath, "|", -1);
 
@@ -5482,59 +5470,6 @@ ws_menubar_create_ui(ext_menu_t * menu, const char * xpath_parent, GtkActionGrou
         }
 
         /* Iterate Loop */
-        children = g_list_next(children);
-    }
-
-    /* Cleanup */
-    g_free(xpath);
-}
-
-static void
-ws_menubar_create_action_group(ext_menu_t * menu, const char * xpath_parent, GtkActionGroup  *action_group, gint depth)
-{
-    ext_menubar_t * item = NULL;
-    GList * children = NULL;
-    GtkAction * menu_item;
-
-    gchar * xpath, *submenu_xpath;
-
-    g_assert(xpath_parent != NULL && strlen(xpath_parent) > 0);
-
-    /* If the depth counter exceeds, something must have gone wrong */
-    g_assert(depth < EXT_MENUBAR_MAX_DEPTH);
-
-    xpath = g_strconcat(xpath_parent, menu->name, NULL);
-    /* Create the action for the menu item and add it to the action group */
-    menu_item = (GtkAction *)g_object_new ( GTK_TYPE_ACTION,
-            "name", menu->name, "label", menu->label, NULL );
-
-    gtk_action_group_add_action(action_group, menu_item);
-
-    children = menu->children;
-
-    /* Iterate children to create submenus */
-    while ( children != NULL && children->data != NULL )
-    {
-        item = (ext_menubar_t *) children->data;
-
-        /* Handle only menues, not individual items */
-        if ( item->type == EXT_MENUBAR_MENU )
-        {
-            submenu_xpath = g_strconcat(xpath, "/", NULL);
-            ws_menubar_create_action_group(item, submenu_xpath, action_group, depth++);
-            g_free(submenu_xpath);
-        }
-        else if ( item->type != EXT_MENUBAR_SEPARATOR )
-        {
-            menu_item = (GtkAction*) g_object_new( GTK_TYPE_ACTION,
-                    "name", item->name,
-                    "label", item->label,
-                    "tooltip", item->tooltip,
-                    NULL);
-            g_signal_connect(menu_item, "activate", G_CALLBACK(ws_menubar_external_cb), item );
-            gtk_action_group_add_action(action_group, menu_item);
-        }
-
         children = g_list_next(children);
     }
 
@@ -5571,10 +5506,6 @@ ws_menubar_external_menus(void)
 
         /* Create an action group per menu */
         action_group = gtk_action_group_new(groupdef);
-
-        /* This will generate the action structure for each menu and it's items. It is recursive,
-         * therefore a sub-routine, and we have a depth counter to prevent endless loops. */
-        ws_menubar_create_action_group(menu, xpath, action_group, 0);
 
         /* Register action structure for each menu */
         gtk_ui_manager_insert_action_group(ui_manager_main_menubar, action_group, 0);

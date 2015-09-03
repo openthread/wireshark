@@ -47,13 +47,17 @@ extern "C" {
 #define MAXNAMELEN  	64	/* max name length (hostname and port name) */
 #endif
 
+/**
+ * @brief Flags to control name resolution.
+ */
 typedef struct _e_addr_resolve {
-  gboolean mac_name;
-  gboolean network_name;
-  gboolean transport_name;
-  gboolean concurrent_dns;
-  gboolean use_external_net_name_resolver;
-  gboolean load_hosts_file_from_profile_only;
+  gboolean mac_name;                          /**< Whether to resolve Ethernet MAC to manufacturer names */
+  gboolean network_name;                      /**< Whether to resolve IPv4, IPv6, and IPX addresses into host names */
+  gboolean transport_name;                    /**< Whether to resolve TCP/UDP ports into service names */
+  gboolean concurrent_dns;                    /**< Whether to use concurrent DNS name resolution */
+  gboolean dns_pkt_addr_resolution;           /**< Whether to resolve addresses using captured DNS packets */
+  gboolean use_external_net_name_resolver;    /**< Whether to system's configured DNS server to resolve names */
+  gboolean load_hosts_file_from_profile_only; /**< Whether to only load the hosts in the current profile, not hosts files */
 } e_addr_resolve;
 
 struct hashether;
@@ -131,26 +135,17 @@ extern gchar *dccp_port_to_display(wmem_allocator_t *allocator, guint port);
 WS_DLL_PUBLIC gchar *sctp_port_to_display(wmem_allocator_t *allocator, guint port);
 
 /*
- * address_to_display takes as input an "address", as defined in address.h */
-/* it returns a string that contains: */
-/*  - if the address is of a type that can be translated into a name, and the user */
-/*    has activated name resolution, the translated name */
-/*  - if the address is of type AT_NONE, a pointer to the string "NONE" */
-/*  - if the address is of any other type, the result of address_to_str on the argument, */
-/*    which should be a string representation for the answer -e.g. "10.10.10.10" for IPv4 */
-/*    address 10.10.10.10 */
-WS_DLL_PUBLIC
-const gchar *address_to_display(wmem_allocator_t *allocator, const address *addr);
-
-const gchar *get_addr_name(const address *addr);
-
-/*
  * Asynchronous host name lookup initialization, processing, and cleanup
  */
 
 /* Setup name resolution preferences */
 struct pref_module;
 extern void addr_resolve_pref_init(struct pref_module *nameres);
+
+/*
+ * disable_name_resolution() sets all relevant gbl_resolv_flags to FALSE.
+ */
+WS_DLL_PUBLIC void disable_name_resolution(void);
 
 /** If we're using c-ares or ADNS, process outstanding host name lookups.
  *  This is called from a GLIB timeout in Wireshark and before processing

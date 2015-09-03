@@ -94,7 +94,7 @@ dissect_miop_heur (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void 
   /* check magic number and version */
 
 
-  tot_len = tvb_length(tvb);
+  tot_len = tvb_captured_length(tvb);
 
   if (tot_len < MIOP_HEADER_SIZE) /* tot_len < 16 */
     {
@@ -314,7 +314,7 @@ void proto_reg_handoff_miop (void) {
   miop_handle = find_dissector("miop");
   dissector_add_for_decode_as("udp.port", miop_handle);
 
-  heur_dissector_add("udp", dissect_miop_heur, proto_miop);
+  heur_dissector_add("udp", dissect_miop_heur, "MIOP over UDP", "miop_udp", proto_miop, HEURISTIC_ENABLE);
 
 }
 

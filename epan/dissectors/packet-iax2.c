@@ -736,21 +736,6 @@ typedef struct iax_call_data {
   iax_call_dirdata dirdata[2];
 } iax_call_data;
 
-static void iax_init_hash( void )
-{
-  if (iax_circuit_hashtab)
-    g_hash_table_destroy(iax_circuit_hashtab);
-  iax_circuit_hashtab = g_hash_table_new(iax_circuit_hash, iax_circuit_equal);
-  circuitcount = 0;
-
-  if (iax_fid_table)
-    g_hash_table_destroy(iax_fid_table);
-  iax_fid_table = g_hash_table_new(g_direct_hash, g_direct_equal);
-
-  reassembly_table_init(&iax_reassembly_table,
-                        &addresses_reassembly_table_functions);
-}
-
 
 
 /* creates a new CT_IAX2 circuit with a specified circuit id for a call
@@ -1992,7 +1977,7 @@ static guint32 dissect_trunkcall_ts(tvbuff_t *tvb, guint32 offset, proto_tree *i
   *scallno = tvb_get_ntohs(tvb, offset + 2);
   ts = tvb_get_ntohs(tvb, offset + 4);
 
-  rlen = MIN(tvb_length(tvb) - offset - 6, datalen);
+  rlen = MIN(tvb_captured_length(tvb) - offset - 6, datalen);
 
   if (iax2_tree) {
     call_tree = proto_tree_add_subtree_format(iax2_tree, tvb, offset, rlen + 6,
@@ -2024,7 +2009,7 @@ static guint32 dissect_trunkcall_nots(tvbuff_t *tvb, guint32 offset, proto_tree 
   *scallno = tvb_get_ntohs(tvb, offset);
   datalen = tvb_get_ntohs(tvb, offset + 2);
 
-  rlen = MIN(tvb_length(tvb) - offset - 4, datalen);
+  rlen = MIN(tvb_captured_length(tvb) - offset - 4, datalen);
 
   if (iax2_tree) {
     call_tree = proto_tree_add_subtree_format(iax2_tree, tvb, offset, rlen + 6,
@@ -2123,7 +2108,7 @@ static guint32 dissect_trunkpacket(tvbuff_t *tvb, guint32 offset,
 
   if (trunkts) {
     /* Trunk calls with timestamp */
-    while(tvb_length_remaining(tvb, offset) >= 6) {
+    while(tvb_captured_length_remaining(tvb, offset) >= 6) {
       guint16 scallno;
       offset = dissect_trunkcall_ts(tvb, offset, iax2_tree, &scallno);
       if (!call_list_find(calls, scallno)) {
@@ -2134,7 +2119,7 @@ static guint32 dissect_trunkpacket(tvbuff_t *tvb, guint32 offset,
   }
   else {
     /* Trunk calls without timestamp */
-    while(tvb_length_remaining(tvb, offset) >= 4) {
+    while(tvb_captured_length_remaining(tvb, offset) >= 4) {
       guint16 scallno;
       offset = dissect_trunkcall_nots(tvb, offset, iax2_tree, &scallno);
       if (!call_list_find(calls, scallno)) {
@@ -2437,7 +2422,21 @@ static void dissect_payload(tvbuff_t *tvb, guint32 offset,
 static void
 iax_init_protocol(void)
 {
-  iax_init_hash();
+  iax_circuit_hashtab = g_hash_table_new(iax_circuit_hash, iax_circuit_equal);
+  circuitcount = 0;
+
+  iax_fid_table = g_hash_table_new(g_direct_hash, g_direct_equal);
+
+  reassembly_table_init(&iax_reassembly_table,
+                        &addresses_reassembly_table_functions);
+}
+
+static void
+iax_cleanup_protocol(void)
+{
+  g_hash_table_destroy(iax_circuit_hashtab);
+  g_hash_table_destroy(iax_fid_table);
+  reassembly_table_destroy(&iax_reassembly_table);
 }
 
 
@@ -3206,6 +3205,7 @@ proto_register_iax2(void)
   /* register our init routine to be called at the start of a capture,
      to clear out our hash tables etc */
   register_init_routine(&iax_init_protocol);
+  register_cleanup_routine(&iax_cleanup_protocol);
   iax2_tap = register_tap("IAX2");
 }
 

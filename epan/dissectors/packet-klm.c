@@ -112,26 +112,21 @@ dissect_lock(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, int offset, rp
 }
 
 static int
-dissect_klm_unlock_call(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data)
+dissect_klm_unlock_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
-	offset = dissect_lock(tvb, pinfo, tree, offset, (rpc_call_info_value*)data);
-
-	return offset;
+	return dissect_lock(tvb, pinfo, tree, 0, (rpc_call_info_value*)data);
 }
 
 static int
-dissect_klm_stat_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_klm_stat_reply(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-
-	offset = dissect_rpc_uint32(tvb, tree,
-			hf_klm_stats, offset);
-
-	return offset;
+	return dissect_rpc_uint32(tvb, tree, hf_klm_stats, 0);
 }
 
 static int
-dissect_klm_lock_call(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data)
+dissect_klm_lock_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
+	int offset = 0;
 	offset = dissect_rpc_bool( tvb, tree,
 			hf_klm_block, offset);
 
@@ -144,9 +139,10 @@ dissect_klm_lock_call(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree 
 }
 
 static int
-dissect_klm_test_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_klm_test_reply(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
 	gint32	stats;
+	int offset = 0;
 
 	stats = tvb_get_ntohl(tvb, offset);
 
@@ -161,8 +157,9 @@ dissect_klm_test_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_
 }
 
 static int
-dissect_klm_test_call(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data)
+dissect_klm_test_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
+	int offset = 0;
 	offset = dissect_rpc_bool( tvb, tree,
 			hf_klm_exclusive, offset);
 
@@ -173,7 +170,6 @@ dissect_klm_test_call(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree 
 
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff klm1_proc[] = {
 	{ KLMPROC_TEST,	"TEST",
 		dissect_klm_test_call,	dissect_klm_test_reply },
@@ -184,6 +180,9 @@ static const vsff klm1_proc[] = {
 	{ KLMPROC_UNLOCK,	"UNLOCK",
 		dissect_klm_unlock_call,	dissect_klm_stat_reply },
 	{ 0,	NULL,		NULL,				NULL }
+};
+static const rpc_prog_vers_info klm_vers_info[] = {
+	{ 1, klm1_proc, &hf_klm_procedure_v1 },
 };
 static const value_string klm1_proc_vals[] = {
 	{ KLMPROC_TEST,	  "TEST" },
@@ -257,9 +256,8 @@ void
 proto_reg_handoff_klm(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_klm, KLM_PROGRAM, ett_klm);
-	/* Register the procedure tables */
-	rpc_init_proc_table(KLM_PROGRAM, 1, klm1_proc, hf_klm_procedure_v1);
+	rpc_init_prog(proto_klm, KLM_PROGRAM, ett_klm,
+	    G_N_ELEMENTS(klm_vers_info), klm_vers_info);
 }
 
 /*

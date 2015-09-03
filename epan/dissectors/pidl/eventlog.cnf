@@ -30,23 +30,10 @@ PARAM_VALUE eventlog_dissect_element_OpenBackupEventLogW_handle_ PIDL_POLHND_OPE
 # Policyhandles are closed in these functions
 PARAM_VALUE eventlog_dissect_element_CloseEventLog_handle_       PIDL_POLHND_CLOSE
 
+TYPE lsa_String "offset=dissect_ndr_counted_string(tvb, offset, pinfo, tree, di, drep, @HF@, @PARAM@);" FT_STRING BASE_NONE 0 NULL 4
 
 
 CODE START
-/* Add this one manually until we can compile LSA */
-static int
-eventlog_dissect_struct_lsa_String(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, dcerpc_info *di, guint8 *drep, int hf_index,int notused _U_)
-{
-	if(di->conformant_run){
-		/*just a run to handle conformant arrays, nothing to dissect */
-		return offset;
-	}
-
-	offset = dissect_ndr_counted_string(tvb, offset, pinfo, tree, di, drep,
-			hf_index, 0);
-	return offset;
-}
-
 
 static int
 eventlog_dissect_element_ReadEventLogW_data_(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, dcerpc_info *di, guint8 *drep)
@@ -67,7 +54,7 @@ eventlog_dissect_element_ReadEventLogW_data_(tvbuff_t *tvb, int offset, packet_i
 	 * NDR encoded at all and there are byte offsets into this buffer
 	 * encoded therein.
 	 */
-	record_tvb=tvb_new_subset(tvb, offset, MIN((gint)len, tvb_length_remaining(tvb, offset)), len);
+	record_tvb=tvb_new_subset(tvb, offset, MIN((gint)len, tvb_captured_length_remaining(tvb, offset)), len);
 	eventlog_dissect_struct_Record(record_tvb, 0, pinfo, tree, di, drep, hf_eventlog_Record, 0);
 	offset+=len;
 
@@ -98,7 +85,7 @@ eventlog_dissect_element_Record_sid_offset(tvbuff_t *tvb, int offset, packet_inf
 		/* this blob contains an NT SID.
 		 * tvb starts at the beginning of the record.
 		 */
-		sid_tvb=tvb_new_subset(tvb, sid_offset, MIN((gint)sid_length, tvb_length_remaining(tvb, offset)), sid_length);
+		sid_tvb=tvb_new_subset(tvb, sid_offset, MIN((gint)sid_length, tvb_captured_length_remaining(tvb, offset)), sid_length);
 		dissect_nt_sid(sid_tvb, 0, tree, "SID", NULL, -1);
 	}
 

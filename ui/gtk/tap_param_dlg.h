@@ -57,7 +57,7 @@
  *       REGISTER_STAT_GROUP_my_group);
  * }
  *
- * See also: h225_ras_srt.c or h225_counter.c
+ * See also: h225_ras_srt.c
  *
  */
 
@@ -71,6 +71,7 @@ typedef struct _tap_param_dlg {
 	gint index;			/* initiate this value always with "-1" */
 	size_t nparams;			/* number of parameters */
 	tap_param *params;		/* pointer to table of parameter info */
+	gpointer user_data;		/* Optional "dialog specific" data */
 } tap_param_dlg;
 
 /*

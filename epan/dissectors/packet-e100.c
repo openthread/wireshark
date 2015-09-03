@@ -74,9 +74,9 @@ dissect_e100(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
          * (2) e100 header is 1
          * (3) e100 capture size matches tvb packet size
          */
-        if (tvb_length(tvb) >= e100_encap_len &&
+        if (tvb_captured_length(tvb) >= e100_encap_len &&
             tvb_get_guint8(tvb, e100_header_ver.offset) == 1 &&
-            tvb_get_ntohl(tvb, e100_bytes_cap.offset) == tvb_length(tvb)-e100_encap_len)
+            tvb_get_ntohl(tvb, e100_bytes_cap.offset) == tvb_reported_length(tvb)-e100_encap_len)
         {
             guint32 bytes_captured=0;
             col_set_str(pinfo->cinfo, COL_PROTOCOL, "e100");
@@ -117,7 +117,7 @@ dissect_e100(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
             next_tvb = tvb_new_subset(tvb, e100_encap_len, -1, bytes_captured);
             call_dissector(eth_handle, next_tvb, pinfo, tree);
 
-            ret_val = tvb_length(tvb);
+            ret_val = tvb_captured_length(tvb);
         } /* heuristic testing */
 
     return ret_val;
@@ -209,7 +209,7 @@ void
 proto_reg_handoff_e100(void)
 {
     /* Check all UDP traffic, as the specific UDP port is configurable */
-    heur_dissector_add("udp", dissect_e100, proto_e100);
+    heur_dissector_add("udp", dissect_e100, "E100 over UDP", "e100_udp", proto_e100, HEURISTIC_ENABLE);
     /* e100 traffic encapsulates traffic from the ethernet frame on */
     eth_handle = find_dissector("eth");
 }

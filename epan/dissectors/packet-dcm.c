@@ -242,7 +242,6 @@ void proto_reg_handoff_dcm(void);
 static range_t *global_dcm_tcp_range = NULL;
 static range_t *global_dcm_tcp_range_backup = NULL;         /* needed to deregister */
 
-static gboolean global_dcm_heuristic = FALSE;
 static gboolean global_dcm_export_header = TRUE;
 static guint    global_dcm_export_minsize = 4096;           /* Filter small objects in export */
 
@@ -3957,41 +3956,44 @@ static void dcm_set_syntax              (dcm_state_pctx_t *pctx, gchar *xfer_uid
 static void dcm_export_create_object    (packet_info *pinfo, dcm_state_assoc_t *assoc, dcm_state_pdv_t *pdv);
 
 static void
-
 dcm_init(void)
 {
     guint   i;
 
+    /* Create three hash tables for quick lookups */
     /* Add UID objects to hash table */
-    if (dcm_uid_table == NULL) {
-        dcm_uid_table = g_hash_table_new(g_str_hash, g_str_equal);
-        for (i = 0; i < array_length(dcm_uid_data); i++) {
-            g_hash_table_insert(dcm_uid_table, (gpointer) dcm_uid_data[i].value,
-            (gpointer) &dcm_uid_data[i]);
-        }
+    dcm_uid_table = g_hash_table_new(g_str_hash, g_str_equal);
+    for (i = 0; i < array_length(dcm_uid_data); i++) {
+        g_hash_table_insert(dcm_uid_table, (gpointer) dcm_uid_data[i].value,
+        (gpointer) &dcm_uid_data[i]);
     }
 
     /* Add Tag objects to hash table */
-    if (dcm_tag_table == NULL) {
-        dcm_tag_table = g_hash_table_new(NULL, NULL);
-        for (i = 0; i < array_length(dcm_tag_data); i++) {
-            g_hash_table_insert(dcm_tag_table, GUINT_TO_POINTER(dcm_tag_data[i].tag),
-            (gpointer) &dcm_tag_data[i]);
-        }
+    dcm_tag_table = g_hash_table_new(NULL, NULL);
+    for (i = 0; i < array_length(dcm_tag_data); i++) {
+        g_hash_table_insert(dcm_tag_table, GUINT_TO_POINTER(dcm_tag_data[i].tag),
+        (gpointer) &dcm_tag_data[i]);
     }
 
    /* Add Status Values to hash table */
-    if (dcm_status_table == NULL) {
-        dcm_status_table = g_hash_table_new(NULL, NULL);
-        for (i = 0; i < array_length(dcm_status_data); i++) {
-            g_hash_table_insert(dcm_status_table, GUINT_TO_POINTER((guint32)dcm_status_data[i].value),
-            (gpointer)&dcm_status_data[i]);
-        }
+    dcm_status_table = g_hash_table_new(NULL, NULL);
+    for (i = 0; i < array_length(dcm_status_data); i++) {
+        g_hash_table_insert(dcm_status_table, GUINT_TO_POINTER((guint32)dcm_status_data[i].value),
+        (gpointer)&dcm_status_data[i]);
     }
 
     /* Register processing of fragmented DICOM PDVs */
     reassembly_table_init(&dcm_pdv_reassembly_table,
                           &addresses_reassembly_table_functions);
+}
+
+static void
+dcm_cleanup(void)
+{
+    reassembly_table_destroy(&dcm_pdv_reassembly_table);
+    g_hash_table_destroy(dcm_uid_table);
+    g_hash_table_destroy(dcm_tag_table);
+    g_hash_table_destroy(dcm_status_table);
 }
 
 static dcm_state_t *
@@ -7059,8 +7061,6 @@ static void dcm_apply_settings(void) {
     dissector_delete_uint_range("tcp.port", global_dcm_tcp_range_backup, dcm_handle);
     g_free(global_dcm_tcp_range_backup);
 
-    heur_dissector_delete("tcp", dissect_dcm_heuristic, proto_dcm);
-
     /*  Register 'static' tcp port range specified in properties
         Statically defined ports take precedence over a heuristic one,
         I.e., if an foreign protocol claims a port, where dicom is running on
@@ -7071,12 +7071,6 @@ static void dcm_apply_settings(void) {
 
     /* remember settings for next time */
     global_dcm_tcp_range_backup = range_copy(global_dcm_tcp_range);
-
-    /*  Add heuristic search, if user selected it */
-
-    if (global_dcm_heuristic)
-            heur_dissector_add("tcp", dissect_dcm_heuristic, proto_dcm);
-
 }
 
 /* Register the protocol with Wireshark */
@@ -7291,12 +7285,7 @@ proto_register_dcm(void)
     prefs_register_range_preference(dcm_module, "tcp.port",
         "DICOM Ports", "DICOM Ports range", &global_dcm_tcp_range, 65535);
 
-    prefs_register_bool_preference(dcm_module, "heuristic",
-            "Search on any TCP Port (heuristic mode)",
-            "When enabled, the DICOM dissector will parse all TCP packets "
-            "not handled by any other dissector and look for an association request. "
-            "Disabled by default, to preserve resources for the non DICOM community.",
-            &global_dcm_heuristic);
+    prefs_register_obsolete_preference(dcm_module, "heuristic");
 
     prefs_register_bool_preference(dcm_module, "export_header",
             "Create Meta Header on Export",
@@ -7340,6 +7329,7 @@ proto_register_dcm(void)
     dicom_eo_tap = register_tap("dicom_eo"); /* DICOM Export Object tap */
 
     register_init_routine(&dcm_init);
+    register_cleanup_routine(&dcm_cleanup);
 }
 
 void
@@ -7348,8 +7338,9 @@ proto_reg_handoff_dcm(void)
 
     dcm_handle = new_create_dissector_handle(dissect_dcm_static, proto_dcm);
 
-    dcm_apply_settings();       /* Register static and heuristic ports */
+    dcm_apply_settings();       /* Register static ports */
 
+    heur_dissector_add("tcp", dissect_dcm_heuristic, "DICOM over TCP", "dicom_tcp", proto_dcm, HEURISTIC_DISABLE);
 }
 
 

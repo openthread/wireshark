@@ -74,8 +74,6 @@ set(WSUG_FILES
 	wsug_src/WSUG_chapter_use.asciidoc
 	wsug_src/WSUG_chapter_work.asciidoc
 	wsug_src/WSUG_preface.asciidoc
-	wsluarm.asciidoc
-	ws.css
 )
 
 set(WSUG_GRAPHICS
@@ -215,7 +213,7 @@ set(WSDG_FILES
 	wsdg_src/WSDG_chapter_userinterface.asciidoc
 	wsdg_src/WSDG_chapter_works.asciidoc
 	wsdg_src/WSDG_preface.asciidoc
-	ws.css
+	wsluarm.asciidoc
 )
 
 set(WSDG_GRAPHICS
@@ -229,14 +227,10 @@ set(WSDG_GRAPHICS
 	${COMMON_GRAPHICS}
 )
 
-# user-guide.xml must be first in the list
 set(WSUG_SOURCE
-	user-guide.xml
 	${WSUG_FILES}
 	${WSUG_GRAPHICS}
 )
-
-set( ASCIIDOC_CONF_FILES asciidoc.conf asciidoctor-asciidoc.conf )
 
 add_custom_command(
 	OUTPUT ws.css
@@ -245,16 +239,16 @@ add_custom_command(
 		${CMAKE_CURRENT_BINARY_DIR}/ws.css
 )
 
-ASCIIDOC2DOCBOOK( developer-guide.asciidoc "${ASCIIDOC_CONF_FILES}" )
-ASCIIDOC2DOCBOOK( user-guide.asciidoc "${ASCIIDOC_CONF_FILES}" )
+set( WSUG_BUILT_DEPS ws.css )
 
-# developer-guide.xml must be first in the list
 set(WSDG_SOURCE
-	developer-guide.xml
 	${WSDG_FILES}
 	${WSDG_GRAPHICS}
 )
 
+# Note: file order here MATTERS!
+# new WSLUA_MODULE files must come right before any WSLUA_CONTINUE_MODULE
+# files for the same module
 set(WSLUA_MODULES
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_dumper.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_field.c
@@ -262,133 +256,224 @@ set(WSLUA_MODULES
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_int64.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_listener.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_pinfo.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_address.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_column.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_nstime.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_proto.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_dissector.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_pref.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_proto_expert.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_proto_field.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_tree.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_tvb.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_byte_array.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_file.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_file_handler.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_frame_info.c
+	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_capture_info.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_dir.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_util.c
 	${CMAKE_SOURCE_DIR}/epan/wslua/wslua_struct.c
 )
 
-if(ENABLE_HTML_GUIDES)
-	set(WSUG_HTML_OUTPUT wsug_html_chunked/index.html wsug_html/index.html)
-endif()
-
-if(ENABLE_PDF_GUIDES)
-	set(WSUG_PDF_OUTPUT user-guide-a4.pdf user-guide-us.pdf)
-endif()
-
-if(ENABLE_CHM_GUIDES)
-	set(WSUG_CHM_OUTPUT user-guide.chm)
-	XML2HHP(wsug user-guide.xml)
-	HHP2CHM(user-guide.hhp)
-endif()
-
-VALIDATE_XML(
-	wsug.validated
-	WSUG_SOURCE
+# Empty file to trigger wsluarm generation.
+ADD_CUSTOM_COMMAND(
+	OUTPUT
+		wsluarm
+	COMMAND ${CMAKE_COMMAND} -E make_directory wsluarm_src
+	COMMAND ${PERL_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/make-wsluarm.pl
+		${WSLUA_MODULES}
+	COMMAND ${CMAKE_COMMAND} -E touch
+		wsluarm
+	DEPENDS
+		${CMAKE_CURRENT_SOURCE_DIR}/make-wsluarm.pl
+		${WSLUA_MODULES}
 )
 
-XML2HTML(
-	wsug
-	single-page
-	WSUG_SOURCE
-	WSUG_GRAPHICS
-)
-
-XML2HTML(
-	wsug
-	chunked
-	WSUG_SOURCE
-	WSUG_GRAPHICS
-)
-
-# 2do: Merge A4 and letter into the smallest dimension of each format.
-#      Use   --stringparam  page.height <letter-height>mm --stringparam  page.width <at-width>mm
-#      Test the effect of this on letter and a4 printers first (ps and non-ps).
-
-XML2PDF(
-	user-guide-a4.pdf
-	WSUG_SOURCE
-	custom_layer_pdf.xsl
-	A4
-)
-
-XML2PDF(
-	user-guide-us.pdf
-	WSUG_SOURCE
-	custom_layer_pdf.xsl
-	letter
-)
-
-if(ENABLE_HTML_GUIDES)
-	set(WSDG_HTML_OUTPUT wsdg_html_chunked/index.html wsdg_html/index.html)
-endif()
-
-if(ENABLE_PDF_GUIDES)
-	set(WSDG_PDF_OUTPUT developer-guide-a4.pdf developer-guide-us.pdf)
-endif()
-
-if(ENABLE_CHM_GUIDES)
-	set(WSDG_CHM_OUTPUT developer-guide.chm)
-	XML2HHP(wsdg developer-guide.xml)
-	HHP2CHM(developer-guide.hhp)
-endif()
-
-VALIDATE_XML(
-	wsdg.validated
-	WSDG_SOURCE
-)
-
-XML2HTML(
-	wsdg
-	single-page
-	WSDG_SOURCE
-	WSDG_GRAPHICS
-)
-
-XML2HTML(
-	wsdg
-	chunked
-	WSDG_SOURCE
-	WSDG_GRAPHICS
-)
-
-XML2PDF(
-	developer-guide-a4.pdf
-	WSDG_SOURCE
-	custom_layer_pdf.xsl
-	A4
-)
-
-XML2PDF(
-	developer-guide-us.pdf
-	WSDG_SOURCE
-	custom_layer_pdf.xsl
-	letter
-)
+set( WSDG_BUILT_DEPS ws.css wsluarm )
 
 if(ENABLE_HTML_GUIDES OR ENABLE_PDF_GUIDES OR ENABLE_CHM_GUIDES)
-	add_custom_target(
-		user_guides
-		DEPENDS
-			${WSUG_HTML_OUTPUT}
-			${WSUG_PDF_OUTPUT}
-			${WSUG_CHM_OUTPUT}
+	# Generate the DocBook sources of user and developer guides
+
+	set( ASCIIDOC_CONF_FILES asciidoc.conf asciidoctor-asciidoc.conf )
+
+	ASCIIDOC2DOCBOOK(user-guide.asciidoc ASCIIDOC_CONF_FILES WSUG_SOURCE WSUG_BUILT_DEPS)
+	add_custom_target(user_guide_docbook DEPENDS user-guide.xml)
+	set_target_properties(user_guide_docbook PROPERTIES FOLDER "Docbook")
+
+	ASCIIDOC2DOCBOOK(developer-guide.asciidoc ASCIIDOC_WSLUARM_CONF_FILES WSDG_SOURCE WSDG_BUILT_DEPS)
+	add_custom_target(developer_guide_docbook DEPENDS developer-guide.xml)
+	set_target_properties(developer_guide_docbook PROPERTIES FOLDER "Docbook")
+
+	# Top-level guide targets.
+
+	add_custom_target(user_guides DEPENDS user_guide_docbook)
+	set_target_properties(user_guides PROPERTIES FOLDER "Docbook")
+
+	add_custom_target(developer_guides DEPENDS developer_guide_docbook)
+	set_target_properties(developer_guides PROPERTIES FOLDER "Docbook")
+
+	add_custom_target(all_guides ALL DEPENDS user_guides developer_guides )
+	set_target_properties(all_guides PROPERTIES FOLDER "Docbook")
+endif()
+
+# User's Guide chain.
+if(ENABLE_HTML_GUIDES)
+	# a2x always generates valid XML, *right*?
+	#VALIDATE_XML(
+	#	wsug.validated
+	#	user-guide.xml
+	#)
+
+	XML2HTML(
+		user_guide
+		wsug
+		single-page
+		user-guide.xml
+		WSUG_GRAPHICS
 	)
 
+	XML2HTML(
+		user_guide
+		wsug
+		chunked
+		user-guide.xml
+		WSUG_GRAPHICS
+	)
 	add_custom_target(
-		developer_guides
+		user_guide_html
 		DEPENDS
-			wsluarm
-			${WSDG_HTML_OUTPUT}
-			${WSDG_PDF_OUTPUT}
-			${WSDG_CHM_OUTPUT}
+			wsug_html/index.html
+			wsug_html_chunked/index.html
+	)
+	set_target_properties(user_guide_html PROPERTIES FOLDER "Docbook")
+	add_dependencies(user_guides user_guide_html)
+endif()
+
+if(ENABLE_PDF_GUIDES)
+	# To do:
+	# - Merge A4 and letter into the smallest dimension of each format.
+	#   Use   --stringparam  page.height <letter-height>mm --stringparam  page.width <at-width>mm
+	#   Test the effect of this on letter and a4 printers first (ps and non-ps).
+	# - Generate PDFs using AsciiDoc.
+
+	XML2PDF(
+		user_guide
+		user-guide-a4.pdf
+		user-guide.xml
+		custom_layer_pdf.xsl
+		A4
 	)
 
-	add_custom_target( all_guides ALL )
-	add_dependencies ( all_guides user_guides developer_guides )
+	XML2PDF(
+		user_guide
+		user-guide-us.pdf
+		user-guide.xml
+		custom_layer_pdf.xsl
+		letter
+	)
+	add_custom_target(
+		user_guide_pdf_a4
+		DEPENDS
+			user-guide-a4.pdf
+	)
+	set_target_properties(user_guide_pdf_a4 PROPERTIES FOLDER "Docbook")
+	add_custom_target(
+		user_guide_pdf_us
+		DEPENDS
+			user-guide-us.pdf
+	)
+	set_target_properties(user_guide_pdf_us PROPERTIES FOLDER "Docbook")
+	add_dependencies(user_guides user_guide_pdf_a4 user_guide_pdf_us)
+endif()
+
+if(ENABLE_CHM_GUIDES)
+	XML2HHP(user_guide wsug user-guide.xml)
+	HHP2CHM(user-guide.hhp)
+	add_custom_target(
+		user_guide_chm
+		DEPENDS
+			user-guide.chm
+	)
+	set_target_properties(user_guide_chm PROPERTIES FOLDER "Docbook")
+	add_dependencies(user_guides user_guide_chm)
+endif()
+
+# Developer's Guide chain.
+if(ENABLE_HTML_GUIDES)
+	# a2x always generates valid XML, *right*?
+	#VALIDATE_XML(
+	#	wsdg.validated
+	#	developer-guide.xml
+	#)
+
+	XML2HTML(
+		developer_guide
+		wsdg
+		single-page
+		developer-guide.xml
+		WSDG_GRAPHICS
+	)
+
+	XML2HTML(
+		developer_guide
+		wsdg
+		chunked
+		developer-guide.xml
+		WSDG_GRAPHICS
+	)
+	add_custom_target(
+		developer_guide_html
+		DEPENDS
+			wsdg_html/index.html
+			wsdg_html_chunked/index.html
+	)
+	set_target_properties(developer_guide_html PROPERTIES FOLDER "Docbook")
+	add_dependencies(developer_guides developer_guide_html)
+endif()
+
+if(ENABLE_PDF_GUIDES)
+	XML2PDF(
+		developer_guide
+		developer-guide-a4.pdf
+		developer-guide.xml
+		custom_layer_pdf.xsl
+		A4
+	)
+
+	XML2PDF(
+		developer_guide
+		developer-guide-us.pdf
+		developer-guide.xml
+		custom_layer_pdf.xsl
+		letter
+	)
+	add_custom_target(
+		developer_guide_pdf_a4
+		DEPENDS
+			developer-guide-a4.pdf
+	)
+	set_target_properties(developer_guide_pdf_a4 PROPERTIES FOLDER "Docbook")
+	add_custom_target(
+		developer_guide_pdf_us
+		DEPENDS
+			developer-guide-us.pdf
+	)
+	set_target_properties(developer_guide_pdf_us PROPERTIES FOLDER "Docbook")
+	add_dependencies(developer_guides developer_guide_pdf_a4 developer_guide_pdf_us)
+endif()
+
+if(ENABLE_CHM_GUIDES)
+	XML2HHP(developer_guide	wsdg developer-guide.xml)
+	HHP2CHM(developer-guide.hhp)
+	add_custom_target(
+		developer_guide_chm
+		DEPENDS
+			developer-guide.chm
+	)
+	set_target_properties(developer_guide_chm PROPERTIES FOLDER "Docbook")
+	add_dependencies(developer_guides developer_guide_chm)
 endif()
 
 # release_notes: release-notes.html release-notes.txt release-notes-a4.pdf release-notes-us.pdf
@@ -440,18 +525,3 @@ ASCIIDOC2TXT(
 #	"${ASCIIDOC_CONF_FILES}"
 #	letter
 #)
-
-# wsluarm
-ADD_CUSTOM_COMMAND(
-	OUTPUT
-		wsluarm
-	COMMAND ${CMAKE_COMMAND} -E make_directory wsluarm_src
-	COMMAND ${PERL_EXECUTABLE}
-		${CMAKE_CURRENT_SOURCE_DIR}/make-wsluarm.pl
-		${WSLUA_MODULES}
-	COMMAND ${CMAKE_COMMAND} -E touch
-		 wsluarm
-	DEPENDS
-		${CMAKE_CURRENT_SOURCE_DIR}/make-wsluarm.pl
-		${WSLUA_MODULES}
-)

@@ -29,6 +29,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 
 #include "packet-diameter.h"
 #include "packet-gsm_a_common.h"
@@ -39,6 +40,8 @@
 
 void proto_register_diameter_3gpp(void);
 void proto_reg_handoff_diameter_3gpp(void);
+
+static expert_field ei_diameter_3gpp_plmn_id_wrong_len = EI_INIT;
 
 /* Initialize the protocol and registered fields */
 static int proto_diameter_3gpp          = -1;
@@ -209,6 +212,31 @@ static int hf_diameter_3gpp_imeisv = -1;
 static int hf_diameter_3gpp_af_charging_identifier = -1;
 static int hf_diameter_3gpp_af_application_identifier = -1;
 static int hf_diameter_3gpp_charging_rule_name = -1;
+static int hf_diameter_3gpp_mbms_bearer_event = -1;
+static int hf_diameter_3gpp_mbms_bearer_event_bit0 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit0 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit1 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit2 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit3 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit4 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit5 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit6 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit7 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit8 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit9 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit10 = -1;
+static int hf_diameter_3gpp_mbms_bearer_result_bit11 = -1;
+static int hf_diameter_3gpp_tmgi_allocation_result = -1;
+static int hf_diameter_3gpp_tmgi_allocation_result_bit0 = -1;
+static int hf_diameter_3gpp_tmgi_allocation_result_bit1 = -1;
+static int hf_diameter_3gpp_tmgi_allocation_result_bit2 = -1;
+static int hf_diameter_3gpp_tmgi_allocation_result_bit3 = -1;
+static int hf_diameter_3gpp_tmgi_allocation_result_bit4 = -1;
+static int hf_diameter_3gpp_tmgi_deallocation_result = -1;
+static int hf_diameter_3gpp_tmgi_deallocation_result_bit0 = -1;
+static int hf_diameter_3gpp_tmgi_deallocation_result_bit1 = -1;
+static int hf_diameter_3gpp_tmgi_deallocation_result_bit2 = -1;
 
 static gint diameter_3gpp_path_ett = -1;
 static gint diameter_3gpp_feature_list_ett = -1;
@@ -222,6 +250,10 @@ static gint diameter_3gpp_ida_flags_ett = -1;
 static gint diameter_3gpp_pua_flags_ett = -1;
 static gint diameter_3gpp_nor_flags_ett = -1;
 static gint diameter_3gpp_idr_flags_ett = -1;
+static gint diameter_3gpp_mbms_bearer_event_ett = -1;
+static gint diameter_3gpp_mbms_bearer_result_ett = -1;
+static gint diameter_3gpp_tmgi_allocation_result_ett = -1;
+static gint diameter_3gpp_tmgi_deallocation_result_ett = -1;
 
 /* Dissector handles */
 static dissector_handle_t xml_handle;
@@ -1031,7 +1063,11 @@ dissect_diameter_3gpp_visited_plmn_id(tvbuff_t *tvb, packet_info *pinfo, proto_t
     int length = tvb_reported_length(tvb);
     diam_sub_dis_t *diam_sub_dis = (diam_sub_dis_t*)data;
 
-    diam_sub_dis->avp_str = dissect_e212_mcc_mnc_wmem_packet_str(tvb, pinfo, tree, 0, E212_NONE, TRUE);
+	if (length == 3) {
+		diam_sub_dis->avp_str = dissect_e212_mcc_mnc_wmem_packet_str(tvb, pinfo, tree, 0, E212_NONE, TRUE);
+	} else {
+		proto_tree_add_expert(tree, pinfo, &ei_diameter_3gpp_plmn_id_wrong_len, tvb, 0, length);
+	}
 
     return length;
 }
@@ -1244,6 +1280,125 @@ dissect_diameter_3gpp_idr_flags(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
 
 }
 
+/* AVP Code: 3502 MBMS-Bearer-Event */
+static int
+dissect_diameter_3gpp_mbms_bearer_event(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
+{
+    proto_item *item;
+    proto_tree *sub_tree;
+    int offset = 0;
+    guint32 bit_offset;
+
+    item = proto_tree_add_item(tree, hf_diameter_3gpp_mbms_bearer_event, tvb, offset, 4, ENC_BIG_ENDIAN);
+    sub_tree = proto_item_add_subtree(item, diameter_3gpp_mbms_bearer_event_ett);
+    bit_offset = 0;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_spare_bits, tvb, bit_offset, 31, ENC_BIG_ENDIAN);
+    bit_offset+=31;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_event_bit0, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+
+    offset = bit_offset>>3;
+    return offset;
+}
+
+/* AVP Code: 3506 MBMS-Bearer-Result */
+static int
+dissect_diameter_3gpp_mbms_bearer_result(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
+{
+    proto_item *item;
+    proto_tree *sub_tree;
+    int offset = 0;
+    guint32 bit_offset;
+
+    item = proto_tree_add_item(tree, hf_diameter_3gpp_mbms_bearer_result, tvb, offset, 4, ENC_BIG_ENDIAN);
+    sub_tree = proto_item_add_subtree(item, diameter_3gpp_mbms_bearer_result_ett);
+    bit_offset = 0;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_spare_bits, tvb, bit_offset, 20, ENC_BIG_ENDIAN);
+    bit_offset+=20;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit11, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit10, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit9, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit8, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit7, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit6, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit5, tvb,  bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit4, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit3, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit2, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit1, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_mbms_bearer_result_bit0, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+
+    offset = bit_offset>>3;
+    return offset;
+}
+
+/* AVP Code: 3511 TMGI-Allocation-Result */
+static int
+dissect_diameter_3gpp_tmgi_allocation_result(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
+{
+    proto_item *item;
+    proto_tree *sub_tree;
+    int offset = 0;
+    guint32 bit_offset;
+
+    item = proto_tree_add_item(tree, hf_diameter_3gpp_tmgi_allocation_result, tvb, offset, 4, ENC_BIG_ENDIAN);
+    sub_tree = proto_item_add_subtree(item, diameter_3gpp_tmgi_allocation_result_ett);
+    bit_offset = 0;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_spare_bits, tvb, bit_offset, 27, ENC_BIG_ENDIAN);
+    bit_offset+=27;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_allocation_result_bit4, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_allocation_result_bit3, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_allocation_result_bit2, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_allocation_result_bit1, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_allocation_result_bit0, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+
+    offset = bit_offset>>3;
+    return offset;
+}
+
+/* AVP Code: 3514 TMGI-Deallocation-Result */
+static int
+dissect_diameter_3gpp_tmgi_deallocation_result(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
+{
+    proto_item *item;
+    proto_tree *sub_tree;
+    int offset = 0;
+    guint32 bit_offset;
+
+    item = proto_tree_add_item(tree, hf_diameter_3gpp_tmgi_deallocation_result, tvb, offset, 4, ENC_BIG_ENDIAN);
+    sub_tree = proto_item_add_subtree(item, diameter_3gpp_tmgi_deallocation_result_ett);
+    bit_offset = 0;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_spare_bits, tvb, bit_offset, 29, ENC_BIG_ENDIAN);
+    bit_offset+=29;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_deallocation_result_bit2, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_deallocation_result_bit1, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+    proto_tree_add_bits_item(sub_tree, hf_diameter_3gpp_tmgi_deallocation_result_bit0, tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+    bit_offset++;
+
+    offset = bit_offset>>3;
+    return offset;
+}
+
+
 void
 proto_reg_handoff_diameter_3gpp(void)
 {
@@ -1365,6 +1520,18 @@ proto_reg_handoff_diameter_3gpp(void)
     /* AVP Code: 1490 IDR-Flags */
     dissector_add_uint("diameter.3gpp", 1490, new_create_dissector_handle(dissect_diameter_3gpp_idr_flags, proto_diameter_3gpp));
 
+    /* AVP Code: 3502 MBMS-Bearer-Event */
+    dissector_add_uint("diameter.3gpp", 3502, new_create_dissector_handle(dissect_diameter_3gpp_mbms_bearer_event, proto_diameter_3gpp));
+
+    /* AVP Code: 3506 MBMS-Bearer-Result */
+    dissector_add_uint("diameter.3gpp", 3506, new_create_dissector_handle(dissect_diameter_3gpp_mbms_bearer_result, proto_diameter_3gpp));
+
+    /* AVP Code: 3511 TMGI-Allocation-Result */
+    dissector_add_uint("diameter.3gpp", 3511, new_create_dissector_handle(dissect_diameter_3gpp_tmgi_allocation_result, proto_diameter_3gpp));
+
+    /* AVP Code: 3514 TMGI-Deallocation-Result */
+    dissector_add_uint("diameter.3gpp", 3514, new_create_dissector_handle(dissect_diameter_3gpp_tmgi_deallocation_result, proto_diameter_3gpp));
+
     xml_handle = find_dissector("xml");
 }
 
@@ -1372,7 +1539,7 @@ void
 proto_register_diameter_3gpp(void)
 {
 
-/* Setup list of header fields  See Section 1.6.1 for details*/
+    /* Setup list of header fields  See Section 1.6.1 for details*/
     static hf_register_info hf[] = {
         { &hf_diameter_3gpp_timezone,
             { "Timezone",           "diameter.3gpp.3gpp_timezone",
@@ -2210,6 +2377,131 @@ proto_register_diameter_3gpp(void)
             FT_STRING, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
+        { &hf_diameter_3gpp_mbms_bearer_event,
+            { "MBMS-Bearer-Event", "diameter.3gpp.mbms_bearer_event",
+            FT_UINT32, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_event_bit0,
+            { "Bearer Terminated", "diameter.3gpp.mbms_bearer_event_bit0",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result,
+            { "MBMS-Bearer-Result", "diameter.3gpp.mbms_bearer_result",
+            FT_UINT32, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit0,
+            { "Success", "diameter.3gpp.mbms_bearer_result_bit0",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit1,
+            { "Authorization rejected", "diameter.3gpp.mbms_bearer_result_bit1",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit2,
+            { "Resources exceeded", "diameter.3gpp.mbms_bearer_result_bit2",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit3,
+            { "Unknown TMGI", "diameter.3gpp.mbms_bearer_result_bit3",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit4,
+            { "TMGI not in use", "diameter.3gpp.mbms_bearer_result_bit4",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit5,
+            { "Overlapping MBMS-Service-Area", "diameter.3gpp.mbms_bearer_result_bit5",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit6,
+            { "Unknown Flow Identifier", "diameter.3gpp.mbms_bearer_result_bit6",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit7,
+            { "QoS Authorization Rejected", "diameter.3gpp.mbms_bearer_result_bit7",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit8,
+            { "Unknown MBMS-Service-Area", "diameter.3gpp.mbms_bearer_result_bit8",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit9,
+            { "MBMS-Service-Area Authorization Rejected", "diameter.3gpp.mbms_bearer_result_bit8",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit10,
+            { "MBMS-Start-Time", "diameter.3gpp.mbms_bearer_result_bit8",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_mbms_bearer_result_bit11,
+            { "Invalid AVP combination", "diameter.3gpp.mbms_bearer_result_bit8",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_allocation_result,
+            { "TMGI-Allocation-Result", "diameter.3gpp.tmgi_allocation_result",
+            FT_UINT32, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_allocation_result_bit0,
+            { "Success", "diameter.3gpp.tmgi_allocation_result_bit0",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_allocation_result_bit1,
+            { "Authorization rejected", "diameter.3gpp.tmgi_allocation_result_bit1",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_allocation_result_bit2,
+            { "Resources exceeded", "diameter.3gpp.tmgi_allocation_result_bit2",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_allocation_result_bit3,
+            { "Unknown TMGI", "diameter.3gpp.tmgi_allocation_result_bit3",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_allocation_result_bit4,
+            { "Too many TMGIs requested", "diameter.3gpp.tmgi_allocation_result_bit4",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_deallocation_result,
+            { "TMGI-Deallocation-Result", "diameter.3gpp.tmgi_deallocation_result",
+            FT_UINT32, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_deallocation_result_bit0,
+            { "Success", "diameter.3gpp.tmgi_deallocation_result_bit0",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_deallocation_result_bit1,
+            { "Authorization rejected", "diameter.3gpp.tmgi_deallocation_result_bit1",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_diameter_3gpp_tmgi_deallocation_result_bit2,
+            { "Unknown TMGI", "diameter.3gpp.tmgi_deallocation_result_bit2",
+            FT_BOOLEAN, BASE_NONE, TFS(&tfs_set_notset), 0x0,
+            NULL, HFILL }
+        },
 };
 
 
@@ -2227,12 +2519,27 @@ proto_register_diameter_3gpp(void)
         &diameter_3gpp_pua_flags_ett,
         &diameter_3gpp_nor_flags_ett,
         &diameter_3gpp_idr_flags_ett,
+        &diameter_3gpp_mbms_bearer_event_ett,
+        &diameter_3gpp_mbms_bearer_result_ett,
+        &diameter_3gpp_tmgi_allocation_result_ett,
+        &diameter_3gpp_tmgi_deallocation_result_ett,
+    };
+
+    expert_module_t *expert_diameter_3gpp;
+
+    static ei_register_info ei[] = {
+        { &ei_diameter_3gpp_plmn_id_wrong_len,
+        { "diameter_3gpp.plmn_id_wrong_len", PI_PROTOCOL, PI_ERROR, "PLMN Id should be 3 octets", EXPFILL } },
     };
 
     /* Required function calls to register the header fields and subtrees used */
     proto_diameter_3gpp = proto_register_protocol("Diameter 3GPP","Diameter3GPP", "diameter.3gpp");
     proto_register_field_array(proto_diameter_3gpp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+
+	expert_diameter_3gpp = expert_register_protocol(proto_diameter_3gpp);
+	expert_register_field_array(expert_diameter_3gpp, ei, array_length(ei));
+
 }
 
 /*

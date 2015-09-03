@@ -1435,6 +1435,10 @@ static void ber_defragment_init(void) {
                           &addresses_reassembly_table_functions);
 }
 
+static void ber_defragment_cleanup(void) {
+    reassembly_table_destroy(&octet_segment_reassembly_table);
+}
+
 static int
 reassemble_octet_string(asn1_ctx_t *actx, proto_tree *tree, gint hf_id, tvbuff_t *tvb, int offset, guint32 con_len, gboolean ind, tvbuff_t **out_tvb)
 {
@@ -1914,7 +1918,7 @@ printf("INTEGERnew dissect_ber_integer(%s) entered implicit_tag:%d \n", name, im
             }
         }
         for (i=0; i<len; i++) {
-            val = (val<<8) | tvb_get_guint8(tvb, offset);
+            val = ((guint64)val<<8) | tvb_get_guint8(tvb, offset);
             offset++;
         }
     }
@@ -3303,14 +3307,7 @@ printf("SQ OF dissect_ber_sq_of(%s) entered\n", name);
         /* first we must read the sequence header */
         offset = dissect_ber_identifier(actx->pinfo, tree, tvb, offset, &classx, &pcx, &tagx);
         offset = dissect_ber_length(actx->pinfo, tree, tvb, offset, &lenx, &ind);
-        if (ind) {
-            /* if the length is indefinite we don't really know (yet) where the
-             * object ends so assume it spans the rest of the tvb for now.
-             */
-            end_offset = offset + lenx;
-        } else {
-            end_offset = offset + lenx;
-        }
+        end_offset = offset + lenx;
 
         /* sanity check: we only handle Constructed Universal Sequences */
         if ((classx != BER_CLASS_APP) && (classx != BER_CLASS_PRI)) {
@@ -4524,6 +4521,7 @@ proto_register_ber(void)
     register_ber_syntax_dissector("ASN.1", proto_ber, dissect_ber_syntax);
 
     register_init_routine(ber_defragment_init);
+    register_cleanup_routine(ber_defragment_cleanup);
 
     register_decode_as(&ber_da);
 }

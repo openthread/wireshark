@@ -153,11 +153,13 @@ ASN1_DISSECTOR_SRC = \
 	packet-ns_cert_exts.c	\
 	packet-ocsp.c	\
 	packet-opsi.c	\
+	packet-p1.c	\
 	packet-p22.c	\
 	packet-p7.c	\
 	packet-p772.c	\
 	packet-pcap.c	\
 	packet-pkcs1.c	\
+	packet-pkcs12.c	\
 	packet-pkinit.c	\
 	packet-pkix1explicit.c	\
 	packet-pkix1implicit.c	\
@@ -206,8 +208,6 @@ CORBA_IDL_DISSECTOR_SRC =
 # asn2wrs-generated ASN.1 dissectors with warnings.
 #
 DIRTY_ASN1_DISSECTOR_SRC = \
-	packet-p1.c	\
-	packet-pkcs12.c	\
 	packet-snmp.c	\
 	packet-tcap.c	\
 	$(CUSTOM_DIRTY_ASN1_DISSECTOR_SRC)
@@ -223,11 +223,14 @@ DIRTY_CORBA_IDL_DISSECTOR_SRC = \
 	packet-tango.c
 
 FILE_DISSECTOR_SRC = \
+	file-btsnoop.c \
 	file-elf.c	\
 	file-file.c	\
 	file-gif.c	\
 	file-jpeg.c	\
 	file-mp4.c	\
+	file-pcap.c	\
+	file-pcapng.c	\
 	file-png.c
 #
 # Dissectors without warnings.
@@ -386,6 +389,7 @@ DISSECTOR_SRC = \
 	packet-cast.c		\
 	packet-catapult-dct2000.c	\
 	packet-cattp.c		\
+	packet-cbor.c		\
 	packet-ccsds.c		\
 	packet-cdp.c		\
 	packet-cell_broadcast.c	\
@@ -927,6 +931,7 @@ DISSECTOR_SRC = \
 	packet-mq-pcf.c		\
 	packet-mq.c		\
 	packet-mqtt.c		\
+	packet-mqtt-sn.c	\
 	packet-mrcpv2.c		\
 	packet-mrdisc.c		\
 	packet-mrp-mmrp.c	\
@@ -940,6 +945,7 @@ DISSECTOR_SRC = \
 	packet-msproxy.c	\
 	packet-msrp.c		\
 	packet-mstp.c		\
+	packet-mswsp.c \
 	packet-mtp2.c		\
 	packet-mtp3.c		\
 	packet-mtp3mg.c		\
@@ -1114,6 +1120,7 @@ DISSECTOR_SRC = \
 	packet-roofnet.c	\
 	packet-rpc.c		\
 	packet-rpcap.c		\
+	packet-rpcrdma.c	\
 	packet-rpki-rtr.c	\
 	packet-rpl.c		\
 	packet-rquota.c		\
@@ -1231,6 +1238,7 @@ DISSECTOR_SRC = \
 	packet-tapa.c		\
 	packet-tcp.c		\
 	packet-tdmoe.c		\
+	packet-tdmop.c		\
 	packet-tds.c		\
 	packet-teamspeak2.c	\
 	packet-teimanagement.c	\
@@ -1341,6 +1349,7 @@ DISSECTOR_SRC = \
 	packet-x29.c		\
 	packet-xcsl.c		\
 	packet-xdmcp.c		\
+	packet-xip.c		\
 	packet-xmcp.c		\
 	packet-xml.c		\
 	packet-xmpp-conference.c	\

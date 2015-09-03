@@ -1753,13 +1753,15 @@ attribute_info_t enip_attribute_vals[45] = {
 static void
 enip_init_protocol(void)
 {
-   if (enip_request_hashtable)
-      g_hash_table_destroy(enip_request_hashtable);
    enip_request_hashtable = g_hash_table_new(enip_request_hash, enip_request_equal);
-
-   if (enip_conn_hashtable)
-      g_hash_table_destroy(enip_conn_hashtable);
    enip_conn_hashtable = g_hash_table_new(enip_conn_hash, enip_conn_equal);
+}
+
+static void
+enip_cleanup_protocol(void)
+{
+   g_hash_table_destroy(enip_request_hashtable);
+   g_hash_table_destroy(enip_conn_hashtable);
 }
 
 /* Disssect Common Packet Format */
@@ -1829,10 +1831,10 @@ dissect_cpf(enip_request_key_t *request_key, int command, tvbuff_t *tvb,
                /* Call dissector for interface */
                next_tvb = tvb_new_subset_length( tvb, offset+6, item_length);
                p_add_proto_data(wmem_file_scope(), pinfo, proto_enip, ENIP_REQUEST_INFO, request_info);
-               if ( tvb_length_remaining(next_tvb, 0) <= 0 || !dissector_try_uint(subdissector_srrd_table, ifacehndl, next_tvb, pinfo, dissector_tree) )
+               if ( tvb_reported_length_remaining(next_tvb, 0) <= 0 || !dissector_try_uint(subdissector_srrd_table, ifacehndl, next_tvb, pinfo, dissector_tree) )
                {
                   /* Show the undissected payload */
-                   if ( tvb_length_remaining(tvb, offset) > 0 )
+                   if ( tvb_reported_length_remaining(tvb, offset) > 0 )
                      call_dissector( data_handle, next_tvb, pinfo, dissector_tree);
                }
 
@@ -1888,10 +1890,10 @@ dissect_cpf(enip_request_key_t *request_key, int command, tvbuff_t *tvb,
                   /* Call dissector for interface */
                   next_tvb = tvb_new_subset_length (tvb, offset+8, item_length-2);
                   p_add_proto_data(wmem_file_scope(), pinfo, proto_enip, ENIP_REQUEST_INFO, request_info);
-                  if ( tvb_length_remaining(next_tvb, 0) <= 0 || !dissector_try_uint(subdissector_sud_table, ifacehndl, next_tvb, pinfo, dissector_tree) )
+                  if ( tvb_reported_length_remaining(next_tvb, 0) <= 0 || !dissector_try_uint(subdissector_sud_table, ifacehndl, next_tvb, pinfo, dissector_tree) )
                   {
                      /* Show the undissected payload */
-                      if ( tvb_length_remaining(tvb, offset) > 0 )
+                      if ( tvb_reported_length_remaining(tvb, offset) > 0 )
                         call_dissector( data_handle, next_tvb, pinfo, dissector_tree );
                   }
                   p_remove_proto_data(wmem_file_scope(), pinfo, proto_enip, ENIP_REQUEST_INFO);
@@ -1899,7 +1901,7 @@ dissect_cpf(enip_request_key_t *request_key, int command, tvbuff_t *tvb,
                else
                {
                   /* Display data */
-                  if (tvb_length_remaining(tvb, offset+6) > 0)
+                  if (tvb_reported_length_remaining(tvb, offset+6) > 0)
                   {
                       next_tvb = tvb_new_subset_length(tvb, offset+6, item_length);
                       if (conn_info != NULL)
@@ -2343,7 +2345,7 @@ dissect_enip_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 
    } /* end of if ( encapsulated data ) */
 
-   return tvb_length(tvb);
+   return tvb_captured_length(tvb);
 } /* end of dissect_enip_pdu() */
 
 static int
@@ -2378,7 +2380,7 @@ dissect_enip_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
       return 0;   /* not a known command */
 
    tcp_dissect_pdus(tvb, pinfo, tree, enip_desegment, 4, get_enip_pdu_len, dissect_enip_pdu, data);
-   return tvb_length(tvb);
+   return tvb_captured_length(tvb);
 }
 
 /* Code to actually dissect the io packets*/
@@ -2542,7 +2544,7 @@ dissect_dlr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
       /* Unknown Frame type */
    }
 
-   return tvb_length(tvb);
+   return tvb_captured_length(tvb);
 
 } /* end of dissect_dlr() */
 
@@ -3726,6 +3728,7 @@ proto_register_enip(void)
    subdissector_io_table = register_dissector_table("enip.io", "ENIP IO dissector", FT_UINT32, BASE_DEC);
 
    register_init_routine(&enip_init_protocol);
+   register_cleanup_routine(&enip_cleanup_protocol);
 
    /* Register the protocol name and description */
    proto_dlr = proto_register_protocol("Device Level Ring", "DLR", "dlr");

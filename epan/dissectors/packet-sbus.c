@@ -593,10 +593,11 @@ static guint sbus_hash(gconstpointer v)
 
 /*Protocol initialisation*/
 static void sbus_init_protocol(void){
-       if (sbus_request_hash){
-              g_hash_table_destroy(sbus_request_hash);
-       }
        sbus_request_hash = g_hash_table_new(sbus_hash, sbus_equal);
+}
+
+static void sbus_cleanup_protocol(void){
+       g_hash_table_destroy(sbus_request_hash);
 }
 
 /* check whether the packet looks like SBUS or not */
@@ -607,7 +608,7 @@ is_sbus_pdu(tvbuff_t *tvb)
 
        /* we need at least 8 bytes to determine whether this is sbus or
           not*/
-       if(tvb_length(tvb)<8){
+       if(tvb_captured_length(tvb)<8){
               return FALSE;
        }
 
@@ -2321,6 +2322,7 @@ proto_register_sbus(void)
        expert_sbus = expert_register_protocol(proto_sbus);
        expert_register_field_array(expert_sbus, ei, array_length(ei));
        register_init_routine(&sbus_init_protocol);
+       register_cleanup_routine(&sbus_cleanup_protocol);
 }
 
 void

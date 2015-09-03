@@ -1037,7 +1037,7 @@ process_tight_capabilities(proto_tree *tree,
 static gboolean
 vnc_is_client_or_server_version_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
-	if(tvb_length(tvb) != 12) {
+	if(tvb_captured_length(tvb) != 12) {
 		return FALSE;
 	}
 
@@ -1545,7 +1545,7 @@ vnc_startup_messages(tvbuff_t *tvb, packet_info *pinfo, gint offset,
 				    tvb, offset, 3, ENC_NA);
 		offset += 3; /* Skip over 3 bytes of padding */
 
-		if(tvb_length_remaining(tvb, offset) > 4) {
+		if(tvb_reported_length_remaining(tvb, offset) > 4) {
 			/* Sometimes the desktop name & length is skipped */
 			proto_tree_add_item(tree, hf_vnc_desktop_name_len,
 					    tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -4788,7 +4788,7 @@ proto_reg_handoff_vnc(void)
 		dissector_add_uint("tcp.port", 5900, vnc_handle);
 		dissector_add_uint("tcp.port", 5901, vnc_handle);
 
-		heur_dissector_add("tcp", test_vnc_protocol, proto_vnc);
+		heur_dissector_add("tcp", test_vnc_protocol, "VNC over TCP", "vnc_tcp", proto_vnc, HEURISTIC_ENABLE);
 		/* We don't register a port for the VNC HTTP server because
 		 * that simply provides a java program for download via the
 		 * HTTP protocol.  The java program then connects to a standard

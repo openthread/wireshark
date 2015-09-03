@@ -20,7 +20,7 @@
  */
 
 #include "layout_preferences_frame.h"
-#include "ui_layout_preferences_frame.h"
+#include <ui_layout_preferences_frame.h>
 
 #include <QAbstractButton>
 #include <QToolButton>
@@ -47,6 +47,9 @@ LayoutPreferencesFrame::LayoutPreferencesFrame(QWidget *parent) :
     ui->layout4ToolButton->setStyleSheet(image_pad_ss);
     ui->layout5ToolButton->setStyleSheet(image_pad_ss);
     ui->layout6ToolButton->setStyleSheet(image_pad_ss);
+
+    pref_packet_list_separator_ = prefFromPrefPtr(&prefs.gui_qt_packet_list_separator);
+    ui->packetListSeparatorCheckBox->setChecked(pref_packet_list_separator_->stashed_val.boolval);
 }
 
 LayoutPreferencesFrame::~LayoutPreferencesFrame()
@@ -54,9 +57,8 @@ LayoutPreferencesFrame::~LayoutPreferencesFrame()
     delete ui;
 }
 
-void LayoutPreferencesFrame::showEvent(QShowEvent *evt)
+void LayoutPreferencesFrame::showEvent(QShowEvent *)
 {
-    Q_UNUSED(evt);
     updateWidgets();
 }
 
@@ -274,9 +276,8 @@ void LayoutPreferencesFrame::on_pane3NoneRadioButton_toggled(bool checked)
 }
 
 
-void LayoutPreferencesFrame::on_restoreButtonBox_clicked(QAbstractButton *button)
+void LayoutPreferencesFrame::on_restoreButtonBox_clicked(QAbstractButton *)
 {
-    Q_UNUSED(button);
     pref_layout_type_->stashed_val.uint = pref_layout_type_->default_val.uint;
     pref_layout_content_1_->stashed_val.enumval = pref_layout_content_1_->default_val.enumval;
     updateWidgets();
@@ -284,6 +285,13 @@ void LayoutPreferencesFrame::on_restoreButtonBox_clicked(QAbstractButton *button
     updateWidgets();
     pref_layout_content_3_->stashed_val.enumval = pref_layout_content_3_->default_val.enumval;
     updateWidgets();
+
+    ui->packetListSeparatorCheckBox->setChecked(pref_packet_list_separator_->default_val.boolval);
+}
+
+void LayoutPreferencesFrame::on_packetListSeparatorCheckBox_toggled(bool checked)
+{
+    pref_packet_list_separator_->stashed_val.boolval = (gboolean) checked;
 }
 
 /*

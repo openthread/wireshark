@@ -373,6 +373,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     guint16        tctf_len, chan;
     proto_tree    *fach_tree = NULL;
     proto_item    *channel_type;
+    tvbuff_t *next_tvb;
     umts_mac_info *macinf;
     fp_info       *fpinf;
     rlc_info      *rlcinf;
@@ -410,7 +411,6 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 
     chan = fpinf->cur_chan;
     switch (tctf) {
-        tvbuff_t *next_tvb;
         case TCTF_CCCH_FACH_FDD:
             proto_item_append_text(ti, " (CCCH)");
             channel_type = proto_tree_add_uint(fach_tree, hf_mac_channel, tvb, 0, 0, MAC_CCCH);
@@ -468,7 +468,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             PROTO_ITEM_SET_GENERATED(channel_type);
 
             /*We need to skip the first two bits (the TCTF bits), and since there is no MAC header, send rest to RRC*/
-            next_tvb= tvb_new_octet_aligned(tvb, 2, (tvb_length(tvb)*8)-2);
+            next_tvb= tvb_new_octet_aligned(tvb, 2, (tvb_reported_length(tvb)*8)-2);
             add_new_data_source(pinfo, next_tvb, "Octet-Aligned BCCH Data");
 
             /* In this case skip RLC and call RRC immediately subdissector */
@@ -1273,15 +1273,8 @@ static void mac_is_sdus_hash_destroy(gpointer data)
 
 static void mac_init(void)
 {
-    if (mac_is_sdus != NULL) {
-        g_hash_table_destroy(mac_is_sdus);
-    }
-    if (mac_is_fragments != NULL) {
-        g_hash_table_destroy(mac_is_fragments);
-    }
     mac_is_sdus = g_hash_table_new_full(mac_is_channel_hash, mac_is_channel_equal, NULL, mac_is_sdus_hash_destroy);
     mac_is_fragments = g_hash_table_new_full(mac_is_channel_hash, mac_is_channel_equal, NULL, NULL);
-
     if (global_mac_tsn_size == MAC_TSN_6BITS) {
         MAX_TSN = 64;
         mac_tsn_size = 6;
@@ -1289,6 +1282,12 @@ static void mac_init(void)
         MAX_TSN = 16384;
         mac_tsn_size = 14;
     }
+}
+
+static void mac_cleanup(void)
+{
+    g_hash_table_destroy(mac_is_sdus);
+    g_hash_table_destroy(mac_is_fragments);
 }
 
 void
@@ -1471,6 +1470,7 @@ proto_register_umts_mac(void)
     register_dissector("mac.fdd.hsdsch", dissect_mac_fdd_hsdsch, proto_umts_mac);
 
     register_init_routine(mac_init);
+    register_cleanup_routine(mac_cleanup);
 
     /* Preferences */
     mac_module = prefs_register_protocol(proto_umts_mac, NULL);

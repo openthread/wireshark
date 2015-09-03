@@ -887,7 +887,7 @@ static void dissect_icep_reply(tvbuff_t *tvb, guint32 offset,
     DBG1("consumed --> %d\n", 5);
 
     /* check if I got all reply data */
-    tvb_data_remained = tvb_length_remaining(tvb, offset);
+    tvb_data_remained = tvb_reported_length_remaining(tvb, offset);
     messageSize = tvb_get_letohl(tvb, 10);
     reported_reply_data = messageSize - (ICEP_HEADER_SIZE + ICEP_MIN_REPLY_SIZE);
 
@@ -997,17 +997,17 @@ static int dissect_icep_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     switch(tvb_get_guint8(tvb, 8)) {
     case 0x0:
         DBG1("request message body: parsing %d bytes\n",
-            tvb_length_remaining(tvb, offset));
+            tvb_captured_length_remaining(tvb, offset));
         dissect_icep_request(tvb, offset, pinfo, icep_tree, ti);
         break;
     case 0x1:
         DBG1("batch request message body: parsing %d bytes\n",
-            tvb_length_remaining(tvb, offset));
+            tvb_captured_length_remaining(tvb, offset));
         dissect_icep_batch_request(tvb, offset, pinfo, icep_tree, ti);
         break;
     case 0x2:
         DBG1("reply message body: parsing %d bytes\n",
-            tvb_length_remaining(tvb, offset));
+            tvb_captured_length_remaining(tvb, offset));
         dissect_icep_reply(tvb, offset, pinfo, icep_tree, ti);
         break;
     case 0x3:
@@ -1018,7 +1018,7 @@ static int dissect_icep_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         expert_add_info_format(pinfo, msg_item, &ei_icep_message_type, "Unknown Message Type: 0x%02x", tvb_get_guint8(tvb, 8));
         break;
     }
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* entry point */
@@ -1340,8 +1340,8 @@ void proto_reg_handoff_icep(void)
         icep_tcp_handle = new_create_dissector_handle(dissect_icep_tcp, proto_icep);
         icep_udp_handle = new_create_dissector_handle(dissect_icep_udp, proto_icep);
 
-        heur_dissector_add("tcp", dissect_icep_tcp, proto_icep);
-        heur_dissector_add("udp", dissect_icep_udp, proto_icep);
+        heur_dissector_add("tcp", dissect_icep_tcp, "ICEP over TCP", "icep_tcp", proto_icep, HEURISTIC_ENABLE);
+        heur_dissector_add("udp", dissect_icep_udp, "ICEP over UDP", "icep_udp", proto_icep, HEURISTIC_ENABLE);
 
         icep_prefs_initialized = TRUE;
     }

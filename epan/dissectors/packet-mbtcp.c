@@ -148,7 +148,9 @@ static int hf_modbus_next_object_id = -1;
 static int hf_modbus_object_str_value = -1;
 static int hf_modbus_object_value = -1;
 static int hf_modbus_reg_uint16 = -1;
+static int hf_modbus_reg_int16 = -1;
 static int hf_modbus_reg_uint32 = -1;
+static int hf_modbus_reg_int32 = -1;
 static int hf_modbus_reg_ieee_float = -1;
 static int hf_modbus_reg_modicon_float = -1;
 static int hf_mbrtu_unitid = -1;
@@ -389,7 +391,9 @@ static const value_string conformity_level_vals[] = {
 
 static const enum_val_t mbus_register_format[] = {
   { "UINT16     ", "UINT16     ",  MBTCP_PREF_REGISTER_FORMAT_UINT16  },
+  { "INT16      ", "INT16      ",  MBTCP_PREF_REGISTER_FORMAT_INT16   },
   { "UINT32     ", "UINT32     ",  MBTCP_PREF_REGISTER_FORMAT_UINT32  },
+  { "INT32      ", "INT32      ",  MBTCP_PREF_REGISTER_FORMAT_INT32  },
   { "IEEE FLT   ", "IEEE FLT   ",  MBTCP_PREF_REGISTER_FORMAT_IEEE_FLOAT  },
   { "MODICON FLT", "MODICON FLT",  MBTCP_PREF_REGISTER_FORMAT_MODICON_FLOAT  },
   { NULL, NULL, 0 }
@@ -528,12 +532,12 @@ dissect_mbtcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     p_add_proto_data(wmem_file_scope(), pinfo, proto_modbus, 0, request_info);
 
     /* Continue with dissection of Modbus data payload following Modbus/TCP frame */
-    if( tvb_length_remaining(tvb, offset) > 0 )
+    if( tvb_reported_length_remaining(tvb, offset) > 0 )
         call_dissector(modbus_handle, next_tvb, pinfo, tree);
 
     p_remove_proto_data(wmem_file_scope(), pinfo, proto_modbus, 0);
     p_add_proto_data(wmem_file_scope(), pinfo, proto_modbus, 0, p_save_proto_data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* Code to dissect Modbus RTU over TCP packets */
@@ -557,7 +561,7 @@ dissect_mbrtu_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Modbus RTU");
     col_clear(pinfo->cinfo, COL_INFO);
 
-    len = tvb_length(tvb);
+    len = tvb_reported_length(tvb);
 
     unit_id = tvb_get_guint8(tvb, 0);
     function_code = tvb_get_guint8(tvb, 1) & 0x7F;
@@ -670,12 +674,12 @@ dissect_mbrtu_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     p_add_proto_data(wmem_file_scope(), pinfo, proto_modbus, 0, request_info);
 
     /* Continue with dissection of Modbus data payload following Modbus RTU frame */
-    if( tvb_length_remaining(tvb, offset) > 0 )
+    if( tvb_reported_length_remaining(tvb, offset) > 0 )
         call_dissector(modbus_handle, next_tvb, pinfo, tree);
 
     p_remove_proto_data(wmem_file_scope(), pinfo, proto_modbus, 0);
     p_add_proto_data(wmem_file_scope(), pinfo, proto_modbus, 0, p_save_proto_data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -704,7 +708,7 @@ get_mbrtu_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb,
 {
 
     /* Modbus/TCP frames include a "length" word in each message; Modbus RTU over TCP does not, so don't attempt to get one */
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -731,7 +735,7 @@ dissect_mbtcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     tcp_dissect_pdus(tvb, pinfo, tree, mbtcp_desegment, 6,
                      get_mbtcp_pdu_len, dissect_mbtcp_pdu, data);
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* Code to dissect Modbus RTU over TCP messages */
@@ -752,7 +756,7 @@ dissect_mbrtu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     tcp_dissect_pdus(tvb, pinfo, tree, mbrtu_desegment, 6,
                      get_mbrtu_pdu_len, dissect_mbrtu_pdu, data);
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -763,6 +767,8 @@ dissect_modbus_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint8 
                     gint payload_start, gint payload_len, guint8 register_format)
 {
     gint reported_len, data_offset, reg_num = 0;
+    gint16  data16s;
+    gint32  data32s;
     guint16 data16, modflt_lo, modflt_hi;
     guint32 data32, modflt_comb;
     gfloat data_float, modfloat;
@@ -815,10 +821,26 @@ dissect_modbus_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint8 
                         data_offset += 2;
                         reg_num += 1;
                         break;
+                    case MBTCP_PREF_REGISTER_FORMAT_INT16: /* Standard-size signed integer 16-bit register */
+                        data16s = tvb_get_ntohs(next_tvb, data_offset);
+                        register_item = proto_tree_add_int(tree, hf_modbus_reg_int16, next_tvb, data_offset, 2, data16s);
+                        proto_item_set_text(register_item, "Register %u (INT16): %d", reg_num, data16s);
+
+                        data_offset += 2;
+                        reg_num += 1;
+                        break;
                     case MBTCP_PREF_REGISTER_FORMAT_UINT32: /* Double-size unsigned integer 2 x 16-bit registers */
                         data32 = tvb_get_ntohl(next_tvb, data_offset);
                         register_item = proto_tree_add_uint(tree, hf_modbus_reg_uint32, next_tvb, data_offset, 4, data32);
                         proto_item_set_text(register_item, "Register %u (UINT32): %u", reg_num, data32);
+
+                        data_offset += 4;
+                        reg_num += 2;
+                        break;
+                    case MBTCP_PREF_REGISTER_FORMAT_INT32: /* Double-size signed integer 2 x 16-bit registers */
+                        data32s = tvb_get_ntohl(next_tvb, data_offset);
+                        register_item = proto_tree_add_int(tree, hf_modbus_reg_int32, next_tvb, data_offset, 4, data32s);
+                        proto_item_set_text(register_item, "Register %u (INT32): %d", reg_num, data32s);
 
                         data_offset += 4;
                         reg_num += 2;
@@ -887,7 +909,7 @@ dissect_modbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     guint16       diagnostic_code;
     modbus_request_info_t *request_info;
 
-    len = tvb_length_remaining(tvb, 0);
+    len = tvb_captured_length(tvb);
 
     /* If the packet is zero-length, we should not attempt to dissect any further */
     if (len == 0)
@@ -1399,7 +1421,7 @@ dissect_modbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         }
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -1733,9 +1755,19 @@ proto_register_modbus(void)
             FT_UINT16, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
+        { &hf_modbus_reg_int16,
+            { "Register (INT16)", "modbus.register.int16",
+            FT_INT16, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
         { &hf_modbus_reg_uint32,
             { "Register (UINT32)", "modbus.register.uint32",
             FT_UINT32, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_modbus_reg_int32,
+            { "Register (INT32)", "modbus.register.int32",
+            FT_INT32, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_modbus_reg_ieee_float,

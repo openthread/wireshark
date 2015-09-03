@@ -105,6 +105,7 @@ static gboolean force_docsis_encap  = FALSE;
 static gboolean generate_md5_hash   = FALSE;
 static gboolean generate_epoch_time = TRUE;
 static gboolean generate_bits_field = TRUE;
+static gboolean disable_packet_size_limited_in_summary = FALSE;
 
 static const value_string p2p_dirs[] = {
 	{ P2P_DIR_UNKNOWN, "Unknown" },
@@ -491,15 +492,20 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 
 			case REC_TYPE_PACKET:
 				if ((force_docsis_encap) && (docsis_handle)) {
-					call_dissector(docsis_handle, tvb, pinfo, parent_tree);
+					call_dissector_with_data(docsis_handle,
+					    tvb, pinfo, parent_tree,
+					    (void *)pinfo->pseudo_header);
 				} else {
-					if (!dissector_try_uint(wtap_encap_dissector_table, pinfo->fd->lnk_t,
-								tvb, pinfo, parent_tree)) {
-
+					if (!dissector_try_uint_new(wtap_encap_dissector_table,
+					    pinfo->fd->lnk_t, tvb, pinfo,
+					    parent_tree, TRUE,
+					    (void *)pinfo->pseudo_header)) {
 						col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 						col_add_fstr(pinfo->cinfo, COL_INFO, "WTAP_ENCAP = %d",
 							     pinfo->fd->lnk_t);
-						call_dissector(data_handle,tvb, pinfo, parent_tree);
+						call_dissector_with_data(data_handle,
+						    tvb, pinfo, parent_tree,
+						    (void *)pinfo->pseudo_header);
 					}
 				}
 				break;
@@ -514,8 +520,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 					}
 
 					if (!dissector_try_uint(wtap_fts_rec_dissector_table, file_type_subtype,
-								tvb, pinfo, parent_tree)) {
-
+					    tvb, pinfo, parent_tree)) {
 						col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 						col_add_fstr(pinfo->cinfo, COL_INFO, "WTAP_ENCAP = %d",
 							     file_type_subtype);
@@ -906,6 +911,10 @@ proto_register_frame(void)
 	    "Show the number of bits in the frame",
 	    "Whether or not the number of bits in the frame should be shown.",
 	    &generate_bits_field);
+	prefs_register_bool_preference(frame_module, "disable_packet_size_limited_in_summary",
+	    "Disable 'packet size limited during capture' message in summary",
+	    "Whether or not 'packet size limited during capture' message in shown in Info column.",
+	    &disable_packet_size_limited_in_summary);
 
 	frame_tap=register_tap("frame");
 }

@@ -22,7 +22,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Ref: 3GPP TS 25.331 V11.8.0 (2013-12) + CR5591
+ * Ref: 3GPP TS 25.331 V12.6.0 (2015-06)
  */
 
 /**
@@ -88,6 +88,7 @@ static int dissect_SysInfoTypeSB2_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_t
 static int dissect_SysInfoType5_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 static int dissect_SysInfoType11_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 static int dissect_SysInfoType11bis_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
+static int dissect_SysInfoType11ter_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 static int dissect_SysInfoType22_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 
 /* Include constants */
@@ -242,14 +243,8 @@ dissect_rrc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 }
 
-static void rrc_init(void){
-    /*Cleanup*/
-    if(hsdsch_muxed_flows){
-        g_tree_destroy(hsdsch_muxed_flows);
-    }
-    if(rrc_ciph_inf){
-        g_tree_destroy(rrc_ciph_inf);
-    }
+static void
+rrc_init(void) {
     /*Initialize structure for muxed flow indication*/
     hsdsch_muxed_flows = g_tree_new_full(rrc_key_cmp,
                        NULL,      /* data pointer, optional */
@@ -262,6 +257,14 @@ static void rrc_init(void){
                        NULL,
                        rrc_free_value);
 }
+
+static void
+rrc_cleanup(void) {
+    /*Cleanup*/
+    g_tree_destroy(hsdsch_muxed_flows);
+    g_tree_destroy(rrc_ciph_inf);
+}
+
 /*--- proto_register_rrc -------------------------------------------*/
 void proto_register_rrc(void) {
 
@@ -338,6 +341,7 @@ void proto_register_rrc(void) {
 
 
     register_init_routine(rrc_init);
+    register_cleanup_routine(rrc_cleanup);
 }
 
 

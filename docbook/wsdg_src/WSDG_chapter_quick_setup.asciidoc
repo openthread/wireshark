@@ -63,7 +63,7 @@ https://www.microsoft.com/powershell[]
 https://chocolatey.org/[Chocolatey] is a native package manager for Windows.
 There are https://chocolatey.org/packages[packages] for most of the software
 listed below. Along with traditional Windows packages it supports Cygwin and
-and the Python Package Index.
+the Python Package Index.
 
 // ...such as:
 // - Active Perl and/or StrawberryPerl
@@ -102,10 +102,12 @@ For VS2013 (and later) Microsoft has left out a required file from the
 include files to build with nmake. To fix this copy Win32.Mak from the Win 7 SDK
 into an appropriate path for use with VS2013, e.g.
 ----
-C:\> xcopy C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include\Win32.Mak ^
-           C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include
+C:\> xcopy "C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include\Win32.Mak" ^
+           "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include"
 ----
 ====
+
+You may have to do this as Administrator.
 
 Compiling with gcc or Clang is not recommended and will
 certainly not work (at least not without a lot of advanced
@@ -239,6 +241,13 @@ PS$>choco install sed asciidoc [...] -source cygwin
 ----
 
 Chocolatey installs Cygwin in 'C:\tools\cygwin' by default.
+
+You can use Chocolatey's Win flex-bison packages rather than the Cygwin
+Bison and Flex package:
+
+----
+PS$>choco install winflexbison
+----
 
 [[ChSetupPython]]
 

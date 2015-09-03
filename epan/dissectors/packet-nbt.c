@@ -1513,7 +1513,7 @@ dissect_continuation_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_item(nbss_tree, hf_nbss_continuation_data, tvb, 0, -1, ENC_NA);
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -1538,7 +1538,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "NBSS");
     col_clear(pinfo->cinfo, COL_INFO);
 
-    max_data = tvb_length(tvb);
+    max_data = tvb_captured_length(tvb);
 
     msg_type = tvb_get_guint8(tvb, offset);
 
@@ -1594,7 +1594,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
          * So if it is a SESSION_MESSAGE and SMB1 or SMB2
          * mark it as is_cifs.
          */
-        if (tvb_length_remaining(tvb, offset) >= 8
+        if (tvb_captured_length_remaining(tvb, offset) >= 8
             && tvb_get_guint8(tvb,offset+0) == SESSION_MESSAGE
             && tvb_get_guint8(tvb,offset+5) == 'S'
             && tvb_get_guint8(tvb,offset+6) == 'M'
@@ -1706,19 +1706,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     col_add_str(pinfo->cinfo, COL_INFO,
                 val_to_str(msg_type, message_types, "Unknown (%02x)"));
 
-    while (tvb_reported_length_remaining(tvb, offset) > 0) {
-        /*
-         * We use "tvb_ensure_length_remaining()" to make sure there actually
-         * *is* data remaining.  The protocol we're handling could conceivably
-         * consists of a sequence of fixed-length PDUs, and therefore the
-         * "get_pdu_len" routine might not actually fetch anything from
-         * the tvbuff, and thus might not cause an exception to be thrown if
-         * we've run past the end of the tvbuff.
-         *
-         * This means we're guaranteed that "length_remaining" is positive.
-         */
-        length_remaining = tvb_ensure_length_remaining(tvb, offset);
-
+    while ((length_remaining = tvb_reported_length_remaining(tvb, offset)) > 0) {
         /*
          * Can we do reassembly?
          */
@@ -1736,7 +1724,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
                  */
                 pinfo->desegment_offset = offset;
                 pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
-                return tvb_length(tvb);
+                return tvb_captured_length(tvb);
             }
         }
 
@@ -1762,7 +1750,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
              * there is an SMB header there ...
              */
             if( ((int)plen>tvb_reported_length_remaining(tvb, offset))
-                &&(tvb_length_remaining(tvb, offset) >= 8)
+                &&(tvb_captured_length_remaining(tvb, offset) >= 8)
                 &&(tvb_get_guint8(tvb,offset+5) == 'S')
                 &&(tvb_get_guint8(tvb,offset+6) == 'M')
                 &&(tvb_get_guint8(tvb,offset+7) == 'B') ){
@@ -1786,7 +1774,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
                  */
                 pinfo->desegment_offset = offset;
                 pinfo->desegment_len = plen - length_remaining;
-                return tvb_length(tvb);
+                return tvb_captured_length(tvb);
             }
         }
 
@@ -1804,7 +1792,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         offset += plen;
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 void

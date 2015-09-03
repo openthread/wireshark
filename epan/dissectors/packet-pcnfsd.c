@@ -98,9 +98,10 @@ dissect_pcnfsd2_dissect_mapreq_arg_item(tvbuff_t *tvb, int offset,
 }
 
 static int
-dissect_pcnfsd2_mapid_call(tvbuff_t *tvb, int offset, packet_info *pinfo,
+dissect_pcnfsd2_mapid_call(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree *tree, void* data _U_)
 {
+    int offset = 0;
     offset = dissect_rpc_string(tvb, tree, hf_pcnfsd_comment, offset, NULL);
 
     offset = dissect_rpc_list(tvb, pinfo, tree, offset,
@@ -139,9 +140,10 @@ dissect_pcnfsd2_dissect_mapreq_res_item(tvbuff_t *tvb, int offset,
 }
 
 static int
-dissect_pcnfsd2_mapid_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
+dissect_pcnfsd2_mapid_reply(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree *tree, void* data _U_)
 {
+    int offset = 0;
     offset = dissect_rpc_string(tvb, tree, hf_pcnfsd_comment, offset, NULL);
 
     offset = dissect_rpc_list(tvb, pinfo, tree, offset,
@@ -168,7 +170,7 @@ pcnfsd_decode_obscure(const char* data, int len)
 
 /* "NFS Illustrated" 14.7.13 */
 static int
-dissect_pcnfsd2_auth_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+dissect_pcnfsd2_auth_call(tvbuff_t *tvb, packet_info *pinfo _U_,
     proto_tree *tree, void* data _U_)
 {
     int         newoffset;
@@ -179,6 +181,7 @@ dissect_pcnfsd2_auth_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     const char *password      = NULL;
     proto_item *password_item = NULL;
     proto_tree *password_tree = NULL;
+    int offset = 0;
 
     offset = dissect_rpc_string(tvb, tree,
         hf_pcnfsd_auth_client, offset, NULL);
@@ -244,12 +247,13 @@ dissect_pcnfsd2_auth_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 
 /* "NFS Illustrated" 14.7.13 */
 static int
-dissect_pcnfsd2_auth_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+dissect_pcnfsd2_auth_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
     proto_tree *tree, void* data _U_)
 {
     int         gids_count;
     proto_tree *gtree;
     int         gids_i;
+    int offset = 0;
 
     offset = dissect_rpc_uint32(tvb, tree, hf_pcnfsd_status, offset);
     offset = dissect_rpc_uint32(tvb, tree, hf_pcnfsd_uid, offset);
@@ -278,13 +282,12 @@ dissect_pcnfsd2_auth_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 
 /* "NFS Illustrated", 14.6 */
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff pcnfsd1_proc[] = {
-    { 0,    "NULL",     NULL,               NULL },
-    { 1,    "AUTH",     NULL,               NULL },
-    { 2,    "PR_INIT",  NULL,               NULL },
-    { 3,    "PR_START", NULL,               NULL },
-    { 0,    NULL,       NULL,               NULL }
+    { 0,    "NULL",     dissect_rpc_void,    dissect_rpc_void },
+    { 1,    "AUTH",     dissect_rpc_unknown, dissect_rpc_unknown },
+    { 2,    "PR_INIT",  dissect_rpc_unknown, dissect_rpc_unknown },
+    { 3,    "PR_START", dissect_rpc_unknown, dissect_rpc_unknown },
+    { 0,    NULL,       NULL,                NULL }
 };
 static const value_string pcnfsd1_proc_vals[] = {
     { 0,    "NULL" },
@@ -298,23 +301,24 @@ static const value_string pcnfsd1_proc_vals[] = {
 
 /* "NFS Illustrated", 14.7 */
 static const vsff pcnfsd2_proc[] = {
-    {  0,   "NULL",       NULL,               NULL },
-    {  1,   "INFO",       NULL,               NULL },
-    {  2,   "PR_INIT",    NULL,               NULL },
-    {  3,   "PR_START",   NULL,               NULL },
-    {  4,   "PR_LIST",    NULL,               NULL },
-    {  5,   "PR_QUEUE",   NULL,               NULL },
-    {  6,   "PR_STATUS",  NULL,               NULL },
-    {  7,   "PR_CANCEL",  NULL,               NULL },
-    {  8,   "PR_ADMIN",   NULL,               NULL },
-    {  9,   "PR_REQUEUE", NULL,               NULL },
-    { 10,   "PR_HOLD",    NULL,               NULL },
-    { 11,   "PR_RELEASE", NULL,               NULL },
+    {  0,   "NULL",
+    dissect_rpc_void, dissect_rpc_void },
+    {  1,   "INFO",       dissect_rpc_unknown, dissect_rpc_unknown },
+    {  2,   "PR_INIT",    dissect_rpc_unknown, dissect_rpc_unknown },
+    {  3,   "PR_START",   dissect_rpc_unknown, dissect_rpc_unknown },
+    {  4,   "PR_LIST",    dissect_rpc_unknown, dissect_rpc_unknown },
+    {  5,   "PR_QUEUE",   dissect_rpc_unknown, dissect_rpc_unknown },
+    {  6,   "PR_STATUS",  dissect_rpc_unknown, dissect_rpc_unknown },
+    {  7,   "PR_CANCEL",  dissect_rpc_unknown, dissect_rpc_unknown },
+    {  8,   "PR_ADMIN",   dissect_rpc_unknown, dissect_rpc_unknown },
+    {  9,   "PR_REQUEUE", dissect_rpc_unknown, dissect_rpc_unknown },
+    { 10,   "PR_HOLD",    dissect_rpc_unknown, dissect_rpc_unknown },
+    { 11,   "PR_RELEASE", dissect_rpc_unknown, dissect_rpc_unknown },
     { 12,   "MAPID",
     dissect_pcnfsd2_mapid_call, dissect_pcnfsd2_mapid_reply },
     { 13,   "AUTH",
     dissect_pcnfsd2_auth_call,  dissect_pcnfsd2_auth_reply },
-    { 14,   "ALERT",      NULL,               NULL },
+    { 14,   "ALERT",      dissect_rpc_unknown, dissect_rpc_unknown },
     { 0,    NULL,         NULL,               NULL }
 };
 static const value_string pcnfsd2_proc_vals[] = {
@@ -337,6 +341,10 @@ static const value_string pcnfsd2_proc_vals[] = {
 };
 /* end of PCNFS version 2 */
 
+static const rpc_prog_vers_info pcnfsd_vers_info[] = {
+	{ 1, pcnfsd1_proc, &hf_pcnfsd_procedure_v1 },
+	{ 2, pcnfsd2_proc, &hf_pcnfsd_procedure_v2 },
+};
 
 void
 proto_register_pcnfsd(void)
@@ -412,10 +420,8 @@ void
 proto_reg_handoff_pcnfsd(void)
 {
     /* Register the protocol as RPC */
-    rpc_init_prog(proto_pcnfsd, PCNFSD_PROGRAM, ett_pcnfsd);
-    /* Register the procedure tables */
-    rpc_init_proc_table(PCNFSD_PROGRAM, 1, pcnfsd1_proc, hf_pcnfsd_procedure_v1);
-    rpc_init_proc_table(PCNFSD_PROGRAM, 2, pcnfsd2_proc, hf_pcnfsd_procedure_v2);
+    rpc_init_prog(proto_pcnfsd, PCNFSD_PROGRAM, ett_pcnfsd,
+                  G_N_ELEMENTS(pcnfsd_vers_info), pcnfsd_vers_info);
 }
 
 /*

@@ -1124,7 +1124,7 @@ static gboolean heur_dissect_dplay(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 {
     guint32 dplay_id, token;
 
-    if(tvb_length(tvb) < 25)
+    if(tvb_captured_length(tvb) < 25)
         return FALSE;
 
     /* The string play = 0x706c6179 */
@@ -1712,8 +1712,8 @@ void proto_register_dplay(void)
 
 void proto_reg_handoff_dplay(void)
 {
-    heur_dissector_add("udp", heur_dissect_dplay, proto_dplay);
-    heur_dissector_add("tcp", heur_dissect_dplay, proto_dplay);
+    heur_dissector_add("udp", heur_dissect_dplay, "DirectPlay over UDP", "dplay_udp", proto_dplay, HEURISTIC_ENABLE);
+    heur_dissector_add("tcp", heur_dissect_dplay, "DirectPlay over TCP", "dplay_tcp", proto_dplay, HEURISTIC_ENABLE);
 }
 
 /*

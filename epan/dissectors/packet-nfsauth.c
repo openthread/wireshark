@@ -39,18 +39,20 @@ static gint ett_nfsauth = -1;
 #define NFSAUTHPROC_NULL		0
 #define NFSAUTH1_ACCESS			1
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff nfsauth1_proc[] = {
 	{ NFSAUTHPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ NFSAUTH1_ACCESS,	"ACCESS",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string nfsauth1_proc_vals[] = {
 	{ NFSAUTHPROC_NULL,	"NULL" },
 	{ NFSAUTH1_ACCESS,	"ACCESS" },
 	{ 0,	NULL }
+};
+static const rpc_prog_vers_info nfsauth_vers_info[] = {
+	{ 1, nfsauth1_proc, &hf_nfsauth_procedure_v1 },
 };
 
 
@@ -76,9 +78,8 @@ void
 proto_reg_handoff_nfsauth(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_nfsauth, NFSAUTH_PROGRAM, ett_nfsauth);
-	/* Register the procedure tables */
-	rpc_init_proc_table(NFSAUTH_PROGRAM, 1, nfsauth1_proc, hf_nfsauth_procedure_v1);
+	rpc_init_prog(proto_nfsauth, NFSAUTH_PROGRAM, ett_nfsauth,
+	    G_N_ELEMENTS(nfsauth_vers_info), nfsauth_vers_info);
 }
 
 /*

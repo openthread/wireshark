@@ -328,12 +328,23 @@ const gchar *get_conn_cfilter(void) {
 #ifdef _WIN32
     } else if (GetSystemMetrics(SM_REMOTESESSION)) {
         /* We have a remote session: http://msdn.microsoft.com/en-us/library/aa380798%28VS.85%29.aspx */
-        g_string_printf(filter_str, "not tcp port 3389");
+        g_string_printf(filter_str, "not port 3389");
 #endif /* _WIN32 */
     } else {
         return "";
     }
     return filter_str->str;
+}
+
+gboolean display_is_remote(void)
+{
+    static gboolean remote_display_checked;
+    static gboolean is_remote;
+
+    if (!remote_display_checked) {
+        is_remote = (strlen(get_conn_cfilter()) > 0);
+    }
+    return is_remote;
 }
 
 /*

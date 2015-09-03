@@ -320,6 +320,8 @@ typedef struct _v9_v10_tmplt {
 } v9_v10_tmplt_t;
 
 
+/* Map from (converstion+obs-domain-id+flowset-id) -> v9_v10_tmplt_entry_t*    */
+/* Confusingly, for key, fill in only relevant parts of v9_v10_tmplt_entry_t... */
 GHashTable *v9_v10_tmplt_table = NULL;
 
 
@@ -2202,9 +2204,9 @@ static GHashTable *netflow_sequence_analysis_domain_hash = NULL;
 /* Frame number -> domain state */
 static GHashTable *netflow_sequence_analysis_result_hash = NULL;
 
-/* On first pass, check ongoing sequence for observation domain, and only store a result
+/* On first pass, check ongoing sequence of observation domain, and only store a result
    if the sequence number is not as expected */
-static void store_sequence_analysis_info(guint32 domain_id, guint32 seqnum, guint32 new_flows,
+static void store_sequence_analysis_info(guint32 domain_id, guint32 seqnum, unsigned int version, guint32 new_flows,
                                          packet_info *pinfo)
 {
     /* Find current domain info */
@@ -2215,9 +2217,11 @@ static void store_sequence_analysis_info(guint32 domain_id, guint32 seqnum, guin
         return;
     }
 
-    /* Store result if not expected sequence */
+    /* Store result if not expected sequence.
+       SequenceNumber represents SN of first flow in current packet, i.e. flows/data-records for previous
+       frame have now been added (apart from V9, which just counts netflow frames). */
     if (domain_state->sequence_number_set &&
-        ((seqnum-new_flows) != domain_state->current_sequence_number)) {
+        (seqnum != domain_state->current_sequence_number)) {
 
         /* Allocate state to remember - a deep copy of current domain */
         netflow_domain_state_t *result_state = wmem_new0(wmem_file_scope(), netflow_domain_state_t);
@@ -2227,14 +2231,15 @@ static void store_sequence_analysis_info(guint32 domain_id, guint32 seqnum, guin
         g_hash_table_insert(netflow_sequence_analysis_result_hash, GUINT_TO_POINTER(pinfo->fd->num), result_state);
     }
 
-    /* Update domain info */
-    domain_state->current_sequence_number = seqnum;
+    /* Update domain info for the next frame to consult.
+       Add flows(data records) for all protocol versions except for 9, which just counts exported frames */
+    domain_state->current_sequence_number = seqnum + ((version == 9) ? 1 : new_flows);
     domain_state->sequence_number_set = TRUE;
     domain_state->current_frame_number = pinfo->fd->num;
 }
 
 /* Check for result stored indicating that sequence number wasn't as expected, and show in tree */
-static void show_sequence_analysis_info(guint32 domain_id, guint32 seqnum, guint32 new_flows,
+static void show_sequence_analysis_info(guint32 domain_id, guint32 seqnum,
                                         packet_info *pinfo, tvbuff_t *tvb,
                                         proto_item *flow_sequence_ti, proto_tree *tree)
 {
@@ -2244,13 +2249,16 @@ static void show_sequence_analysis_info(guint32 domain_id, guint32 seqnum, guint
     if (state != NULL) {
         proto_item *ti;
 
-        /* Expected sequence number */
+        /* Expected sequence number, i.e. what we stored in state when checking previous frame */
         ti = proto_tree_add_uint(tree, hf_cflow_sequence_analysis_expected_sn, tvb,
-                                 0, 0, state->current_sequence_number+new_flows);
+                                 0, 0, state->current_sequence_number);
         PROTO_ITEM_SET_GENERATED(ti);
         expert_add_info_format(pinfo, flow_sequence_ti, &ei_unexpected_sequence_number,
                                "Unexpected flow sequence for domain ID %u (expected %u, got %u)",
-                               domain_id, state->current_sequence_number+new_flows, seqnum);
+                               domain_id, state->current_sequence_number, seqnum);
+
+        /* Avoid needing to open item to see what expected sequence number was... */
+        proto_item_append_text(flow_sequence_ti, " (expected %u)", state->current_sequence_number);
 
         /* Previous frame for this observation domain ID */
         ti = proto_tree_add_uint(tree, hf_cflow_sequence_analysis_previous_frame, tvb,
@@ -2576,14 +2584,19 @@ dissect_netflow(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
     }
 
     /* Can only check sequence analysis once have seen how many flows were reported across
-       all data sets (flows are not dissected if no template for set is present). */
-    if ((ver == 9) || (ver == 10)) {
+       all data sets (flows are not dissected if no template for set is present).
+       N.B. will currently only work for v9 and v10 as earlier versions don't fill in src_id from
+       observation domain id. */
+    if ((ver == 5) || (ver == 7) || (ver == 8)  || (ver == 9) || (ver == 10)) {
         /* On first pass check sequence analysis */
         if (!pinfo->fd->flags.visited) {
-            store_sequence_analysis_info(hdrinfo.src_id, flow_sequence, flows_seen, pinfo);
+            if (ver != 10) {
+                flows_seen = pdus;  /* i.e. use value from header rather than counted value */
+            }
+            store_sequence_analysis_info(hdrinfo.src_id, flow_sequence, ver, flows_seen, pinfo);
         }
         /* Show any stored sequence analysis results */
-        show_sequence_analysis_info(hdrinfo.src_id, flow_sequence, flows_seen, pinfo, tvb, flow_sequence_ti, netflow_tree);
+        show_sequence_analysis_info(hdrinfo.src_id, flow_sequence, pinfo, tvb, flow_sequence_ti, netflow_tree);
     }
 
     return tvb_reported_length(tvb);
@@ -3082,20 +3095,32 @@ dissect_v9_pdu_scope(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *pdutree,
     return (guint) (offset - orig_offset);
 }
 
+/* Type of duration being calculated for a flow. */
+enum duration_type_e {
+    duration_type_switched,
+    duration_type_seconds,
+    duration_type_milliseconds,
+    duration_type_microseconds,
+    duration_type_nanoseconds,
+    duration_type_delta_milliseconds,
+    duration_type_max    /* not used - for sizing only */
+};
+
 static guint
 dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, int offset,
                         v9_v10_tmplt_t *tmplt_p, hdrinfo_t *hdrinfo_p, v9_v10_tmplt_fields_type_t fields_type)
 {
     int                   orig_offset;
     int                   rev;
-    nstime_t              ts_start[2], ts_end[2];
-    int                   offset_s[2], offset_e[2];
+    nstime_t              ts_start[2][duration_type_max], ts_end[2][duration_type_max];
+    int                   offset_s[2][duration_type_max], offset_e[2][duration_type_max];
     nstime_t              ts;
-    guint32               msec_start[2], msec_end[2];
+    guint32               msec_start[2][duration_type_max], msec_end[2][duration_type_max];
+    gint                  duration_type;
     guint32               msec_delta;
     nstime_t              ts_delta;
     guint32               usec;
-    int                   i;
+    int                   i, j;
 
     address               local_addr, remote_addr;
     guint16               local_port = 0, remote_port = 0/*, ipv4_id = 0, icmp_id = 0*/;
@@ -3140,8 +3165,10 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
     orig_offset   = offset;
     count         = tmplt_p->field_count[fields_type];
 
-    offset_s[0]   = offset_s[1] = offset_e[0] = offset_e[1] = 0;
-    msec_start[0] = msec_start[1] = msec_end[0] = msec_end[1] = 0;
+    for (i=0; i < (int)duration_type_max; i++) {
+        offset_s[0][i]   = offset_s[1][i] = offset_e[0][i] = offset_e[1][i] = 0;
+        msec_start[0][i] = msec_start[1][i] = msec_end[0][i] = msec_end[1][i] = 0;
+    }
 
     for (i = 0; i < count; i++) {
         guint64      pen_type;
@@ -3369,120 +3396,157 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
             break;
 
         case 21: /* last switched */
-            offset_e[rev] = offset;
-            msec_end[rev] = tvb_get_ntohl(tvb, offset);
-            ts_end[rev].secs = msec_end[rev] / 1000;
-            ts_end[rev].nsecs = (msec_end[rev] % 1000) * 1000000;
+            duration_type = (gint)duration_type_switched;
+            offset_e[rev][duration_type] = offset;
+            msec_end[rev][duration_type] = tvb_get_ntohl(tvb, offset);
+            ts_end[rev][duration_type].secs = msec_end[rev][duration_type] / 1000;
+            ts_end[rev][duration_type].nsecs = (msec_end[rev][duration_type] % 1000) * 1000000;
             goto timestamp_common;
             break;
         case 22: /* first switched */
-            offset_s[rev] = offset;
-            msec_start[rev] = tvb_get_ntohl(tvb, offset);
-            ts_start[rev].secs = msec_start[rev] / 1000;
-            ts_start[rev].nsecs = (msec_start[rev] % 1000) * 1000000;
+            duration_type = (gint)duration_type_switched;
+            offset_s[rev][duration_type] = offset;
+            msec_start[rev][duration_type] = tvb_get_ntohl(tvb, offset);
+            ts_start[rev][duration_type].secs = msec_start[rev][duration_type] / 1000;
+            ts_start[rev][duration_type].nsecs = (msec_start[rev][duration_type] % 1000) * 1000000;
             goto timestamp_common;
             break;
 
         case 150: /*  flowStartSeconds */
-            offset_s[rev] = offset;
-            ts_start[rev].secs = tvb_get_ntohl(tvb, offset);
-            ts_start[rev].nsecs = 0;
+            duration_type = (gint)duration_type_seconds;
+            offset_s[rev][duration_type] = offset;
+            ts_start[rev][duration_type].secs = tvb_get_ntohl(tvb, offset);
+            ts_start[rev][duration_type].nsecs = 0;
             goto timestamp_common;
             break;
 
         case 151: /*  flowEndSeconds */
-            offset_e[rev] = offset;
-            ts_end[rev].secs = tvb_get_ntohl(tvb, offset);
-            ts_end[rev].nsecs = 0;
+            duration_type = (gint)duration_type_seconds;
+            offset_e[rev][duration_type] = offset;
+            ts_end[rev][duration_type].secs = tvb_get_ntohl(tvb, offset);
+            ts_end[rev][duration_type].nsecs = 0;
             goto timestamp_common;
             break;
 
         case 152: /*  flowStartMilliseconds: 64-bit integer */
-            offset_s[rev] = offset;
-            ts_start[rev].secs = (time_t)(tvb_get_ntoh64(tvb, offset)/1000);
-            ts_start[rev].nsecs = (int)(tvb_get_ntoh64(tvb, offset)%1000) * 1000000;
+            duration_type = (gint)duration_type_milliseconds;
+            offset_s[rev][duration_type] = offset;
+            ts_start[rev][duration_type].secs = (time_t)(tvb_get_ntoh64(tvb, offset)/1000);
+            ts_start[rev][duration_type].nsecs = (int)(tvb_get_ntoh64(tvb, offset)%1000) * 1000000;
             goto timestamp_common;
             break;
 
         case 153: /*  flowEndMilliseconds; 64-bit integer */
-            offset_e[rev] = offset;
-            ts_end[rev].secs  = (time_t)(tvb_get_ntoh64(tvb, offset)/1000);
-            ts_end[rev].nsecs = (int)(tvb_get_ntoh64(tvb, offset)%1000) * 1000000;
+            duration_type = (gint)duration_type_milliseconds;
+            offset_e[rev][duration_type] = offset;
+            ts_end[rev][duration_type].secs  = (time_t)(tvb_get_ntoh64(tvb, offset)/1000);
+            ts_end[rev][duration_type].nsecs = (int)(tvb_get_ntoh64(tvb, offset)%1000) * 1000000;
             goto timestamp_common;
             break;
 
         case 154: /*  flowStartMicroseconds: 64-bit NTP format */
-            offset_s[rev] = offset;
-            ntp_to_nstime(tvb, offset, &ts_start[rev]);
+            duration_type = (gint)duration_type_microseconds;
+            offset_s[rev][duration_type] = offset;
+            ntp_to_nstime(tvb, offset, &ts_start[rev][duration_type]);
             goto timestamp_common;
             break;
 
         case 155: /*  flowEndMicroseconds: 64-bit NTP format */
             /*  XXX: Not tested ...                    */
-            offset_e[rev] = offset;
-            ntp_to_nstime(tvb, offset, &ts_end[rev]);
+            duration_type = (gint)duration_type_microseconds;
+            offset_e[rev][duration_type] = offset;
+            ntp_to_nstime(tvb, offset, &ts_end[rev][duration_type]);
             goto timestamp_common;
             break;
 
         case 156: /*  flowStartNanoseconds: 64-bit NTP format */
             /*  XXX: Not tested ...                     */
-            offset_s[rev] = offset;
-            ntp_to_nstime(tvb, offset, &ts_start[rev]);
+            duration_type = (gint)duration_type_nanoseconds;
+            offset_s[rev][duration_type] = offset;
+            ntp_to_nstime(tvb, offset, &ts_start[rev][duration_type]);
             goto timestamp_common;
             break;
 
         case 157: /*  flowEndNanoseconds: 64-bit NTP format */
             /*  XXX: Not tested ...                   */
-            offset_e[rev] = offset;
-            ntp_to_nstime(tvb, offset, &ts_end[rev]);
+            duration_type = (gint)duration_type_nanoseconds;
+            offset_e[rev][duration_type] = offset;
+            ntp_to_nstime(tvb, offset, &ts_end[rev][duration_type]);
             goto timestamp_common;
             break;
 
         case 158: /*  flowStartDeltaMicroseconds: 32-bit integer; negative time offset   */
             /*   relative to the export time specified in the IPFIX Message Header */
             /*  XXX: Not tested ...                                                */
-            offset_s[rev]       = offset;
+            duration_type = (gint)duration_type_delta_milliseconds;
+            offset_s[rev][duration_type]       = offset;
             usec                = tvb_get_ntohl(tvb, offset);
-            ts_start[rev].secs  = (time_t)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) / 1000000);
-            ts_start[rev].nsecs = (int)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) % 1000000) * 1000;
+            ts_start[rev][duration_type].secs  = (time_t)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) / 1000000);
+            ts_start[rev][duration_type].nsecs = (int)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) % 1000000) * 1000;
             goto timestamp_common;
             break;
 
         case 159: /*  flowEndDeltaMicroseconds: 32-bit integer; negative time offset     */
             /*   relative to the export time specified in the IPFIX Message Header */
             /*  XXX: Not tested ...                                                */
-            offset_e[rev] = offset;
+            duration_type = (gint)duration_type_delta_milliseconds;
+            offset_e[rev][duration_type] = offset;
             usec          = tvb_get_ntohl(tvb, offset);
-            ts_end[rev].secs  = (time_t)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) / 1000000);
-            ts_end[rev].nsecs = (int)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) % 1000000) * 1000;
+            ts_end[rev][duration_type].secs  = (time_t)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) / 1000000);
+            ts_end[rev][duration_type].nsecs = (int)(((guint64)(hdrinfo_p->export_time_secs)*1000000 - usec) % 1000000) * 1000;
 
             /* This code executed for all timestamp fields above  */
-            /* !! Assumption: Only 1 set of time fields in a flow */
+            /* Since bug 11295, cope with multiple durations in one flow - not really sure if it makes sense... */
         timestamp_common:
-            if(offset_s[rev] && offset_e[rev]) {
+            if(offset_s[rev][duration_type] && offset_e[rev][duration_type]) {
                 proto_tree *timetree;
                 proto_item *timeitem;
 
-                nstime_delta(&ts_delta, &ts_end[rev], &ts_start[rev]);
+                nstime_delta(&ts_delta, &ts_end[rev][duration_type], &ts_start[rev][duration_type]);
                 timeitem =
                     proto_tree_add_time(pdutree, hf_cflow_timedelta, tvb,
-                                        offset_s[rev], 0, &ts_delta);
+                                        offset_s[rev][duration_type], 0, &ts_delta);
                 PROTO_ITEM_SET_GENERATED(timeitem);
                 timetree = proto_item_add_subtree(timeitem, ett_flowtime);
+
+                /* Show the type/units used to calculate the duration */
+                switch (duration_type) {
+                    case duration_type_switched:
+                        proto_item_append_text(timeitem, " (switched)");
+                        break;
+                    case duration_type_seconds:
+                        proto_item_append_text(timeitem, " (seconds)");
+                        break;
+                    case duration_type_milliseconds:
+                        proto_item_append_text(timeitem, " (milliseconds)");
+                        break;
+                    case duration_type_microseconds:
+                        proto_item_append_text(timeitem, " (microseconds)");
+                        break;
+                    case duration_type_nanoseconds:
+                        proto_item_append_text(timeitem, " (nanoseconds)");
+                        break;
+                    case duration_type_delta_milliseconds:
+                        proto_item_append_text(timeitem, " (delta milliseconds)");
+                        break;
+                    default:
+                        break;
+                }
+
                 /* Note: length of "start" is assumed to match that of "end" */
-                if (msec_start[rev]) {
+                if (msec_start[rev][duration_type]) {
                     proto_tree_add_time(timetree, hf_cflow_timestart, tvb,
-                                        offset_s[rev], length, &ts_start[rev]);
+                                        offset_s[rev][duration_type], length, &ts_start[rev][duration_type]);
                 } else {
                     proto_tree_add_time(timetree, hf_cflow_abstimestart, tvb,
-                                        offset_s[rev], length, &ts_start[rev]);
+                                        offset_s[rev][duration_type], length, &ts_start[rev][duration_type]);
                 }
-                if (msec_end[rev]) {
+                if (msec_end[rev][duration_type]) {
                     proto_tree_add_time(timetree, hf_cflow_timeend, tvb,
-                                        offset_e[rev], length, &ts_end[rev]);
+                                        offset_e[rev][duration_type], length, &ts_end[rev][duration_type]);
                 } else {
                     proto_tree_add_time(timetree, hf_cflow_abstimeend, tvb,
-                                        offset_e[rev], length, &ts_end[rev]);
+                                        offset_e[rev][duration_type], length, &ts_end[rev][duration_type]);
                 }
             }
             break;
@@ -6807,23 +6871,25 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
     /* If only "start" or "end" time, show it here */
     /* XXX: length is actually 8 if millisec, microsec, nanosec time */
     for (i = 0; i < 2; i++) {
-        if (!(offset_s[i] && offset_e[i])) {
-            if (offset_s[i]) {
-                if (msec_start[i]) {
-                    proto_tree_add_time(pdutree, hf_cflow_timestart, tvb,
-                                        offset_s[i], 4, &ts_start[i]);
-                } else {
-                    proto_tree_add_time(pdutree, hf_cflow_abstimestart, tvb,
-                                        offset_s[i], 4, &ts_start[i]);
+        for (j=0; j < (gint)duration_type_max; j++) {
+            if (!(offset_s[i][j] && offset_e[i][j])) {
+                if (offset_s[i][j]) {
+                    if (msec_start[i][j]) {
+                        proto_tree_add_time(pdutree, hf_cflow_timestart, tvb,
+                                            offset_s[i][j], 4, &ts_start[i][j]);
+                    } else {
+                        proto_tree_add_time(pdutree, hf_cflow_abstimestart, tvb,
+                                            offset_s[i][j], 4, &ts_start[i][j]);
+                    }
                 }
-            }
-            if (offset_e[i]) {
-                if (msec_end[i]) {
-                    proto_tree_add_time(pdutree, hf_cflow_timeend, tvb,
-                                        offset_e[i], 4, &ts_end[i]);
-                } else {
-                    proto_tree_add_time(pdutree, hf_cflow_abstimeend, tvb,
-                                        offset_e[i], 4, &ts_end[i]);
+                if (offset_e[i][j]) {
+                    if (msec_end[i][j]) {
+                        proto_tree_add_time(pdutree, hf_cflow_timeend, tvb,
+                                            offset_e[i][j], 4, &ts_end[i][j]);
+                    } else {
+                        proto_tree_add_time(pdutree, hf_cflow_abstimeend, tvb,
+                                            offset_e[i][j], 4, &ts_end[i][j]);
+                    }
                 }
             }
         }
@@ -7389,21 +7455,17 @@ getprefix(const guint32 *addr, int prefix)
 static void
 netflow_init(void)
 {
-    /* keys & values are allocated using 'wmem_file_scope()' as thus freed as part of the init sequence */
-    if (v9_v10_tmplt_table != NULL) {
-        g_hash_table_destroy(v9_v10_tmplt_table);
-    }
     v9_v10_tmplt_table = g_hash_table_new(v9_v10_tmplt_table_hash, v9_v10_tmplt_table_equal);
-
-    if (netflow_sequence_analysis_domain_hash != NULL) {
-        g_hash_table_destroy(netflow_sequence_analysis_domain_hash);
-    }
     netflow_sequence_analysis_domain_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
-    if (netflow_sequence_analysis_result_hash != NULL) {
-        g_hash_table_destroy(netflow_sequence_analysis_result_hash);
-    }
     netflow_sequence_analysis_result_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
+}
+
+static void
+netflow_cleanup(void)
+{
+    g_hash_table_destroy(v9_v10_tmplt_table);
+    g_hash_table_destroy(netflow_sequence_analysis_domain_hash);
+    g_hash_table_destroy(netflow_sequence_analysis_result_hash);
 }
 
 void
@@ -11478,6 +11540,7 @@ proto_register_netflow(void)
                                    10, &v9_tmplt_max_fields);
 
     register_init_routine(&netflow_init);
+    register_cleanup_routine(&netflow_cleanup);
 }
 
 

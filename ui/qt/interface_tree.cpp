@@ -32,6 +32,7 @@
 
 #include "qt_ui_utils.h"
 #include "sparkline_delegate.h"
+#include "stock_icon.h"
 #include "wireshark_application.h"
 
 #ifdef HAVE_EXTCAP
@@ -98,7 +99,7 @@ InterfaceTree::~InterfaceTree() {
 
 /* Resets the column count to the maximum colum count
  *
- * This is necessary, because the treeview may have more columns, then
+ * This is necessary, because the treeview may have more columns than
  * the default value (2).
  */
 void InterfaceTree::resetColumnCount()
@@ -106,9 +107,7 @@ void InterfaceTree::resetColumnCount()
     setColumnCount(IFTREE_COL_MAX);
 }
 
-void InterfaceTree::hideEvent(QHideEvent *evt) {
-    Q_UNUSED(evt);
-
+void InterfaceTree::hideEvent(QHideEvent *) {
 #ifdef HAVE_LIBPCAP
     if (stat_timer_) stat_timer_->stop();
     if (stat_cache_) {
@@ -118,17 +117,15 @@ void InterfaceTree::hideEvent(QHideEvent *evt) {
 #endif // HAVE_LIBPCAP
 }
 
-void InterfaceTree::showEvent(QShowEvent *evt) {
-    Q_UNUSED(evt);
-
+void InterfaceTree::showEvent(QShowEvent *) {
 #ifdef HAVE_LIBPCAP
     if (stat_timer_) stat_timer_->start(stat_update_interval_);
 #endif // HAVE_LIBPCAP
 }
+
 #include <QDebug>
-void InterfaceTree::resizeEvent(QResizeEvent *evt)
+void InterfaceTree::resizeEvent(QResizeEvent *)
 {
-    Q_UNUSED(evt);
     int max_if_width = width() * 2 / 3; // Arbitrary
 
     setUpdatesEnabled(false);
@@ -145,7 +142,7 @@ void InterfaceTree::display()
 #ifdef HAVE_LIBPCAP
     interface_t device;
 #if HAVE_EXTCAP
-    QIcon extcap_icon(":/icons/toolbar/16x16/x-capture-options.png");
+    QIcon extcap_icon(StockIcon("x-capture-options"));
 #endif
 
     setDisabled(false);
@@ -169,6 +166,11 @@ void InterfaceTree::display()
         resizeColumnToContents(0);
         return;
     }
+
+    /* when no interfaces were available initially and an update of the
+       interface list called this function, the column count is set to 1
+       reset it to ensure that the interface list is properly displayed */
+    resetColumnCount();
 
     for (guint i = 0; i < global_capture_opts.all_ifaces->len; i++) {
         QList<int> *points;
@@ -205,6 +207,7 @@ void InterfaceTree::display()
 #endif
         addTopLevelItem(ti);
         // XXX Add other device information
+        resizeColumnToContents(IFTREE_COL_NAME);
         resizeColumnToContents(IFTREE_COL_STATS);
 
 #if HAVE_EXTCAP

@@ -108,7 +108,7 @@ dissect_tuxedo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "TUXEDO");
 
-	if (tvb_length(tvb) >= 8)
+	if (tvb_reported_length(tvb) >= 8)
 	{
 		magic = tvb_get_ntohl(tvb, 0);
 		if (magic == TUXEDO_MAGIC || magic == TUXEDO_SMAGIC)
@@ -141,7 +141,7 @@ dissect_tuxedo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 static gboolean
 dissect_tuxedo_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-	if (tvb_length(tvb) >= 8)
+	if (tvb_captured_length(tvb) >= 8)
 	{
 		guint32 magic;
 		magic = tvb_get_ntohl(tvb, 0);
@@ -186,7 +186,7 @@ proto_reg_handoff_tuxedo(void)
 {
 	tuxedo_handle = create_dissector_handle(dissect_tuxedo, proto_tuxedo);
 	dissector_add_for_decode_as("tcp.port", tuxedo_handle);
-	heur_dissector_add("tcp", dissect_tuxedo_heur, proto_tuxedo);
+	heur_dissector_add("tcp", dissect_tuxedo_heur, "Tuxedo over TCP", "tuxedo_tcp", proto_tuxedo, HEURISTIC_ENABLE);
 }
 
 /*

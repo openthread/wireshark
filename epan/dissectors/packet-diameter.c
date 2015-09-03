@@ -48,6 +48,7 @@
 #include <epan/sminmpec.h>
 #include <epan/expert.h>
 #include <epan/tap.h>
+#include <epan/srt_table.h>
 #include <epan/exported_pdu.h>
 #include <epan/diam_dict.h>
 #include <epan/sctpppids.h>
@@ -341,7 +342,7 @@ export_diameter_pdu(packet_info *pinfo, tvbuff_t *tvb)
 	tags_bit_field = EXP_PDU_TAG_IP_SRC_BIT + EXP_PDU_TAG_IP_DST_BIT + EXP_PDU_TAG_SRC_PORT_BIT +
 		EXP_PDU_TAG_DST_PORT_BIT + EXP_PDU_TAG_ORIG_FNO_BIT;
 
-	exp_pdu_data = load_export_pdu_tags(pinfo, "diameter", -1, &tags_bit_field, 1);
+	exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, "diameter", &tags_bit_field, 1);
 
 	exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
 	exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
@@ -364,6 +365,67 @@ compare_avps(const void *a, const void *b)
 
 	return 0;
 }
+
+static GHashTable* diameterstat_cmd_str_hash = NULL;
+#define DIAMETER_NUM_PROCEDURES     1
+
+static void
+diameterstat_init(struct register_srt* srt _U_, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+{
+	srt_stat_table *diameter_srt_table;
+	int* idx;
+
+    /* XXX - This is a hack/workaround support so reseting/freeing parameters at the dissector
+       level doesn't need to be supported. */
+	if (diameterstat_cmd_str_hash != NULL)
+	{
+		g_hash_table_destroy(diameterstat_cmd_str_hash);
+	}
+
+	idx = (int *)g_malloc(sizeof(int));
+	*idx = 0;
+	diameterstat_cmd_str_hash = g_hash_table_new(g_str_hash,g_str_equal);
+	g_hash_table_insert(diameterstat_cmd_str_hash, (gchar *)"Unknown", idx);
+
+	/** @todo the filter to use in stead of NULL is "diameter.cmd.code"
+	 * to enable the filter popup in the service response time dalouge
+	 * Note to make it work the command code must be stored rather than the
+	 * index.
+	 */
+	diameter_srt_table = init_srt_table("Diameter Requests", NULL, srt_array, DIAMETER_NUM_PROCEDURES, NULL, NULL, gui_callback, gui_data, NULL);
+	init_srt_table_row(diameter_srt_table, 0, "Unknown");
+}
+
+static int
+diameterstat_packet(void *pss, packet_info *pinfo, epan_dissect_t *edt _U_, const void *prv)
+{
+	guint i = 0;
+	srt_stat_table *diameter_srt_table;
+	srt_data_t *data = (srt_data_t *)pss;
+	const diameter_req_ans_pair_t *diameter=(const diameter_req_ans_pair_t *)prv;
+	int* idx = NULL;
+
+	/* Process only answers where corresponding request is found.
+	 * Unpaired daimeter messages are currently not supported by statistics.
+	 * Return 0, since redraw is not needed. */
+	if(!diameter || diameter->processing_request || !diameter->req_frame)
+		return 0;
+
+	diameter_srt_table = g_array_index(data->srt_array, srt_stat_table*, i);
+
+	idx = (int*) g_hash_table_lookup(diameterstat_cmd_str_hash, diameter->cmd_str);
+	if (idx == NULL) {
+		idx = (int *)g_malloc(sizeof(int));
+		*idx = (int) g_hash_table_size(diameterstat_cmd_str_hash);
+		g_hash_table_insert(diameterstat_cmd_str_hash, (gchar*) diameter->cmd_str, idx);
+		init_srt_table_row(diameter_srt_table, *idx,  (const char*) diameter->cmd_str);
+	}
+
+	add_srt_table_data(diameter_srt_table, *idx, &diameter->req_time, pinfo);
+
+	return 1;
+}
+
 
 /* Special decoding of some AVPs */
 
@@ -411,11 +473,12 @@ dissect_diameter_3gpp2_exp_res(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
 		return 0;
 	diam_sub_dis = (diam_sub_dis_t*)data;
 
-	pi = proto_tree_add_item(tree, hf_diameter_3gpp2_exp_res, tvb, 0, 4, ENC_BIG_ENDIAN);
-	diam_sub_dis->avp_str = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-	proto_item_fill_label(PITEM_FINFO(pi), diam_sub_dis->avp_str);
-	diam_sub_dis->avp_str = strstr(diam_sub_dis->avp_str,": ")+2;
-
+	if (tree) {
+		pi = proto_tree_add_item(tree, hf_diameter_3gpp2_exp_res, tvb, 0, 4, ENC_BIG_ENDIAN);
+		diam_sub_dis->avp_str = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+		proto_item_fill_label(PITEM_FINFO(pi), diam_sub_dis->avp_str);
+		diam_sub_dis->avp_str = strstr(diam_sub_dis->avp_str,": ")+2;
+	}
 
 	return 4;
 }
@@ -722,9 +785,9 @@ dissect_diameter_avp(diam_ctx_t *c, tvbuff_t *tvb, int offset, diam_sub_dis_t *d
 	call_avp_subdissector(vendorid, code, subtvb, c->pinfo, avp_tree, diam_sub_dis_inf);
 
 	/* Let the subdissector have precedence filling in the avp_item string */
-	if(diam_sub_dis_inf->avp_str){
+	if (diam_sub_dis_inf->avp_str) {
 		proto_item_append_text(avp_item," val=%s", diam_sub_dis_inf->avp_str);
-	}else if (avp_str){
+	} else if (avp_str) {
 		proto_item_append_text(avp_item," val=%s", avp_str);
 	}
 
@@ -747,7 +810,7 @@ dissect_diameter_avp(diam_ctx_t *c, tvbuff_t *tvb, int offset, diam_sub_dis_t *d
 static const char *
 address_rfc_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+	char *label = NULL;
 	address_avp_t *t = (address_avp_t *)a->type_data;
 	gint len = tvb_reported_length(tvb);
 	proto_item *pi = proto_tree_add_item(c->tree, a->hf_value, tvb, 0, len, ENC_BIG_ENDIAN);
@@ -776,8 +839,12 @@ address_rfc_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *dia
 			break;
 	}
 
-	proto_item_fill_label(PITEM_FINFO(pi), label);
-	label = strstr(label,": ")+2;
+	if (c->tree) {
+		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+		proto_item_fill_label(PITEM_FINFO(pi), label);
+		label = strstr(label,": ")+2;
+	}
+
 	return label;
 }
 
@@ -808,7 +875,7 @@ static const char *
 time_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
 	int len = tvb_reported_length(tvb);
-	char *label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+	char *label = NULL;
 	proto_item *pi;
 
 	if ( len != 4 ) {
@@ -817,16 +884,21 @@ time_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_d
 		return "[Malformed]";
 	}
 
-	pi = proto_tree_add_item(c->tree, (a->hf_value), tvb, 0, 4, ENC_TIME_NTP|ENC_BIG_ENDIAN);
-	proto_item_fill_label(PITEM_FINFO(pi), label);
-	label = strstr(label,": ")+2;
+	if (c->tree) {
+		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+		pi = proto_tree_add_item(c->tree, (a->hf_value), tvb, 0, 4, ENC_TIME_NTP|ENC_BIG_ENDIAN);
+		proto_item_fill_label(PITEM_FINFO(pi), label);
+		label = strstr(label,": ")+2;
+	}
+
 	return label;
 }
 
 static const char *
 address_v16_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+	char *label = NULL;
+
 	address_avp_t *t = (address_avp_t *)a->type_data;
 	proto_item *pi = proto_tree_add_item(c->tree,a->hf_value,tvb,0,tvb_reported_length(tvb),ENC_BIG_ENDIAN);
 	proto_tree *pt = proto_item_add_subtree(pi,t->ett);
@@ -847,44 +919,60 @@ address_v16_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *dia
 			break;
 	}
 
-	proto_item_fill_label(PITEM_FINFO(pi), label);
-	label = strstr(label,": ")+2;
+	if (c->tree) {
+		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+		proto_item_fill_label(PITEM_FINFO(pi), label);
+		label = strstr(label,": ")+2;
+	}
+
 	return label;
 }
 
 static const char *
 simple_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-	proto_item *pi = proto_tree_add_item(c->tree,a->hf_value,tvb,0,tvb_reported_length(tvb),ENC_BIG_ENDIAN);
-	proto_item_fill_label(PITEM_FINFO(pi), label);
-	label = strstr(label,": ")+2;
+	char *label = NULL;
+
+	if (c->tree) {
+		proto_item *pi = proto_tree_add_item(c->tree,a->hf_value,tvb,0,tvb_reported_length(tvb),ENC_BIG_ENDIAN);
+		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+		proto_item_fill_label(PITEM_FINFO(pi), label);
+		label = strstr(label,": ")+2;
+	}
+
 	return label;
 }
 
 static const char *
 utf8_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-	proto_item *pi = proto_tree_add_item(c->tree,a->hf_value,tvb,0,tvb_reported_length(tvb),ENC_UTF_8|ENC_BIG_ENDIAN);
-	proto_item_fill_label(PITEM_FINFO(pi), label);
-	label = strstr(label,": ")+2;
+	char *label = NULL;
+
+	if (c->tree) {
+		proto_item *pi = proto_tree_add_item(c->tree,a->hf_value,tvb,0,tvb_reported_length(tvb),ENC_UTF_8|ENC_BIG_ENDIAN);
+		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+		proto_item_fill_label(PITEM_FINFO(pi), label);
+		label = strstr(label,": ")+2;
+	}
+
 	return label;
 }
 
 static const char *
 integer32_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label;
+	char *label = NULL;
 	proto_item *pi;
 
 	/* Verify length before adding */
 	gint length = tvb_reported_length(tvb);
 	if (length == 4) {
-		pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
-		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-		proto_item_fill_label(PITEM_FINFO(pi), label);
-		label = strstr(label,": ")+2;
+		if (c->tree) {
+			pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
+			label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+			proto_item_fill_label(PITEM_FINFO(pi), label);
+			label = strstr(label,": ")+2;
+		}
 	}
 	else {
 		pi = proto_tree_add_bytes_format(c->tree, hf_diameter_avp_data_wrong_length,
@@ -893,24 +981,26 @@ integer32_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_
 		expert_add_info_format(c->pinfo, pi, &ei_diameter_avp_len,
 					"Bad Integer32 Length (%u)", length);
 		PROTO_ITEM_SET_GENERATED(pi);
-		label = NULL;
 	}
+
 	return label;
 }
 
 static const char *
 integer64_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label;
+	char *label = NULL;
 	proto_item *pi;
 
 	/* Verify length before adding */
 	gint length = tvb_reported_length(tvb);
 	if (length == 8) {
-		pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
-		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-		proto_item_fill_label(PITEM_FINFO(pi), label);
-		label = strstr(label,": ")+2;
+		if (c->tree) {
+			pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
+			label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+			proto_item_fill_label(PITEM_FINFO(pi), label);
+			label = strstr(label,": ")+2;
+		}
 	}
 	else {
 		pi = proto_tree_add_bytes_format(c->tree, hf_diameter_avp_data_wrong_length,
@@ -919,24 +1009,26 @@ integer64_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_
 		expert_add_info_format(c->pinfo, pi, &ei_diameter_avp_len,
 				"Bad Integer64 Length (%u)", length);
 		PROTO_ITEM_SET_GENERATED(pi);
-		label = NULL;
 	}
+
 	return label;
 }
 
 static const char *
 unsigned32_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label;
+	char *label = NULL;
 	proto_item *pi;
 
 	/* Verify length before adding */
 	gint length = tvb_reported_length(tvb);
 	if (length == 4) {
-		pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
-		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-		proto_item_fill_label(PITEM_FINFO(pi), label);
-		label = strstr(label,": ")+2;
+		if (c->tree) {
+			pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
+			label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+			proto_item_fill_label(PITEM_FINFO(pi), label);
+			label = strstr(label,": ")+2;
+		}
 	}
 	else {
 		pi = proto_tree_add_bytes_format(c->tree, hf_diameter_avp_data_wrong_length,
@@ -945,24 +1037,26 @@ unsigned32_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam
 		expert_add_info_format(c->pinfo, pi, &ei_diameter_avp_len,
 					"Bad Unsigned32 Length (%u)", length);
 		PROTO_ITEM_SET_GENERATED(pi);
-		label = NULL;
 	}
+
 	return label;
 }
 
 static const char *
 unsigned64_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label;
+	char *label = NULL;
 	proto_item *pi;
 
 	/* Verify length before adding */
 	gint length = tvb_reported_length(tvb);
 	if (length == 8) {
-		pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
-		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-		proto_item_fill_label(PITEM_FINFO(pi), label);
-		label = strstr(label,": ")+2;
+		if (c->tree) {
+			pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
+			label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+			proto_item_fill_label(PITEM_FINFO(pi), label);
+			label = strstr(label,": ")+2;
+		}
 	}
 	else {
 		pi = proto_tree_add_bytes_format(c->tree, hf_diameter_avp_data_wrong_length,
@@ -971,24 +1065,26 @@ unsigned64_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam
 		expert_add_info_format(c->pinfo, pi, &ei_diameter_avp_len,
 				"Bad Unsigned64 Length (%u)", length);
 		PROTO_ITEM_SET_GENERATED(pi);
-		label = NULL;
 	}
+
 	return label;
 }
 
 static const char *
 float32_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label;
+	char *label = NULL;
 	proto_item *pi;
 
 	/* Verify length before adding */
 	gint length = tvb_reported_length(tvb);
 	if (length == 4) {
-		pi= proto_tree_add_item(c->tree,a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
-		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-		proto_item_fill_label(PITEM_FINFO(pi), label);
-		label = strstr(label,": ")+2;
+		if (c->tree) {
+			pi= proto_tree_add_item(c->tree,a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
+			label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+			proto_item_fill_label(PITEM_FINFO(pi), label);
+			label = strstr(label,": ")+2;
+		}
 	}
 	else {
 		pi = proto_tree_add_bytes_format(c->tree, hf_diameter_avp_data_wrong_length,
@@ -997,24 +1093,26 @@ float32_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_su
 		expert_add_info_format(c->pinfo, pi, &ei_diameter_avp_len,
 				"Bad Float32 Length (%u)", length);
 		PROTO_ITEM_SET_GENERATED(pi);
-		label = NULL;
 	}
+
 	return label;
 }
 
 static const char *
 float64_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_sub_dis_inf _U_)
 {
-	char *label;
+	char *label = NULL;
 	proto_item *pi;
 
 	/* Verify length before adding */
 	gint length = tvb_reported_length(tvb);
 	if (length == 8) {
-		pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
-		label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
-		proto_item_fill_label(PITEM_FINFO(pi), label);
-		label = strstr(label,": ")+2;
+		if (c->tree) {
+			pi= proto_tree_add_item(c->tree, a->hf_value, tvb, 0, length, ENC_BIG_ENDIAN);
+			label = (char *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH+1);
+			proto_item_fill_label(PITEM_FINFO(pi), label);
+			label = strstr(label,": ")+2;
+		}
 	}
 	else {
 		pi = proto_tree_add_bytes_format(c->tree, hf_diameter_avp_data_wrong_length,
@@ -1023,8 +1121,8 @@ float64_avp(diam_ctx_t *c, diam_avp_t *a, tvbuff_t *tvb, diam_sub_dis_t *diam_su
 		expert_add_info_format(c->pinfo, pi, &ei_diameter_avp_len,
 				"Bad Float64 Length (%u)", length);
 		PROTO_ITEM_SET_GENERATED(pi);
-		label = NULL;
 	}
+
 	return label;
 }
 
@@ -1257,36 +1355,34 @@ dissect_diameter_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	}
 	diameter_pair->processing_request=(flags_bits & DIAM_FLAGS_R)!= 0;
 
-	if (tree){
-		/* print state tracking info in the tree */
-		if (flags_bits & DIAM_FLAGS_R) {
-			/* This is a request */
-			if (diameter_pair->ans_frame) {
-				it = proto_tree_add_uint(diam_tree, hf_diameter_answer_in,
-						tvb, 0, 0, diameter_pair->ans_frame);
-				PROTO_ITEM_SET_GENERATED(it);
-			}
-		} else {
-			/* This is an answer */
-			if (diameter_pair->req_frame) {
-				it = proto_tree_add_uint(diam_tree, hf_diameter_answer_to,
-						tvb, 0, 0, diameter_pair->req_frame);
-				PROTO_ITEM_SET_GENERATED(it);
-
-				nstime_delta(&ns, &pinfo->fd->abs_ts, &diameter_pair->req_time);
-				diameter_pair->srt_time = ns;
-				it = proto_tree_add_time(diam_tree, hf_diameter_answer_time, tvb, 0, 0, &ns);
-				PROTO_ITEM_SET_GENERATED(it);
-				/* TODO: Populate result_code in tap record from AVP 268 */
-			}
+	/* print state tracking info in the tree */
+	if (flags_bits & DIAM_FLAGS_R) {
+		/* This is a request */
+		if (diameter_pair->ans_frame) {
+			it = proto_tree_add_uint(diam_tree, hf_diameter_answer_in,
+					tvb, 0, 0, diameter_pair->ans_frame);
+			PROTO_ITEM_SET_GENERATED(it);
 		}
+	} else {
+		/* This is an answer */
+		if (diameter_pair->req_frame) {
+			it = proto_tree_add_uint(diam_tree, hf_diameter_answer_to,
+					tvb, 0, 0, diameter_pair->req_frame);
+			PROTO_ITEM_SET_GENERATED(it);
 
-		offset = 20;
-
-		/* Dissect AVPs until the end of the packet is reached */
-		while (offset < packet_len) {
-			offset += dissect_diameter_avp(c, tvb, offset, diam_sub_dis_inf);
+			nstime_delta(&ns, &pinfo->fd->abs_ts, &diameter_pair->req_time);
+			diameter_pair->srt_time = ns;
+			it = proto_tree_add_time(diam_tree, hf_diameter_answer_time, tvb, 0, 0, &ns);
+			PROTO_ITEM_SET_GENERATED(it);
+			/* TODO: Populate result_code in tap record from AVP 268 */
 		}
+	}
+
+	offset = 20;
+
+	/* Dissect AVPs until the end of the packet is reached */
+	while (offset < packet_len) {
+		offset += dissect_diameter_avp(c, tvb, offset, diam_sub_dis_inf);
 	}
 
 	/* Handle requests for which no answers were found and
@@ -1773,6 +1869,8 @@ dictionary_load(void)
 	d = ddict_scan(dir,"dictionary.xml",do_debug_parser);
 	g_free(dir);
 	if (d == NULL) {
+		g_hash_table_destroy(vendors);
+		g_array_free(vnd_shrt_arr, TRUE);
 		return 0;
 	}
 
@@ -2200,6 +2298,8 @@ real_proto_register_diameter(void)
 
 	/* Register tap */
 	diameter_tap = register_tap("diameter");
+
+	register_srt_table(proto_diameter, NULL, 1, diameterstat_packet, diameterstat_init, NULL);
 }
 
 void

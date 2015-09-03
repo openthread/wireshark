@@ -2459,7 +2459,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean ptp
    } else if (msg_len < PTP_V2_MESSAGE_LENGTH_OFFSET + 2) {
        /* Bogus message length - not long enough to include the message length field */
        expert_add_info(pinfo, msg_len_item, &ei_ptp_v2_msg_len_too_small);
-       THROW(ReportedBoundsError);
+       return;
    } else {
        /*
         * Set the length of this tvbuff to the message length, chopping
@@ -3046,7 +3046,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean ptp
                     proto_item *ptp_tlv_period;
                     proto_tree *ptp_tlv_period_tree;
 
-                    proto_len  = tvb_length(tvb);
+                    proto_len  = tvb_reported_length(tvb);
                     tlv_offset = PTP_V2_SIG_TLV_START;
 
                     while (tlv_offset < proto_len) {

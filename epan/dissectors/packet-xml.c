@@ -35,6 +35,7 @@
 #include <epan/dtd.h>
 #include <wsutil/filesystem.h>
 #include <epan/prefs.h>
+#include <epan/expert.h>
 #include <epan/garrayfix.h>
 #include <wsutil/str_util.h>
 #include <wsutil/report_err.h>
@@ -59,6 +60,10 @@ static int hf_xmlpi = -1;
 static int hf_dtd_tag = -1;
 static int hf_doctype = -1;
 
+static expert_field ei_xml_closing_unopened_tag = EI_INIT;
+static expert_field ei_xml_closing_unopened_xmpli_tag = EI_INIT;
+static expert_field ei_xml_unrecognized_text = EI_INIT;
+
 /* dissector handles */
 static dissector_handle_t xml_handle;
 
@@ -74,12 +79,6 @@ static xml_ns_t xml_ns     = {(gchar *)"xml",     "/", -1, -1, -1, NULL, NULL, N
 static xml_ns_t unknown_ns = {(gchar *)"unknown", "?", -1, -1, -1, NULL, NULL, NULL};
 static xml_ns_t *root_ns;
 
-static gboolean pref_heuristic_media      = FALSE;
-static gboolean pref_heuristic_tcp        = FALSE;
-static gboolean pref_heuristic_udp        = FALSE;
-static gboolean pref_heuristic_media_save = FALSE;
-static gboolean pref_heuristic_tcp_save   = FALSE;
-static gboolean pref_heuristic_udp_save   = FALSE;
 static gboolean pref_heuristic_unicode    = FALSE;
 
 static range_t *global_xml_tcp_range = NULL;
@@ -191,6 +190,7 @@ dissect_xml(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
     current_frame->name           = NULL;
     current_frame->name_orig_case = NULL;
     current_frame->value          = NULL;
+    current_frame->pinfo          = pinfo;
     insert_xml_frame(NULL, current_frame);
     g_ptr_array_add(stack, current_frame);
 
@@ -235,8 +235,8 @@ static gboolean dissect_xml_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
         return TRUE;
     } else if (pref_heuristic_unicode) {
         /* XXX - UCS-2, or UTF-16? */
-        const guint8 *data_str    = tvb_get_string_enc(NULL, tvb, 0, tvb_length(tvb), ENC_UCS_2|ENC_LITTLE_ENDIAN);
-        tvbuff_t     *unicode_tvb = tvb_new_child_real_data(tvb, data_str, tvb_length(tvb)/2, tvb_length(tvb)/2);
+        const guint8 *data_str    = tvb_get_string_enc(NULL, tvb, 0, tvb_captured_length(tvb), ENC_UCS_2|ENC_LITTLE_ENDIAN);
+        tvbuff_t     *unicode_tvb = tvb_new_child_real_data(tvb, data_str, tvb_captured_length(tvb)/2, tvb_captured_length(tvb)/2);
         tvb_set_free_cb(unicode_tvb, g_free);
         if (tvbparse_peek(tvbparse_init(unicode_tvb, 0, -1, NULL, want_ignore), want_heur)) {
             add_new_data_source(pinfo, unicode_tvb, "UTF8");
@@ -336,6 +336,7 @@ static void after_token(void *tvbparse_data, const void *wanted_data _U_, tvbpar
         new_frame->tree           = NULL;
         new_frame->start_offset   = tok->offset;
         new_frame->ns             = NULL;
+        new_frame->pinfo          = current_frame->pinfo;
     }
 }
 
@@ -379,6 +380,7 @@ static void before_xmpli(void *tvbparse_data, const void *wanted_data _U_, tvbpa
     new_frame->tree           = pt;
     new_frame->start_offset   = tok->offset;
     new_frame->ns             = ns;
+    new_frame->pinfo          = current_frame->pinfo;
 
     g_ptr_array_add(stack, new_frame);
 
@@ -394,8 +396,8 @@ static void after_xmlpi(void *tvbparse_data, const void *wanted_data _U_, tvbpar
     if (stack->len > 1) {
         g_ptr_array_remove_index_fast(stack, stack->len - 1);
     } else {
-        proto_tree_add_text(current_frame->tree, tok->tvb, tok->offset, tok->len,
-                            "[ ERROR: Closing an unopened xmpli tag ]");
+        proto_tree_add_expert(current_frame->tree, current_frame->pinfo, &ei_xml_closing_unopened_xmpli_tag,
+            tok->tvb, tok->offset, tok->len);
     }
 }
 
@@ -467,6 +469,7 @@ static void before_tag(void *tvbparse_data, const void *wanted_data _U_, tvbpars
     new_frame->tree           = pt;
     new_frame->start_offset   = tok->offset;
     new_frame->ns             = ns;
+    new_frame->pinfo          = current_frame->pinfo;
 
     g_ptr_array_add(stack, new_frame);
 
@@ -490,7 +493,8 @@ static void after_closed_tag(void *tvbparse_data, const void *wanted_data _U_, t
     if (stack->len > 1) {
         g_ptr_array_remove_index_fast(stack, stack->len - 1);
     } else {
-        proto_tree_add_text(current_frame->tree, tok->tvb, tok->offset, tok->len, "[ ERROR: Closing an unopened tag ]");
+        proto_tree_add_expert(current_frame->tree, current_frame->pinfo, &ei_xml_closing_unopened_tag,
+                              tok->tvb, tok->offset, tok->len);
     }
 }
 
@@ -506,8 +510,8 @@ static void after_untag(void *tvbparse_data, const void *wanted_data _U_, tvbpar
     if (stack->len > 1) {
         g_ptr_array_remove_index_fast(stack, stack->len - 1);
     } else {
-        proto_tree_add_text(current_frame->tree, tok->tvb, tok->offset, tok->len,
-                            "[ ERROR: Closing an unopened tag ]");
+        proto_tree_add_expert(current_frame->tree, current_frame->pinfo, &ei_xml_closing_unopened_tag,
+            tok->tvb, tok->offset, tok->len);
     }
 }
 
@@ -536,6 +540,7 @@ static void before_dtd_doctype(void *tvbparse_data, const void *wanted_data _U_,
     new_frame->tree           = proto_item_add_subtree(dtd_item, ett_dtd);
     new_frame->start_offset   = tok->offset;
     new_frame->ns             = NULL;
+    new_frame->pinfo          = current_frame->pinfo;
 
     g_ptr_array_add(stack, new_frame);
 }
@@ -548,8 +553,8 @@ static void pop_stack(void *tvbparse_data, const void *wanted_data _U_, tvbparse
     if (stack->len > 1) {
         g_ptr_array_remove_index_fast(stack, stack->len - 1);
     } else {
-        proto_tree_add_text(current_frame->tree, tok->tvb, tok->offset, tok->len,
-                            "[ ERROR: Closing an unopened tag ]");
+        proto_tree_add_expert(current_frame->tree, current_frame->pinfo, &ei_xml_closing_unopened_tag,
+            tok->tvb, tok->offset, tok->len);
     }
 }
 
@@ -562,7 +567,8 @@ static void after_dtd_close(void *tvbparse_data, const void *wanted_data _U_, tv
     if (stack->len > 1) {
         g_ptr_array_remove_index_fast(stack, stack->len - 1);
     } else {
-        proto_tree_add_text(current_frame->tree, tok->tvb, tok->offset, tok->len, "[ ERROR: Closing an unopened tag ]");
+        proto_tree_add_expert(current_frame->tree, current_frame->pinfo, &ei_xml_closing_unopened_tag,
+            tok->tvb, tok->offset, tok->len);
     }
 }
 
@@ -612,6 +618,7 @@ static void after_attrib(void *tvbparse_data, const void *wanted_data _U_, tvbpa
     new_frame->tree           = NULL;
     new_frame->start_offset   = tok->offset;
     new_frame->ns             = NULL;
+    new_frame->pinfo          = current_frame->pinfo;
 
 }
 
@@ -620,7 +627,8 @@ static void unrecognized_token(void *tvbparse_data, const void *wanted_data _U_,
     GPtrArray   *stack         = (GPtrArray *)tvbparse_data;
     xml_frame_t *current_frame = (xml_frame_t *)g_ptr_array_index(stack, stack->len - 1);
 
-    proto_tree_add_text(current_frame->tree, tok->tvb, tok->offset, tok->len, "[ ERROR: Unrecognized text ]");
+    proto_tree_add_expert(current_frame->tree, current_frame->pinfo, &ei_xml_unrecognized_text,
+                    tok->tvb, tok->offset, tok->len);
 
 }
 
@@ -1346,40 +1354,6 @@ static void init_xml_names(void)
 
 static void apply_prefs(void)
 {
-    if (pref_heuristic_media_save != pref_heuristic_media) {
-        if (pref_heuristic_media) {
-            heur_dissector_add("http",  dissect_xml_heur, xml_ns.hf_tag);
-            heur_dissector_add("sip",   dissect_xml_heur, xml_ns.hf_tag);
-            heur_dissector_add("media", dissect_xml_heur, xml_ns.hf_tag);
-            pref_heuristic_media_save = TRUE;
-        } else {
-            heur_dissector_delete("http",  dissect_xml_heur, xml_ns.hf_tag);
-            heur_dissector_delete("sip",   dissect_xml_heur, xml_ns.hf_tag);
-            heur_dissector_delete("media", dissect_xml_heur, xml_ns.hf_tag);
-            pref_heuristic_media_save = FALSE;
-        }
-    }
-
-    if (pref_heuristic_tcp_save != pref_heuristic_tcp ) {
-        if (pref_heuristic_tcp) {
-            heur_dissector_add("tcp", dissect_xml_heur, xml_ns.hf_tag);
-            pref_heuristic_tcp_save = TRUE;
-        } else {
-            heur_dissector_delete("tcp", dissect_xml_heur, xml_ns.hf_tag);
-            pref_heuristic_tcp_save = FALSE;
-        }
-    }
-
-    if (pref_heuristic_udp_save != pref_heuristic_udp ) {
-        if (pref_heuristic_udp) {
-            heur_dissector_add("udp", dissect_xml_heur, xml_ns.hf_tag);
-            pref_heuristic_udp_save = TRUE;
-        } else {
-            heur_dissector_delete("udp", dissect_xml_heur, xml_ns.hf_tag);
-            pref_heuristic_udp_save = FALSE;
-        }
-    }
-
     dissector_delete_uint_range("tcp.port", xml_tcp_range, xml_handle);
     g_free(xml_tcp_range);
     xml_tcp_range = range_copy(global_xml_tcp_range);
@@ -1438,7 +1412,15 @@ proto_register_xml(void)
            NULL, HFILL }
         }
     };
+
+    static ei_register_info ei[] = {
+        { &ei_xml_closing_unopened_tag, { "xml.closing_unopened_tag", PI_MALFORMED, PI_ERROR, "Closing an unopened tag", EXPFILL }},
+        { &ei_xml_closing_unopened_xmpli_tag, { "xml.closing_unopened_xmpli_tag", PI_MALFORMED, PI_ERROR, "Closing an unopened xmpli tag", EXPFILL }},
+        { &ei_xml_unrecognized_text, { "xml.unrecognized_text", PI_PROTOCOL, PI_WARN, "Unrecognized text", EXPFILL }},
+    };
+
     module_t *xml_module;
+    expert_module_t* expert_xml;
 
     hf_arr  = wmem_array_new(wmem_epan_scope(), sizeof(hf_register_info));
     ett_arr = g_array_new(FALSE, FALSE, sizeof(gint *));
@@ -1452,20 +1434,16 @@ proto_register_xml(void)
 
     proto_register_field_array(xml_ns.hf_tag, (hf_register_info*)wmem_array_get_raw(hf_arr), wmem_array_get_count(hf_arr));
     proto_register_subtree_array((gint **)g_array_data(ett_arr), ett_arr->len);
+    expert_xml = expert_register_protocol(xml_ns.hf_tag);
+    expert_register_field_array(expert_xml, ei, array_length(ei));
 
     xml_module = prefs_register_protocol(xml_ns.hf_tag, apply_prefs);
-    prefs_register_bool_preference(xml_module, "heuristic", "Use Heuristics for media types",
-                                   "Try to recognize XML for unknown media types",
-                                   &pref_heuristic_media);
-    prefs_register_bool_preference(xml_module, "heuristic_tcp", "Use Heuristics for TCP",
-                                   "Try to recognize XML for unknown TCP ports",
-                                   &pref_heuristic_tcp);
+    prefs_register_obsolete_preference(xml_module, "heuristic");
+    prefs_register_obsolete_preference(xml_module, "heuristic_tcp");
     prefs_register_range_preference(xml_module, "tcp.port", "TCP Ports",
                                     "TCP Ports range",
                                     &global_xml_tcp_range, 65535);
-    prefs_register_bool_preference(xml_module, "heuristic_udp", "Use Heuristics for UDP",
-                                   "Try to recognize XML for unknown UDP ports",
-                                   &pref_heuristic_udp);
+    prefs_register_obsolete_preference(xml_module, "heuristic_udp");
     /* XXX - UCS-2, or UTF-16? */
     prefs_register_bool_preference(xml_module, "heuristic_unicode", "Use Unicode in heuristics",
                                    "Try to recognize XML encoded in Unicode (UCS-2BE)",
@@ -1494,7 +1472,14 @@ proto_reg_handoff_xml(void)
     xml_handle = find_dissector("xml");
 
     g_hash_table_foreach(media_types, add_dissector_media, NULL);
-    heur_dissector_add("wtap_file", dissect_xml_heur, xml_ns.hf_tag);
+
+    heur_dissector_add("http",  dissect_xml_heur, "XML in HTTP", "xml_http", xml_ns.hf_tag, HEURISTIC_DISABLE);
+    heur_dissector_add("sip",   dissect_xml_heur, "XML in SIP", "xml_sip", xml_ns.hf_tag, HEURISTIC_DISABLE);
+    heur_dissector_add("media", dissect_xml_heur, "XML in media", "xml_media", xml_ns.hf_tag, HEURISTIC_DISABLE);
+    heur_dissector_add("tcp", dissect_xml_heur, "XML over TCP", "xml_tcp", xml_ns.hf_tag, HEURISTIC_DISABLE);
+    heur_dissector_add("udp", dissect_xml_heur, "XML over UDP", "xml_udp", xml_ns.hf_tag, HEURISTIC_DISABLE);
+
+    heur_dissector_add("wtap_file", dissect_xml_heur, "XML file", "xml_wtap", xml_ns.hf_tag, HEURISTIC_ENABLE);
 
 }
 

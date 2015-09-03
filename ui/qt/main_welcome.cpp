@@ -30,7 +30,7 @@
 #include "wsutil/ws_version_info.h"
 
 #include "main_welcome.h"
-#include "ui_main_welcome.h"
+#include <ui_main_welcome.h>
 #include "tango_colors.h"
 
 #include "wireshark_application.h"
@@ -208,10 +208,8 @@ void MainWelcome::appInitialized()
     splash_overlay_ = NULL;
 }
 
-void MainWelcome::interfaceDoubleClicked(QTreeWidgetItem *item, int column)
+void MainWelcome::interfaceDoubleClicked(QTreeWidgetItem *item, int)
 {
-    Q_UNUSED(column);
-
     if (item) {
         emit startCapture();
     }

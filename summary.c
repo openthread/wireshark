@@ -105,7 +105,7 @@ summary_fill_in(capture_file *cf, summary_tally *st)
 {
   frame_data    *first_frame, *cur_frame;
   guint32        framenum;
-  wtapng_section_t* shb_inf;
+  const wtapng_section_t* shb_inf;
   iface_options iface;
   guint i;
   wtapng_iface_descriptions_t* idb_info;
@@ -156,7 +156,7 @@ summary_fill_in(capture_file *cf, summary_tally *st)
   st->dfilter = cf->dfilter;
 
   /* Get info from SHB */
-  shb_inf = wtap_file_get_shb_info(cf->wth);
+  shb_inf = wtap_file_get_shb(cf->wth);
   if(shb_inf == NULL){
     st->opt_comment    = NULL;
     st->shb_hardware   = NULL;
@@ -167,7 +167,6 @@ summary_fill_in(capture_file *cf, summary_tally *st)
     st->shb_hardware   = shb_inf->shb_hardware;
     st->shb_os         = shb_inf->shb_os;
     st->shb_user_appl  = shb_inf->shb_user_appl;
-    g_free(shb_inf);
   }
 
   st->ifaces  = g_array_new(FALSE, FALSE, sizeof(iface_options));
@@ -182,11 +181,15 @@ summary_fill_in(capture_file *cf, summary_tally *st)
     iface.snap = wtapng_if_descr.snap_len;
     iface.has_snap = (iface.snap != 65535);
     iface.encap_type = wtapng_if_descr.wtap_encap;
+    iface.isb_comment = NULL;
     if(wtapng_if_descr.num_stat_entries == 1){
       /* dumpcap only writes one ISB, only handle that for now */
       if_stats = &g_array_index(wtapng_if_descr.interface_statistics, wtapng_if_stats_t, 0);
-      iface.drops_known = TRUE;
-      iface.drops = if_stats->isb_ifdrop;
+      if (if_stats->isb_ifdrop != G_GUINT64_CONSTANT(0xFFFFFFFFFFFFFFFF)) {
+        iface.drops_known = TRUE;
+        iface.drops = if_stats->isb_ifdrop;
+      }
+      /* XXX: this doesn't get used, and might need to be g_strdup'ed when it does */
       iface.isb_comment = if_stats->opt_comment;
     }
     g_array_append_val(st->ifaces, iface);

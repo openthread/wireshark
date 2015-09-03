@@ -6,6 +6,7 @@ editcap - Edit and/or translate the format of capture files
 =head1 SYNOPSIS
 
 B<editcap>
+S<[ B<-a> E<lt>frame:commentE<gt> ]>
 S<[ B<-A> E<lt>start timeE<gt> ]>
 S<[ B<-B> E<lt>stop timeE<gt> ]>
 S<[ B<-c> E<lt>packets per fileE<gt> ]>
@@ -14,6 +15,7 @@ S<[ B<-E> E<lt>error probabilityE<gt> ]>
 S<[ B<-F> E<lt>file formatE<gt> ]>
 S<[ B<-h> ]>
 S<[ B<-i> E<lt>seconds per fileE<gt> ]>
+S<[ B<-o> E<lt>change offsetE<gt> ]>
 S<[ B<-L> ]>
 S<[ B<-r> ]>
 S<[ B<-s> E<lt>snaplenE<gt> ]>
@@ -58,6 +60,8 @@ B<Editcap> can also be used to remove duplicate packets.  Several different
 options (B<-d>, B<-D> and B<-w>) are used to control the packet window
 or relative time window to be used for duplicate comparison.
 
+B<Editcap> can be used to assign comment strings to frame numbers.
+
 B<Editcap> is able to detect, read and write the same capture files that
 are supported by B<Wireshark>.
 The input file doesn't need a specific filename extension; the file
@@ -74,6 +78,12 @@ file; B<editcap -F> provides a list of the available output formats.
 =head1 OPTIONS
 
 =over 4
+
+=item -a  E<lt>framenum:commentE<gt>
+
+For the specificed frame number, assign the given comment string.
+Can be repeated for multiple frames.  Quotes should be used with comment
+strings that include spaces.
 
 =item -A  E<lt>start timeE<gt>
 
@@ -178,6 +188,13 @@ The default value is 0.
 Adjust the original frame length accordingly when chopping and/or snapping
 (in addition to the captured length, which is always adjusted regardless of
 whether B<-L> is specified or not).  See also B<-C <choplen>> and B<-s <snaplen>>.
+
+=item -o  E<lt>change offsetE<gt>
+
+When used in conjuction with -E, skip some bytes from the beginning of the packet
+from being changed. In this way some headers don't get changed, and the fuzzer is
+more focused on a smaller part of the packet. Keeping a part of the packet fixed
+the same dissector is triggered, that make the fuzzing more precise.
 
 =item -r
 
@@ -391,6 +408,10 @@ in a single pass, use any of the 8 possible methods provided below:
     6) editcap -C 30:20 -C 15:-10 capture.pcap chopped.pcap
     7) editcap -C -45:20 -C -60:-10 capture.pcap chopped.pcap
     8) editcap -C -45:20 -C 15:-10 capture.pcap chopped.pcap
+
+To add comment strings to the first 2 input frames, use:
+
+    editcap -a "1:1st frame" -a 2:Second capture.pcap capture-comments.pcap
 
 =head1 SEE ALSO
 

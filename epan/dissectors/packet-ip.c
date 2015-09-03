@@ -51,6 +51,7 @@
 #include "packet-juniper.h"
 #include "packet-sflow.h"
 #include "packet-gre.h"
+#include "packet-l2tp.h"
 
 #ifdef HAVE_GEOIP
 #include <GeoIP.h>
@@ -255,6 +256,7 @@ static expert_field ei_ip_checksum_bad = EI_INIT;
 static expert_field ei_ip_ttl_lncb = EI_INIT;
 static expert_field ei_ip_ttl_too_small = EI_INIT;
 static expert_field ei_ip_cipso_tag = EI_INIT;
+static expert_field ei_ip_bogus_ip_version = EI_INIT;
 
 
 #ifdef HAVE_GEOIP
@@ -562,6 +564,12 @@ ip_defragment_init(void)
 {
   reassembly_table_init(&ip_reassembly_table,
                         &addresses_reassembly_table_functions);
+}
+
+static void
+ip_defragment_cleanup(void)
+{
+  reassembly_table_destroy(&ip_reassembly_table);
 }
 
 void
@@ -1966,7 +1974,7 @@ ip_try_dissect(gboolean heur_first, tvbuff_t *tvb, packet_info *pinfo,
     return TRUE;
   }
 
-  if ((!heur_first) && (!dissector_try_heuristic(heur_subdissector_list, tvb,
+  if ((!heur_first) && (dissector_try_heuristic(heur_subdissector_list, tvb,
                                                  pinfo, tree, &hdtbl_entry,
                                                  iph))) {
     return TRUE;
@@ -1976,7 +1984,7 @@ ip_try_dissect(gboolean heur_first, tvbuff_t *tvb, packet_info *pinfo,
 }
 
 static void
-dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 {
   proto_tree *ip_tree, *field_tree = NULL;
   proto_item *ti, *tf;
@@ -2004,10 +2012,6 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
   col_clear(pinfo->cinfo, COL_INFO);
 
   iph->ip_v_hl = tvb_get_guint8(tvb, offset);
-  if ( hi_nibble(iph->ip_v_hl) == 6) {
-    call_dissector(ipv6_handle, tvb, pinfo, parent_tree);
-    return;
-  }
 
   hlen = lo_nibble(iph->ip_v_hl) * 4;   /* IP header length, in bytes */
 
@@ -2032,7 +2036,7 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
                  "Bogus IP header length (%u, must be at least %u)",
                  hlen, IPH_MIN_LEN);
 
-    proto_tree_add_uint_format_value(ip_tree, hf_ip_hdr_len, tvb, offset, 1, hlen,
+    proto_tree_add_uint_format_value(ip_tree, hf_ip_hdr_len, tvb, offset, 1, hlen/4,
                                  "%u bytes (bogus, must be at least %u)", hlen, IPH_MIN_LEN);
     return;
   }
@@ -2049,7 +2053,7 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
   if (tree) {
     if (g_ip_dscp_actif) {
       tf = proto_tree_add_uint_format_value(ip_tree, hf_ip_dsfield, tvb, offset + 1,
-        1, iph->ip_tos, "0x%02x (DSCP 0x%02x: %s; ECN: 0x%02x: %s)", iph->ip_tos,
+        1, iph->ip_tos, "0x%02x (DSCP 0x%02x: %s; ECN 0x%02x: %s)", iph->ip_tos,
         IPDSFIELD_DSCP(iph->ip_tos), val_to_str_ext_const(IPDSFIELD_DSCP(iph->ip_tos),
                                                           &dscp_vals_ext, "Unknown DSCP"),
         IPDSFIELD_ECN(iph->ip_tos), val_to_str_const(IPDSFIELD_ECN(iph->ip_tos),
@@ -2307,8 +2311,11 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
                              "Local Network Control Block (see RFC 3171)",
                              ttl);
     }
-  } else if (!is_a_multicast_addr(dst32) && iph->ip_ttl < 5 &&
-            (iph->ip_p != IP_PROTO_PIM)) {
+  } else if (!is_a_multicast_addr(dst32) &&
+	/* At least BGP should appear here as well */
+	iph->ip_ttl < 5 &&
+        iph->ip_p != IP_PROTO_PIM &&
+        iph->ip_p != IP_PROTO_OSPF) {
     expert_add_info_format(pinfo, ttl_item, &ei_ip_ttl_too_small, "\"Time To Live\" only %u", iph->ip_ttl);
   }
 
@@ -2435,6 +2442,7 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
     return;
   }
 
+  if (tvb_reported_length(next_tvb) > 0) {
     /* Hand off to the next protocol.
 
      XXX - setting the columns only after trying various dissectors means
@@ -2442,15 +2450,44 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
      even be labeled as an IP frame; ideally, if a frame being dissected
      throws an exception, it'll be labeled as a mangled frame of the
      type in question. */
-  if (!ip_try_dissect(try_heuristic_first, next_tvb, pinfo, parent_tree, iph)) {
-    /* Unknown protocol */
-    if (update_col_info) {
-      col_add_fstr(pinfo->cinfo, COL_INFO, "%s (%u)",
+    if (!ip_try_dissect(try_heuristic_first, next_tvb, pinfo, parent_tree, iph)) {
+      /* Unknown protocol */
+      if (update_col_info) {
+        col_add_fstr(pinfo->cinfo, COL_INFO, "%s (%u)",
                    ipprotostr(iph->ip_p), iph->ip_p);
+      }
+      call_dissector(data_handle,next_tvb, pinfo, parent_tree);
     }
-    call_dissector(data_handle,next_tvb, pinfo, parent_tree);
   }
   pinfo->fragmented = save_fragmented;
+}
+
+static void
+dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+{
+  proto_tree *ip_tree;
+  proto_item *ti, *tf;
+  guint8 version;
+
+  version = tvb_get_guint8(tvb, 0) >> 4;
+
+  if(version == 4){
+    dissect_ip_v4(tvb, pinfo, tree);
+    return;
+  }
+  if(version == 6){
+    call_dissector(ipv6_handle, tvb, pinfo, tree);
+    return;
+  }
+
+  /* Bogus IP version */
+  ti = proto_tree_add_protocol_format(tree, proto_ip, tvb, 0, 1, "Internet Protocol, bogus version (%u)", version);
+  col_set_str(pinfo->cinfo, COL_PROTOCOL, "IP");
+  col_clear(pinfo->cinfo, COL_INFO);
+  col_add_fstr(pinfo->cinfo, COL_INFO, "Bogus IP version (%u)", version);
+  ip_tree = proto_item_add_subtree(ti, ett_ip);
+  tf = proto_tree_add_item(ip_tree, hf_ip_version, tvb, 0, 1, ENC_NA);
+  expert_add_info(pinfo, tf, &ei_ip_bogus_ip_version);
 }
 
 static gboolean
@@ -2476,7 +2513,6 @@ dissect_ip_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
     ihl = oct & 0x0f;
     version = oct >> 4;
     if(version == 6){
-        /* TODO: Add IPv6 checks here */
 /*
     3.  IPv6 Header Format
 
@@ -2543,7 +2579,7 @@ dissect_ip_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
         return FALSE;
     }
 
-    dissect_ip(tvb, pinfo, tree);
+    dissect_ip_v4(tvb, pinfo, tree);
     return TRUE;
 }
 
@@ -3040,6 +3076,7 @@ proto_register_ip(void)
      { &ei_ip_ttl_lncb, { "ip.ttl.lncb", PI_SEQUENCE, PI_NOTE, "Time To Live", EXPFILL }},
      { &ei_ip_ttl_too_small, { "ip.ttl.too_small", PI_SEQUENCE, PI_NOTE, "Time To Live", EXPFILL }},
      { &ei_ip_cipso_tag, { "ip.cipso.malformed", PI_SEQUENCE, PI_ERROR, "Malformed CIPSO tag", EXPFILL }},
+     { &ei_ip_bogus_ip_version, { "ip.bogus_ip_version", PI_PROTOCOL, PI_ERROR, "Bogus IP version", EXPFILL }},
   };
 
   /* Decode As handling */
@@ -3099,6 +3136,7 @@ proto_register_ip(void)
 
   register_dissector("ip", dissect_ip, proto_ip);
   register_init_routine(ip_defragment_init);
+  register_cleanup_routine(ip_defragment_cleanup);
   ip_tap = register_tap("ip");
 
   register_decode_as(&ip_da);
@@ -3135,10 +3173,12 @@ proto_reg_handoff_ip(void)
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_MPLS_IP, ip_handle);
   dissector_add_uint("pwach.channel_type", 0x21, ip_handle); /* IPv4, RFC4385 clause 6. */
   dissector_add_uint("sflow_245.header_protocol", SFLOW_245_HEADER_IPv4, ip_handle);
+  dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_IP, ip_handle);
   dissector_add_for_decode_as("udp.port", ip_handle);
+  dissector_add_for_decode_as("pcli.payload", ip_handle);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_RAW_IP4, ip_handle);
 
-  heur_dissector_add("tipc", dissect_ip_heur, proto_ip);
+  heur_dissector_add("tipc", dissect_ip_heur, "IP over TIPC", "ip_tipc", proto_ip, HEURISTIC_ENABLE);
 }
 
 /*

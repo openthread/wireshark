@@ -253,6 +253,12 @@ lapsat_defragment_init(void)
 	    &addresses_reassembly_table_functions);
 }
 
+static void
+lapsat_defragment_cleanup(void)
+{
+	reassembly_table_destroy(&lapsat_reassembly_table);
+}
+
 
 /*
  * Main dissection functions
@@ -438,7 +444,7 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	unsigned int hlen, is_response = 0, plen;
 
 	/* Check that there's enough data */
-	if (tvb_length(tvb) < LAPSAT_HEADER_LEN)
+	if (tvb_captured_length(tvb) < LAPSAT_HEADER_LEN)
 		return;
 
 	/* Set protocol column */
@@ -494,14 +500,14 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Get the payload */
 	plen = (addr & LAPSAT_LFI) ?
-		tvb_get_guint8(tvb, 3) : tvb_length(tvb) - hlen;
+		tvb_get_guint8(tvb, 3) : tvb_captured_length(tvb) - hlen;
 
 	if (!plen)
 		return;	/* No point in doing more if there is no payload */
 
-	DISSECTOR_ASSERT((plen + hlen) <= tvb_length(tvb));
+	DISSECTOR_ASSERT((plen + hlen) <= tvb_captured_length(tvb));
 
-	if ((plen + hlen) == tvb_length(tvb)) {
+	if ((plen + hlen) == tvb_captured_length(tvb)) {
 		/* Need to integrate the last nibble */
 		guint8 *data = (guint8 *)tvb_memdup(NULL, tvb, hlen, plen);
 		data[plen-1] |= tvb_get_guint8(tvb, 2) << 4;
@@ -761,6 +767,7 @@ proto_register_lapsat(void)
 	lapsat_sapi_dissector_table = register_dissector_table("lapsat.sapi", "LAPSat SAPI", FT_UINT8, BASE_DEC);
 
 	register_init_routine (lapsat_defragment_init);
+	register_cleanup_routine (lapsat_defragment_cleanup);
 }
 
 void

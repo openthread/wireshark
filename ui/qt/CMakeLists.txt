@@ -23,7 +23,11 @@
 # need to go here.
 set(WIRESHARK_QT_HEADERS
 	about_dialog.h
+	accordion_frame.h
+	address_editor_frame.h
 	bluetooth_att_server_attributes_dialog.h
+	bluetooth_devices_dialog.h
+	bluetooth_hci_summary_dialog.h
 	accordion_frame.h
 	byte_view_tab.h
 	byte_view_text.h
@@ -47,6 +51,7 @@ set(WIRESHARK_QT_HEADERS
 	display_filter_edit.h
 	display_filter_expression_dialog.h
 	elided_label.h
+	enabled_protocols_dialog.h
 	endpoint_dialog.h
 	expert_info_dialog.h
 	export_dissection_dialog.h
@@ -60,6 +65,10 @@ set(WIRESHARK_QT_HEADERS
 	follow_stream_dialog.h
 	follow_stream_text.h
 	font_color_preferences_frame.h
+	funnel_string_dialog.h
+	funnel_text_dialog.h
+	funnel_statistics.h
+	gsm_map_summary_dialog.h
 	import_text_dialog.h
 	interface_tree.h
 	io_graph_dialog.h
@@ -75,21 +84,31 @@ set(WIRESHARK_QT_HEADERS
 	main_window_preferences_frame.h
 	manage_interfaces_dialog.h
 	module_preferences_scroll_area.h
+	mtp3_summary_dialog.h
+	multicast_statistics_dialog.h
+	overlay_scroll_bar.h
 	packet_comment_dialog.h
 	packet_dialog.h
 	packet_format_group_box.h
 	packet_list.h
 	packet_list_model.h
 	packet_range_group_box.h
+	percent_bar_delegate.h
+	preference_editor_frame.h
 	preferences_dialog.h
 	print_dialog.h
 	profile_dialog.h
-	progress_bar.h
+	progress_frame.h
 	proto_tree.h
 	protocol_hierarchy_dialog.h
+	protocol_preferences_menu.h
 	qcustomplot.h
 	recent_file_status.h
 	related_packet_delegate.h
+	resolved_addresses_dialog.h
+	response_time_delay_dialog.h
+	rpc_service_response_time_dialog.h
+	rtp_analysis_dialog.h
 	rtp_stream_dialog.h
 	sctp_all_assocs_dialog.h
 	sctp_assoc_analyse_dialog.h
@@ -103,6 +122,8 @@ set(WIRESHARK_QT_HEADERS
 	simple_dialog.h
 	splash_overlay.h
 	stats_tree_dialog.h
+	service_response_time_dialog.h
+	simple_statistics_dialog.h
 	syntax_line_edit.h
 	tap_parameter_dialog.h
 	tcp_stream_dialog.h
@@ -110,8 +131,10 @@ set(WIRESHARK_QT_HEADERS
 	traffic_table_dialog.h
 	uat_dialog.h
 	voip_calls_dialog.h
+	wireless_frame.h
 	wireshark_application.h
 	wireshark_dialog.h
+	wlan_statistics_dialog.h
 )
 
 if(HAVE_PCAP_REMOTE)
@@ -141,7 +164,10 @@ file(GLOB EXTRA_QT_HEADERS
 set(WIRESHARK_QT_SRC
 	about_dialog.cpp
 	accordion_frame.cpp
+	address_editor_frame.cpp
 	bluetooth_att_server_attributes_dialog.cpp
+	bluetooth_devices_dialog.cpp
+	bluetooth_hci_summary_dialog.cpp
 	byte_view_tab.cpp
 	byte_view_text.cpp
 	capture_file.cpp
@@ -158,12 +184,14 @@ set(WIRESHARK_QT_SRC
 	column_preferences_frame.cpp
 	column_editor_frame.cpp
 	compiled_filter_output.cpp
+	conversation_dialog.cpp
 	decode_as_dialog.cpp
 	display_filter_combo.cpp
 	display_filter_edit.cpp
 	display_filter_expression_dialog.cpp
 	elided_label.cpp
-	expert_info_dialog.cpp
+	enabled_protocols_dialog.cpp
+	endpoint_dialog.cpp
 	export_dissection_dialog.cpp
 	export_object_dialog.cpp
 	export_pdu_dialog.cpp
@@ -174,6 +202,8 @@ set(WIRESHARK_QT_SRC
 	follow_stream_dialog.cpp
 	follow_stream_text.cpp
 	font_color_preferences_frame.cpp
+	funnel_string_dialog.cpp
+	funnel_text_dialog.cpp
 	import_text_dialog.cpp
 	interface_tree.cpp
 	label_stack.cpp
@@ -189,6 +219,7 @@ set(WIRESHARK_QT_SRC
 	main_window_slots.cpp
 	manage_interfaces_dialog.cpp
 	module_preferences_scroll_area.cpp
+	overlay_scroll_bar.cpp
 	packet_comment_dialog.cpp
 	packet_dialog.cpp
 	packet_format_group_box.cpp
@@ -196,19 +227,23 @@ set(WIRESHARK_QT_SRC
 	packet_list_model.cpp
 	packet_list_record.cpp
 	packet_range_group_box.cpp
+	percent_bar_delegate.cpp
+	preference_editor_frame.cpp
 	preferences_dialog.cpp
 	print_dialog.cpp
 	profile_dialog.cpp
-	progress_bar.cpp
+	progress_frame.cpp
 	proto_tree.cpp
 	protocol_hierarchy_dialog.cpp
+	protocol_preferences_menu.cpp
 	qcustomplot.cpp
 	qt_ui_utils.cpp
 	recent_file_status.cpp
 	related_packet_delegate.cpp
-	rtp_stream_dialog.cpp
-	sctp_all_assocs_dialog.cpp
-	sctp_assoc_analyse_dialog.cpp
+	resolved_addresses_dialog.cpp
+	response_time_delay_dialog.cpp
+	rpc_service_response_time_dialog.cpp
+	rtp_analysis_dialog.cpp
 	sctp_chunk_statistics_dialog.cpp
 	sctp_graph_dialog.cpp
 	sctp_graph_arwnd_dialog.cpp
@@ -216,7 +251,9 @@ set(WIRESHARK_QT_SRC
 	search_frame.cpp
 	sequence_diagram.cpp
 	sequence_dialog.cpp
+	service_response_time_dialog.cpp
 	simple_dialog.cpp
+	simple_statistics_dialog.cpp
 	splash_overlay.cpp
 	sparkline_delegate.cpp
 	stock_icon.cpp
@@ -227,6 +264,7 @@ set(WIRESHARK_QT_SRC
 	traffic_table_dialog.cpp
 	uat_dialog.cpp
 	voip_calls_dialog.cpp
+	wireless_frame.cpp
 	wireshark_application.cpp
 	wireshark_dialog.cpp
 )
@@ -249,10 +287,17 @@ if(ENABLE_EXTCAP)
 endif()
 
 set(WIRESHARK_QT_TAP_SRC
-	conversation_dialog.cpp
-	endpoint_dialog.cpp
+	expert_info_dialog.cpp
+	funnel_statistics.cpp
+	gsm_map_summary_dialog.cpp
 	io_graph_dialog.cpp
+	mtp3_summary_dialog.cpp
+	multicast_statistics_dialog.cpp
+	rtp_stream_dialog.cpp
+	sctp_all_assocs_dialog.cpp
+	sctp_assoc_analyse_dialog.cpp
 	stats_tree_dialog.cpp
+	wlan_statistics_dialog.cpp
 )
 
 set(WIRESHARK_QT_FILES
@@ -262,7 +307,10 @@ set(WIRESHARK_QT_FILES
 
 set(WIRESHARK_QT_UI
 	about_dialog.ui
+	address_editor_frame.ui
 	bluetooth_att_server_attributes_dialog.ui
+	bluetooth_devices_dialog.ui
+	bluetooth_hci_summary_dialog.ui
 	capture_file_properties_dialog.ui
 	capture_interfaces_dialog.ui
 	capture_preferences_frame.ui
@@ -272,6 +320,7 @@ set(WIRESHARK_QT_UI
 	compiled_filter_output.ui
 	decode_as_dialog.ui
 	display_filter_expression_dialog.ui
+	enabled_protocols_dialog.ui
 	expert_info_dialog.ui
 	export_object_dialog.ui
 	export_pdu_dialog.ui
@@ -280,6 +329,9 @@ set(WIRESHARK_QT_UI
 	filter_expressions_preferences_frame.ui
 	follow_stream_dialog.ui
 	font_color_preferences_frame.ui
+	funnel_string_dialog.ui
+	funnel_text_dialog.ui
+	gsm_map_summary_dialog.ui
 	import_text_dialog.ui
 	io_graph_dialog.ui
 	layout_preferences_frame.ui
@@ -292,14 +344,19 @@ set(WIRESHARK_QT_UI
 	main_window_preferences_frame.ui
 	manage_interfaces_dialog.ui
 	module_preferences_scroll_area.ui
+	mtp3_summary_dialog.ui
 	packet_comment_dialog.ui
 	packet_dialog.ui
 	packet_format_group_box.ui
 	packet_range_group_box.ui
+	preference_editor_frame.ui
 	preferences_dialog.ui
 	print_dialog.ui
 	profile_dialog.ui
+	progress_frame.ui
 	protocol_hierarchy_dialog.ui
+	resolved_addresses_dialog.ui
+	rtp_analysis_dialog.ui
 	rtp_stream_dialog.ui
 	sctp_all_assocs_dialog.ui
 	sctp_assoc_analyse_dialog.ui
@@ -316,6 +373,7 @@ set(WIRESHARK_QT_UI
 	traffic_table_dialog.ui
 	uat_dialog.ui
 	voip_calls_dialog.ui
+	wireless_frame.ui
 )
 
 if(HAVE_PCAP_REMOTE)
@@ -355,8 +413,8 @@ set(WIRESHARK_QT_TS
 )
 
 include_directories(
-	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_BINARY_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 if (QT_VERSION EQUAL 5)

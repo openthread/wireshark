@@ -67,9 +67,10 @@ static gint ett_gluster_dump_detail = -1;
 
 /* PMAP PORTBYBRICK */
 static int
-gluster_pmap_portbybrick_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
+gluster_pmap_portbybrick_reply(tvbuff_t *tvb, packet_info *pinfo,
 							proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
 	offset = dissect_rpc_uint32(tvb, tree, hf_gluster_brick_status, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_gluster_brick_port, offset);
@@ -78,12 +79,10 @@ gluster_pmap_portbybrick_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
 }
 
 static int
-gluster_pmap_portbybrick_call(tvbuff_t *tvb, int offset,
+gluster_pmap_portbybrick_call(tvbuff_t *tvb,
 				packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_string(tvb, tree, hf_gluster_brick, offset,
-								NULL);
-	return offset;
+	return dissect_rpc_string(tvb, tree, hf_gluster_brick, 0, NULL);
 }
 
 /* Based on rpc/rpc-lib/src/rpc-common.c, but xdr encoding/decoding is broken.
@@ -117,9 +116,11 @@ gluster_dump_reply_detail(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 }
 
 static int
-gluster_dump_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
+gluster_dump_reply(tvbuff_t *tvb, packet_info *pinfo,
 							proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_uint64(tvb, tree, hf_gluster_gfsid, offset);
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
 
@@ -131,25 +132,26 @@ gluster_dump_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
 
 /* DUMP request */
 static int
-gluster_dump_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+gluster_dump_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 							proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_uint64(tvb, tree, hf_gluster_gfsid, offset);
-
-	return offset;
+	return dissect_rpc_uint64(tvb, tree, hf_gluster_gfsid, 0);
 }
 
 /* GLUSTER_PMAP_PROGRAM from xlators/mgmt/glusterd/src/glusterd-pmap.c */
 static const vsff gluster_pmap_proc[] = {
-	{ GF_PMAP_NULL,        "NULL",        NULL, NULL },
+	{
+		GF_PMAP_NULL,        "NULL",
+		dissect_rpc_void, dissect_rpc_void
+	},
 	{
 		GF_PMAP_PORTBYBRICK, "PORTBYBRICK",
 		gluster_pmap_portbybrick_call, gluster_pmap_portbybrick_reply
 	},
-	{ GF_PMAP_BRICKBYPORT, "BRICKBYPORT", NULL, NULL },
-	{ GF_PMAP_SIGNIN,      "SIGNIN",      NULL, NULL },
-	{ GF_PMAP_SIGNOUT,     "SIGNOUT",     NULL, NULL },
-	{ GF_PMAP_SIGNUP,      "SIGNUP",      NULL, NULL },
+	{ GF_PMAP_BRICKBYPORT, "BRICKBYPORT", dissect_rpc_unknown, dissect_rpc_unknown },
+	{ GF_PMAP_SIGNIN,      "SIGNIN",      dissect_rpc_unknown, dissect_rpc_unknown },
+	{ GF_PMAP_SIGNOUT,     "SIGNOUT",     dissect_rpc_unknown, dissect_rpc_unknown },
+	{ GF_PMAP_SIGNUP,      "SIGNUP",      dissect_rpc_unknown, dissect_rpc_unknown },
 	{ 0, NULL, NULL, NULL }
 };
 static const value_string gluster_pmap_proc_vals[] = {
@@ -161,10 +163,13 @@ static const value_string gluster_pmap_proc_vals[] = {
 	{ GF_PMAP_SIGNUP,      "SIGNUP" },
 	{ 0, NULL }
 };
+static const rpc_prog_vers_info gluster_pmap_vers_info[] = {
+	{ 1, gluster_pmap_proc, &hf_gluster_pmap_proc }
+};
 
 /* procedures for GLUSTER_DUMP_PROGRAM */
 static const vsff gluster_dump_proc[] = {
-	{ 0, "NULL", NULL, NULL },
+	{ 0, "NULL", dissect_rpc_void, dissect_rpc_void },
 	{ GF_DUMP_DUMP, "DUMP", gluster_dump_call, gluster_dump_reply },
 	{ 0, NULL, NULL, NULL }
 };
@@ -172,6 +177,9 @@ static const value_string gluster_dump_proc_vals[] = {
 	{ 0,            "NULL" },
 	{ GF_DUMP_DUMP, "DUMP" },
 	{ 0, NULL }
+};
+static const rpc_prog_vers_info gluster_dump_vers_info[] = {
+	{ 1, gluster_dump_proc, &hf_gluster_dump_proc }
 };
 
 void
@@ -214,9 +222,8 @@ void
 proto_reg_handoff_gluster_pmap(void)
 {
 	rpc_init_prog(proto_gluster_pmap, GLUSTER_PMAP_PROGRAM,
-							ett_gluster_pmap);
-	rpc_init_proc_table(GLUSTER_PMAP_PROGRAM, 1, gluster_pmap_proc,
-							hf_gluster_pmap_proc);
+	    ett_gluster_pmap,
+	    G_N_ELEMENTS(gluster_pmap_vers_info), gluster_pmap_vers_info);
 }
 
 void
@@ -264,9 +271,8 @@ void
 proto_reg_handoff_gluster_dump(void)
 {
 	rpc_init_prog(proto_gluster_dump, GLUSTER_DUMP_PROGRAM,
-							ett_gluster_dump);
-	rpc_init_proc_table(GLUSTER_DUMP_PROGRAM, 1, gluster_dump_proc,
-							hf_gluster_dump_proc);
+	    ett_gluster_dump,
+	    G_N_ELEMENTS(gluster_dump_vers_info), gluster_dump_vers_info);
 }
 
 /*

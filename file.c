@@ -408,6 +408,7 @@ cf_add_encapsulation_type(capture_file *cf, int encap)
 void
 cf_close(capture_file *cf)
 {
+  cf->stop_flag = FALSE;
   if (cf->state == FILE_CLOSED)
     return; /* Nothing to do */
 
@@ -533,7 +534,6 @@ cf_read(capture_file *cf, gboolean reloading)
   gchar               *err_info;
   gchar               *name_ptr;
   progdlg_t           *progbar        = NULL;
-  gboolean             stop_flag;
   GTimeVal             start_time;
   epan_dissect_t       edt;
   dfilter_t           *dfcode;
@@ -569,7 +569,7 @@ cf_read(capture_file *cf, gboolean reloading)
   /* The packet list window will be empty until the file is completly loaded */
   packet_list_freeze();
 
-  stop_flag = FALSE;
+  cf->stop_flag = FALSE;
   g_get_current_time(&start_time);
 
   epan_dissect_init(&edt, cf->epan, create_proto_tree, FALSE);
@@ -619,10 +619,10 @@ cf_read(capture_file *cf, gboolean reloading)
           progbar_val = calc_progbar_val(cf, size, file_pos, status_str, sizeof(status_str));
           if (reloading)
             progbar = delayed_create_progress_dlg(cf->window, "Reloading", name_ptr,
-                TRUE, &stop_flag, &start_time, progbar_val);
+                TRUE, &cf->stop_flag, &start_time, progbar_val);
           else
             progbar = delayed_create_progress_dlg(cf->window, "Loading", name_ptr,
-                TRUE, &stop_flag, &start_time, progbar_val);
+                TRUE, &cf->stop_flag, &start_time, progbar_val);
         }
 
         /* Update the progress bar, but do it only N_PROGBAR_UPDATES times;
@@ -648,7 +648,7 @@ cf_read(capture_file *cf, gboolean reloading)
         }
       }
 
-      if (stop_flag) {
+      if (cf->stop_flag) {
         /* Well, the user decided to abort the read. He/She will be warned and
            it might be enough for him/her to work with the already loaded
            packets.
@@ -722,7 +722,7 @@ cf_read(capture_file *cf, gboolean reloading)
     packet_list_select_first_row();
   }
 
-  if (stop_flag) {
+  if (cf->stop_flag) {
     simple_message_box(ESD_TYPE_WARN, NULL,
                   "The remaining packets in the file were discarded.\n"
                   "\n"
@@ -760,7 +760,7 @@ cf_read(capture_file *cf, gboolean reloading)
 
     case WTAP_ERR_DECOMPRESS:
       simple_error_message_box(
-                 "The compressed capture file appears to be damaged or corrupt.\n",
+                 "The compressed capture file appears to be damaged or corrupt.\n(%s)",
                  err_info != NULL ? err_info : "no information supplied");
       g_free(err_info);
       break;
@@ -1230,414 +1230,186 @@ read_packet(capture_file *cf, dfilter_t *dfcode, epan_dissect_t *edt,
   return row;
 }
 
+
+typedef struct _callback_data_t {
+  gint64           f_len;
+  gint64           progbar_nextstep;
+  gint64           progbar_quantum;
+  GTimeVal         start_time;
+  progdlg_t       *progbar;
+  gboolean         stop_flag;
+} callback_data_t;
+
+
+static gboolean
+merge_callback(merge_event event, int num _U_,
+               const merge_in_file_t in_files[], const guint in_file_count,
+               void *data)
+{
+  guint i;
+  callback_data_t *cb_data = (callback_data_t*) data;
+
+  g_assert(cb_data != NULL);
+
+  switch (event) {
+
+    case MERGE_EVENT_INPUT_FILES_OPENED:
+      /* do nothing */
+      break;
+
+    case MERGE_EVENT_FRAME_TYPE_SELECTED:
+      /* do nothing */
+      break;
+
+    case MERGE_EVENT_READY_TO_MERGE:
+      /* Get the sum of the sizes of all the files. */
+      for (i = 0; i < in_file_count; i++)
+        cb_data->f_len += in_files[i].size;
+
+      /* When we reach the value that triggers a progress bar update,
+         bump that value by this amount. */
+      cb_data->progbar_quantum = cb_data->f_len / N_PROGBAR_UPDATES;
+
+      g_get_current_time(&cb_data->start_time);
+      break;
+
+    case MERGE_EVENT_PACKET_WAS_READ:
+      {
+        gint64 data_offset = 0;
+
+        /* Get the sum of the data offsets in all of the files. */
+        data_offset = 0;
+        for (i = 0; i < in_file_count; i++)
+          data_offset += in_files[i].data_offset;
+
+        /* Create the progress bar if necessary.
+           We check on every iteration of the loop, so that it takes no
+           longer than the standard time to create it (otherwise, for a
+           large file, we might take considerably longer than that standard
+           time in order to get to the next progress bar step). */
+        if (cb_data->progbar == NULL) {
+          cb_data->progbar = delayed_create_progress_dlg(NULL, "Merging", "files",
+            FALSE, &cb_data->stop_flag, &cb_data->start_time, 0.0f);
+        }
+
+        /* Update the progress bar, but do it only N_PROGBAR_UPDATES times;
+           when we update it, we have to run the GTK+ main loop to get it
+           to repaint what's pending, and doing so may involve an "ioctl()"
+           to see if there's any pending input from an X server, and doing
+           that for every packet can be costly, especially on a big file. */
+        if (data_offset >= cb_data->progbar_nextstep) {
+            float  progbar_val;
+            gint64 file_pos = 0;
+            /* Get the sum of the seek positions in all of the files. */
+            for (i = 0; i < in_file_count; i++)
+              file_pos += wtap_read_so_far(in_files[i].wth);
+
+            progbar_val = (gfloat) file_pos / (gfloat) cb_data->f_len;
+            if (progbar_val > 1.0f) {
+              /* Some file probably grew while we were reading it.
+                 That "shouldn't happen", so we'll just clip the progress
+                 value at 1.0. */
+              progbar_val = 1.0f;
+            }
+
+            if (cb_data->progbar != NULL) {
+              gchar status_str[100];
+              g_snprintf(status_str, sizeof(status_str),
+                         "%" G_GINT64_MODIFIER "dKB of %" G_GINT64_MODIFIER "dKB",
+                         file_pos / 1024, cb_data->f_len / 1024);
+              update_progress_dlg(cb_data->progbar, progbar_val, status_str);
+            }
+            cb_data->progbar_nextstep += cb_data->progbar_quantum;
+        }
+      }
+      break;
+
+    case MERGE_EVENT_DONE:
+      /* We're done merging the files; destroy the progress bar if it was created. */
+      if (cb_data->progbar != NULL)
+        destroy_progress_dlg(cb_data->progbar);
+      break;
+  }
+
+  return cb_data->stop_flag;
+}
+
+
+
 cf_status_t
 cf_merge_files(char **out_filenamep, int in_file_count,
                char *const *in_filenames, int file_type, gboolean do_append)
 {
-  merge_in_file_t *in_files, *in_file;
-  char            *out_filename;
-  char            *tmpname;
-  int              out_fd;
-  wtap_dumper     *pdh;
-  int              open_err, read_err, write_err, close_err;
-  gchar           *err_info, *write_err_info = NULL;
-  int              err_fileno;
-  int              i;
-  gboolean         got_read_error     = FALSE, got_write_error = FALSE;
-  gint64           data_offset;
-  progdlg_t       *progbar            = NULL;
-  gboolean         stop_flag;
-  gint64           f_len, file_pos;
-  float            progbar_val;
-  GTimeVal         start_time;
-  gchar            status_str[100];
-  gint64           progbar_nextstep;
-  gint64           progbar_quantum;
-  gchar           *display_basename;
-  int              selected_frame_type;
-  gboolean         fake_interface_ids = FALSE;
+  char                      *out_filename;
+  char                      *tmpname;
+  int                        out_fd;
+  int                        err      = 0;
+  gchar                     *err_info = NULL;
+  int                        err_fileno;
+  merge_result               status;
+  merge_progress_callback_t  cb;
 
-  /* open the input files */
-  if (!merge_open_in_files(in_file_count, in_filenames, &in_files,
-                           &open_err, &err_info, &err_fileno)) {
-    g_free(in_files);
-    cf_open_failure_alert_box(in_filenames[err_fileno], open_err, err_info,
-                              FALSE, 0);
-    return CF_ERROR;
-  }
 
   if (*out_filenamep != NULL) {
     out_filename = *out_filenamep;
     out_fd = ws_open(out_filename, O_CREAT|O_TRUNC|O_BINARY, 0600);
     if (out_fd == -1)
-      open_err = errno;
+      err = errno;
   } else {
     out_fd = create_tempfile(&tmpname, "wireshark");
     if (out_fd == -1)
-      open_err = errno;
+      err = errno;
     out_filename = g_strdup(tmpname);
     *out_filenamep = out_filename;
   }
   if (out_fd == -1) {
-    err_info = NULL;
-    merge_close_in_files(in_file_count, in_files);
-    g_free(in_files);
-    cf_open_failure_alert_box(out_filename, open_err, NULL, TRUE, file_type);
+    cf_open_failure_alert_box(out_filename, err, NULL, TRUE, file_type);
     return CF_ERROR;
   }
 
-  selected_frame_type = merge_select_frame_type(in_file_count, in_files);
+  /* prepare our callback routine */
+  cb.callback_func = merge_callback;
+  cb.data = g_malloc0(sizeof(callback_data_t));
 
-  /* If we are trying to merge a number of libpcap files with different encapsulation types
-   * change the output file type to pcapng and create SHB and IDB:s for the new file use the
-   * interface index stored in in_files per file to change the phdr before writing the datablock.
-   * XXX should it be an option to convert to pcapng?
-   *
-   * We need something similar when merging pcapng files possibly with an option to say
-   * the same interface(s) used in all in files. SHBs comments should be merged together.
-   */
-  if ((selected_frame_type == WTAP_ENCAP_PER_PACKET)&&(file_type == WTAP_FILE_TYPE_SUBTYPE_PCAP)) {
-    /* Write output in pcapng format */
-    wtapng_section_t            *shb_hdr;
-    wtapng_iface_descriptions_t *idb_inf, *idb_inf_merge_file;
-    wtapng_if_descr_t            int_data, *file_int_data;
-    GString                     *comment_gstr;
-    guint                        itf_count, itf_id = 0;
+  /* merge the files */
+  status = merge_files(out_fd, out_filename, file_type,
+                       (const char *const *) in_filenames, in_file_count,
+                       do_append, IDB_MERGE_MODE_ALL_SAME, 0 /* snaplen */,
+                       "Wireshark", &cb, &err, &err_info, &err_fileno);
 
-    fake_interface_ids = TRUE;
-    /* Create SHB info */
-    shb_hdr      = wtap_file_get_shb_info(in_files[0].wth);
-    comment_gstr = g_string_new("");
-    g_string_append_printf(comment_gstr, "%s \n",shb_hdr->opt_comment);
-    g_string_append_printf(comment_gstr, "File created by merging: \n");
-    file_type = WTAP_FILE_TYPE_SUBTYPE_PCAPNG;
+  g_free(cb.data);
 
-    for (i = 0; i < in_file_count; i++) {
-        g_string_append_printf(comment_gstr, "File%d: %s \n",i+1,in_files[i].filename);
-    }
-    shb_hdr->section_length = -1;
-    /* options */
-    shb_hdr->opt_comment   = g_string_free(comment_gstr, FALSE);  /* NULL if not available */
-    shb_hdr->shb_hardware  = NULL;        /* NULL if not available, UTF-8 string containing the        */
-                                          /*  description of the hardware used to create this section. */
-    shb_hdr->shb_os        = NULL;        /* NULL if not available, UTF-8 string containing the name   */
-                                          /*  of the operating system used to create this section.     */
-    shb_hdr->shb_user_appl = g_strdup("Wireshark"); /* NULL if not available, UTF-8 string containing the name   */
-                                          /*  of the application used to create this section.          */
+  switch (status) {
+    case MERGE_OK:
+      break;
 
-    /* create fake IDB info */
-    idb_inf = g_new(wtapng_iface_descriptions_t,1);
-    /* TODO make this the number of DIFFERENT encapsulation types
-     * check that snaplength is the same too?
-     */
-    idb_inf->interface_data = g_array_new(FALSE, FALSE, sizeof(wtapng_if_descr_t));
+    case MERGE_USER_ABORTED:
+      /* this isn't really an error, though we will return CF_ERROR later */
+      break;
 
-    for (i = 0; i < in_file_count; i++) {
-      idb_inf_merge_file               = wtap_file_get_idb_info(in_files[i].wth);
-      for (itf_count = 0; itf_count < idb_inf_merge_file->interface_data->len; itf_count++) {
-        /* read the interface data from the in file to our combined interface data */
-        file_int_data = &g_array_index (idb_inf_merge_file->interface_data, wtapng_if_descr_t, itf_count);
-        int_data.wtap_encap            = file_int_data->wtap_encap;
-        int_data.time_units_per_second = file_int_data->time_units_per_second;
-        int_data.link_type             = file_int_data->link_type;
-        int_data.snap_len              = file_int_data->snap_len;
-        int_data.if_name               = g_strdup(file_int_data->if_name);
-        int_data.opt_comment           = NULL;
-        int_data.if_description        = NULL;
-        int_data.if_speed              = 0;
-        int_data.if_tsresol            = 6;
-        int_data.if_filter_str         = NULL;
-        int_data.bpf_filter_len        = 0;
-        int_data.if_filter_bpf_bytes   = NULL;
-        int_data.if_os                 = NULL;
-        int_data.if_fcslen             = -1;
-        int_data.num_stat_entries      = 0;          /* Number of ISB:s */
-        int_data.interface_statistics  = NULL;
+    case MERGE_ERR_CANT_OPEN_INFILE:
+      cf_open_failure_alert_box(in_filenames[err_fileno], err, err_info,
+                                FALSE, 0);
+      break;
 
-        g_array_append_val(idb_inf->interface_data, int_data);
-      }
-      g_free(idb_inf_merge_file);
-
-      /* Set fake interface Id in per file data */
-      in_files[i].interface_id = itf_id;
-      itf_id += itf_count;
-    }
-
-    pdh = wtap_dump_fdopen_ng(out_fd, file_type,
-                              selected_frame_type,
-                              merge_max_snapshot_length(in_file_count, in_files),
-                              FALSE /* compressed */, shb_hdr, idb_inf /* wtapng_iface_descriptions_t *idb_inf */, &open_err);
-
-    if (pdh == NULL) {
-      ws_close(out_fd);
-      merge_close_in_files(in_file_count, in_files);
-      g_free(in_files);
-      cf_open_failure_alert_box(out_filename, open_err, err_info, TRUE,
+    case MERGE_ERR_CANT_OPEN_OUTFILE:
+      cf_open_failure_alert_box(out_filename, err, err_info, TRUE,
                                 file_type);
-      return CF_ERROR;
-    }
-
-  } else {
-
-    pdh = wtap_dump_fdopen(out_fd, file_type,
-                           selected_frame_type,
-                           merge_max_snapshot_length(in_file_count, in_files),
-                           FALSE /* compressed */, &open_err);
-    if (pdh == NULL) {
       ws_close(out_fd);
-      merge_close_in_files(in_file_count, in_files);
-      g_free(in_files);
-      cf_open_failure_alert_box(out_filename, open_err, err_info, TRUE,
-                                file_type);
-      return CF_ERROR;
-    }
-  }
-
-  /* Get the sum of the sizes of all the files. */
-  f_len = 0;
-  for (i = 0; i < in_file_count; i++)
-    f_len += in_files[i].size;
-
-  /* Update the progress bar when it gets to this value. */
-  progbar_nextstep = 0;
-  /* When we reach the value that triggers a progress bar update,
-     bump that value by this amount. */
-  progbar_quantum = f_len/N_PROGBAR_UPDATES;
-  /* Progress so far. */
-  progbar_val = 0.0f;
-
-  stop_flag = FALSE;
-  g_get_current_time(&start_time);
-
-  /* do the merge (or append) */
-  for (;;) {
-    if (do_append)
-      in_file = merge_append_read_packet(in_file_count, in_files, &read_err,
-                                         &err_info);
-    else
-      in_file = merge_read_packet(in_file_count, in_files, &read_err,
-                                  &err_info);
-    if (in_file == NULL) {
-      /* EOF */
       break;
-    }
 
-    if (read_err != 0) {
-      /* I/O error reading from in_file */
-      got_read_error = TRUE;
+    case MERGE_ERR_CANT_READ_INFILE:      /* fall through */
+    case MERGE_ERR_BAD_PHDR_INTERFACE_ID:
+    case MERGE_ERR_CANT_WRITE_OUTFILE:
+    case MERGE_ERR_CANT_CLOSE_OUTFILE:
+    default:
+      simple_error_message_box("%s", err_info ? err_info : "unknown error");
       break;
-    }
-
-    /* Get the sum of the data offsets in all of the files. */
-    data_offset = 0;
-    for (i = 0; i < in_file_count; i++)
-      data_offset += in_files[i].data_offset;
-
-    /* Create the progress bar if necessary.
-       We check on every iteration of the loop, so that it takes no
-       longer than the standard time to create it (otherwise, for a
-       large file, we might take considerably longer than that standard
-       time in order to get to the next progress bar step). */
-    if (progbar == NULL) {
-      progbar = delayed_create_progress_dlg(NULL, "Merging", "files",
-        FALSE, &stop_flag, &start_time, progbar_val);
-    }
-
-    /* Update the progress bar, but do it only N_PROGBAR_UPDATES times;
-       when we update it, we have to run the GTK+ main loop to get it
-       to repaint what's pending, and doing so may involve an "ioctl()"
-       to see if there's any pending input from an X server, and doing
-       that for every packet can be costly, especially on a big file. */
-    if (data_offset >= progbar_nextstep) {
-        /* Get the sum of the seek positions in all of the files. */
-        file_pos = 0;
-        for (i = 0; i < in_file_count; i++)
-          file_pos += wtap_read_so_far(in_files[i].wth);
-        progbar_val = (gfloat) file_pos / (gfloat) f_len;
-        if (progbar_val > 1.0f) {
-          /* Some file probably grew while we were reading it.
-             That "shouldn't happen", so we'll just clip the progress
-             value at 1.0. */
-          progbar_val = 1.0f;
-        }
-        if (progbar != NULL) {
-          g_snprintf(status_str, sizeof(status_str),
-                     "%" G_GINT64_MODIFIER "dKB of %" G_GINT64_MODIFIER "dKB",
-                     file_pos / 1024, f_len / 1024);
-          update_progress_dlg(progbar, progbar_val, status_str);
-        }
-        progbar_nextstep += progbar_quantum;
-    }
-
-    if (stop_flag) {
-      /* Well, the user decided to abort the merge. */
-      break;
-    }
-
-    /* If we have WTAP_ENCAP_PER_PACKET and the infiles are of type
-     * WTAP_FILE_TYPE_SUBTYPE_PCAP, we need to set the interface id
-     * in the paket header = the interface index we used in the IDBs
-     * interface description for this file(encapsulation type).
-     */
-    if (fake_interface_ids) {
-      struct wtap_pkthdr *phdr;
-
-      phdr = wtap_phdr(in_file->wth);
-      if (phdr->presence_flags & WTAP_HAS_INTERFACE_ID) {
-        phdr->interface_id += in_file->interface_id;
-      } else {
-        phdr->interface_id = in_file->interface_id;
-        phdr->presence_flags = phdr->presence_flags | WTAP_HAS_INTERFACE_ID;
-      }
-    }
-    if (!wtap_dump(pdh, wtap_phdr(in_file->wth),
-                   wtap_buf_ptr(in_file->wth), &write_err, &write_err_info)) {
-      got_write_error = TRUE;
-      break;
-    }
   }
 
-  /* We're done merging the files; destroy the progress bar if it was created. */
-  if (progbar != NULL)
-    destroy_progress_dlg(progbar);
+  g_free(err_info);
 
-  merge_close_in_files(in_file_count, in_files);
-  if (!got_write_error) {
-    if (!wtap_dump_close(pdh, &write_err))
-      got_write_error = TRUE;
-  } else {
-    /*
-     * We already got a write error; no need to report another
-     * write error on close.
-     *
-     * Don't overwrite the earlier write error.
-     */
-    (void)wtap_dump_close(pdh, &close_err);
-  }
-
-  if (got_read_error) {
-    /*
-     * Find the file on which we got the error, and report the error.
-     */
-    for (i = 0; i < in_file_count; i++) {
-      if (in_files[i].state == GOT_ERROR) {
-        /* Put up a message box noting that a read failed somewhere along
-           the line. */
-        display_basename = g_filename_display_basename(in_files[i].filename);
-        switch (read_err) {
-
-        case WTAP_ERR_SHORT_READ:
-          simple_error_message_box(
-                     "The capture file %s appears to have been cut short"
-                      " in the middle of a packet.", display_basename);
-          break;
-
-        case WTAP_ERR_BAD_FILE:
-          simple_error_message_box(
-                     "The capture file %s appears to be damaged or corrupt.\n(%s)",
-                     display_basename, err_info);
-          g_free(err_info);
-          break;
-
-        case WTAP_ERR_DECOMPRESS:
-          simple_error_message_box(
-                     "The compressed capture file %s appears to be damaged or corrupt.\n"
-                     "(%s)", display_basename,
-                     err_info != NULL ? err_info : "no information supplied");
-          g_free(err_info);
-          break;
-
-        default:
-          simple_error_message_box(
-                     "An error occurred while reading the"
-                     " capture file %s: %s.",
-                     display_basename,  wtap_strerror(read_err));
-          break;
-        }
-        g_free(display_basename);
-      }
-    }
-  }
-
-  if (got_write_error) {
-    /* Put up an alert box for the write error. */
-    if (write_err < 0) {
-      /* Wiretap error. */
-      switch (write_err) {
-
-      case WTAP_ERR_UNWRITABLE_ENCAP:
-        /*
-         * This is a problem with the particular frame we're writing and
-         * the file type and subtype we're writing; note that, and report
-         * the frame number and file type/subtype.
-         */
-        display_basename = g_filename_display_basename(in_file ? in_file->filename : "UNKNOWN");
-        simple_error_message_box(
-                      "Frame %u of \"%s\" has a network type that can't be saved in a \"%s\" file.",
-                      in_file ? in_file->packet_num : 0, display_basename,
-                      wtap_file_type_subtype_string(file_type));
-        g_free(display_basename);
-        break;
-
-      case WTAP_ERR_PACKET_TOO_LARGE:
-        /*
-         * This is a problem with the particular frame we're writing and
-         * the file type and subtype we're writing; note that, and report
-         * the frame number and file type/subtype.
-         */
-        display_basename = g_filename_display_basename(in_file ? in_file->filename : "UNKNOWN");
-        simple_error_message_box(
-                      "Frame %u of \"%s\" is too large for a \"%s\" file.",
-                      in_file ? in_file->packet_num : 0, display_basename,
-                      wtap_file_type_subtype_string(file_type));
-        g_free(display_basename);
-        break;
-
-      case WTAP_ERR_UNWRITABLE_REC_TYPE:
-        /*
-         * This is a problem with the particular record we're writing and
-         * the file type and subtype we're writing; note that, and report
-         * the record number and file type/subtype.
-         */
-        display_basename = g_filename_display_basename(in_file ? in_file->filename : "UNKNOWN");
-        simple_error_message_box(
-                      "Record %u of \"%s\" has a record type that can't be saved in a \"%s\" file.",
-                      in_file ? in_file->packet_num : 0, display_basename,
-                      wtap_file_type_subtype_string(file_type));
-        g_free(display_basename);
-        break;
-
-      case WTAP_ERR_UNWRITABLE_REC_DATA:
-        /*
-         * This is a problem with the particular record we're writing and
-         * the file type and subtype we're writing; note that, and report
-         * the frame number and file type/subtype.
-         */
-        display_basename = g_filename_display_basename(in_file ? in_file->filename : "UNKNOWN");
-        simple_error_message_box(
-                      "Record %u of \"%s\" has data that can't be saved in a \"%s\" file.\n(%s)",
-                      in_file ? in_file->packet_num : 0, display_basename,
-                      wtap_file_type_subtype_string(file_type),
-                      write_err_info != NULL ? write_err_info : "no information supplied");
-        g_free(write_err_info);
-        g_free(display_basename);
-        break;
-
-      default:
-        display_basename = g_filename_display_basename(out_filename);
-        simple_error_message_box(
-                      "An error occurred while writing to the file \"%s\": %s.",
-                      out_filename, wtap_strerror(write_err));
-        g_free(display_basename);
-        break;
-      }
-    } else {
-      /* OS error. */
-      write_failure_alert_box(out_filename, write_err);
-    }
-  }
-
-  if (got_read_error || got_write_error || stop_flag) {
+  if (status != MERGE_OK) {
     /* Callers aren't expected to treat an error or an explicit abort
        differently - we put up error dialogs ourselves, so they don't
        have to. */
@@ -1798,7 +1570,6 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, gb
   guint32     framenum;
   frame_data *fdata;
   progdlg_t  *progbar = NULL;
-  gboolean    stop_flag;
   int         count;
   frame_data *selected_frame, *preceding_frame, *following_frame, *prev_frame;
   int         selected_frame_num, preceding_frame_num, following_frame_num, prev_frame_num;
@@ -1890,7 +1661,7 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, gb
   /* Progress so far. */
   progbar_val = 0.0f;
 
-  stop_flag = FALSE;
+  cf->stop_flag = FALSE;
   g_get_current_time(&start_time);
 
   /* no previous row yet */
@@ -1918,7 +1689,8 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, gb
        time in order to get to the next progress bar step). */
     if (progbar == NULL)
       progbar = delayed_create_progress_dlg(cf->window, action, action_item, TRUE,
-                                            &stop_flag, &start_time,
+                                            &cf->stop_flag,
+                                            &start_time,
                                             progbar_val);
 
     /* Update the progress bar, but do it only N_PROGBAR_UPDATES times;
@@ -1942,7 +1714,7 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, gb
       progbar_nextstep += progbar_quantum;
     }
 
-    if (stop_flag) {
+    if (cf->stop_flag) {
       /* Well, the user decided to abort the filtering.  Just stop.
 
          XXX - go back to the previous filter?  Users probably just
@@ -2211,7 +1983,6 @@ process_specified_records(capture_file *cf, packet_range_t *range,
   progdlg_t       *progbar = NULL;
   int              progbar_count;
   float            progbar_val;
-  gboolean         progbar_stop_flag;
   GTimeVal         progbar_start_time;
   gchar            progbar_status_str[100];
   int              progbar_nextstep;
@@ -2232,7 +2003,7 @@ process_specified_records(capture_file *cf, packet_range_t *range,
   /* Progress so far. */
   progbar_val = 0.0f;
 
-  progbar_stop_flag = FALSE;
+  cf->stop_flag = FALSE;
   g_get_current_time(&progbar_start_time);
 
   if (range != NULL)
@@ -2251,7 +2022,7 @@ process_specified_records(capture_file *cf, packet_range_t *range,
     if (progbar == NULL)
       progbar = delayed_create_progress_dlg(cf->window, string1, string2,
                                             terminate_is_stop,
-                                            &progbar_stop_flag,
+                                            &cf->stop_flag,
                                             &progbar_start_time,
                                             progbar_val);
 
@@ -2276,7 +2047,7 @@ process_specified_records(capture_file *cf, packet_range_t *range,
       progbar_nextstep += progbar_quantum;
     }
 
-    if (progbar_stop_flag) {
+    if (cf->stop_flag) {
       /* Well, the user decided to abort the operation.  Just stop,
          and arrange to return PSP_STOPPED to our caller, so they know
          it was stopped explicitly. */
@@ -2356,6 +2127,8 @@ cf_retap_packets(capture_file *cf)
     return CF_READ_ABORTED;
   }
 
+  cf_callback_invoke(cf_cb_file_retap_started, cf);
+
   /* Do we have any tap listeners with filters? */
   filtering_tap_listeners = have_filtering_tap_listeners();
 
@@ -2384,6 +2157,8 @@ cf_retap_packets(capture_file *cf)
                                   &callback_args);
 
   epan_dissect_cleanup(&callback_args.edt);
+
+  cf_callback_invoke(cf_cb_file_retap_finished, cf);
 
   switch (ret) {
   case PSP_FINISHED:
@@ -2432,6 +2207,7 @@ print_packet(capture_file *cf, frame_data *fdata,
   int             cp_off;
   char            bookmark_name[9+10+1];  /* "__frameNNNNNNNNNN__\0" */
   char            bookmark_title[6+10+1]; /* "Frame NNNNNNNNNN__\0"  */
+  col_item_t*     col_item;
 
   /* Fill in the column information if we're printing the summary
      information. */
@@ -2469,8 +2245,9 @@ print_packet(capture_file *cf, frame_data *fdata,
     cp = &args->line_buf[0];
     line_len = 0;
     for (i = 0; i < args->num_visible_cols; i++) {
+      col_item = &cf->cinfo.columns[args->visible_cols[i]];
       /* Find the length of the string for this column. */
-      column_len = (int) strlen(cf->cinfo.col_data[args->visible_cols[i]]);
+      column_len = (int) strlen(col_item->col_data);
       if (args->col_widths[i] > column_len)
          column_len = args->col_widths[i];
 
@@ -2485,10 +2262,10 @@ print_packet(capture_file *cf, frame_data *fdata,
       }
 
       /* Right-justify the packet number column. */
-      if (cf->cinfo.col_fmt[args->visible_cols[i]] == COL_NUMBER)
-        g_snprintf(cp, column_len+1, "%*s", args->col_widths[i], cf->cinfo.col_data[args->visible_cols[i]]);
+      if (col_item->col_fmt == COL_NUMBER)
+        g_snprintf(cp, column_len+1, "%*s", args->col_widths[i], col_item->col_data);
       else
-        g_snprintf(cp, column_len+1, "%-*s", args->col_widths[i], cf->cinfo.col_data[args->visible_cols[i]]);
+        g_snprintf(cp, column_len+1, "%-*s", args->col_widths[i], col_item->col_data);
       cp += column_len;
       if (i != args->num_visible_cols - 1)
         *cp++ = ' ';
@@ -2640,14 +2417,14 @@ cf_print_packets(capture_file *cf, print_args_t *print_args)
       if (i == last_visible_col)
         callback_args.col_widths[visible_col_count] = 0;
       else {
-        callback_args.col_widths[visible_col_count] = (gint) strlen(cf->cinfo.col_title[i]);
+        callback_args.col_widths[visible_col_count] = (gint) strlen(cf->cinfo.columns[i].col_title);
         data_width = get_column_char_width(get_column_format(i));
         if (data_width > callback_args.col_widths[visible_col_count])
           callback_args.col_widths[visible_col_count] = data_width;
       }
 
       /* Find the length of the string for this column. */
-      column_len = (int) strlen(cf->cinfo.col_title[i]);
+      column_len = (int) strlen(cf->cinfo.columns[i].col_title);
       if (callback_args.col_widths[i] > column_len)
         column_len = callback_args.col_widths[visible_col_count];
 
@@ -2664,9 +2441,9 @@ cf_print_packets(capture_file *cf, print_args_t *print_args)
 
       /* Right-justify the packet number column. */
 /*      if (cf->cinfo.col_fmt[i] == COL_NUMBER)
-        g_snprintf(cp, column_len+1, "%*s", callback_args.col_widths[visible_col_count], cf->cinfo.col_title[i]);
+        g_snprintf(cp, column_len+1, "%*s", callback_args.col_widths[visible_col_count], cf->cinfo.columns[i].col_title);
       else*/
-      g_snprintf(cp, column_len+1, "%-*s", callback_args.col_widths[visible_col_count], cf->cinfo.col_title[i]);
+      g_snprintf(cp, column_len+1, "%-*s", callback_args.col_widths[visible_col_count], cf->cinfo.columns[i].col_title);
       cp += column_len;
       if (i != cf->cinfo.num_cols - 1)
         *cp++ = ' ';
@@ -3180,9 +2957,9 @@ match_summary_line(capture_file *cf, frame_data *fdata, void *criterion)
 
   /* Find the Info column */
   for (colx = 0; colx < cf->cinfo.num_cols; colx++) {
-    if (cf->cinfo.fmt_matx[colx][COL_INFO]) {
+    if (cf->cinfo.columns[colx].fmt_matx[COL_INFO]) {
       /* Found it.  See if we match. */
-      info_column = edt.pi.cinfo->col_data[colx];
+      info_column = edt.pi.cinfo->columns[colx].col_data;
       info_column_len = strlen(info_column);
       for (i = 0; i < info_column_len; i++) {
         c_char = info_column[i];
@@ -3523,7 +3300,6 @@ find_packet(capture_file *cf,
   frame_data  *fdata;
   frame_data  *new_fd = NULL;
   progdlg_t   *progbar = NULL;
-  gboolean     stop_flag;
   int          count;
   gboolean     found;
   float        progbar_val;
@@ -3550,7 +3326,7 @@ find_packet(capture_file *cf,
     /* Progress so far. */
     progbar_val = 0.0f;
 
-    stop_flag = FALSE;
+    cf->stop_flag = FALSE;
     g_get_current_time(&start_time);
 
     title = cf->sfilter?cf->sfilter:"";
@@ -3562,7 +3338,7 @@ find_packet(capture_file *cf,
          time in order to get to the next progress bar step). */
       if (progbar == NULL)
          progbar = delayed_create_progress_dlg(cf->window, "Searching", title,
-           FALSE, &stop_flag, &start_time, progbar_val);
+           FALSE, &cf->stop_flag, &start_time, progbar_val);
 
       /* Update the progress bar, but do it only N_PROGBAR_UPDATES times;
          when we update it, we have to run the GTK+ main loop to get it
@@ -3586,7 +3362,7 @@ find_packet(capture_file *cf,
         progbar_nextstep += progbar_quantum;
       }
 
-      if (stop_flag) {
+      if (cf->stop_flag) {
         /* Well, the user decided to abort the search.  Go back to the
            frame where we started. */
         new_fd = start_fd;
@@ -3918,38 +3694,25 @@ cf_unignore_frame(capture_file *cf, frame_data *frame)
 const gchar *
 cf_read_shb_comment(capture_file *cf)
 {
-  wtapng_section_t *shb_inf;
-  const gchar      *temp_str;
-
   /* Get info from SHB */
-  shb_inf = wtap_file_get_shb_info(cf->wth);
-  if (shb_inf == NULL)
-        return NULL;
-  temp_str = shb_inf->opt_comment;
-  g_free(shb_inf);
-
-  return temp_str;
-
+  return wtap_file_get_shb_comment(cf->wth);
 }
 
 void
 cf_update_capture_comment(capture_file *cf, gchar *comment)
 {
-  wtapng_section_t *shb_inf;
+  const gchar *shb_comment;
 
   /* Get info from SHB */
-  shb_inf = wtap_file_get_shb_info(cf->wth);
+  shb_comment = wtap_file_get_shb_comment(cf->wth);
 
   /* See if the comment has changed or not */
-  if (shb_inf && shb_inf->opt_comment) {
-    if (strcmp(shb_inf->opt_comment, comment) == 0) {
+  if (shb_comment) {
+    if (strcmp(shb_comment, comment) == 0) {
       g_free(comment);
-      g_free(shb_inf);
       return;
     }
   }
-
-  g_free(shb_inf);
 
   /* The comment has changed, let's update it */
   wtap_write_shb_comment(cf->wth, comment);
@@ -4339,7 +4102,7 @@ cf_has_unsaved_data(capture_file *cf)
    * If this is a temporary file, or a file with unsaved changes, it
    * has unsaved data.
    */
-  return cf->is_tempfile || cf->unsaved_changes;
+  return (cf->is_tempfile && cf->count>0) || cf->unsaved_changes;
 }
 
 /*
@@ -4353,7 +4116,6 @@ rescan_file(capture_file *cf, const char *fname, gboolean is_tempfile, int *err)
   gchar               *name_ptr;
   gint64               data_offset;
   progdlg_t           *progbar        = NULL;
-  gboolean             stop_flag;
   gint64               size;
   float                progbar_val;
   GTimeVal             start_time;
@@ -4430,7 +4192,7 @@ rescan_file(capture_file *cf, const char *fname, gboolean is_tempfile, int *err)
   }else
     progbar_quantum = 0;
 
-  stop_flag = FALSE;
+  cf->stop_flag = FALSE;
   g_get_current_time(&start_time);
 
   framenum = 0;
@@ -4449,7 +4211,7 @@ rescan_file(capture_file *cf, const char *fname, gboolean is_tempfile, int *err)
       if ((progbar == NULL) && !(count % MIN_NUMBER_OF_PACKET)) {
         progbar_val = calc_progbar_val(cf, size, cf->f_datalen, status_str, sizeof(status_str));
         progbar = delayed_create_progress_dlg(cf->window, "Rescanning", name_ptr,
-                                              TRUE, &stop_flag, &start_time, progbar_val);
+                                              TRUE, &cf->stop_flag, &start_time, progbar_val);
       }
 
       /* Update the progress bar, but do it only N_PROGBAR_UPDATES times;
@@ -4475,7 +4237,7 @@ rescan_file(capture_file *cf, const char *fname, gboolean is_tempfile, int *err)
       }
     }
 
-    if (stop_flag) {
+    if (cf->stop_flag) {
       /* Well, the user decided to abort the rescan.  Sadly, as this
          isn't a reread, recovering is difficult, so we'll just
          close the current capture. */
@@ -4515,7 +4277,7 @@ rescan_file(capture_file *cf, const char *fname, gboolean is_tempfile, int *err)
 
   cf_callback_invoke(cf_cb_file_rescan_finished, cf);
 
-  if (stop_flag) {
+  if (cf->stop_flag) {
     /* Our caller will give up at this point. */
     return CF_READ_ABORTED;
   }
@@ -4673,12 +4435,15 @@ cf_save_records(capture_file *cf, const char *fname, guint save_format,
        or moving the capture file, we have to do it by writing the packets
        out in Wiretap. */
 
-    wtapng_section_t *shb_hdr = NULL;
+    wtapng_section_t            *shb_hdr = NULL;
     wtapng_iface_descriptions_t *idb_inf = NULL;
+    wtapng_name_res_t           *nrb_hdr = NULL;
     int encap;
 
-    shb_hdr = wtap_file_get_shb_info(cf->wth);
+    /* XXX: what free's this shb_hdr? */
+    shb_hdr = wtap_file_get_shb_for_new_file(cf->wth);
     idb_inf = wtap_file_get_idb_info(cf->wth);
+    nrb_hdr = wtap_file_get_nrb_for_new_file(cf->wth);
 
     /* Determine what file encapsulation type we should use. */
     encap = wtap_dump_file_encap_type(cf->linktypes);
@@ -4693,10 +4458,10 @@ cf_save_records(capture_file *cf, const char *fname, guint save_format,
          from which we're reading the packets that we're writing!) */
       fname_new = g_strdup_printf("%s~", fname);
       pdh = wtap_dump_open_ng(fname_new, save_format, encap, cf->snap,
-                              compressed, shb_hdr, idb_inf, &err);
+                              compressed, shb_hdr, idb_inf, nrb_hdr, &err);
     } else {
       pdh = wtap_dump_open_ng(fname, save_format, encap, cf->snap,
-                              compressed, shb_hdr, idb_inf, &err);
+                              compressed, shb_hdr, idb_inf, nrb_hdr, &err);
     }
     g_free(idb_inf);
     idb_inf = NULL;
@@ -4893,8 +4658,9 @@ cf_export_specified_packets(capture_file *cf, const char *fname,
   int                          err;
   wtap_dumper                 *pdh;
   save_callback_args_t         callback_args;
-  wtapng_section_t            *shb_hdr;
-  wtapng_iface_descriptions_t *idb_inf;
+  wtapng_section_t            *shb_hdr = NULL;
+  wtapng_iface_descriptions_t *idb_inf = NULL;
+  wtapng_name_res_t           *nrb_hdr = NULL;
   int                          encap;
 
   cf_callback_invoke(cf_cb_file_export_specified_packets_started, (gpointer)fname);
@@ -4906,8 +4672,10 @@ cf_export_specified_packets(capture_file *cf, const char *fname,
      written, don't special-case the operation - read each packet
      and then write it out if it's one of the specified ones. */
 
-  shb_hdr = wtap_file_get_shb_info(cf->wth);
+  /* XXX: what free's this shb_hdr? */
+  shb_hdr = wtap_file_get_shb_for_new_file(cf->wth);
   idb_inf = wtap_file_get_idb_info(cf->wth);
+  nrb_hdr = wtap_file_get_nrb_for_new_file(cf->wth);
 
   /* Determine what file encapsulation type we should use. */
   encap = wtap_dump_file_encap_type(cf->linktypes);
@@ -4922,10 +4690,10 @@ cf_export_specified_packets(capture_file *cf, const char *fname,
        from which we're reading the packets that we're writing!) */
     fname_new = g_strdup_printf("%s~", fname);
     pdh = wtap_dump_open_ng(fname_new, save_format, encap, cf->snap,
-                            compressed, shb_hdr, idb_inf, &err);
+                            compressed, shb_hdr, idb_inf, nrb_hdr, &err);
   } else {
     pdh = wtap_dump_open_ng(fname, save_format, encap, cf->snap,
-                            compressed, shb_hdr, idb_inf, &err);
+                            compressed, shb_hdr, idb_inf, nrb_hdr, &err);
   }
   g_free(idb_inf);
   idb_inf = NULL;
@@ -5045,7 +4813,7 @@ cf_open_failure_alert_box(const char *filename, int err, gchar *err_info,
     case WTAP_ERR_UNSUPPORTED:
       /* Seen only when opening a capture file for reading. */
       simple_error_message_box(
-            "The file \"%s\" contains record data that Wireshark doesn't support.\n",
+            "The file \"%s\" contains record data that Wireshark doesn't support.\n"
             "(%s)",
             display_basename,
             err_info != NULL ? err_info : "no information supplied");

@@ -170,7 +170,7 @@ dissect_ib_sdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     conversation_infiniband_data *convo_data = NULL;
     dissector_handle_t infiniband_handle;
 
-    if (tvb_length(tvb) < 16)   /* check this has at least enough bytes for the BSDH */
+    if (tvb_captured_length(tvb) < 16)   /* check this has at least enough bytes for the BSDH */
         return 0;
 
     if (gPREF_MAN_EN) {
@@ -313,7 +313,7 @@ manual_override:
     col_append_fstr(pinfo->cinfo, COL_INFO, "(SDP %s)",
                     rval_to_str(mid, mid_meanings, "Unknown"));
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -513,8 +513,8 @@ proto_reg_handoff_ib_sdp(void)
     static gboolean initialized = FALSE;
 
     if (!initialized) {
-        heur_dissector_add("infiniband.payload", dissect_ib_sdp, proto_ib_sdp);
-        heur_dissector_add("infiniband.mad.cm.private", dissect_ib_sdp, proto_ib_sdp);
+        heur_dissector_add("infiniband.payload", dissect_ib_sdp, "Infiniband SDP", "sdp_infiniband", proto_ib_sdp, HEURISTIC_ENABLE);
+        heur_dissector_add("infiniband.mad.cm.private", dissect_ib_sdp, "Infiniband SDP in PrivateData of CM packets", "sdp_ib_private", proto_ib_sdp, HEURISTIC_ENABLE);
 
         /* allocate enough space in the addresses to store the largest address (a GID) */
         manual_addr_data[0] = wmem_alloc(wmem_epan_scope(), GID_SIZE);

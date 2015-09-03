@@ -827,7 +827,7 @@ sccp_called_calling_looks_valid(guint32 frame_num _U_, tvbuff_t *tvb, guint8 my_
 {
   guint8 ai, ri, gti, ssni, pci;
   guint8 len_needed = 1;      /* need at least the Address Indicator */
-  guint  len        = tvb_length(tvb);
+  guint  len        = tvb_reported_length(tvb);
 
   ai = tvb_get_guint8(tvb, 0);
   if ((my_mtp3_standard == ANSI_STANDARD) && ((ai & ANSI_NATIONAL_MASK) == 0))
@@ -893,7 +893,7 @@ looks_like_valid_sccp(guint32 frame_num _U_, tvbuff_t *tvb, guint8 my_mtp3_stand
   guint  data_ptr       = 0;
   guint  opt_ptr        = 0;
   guint8 pointer_length = POINTER_LENGTH;
-  guint  len            = tvb_length(tvb);
+  guint  len            = tvb_captured_length(tvb);
 
   /* Ensure we can do some basic checks without throwing an exception.
    * Accesses beyond this length need to check the length first because
@@ -1549,7 +1549,7 @@ dissect_sccp_unknown_message(tvbuff_t *message_tvb, proto_tree *sccp_tree)
 {
   guint32 message_length;
 
-  message_length = tvb_length(message_tvb);
+  message_length = tvb_captured_length(message_tvb);
 
   proto_tree_add_bytes_format(sccp_tree, hf_sccp_unknown_message, message_tvb, 0, message_length,
                       NULL, "Unknown message (%u byte%s)",
@@ -1615,7 +1615,7 @@ dissect_sccp_gt_address_information(tvbuff_t *tvb, packet_info *pinfo,
   proto_tree *digits_tree;
   char *gt_digits;
 
-  gt_digits = (char *)wmem_alloc0(wmem_packet_scope(), GT_MAX_SIGNALS+1);
+  gt_digits = (char *)wmem_alloc0(pinfo->pool, GT_MAX_SIGNALS+1);
 
   while (offset < length) {
     odd_signal = tvb_get_guint8(tvb, offset) & GT_ODD_SIGNAL_MASK;
@@ -3495,6 +3495,12 @@ init_sccp(void)
                          &addresses_reassembly_table_functions);
 }
 
+static void
+cleanup_sccp(void)
+{
+  reassembly_table_destroy(&sccp_xudt_msg_reassembly_table);
+}
+
 /* Register the protocol with Wireshark */
 void
 proto_register_sccp(void)
@@ -4123,6 +4129,7 @@ proto_register_sccp(void)
                                    &default_payload);
 
   register_init_routine(&init_sccp);
+  register_cleanup_routine(&cleanup_sccp);
 
   assocs = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 

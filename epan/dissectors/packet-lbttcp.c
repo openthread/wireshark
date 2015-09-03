@@ -803,7 +803,7 @@ void proto_reg_handoff_lbttcp(void)
     {
         lbttcp_dissector_handle = new_create_dissector_handle(dissect_lbttcp, proto_lbttcp);
         dissector_add_for_decode_as("tcp.port", lbttcp_dissector_handle);
-        heur_dissector_add("tcp", test_lbttcp_packet, proto_lbttcp);
+        heur_dissector_add("tcp", test_lbttcp_packet, "LBT over TCP", "lbttcp_tcp", proto_lbttcp, HEURISTIC_ENABLE);
     }
 
     /* Make sure the source port low is <= the source port high. If not, don't change them. */
@@ -837,10 +837,10 @@ void proto_reg_handoff_lbttcp(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

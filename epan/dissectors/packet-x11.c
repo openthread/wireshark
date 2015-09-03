@@ -2691,7 +2691,7 @@ static void windowAttributes(tvbuff_t *tvb, int *offsetp, proto_tree *t,
       ENDBITMASK;
 }
 
-static void x11_init_protocol(void)
+static void x11_cleanup(void)
 {
       x11_conv_data_t *state;
 
@@ -4505,15 +4505,7 @@ static void dissect_x11_requests(tvbuff_t *tvb, packet_info *pinfo,
       int length;
       tvbuff_t *volatile next_tvb;
 
-      while (tvb_reported_length_remaining(tvb, offset) != 0) {
-            /*
-             * We use "tvb_ensure_length_remaining()" to make sure there
-             * actually *is* data remaining.
-             *
-             * This means we're guaranteed that "length_remaining" is
-             * positive.
-             */
-            length_remaining = tvb_ensure_length_remaining(tvb, offset);
+      while ((length_remaining = tvb_reported_length_remaining(tvb, offset)) > 0) {
 
             /*
              * Can we do reassembly?
@@ -4854,16 +4846,7 @@ dissect_x11_replies(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       byte_order = guess_byte_ordering(tvb, pinfo, state);
 
       offset = 0;
-      while (tvb_reported_length_remaining(tvb, offset) != 0) {
-            /*
-             * We use "tvb_ensure_length_remaining()" to make sure there
-             * actually *is* data remaining.
-             *
-             * This means we're guaranteed that "length_remaining" is
-             * positive.
-             */
-            length_remaining = tvb_ensure_length_remaining(tvb, offset);
-
+      while ((length_remaining = tvb_reported_length_remaining(tvb, offset)) > 0) {
             /*
              * Can we do reassembly?
              */
@@ -5856,7 +5839,7 @@ void proto_register_x11(void)
       expert_x11 = expert_register_protocol(proto_x11);
       expert_register_field_array(expert_x11, ei, array_length(ei));
 
-      register_init_routine(x11_init_protocol);
+      register_cleanup_routine(x11_cleanup);
 
       extension_table = g_hash_table_new(g_str_hash, g_str_equal);
       error_table = g_hash_table_new(g_str_hash, g_str_equal);

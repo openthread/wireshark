@@ -144,7 +144,7 @@ dissect_lsc_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
   col_clear(pinfo->cinfo, COL_INFO);
 
   /* Too little data? */
-  if (tvb_length(tvb) < LSC_MIN_LEN)
+  if (tvb_captured_length(tvb) < LSC_MIN_LEN)
   {
     col_set_str(pinfo->cinfo, COL_INFO, "[Too short]");
     return 0;
@@ -196,9 +196,9 @@ dissect_lsc_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
                  val_to_str(op_code, op_code_vals, "Unknown op code (0x%x)"),
                  stream);
 
-  if (tvb_length(tvb) < expected_len)
+  if (tvb_reported_length(tvb) < expected_len)
     col_append_str(pinfo->cinfo, COL_INFO, " [Too short]");
-  else if (tvb_length(tvb) > expected_len)
+  else if (tvb_reported_length(tvb) > expected_len)
     col_append_str(pinfo->cinfo, COL_INFO, " [Too long]");
 
   if (tree) {
@@ -269,7 +269,7 @@ dissect_lsc_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
       }
   }
 
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 /* Decode LSC over UDP */
@@ -333,7 +333,7 @@ dissect_lsc_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
   tcp_dissect_pdus(tvb, pinfo, tree, TRUE, LSC_OPCODE_LEN, get_lsc_pdu_len,
                    dissect_lsc_common, data);
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

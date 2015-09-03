@@ -34,6 +34,7 @@
 #include <epan/packet.h>
 #include <epan/column.h>
 #include <epan/strutil.h>
+#include <epan/plugin_if.h>
 
 #include "ui/main_statusbar.h"
 #include "ui/packet_list_utils.h"
@@ -91,6 +92,7 @@ static void show_cell_data_func(GtkTreeViewColumn *col,
 static gint row_number_from_iter(GtkTreeIter *iter);
 static void scroll_to_current(void);
 static gboolean query_packet_list_tooltip_cb(GtkWidget *widget, gint x, gint y, gboolean keyboard_tip, GtkTooltip *tooltip, gpointer data _U_);
+static void plugin_if_pktlist_preference(gconstpointer user_data);
 
 GtkWidget *
 packet_list_create(void)
@@ -104,6 +106,8 @@ packet_list_create(void)
 	gtk_container_add(GTK_CONTAINER(scrollwin), view);
 
 	g_object_set_data(G_OBJECT(popup_menu_object), E_MPACKET_LIST_KEY, view);
+
+	plugin_if_register_gui_cb(PLUGIN_IF_PREFERENCE_SAVE, plugin_if_pktlist_preference);
 
 	return scrollwin;
 }
@@ -658,6 +662,7 @@ create_view_and_model(void)
 	header_field_info *hfi;
 	gint col_min_width;
 	gchar *escaped_title;
+	col_item_t* col_item;
 
 	packetlist = packet_list_new();
 
@@ -687,6 +692,7 @@ create_view_and_model(void)
 
 	/* We need one extra column to store the entire PacketListRecord */
 	for(i = 0; i < cfile.cinfo.num_cols; i++) {
+		col_item = &cfile.cinfo.columns[i];
 		renderer = gtk_cell_renderer_text_new();
 		col = gtk_tree_view_column_new();
 		gtk_tree_view_column_pack_start(col, renderer, TRUE);
@@ -702,14 +708,14 @@ create_view_and_model(void)
 							show_cell_data_func,
 							GINT_TO_POINTER(i),
 							NULL);
-		if (cfile.cinfo.col_fmt[i] == COL_CUSTOM) {
-			hfi = proto_registrar_get_byname(cfile.cinfo.col_custom_field[i]);
+		if (col_item->col_fmt == COL_CUSTOM) {
+			hfi = proto_registrar_get_byname(col_item->col_custom_field);
 			/* Check if this is a valid custom_field */
 			if (hfi != NULL) {
 				if (hfi->parent != -1) {
 					/* Prefix with protocol name */
-					if (cfile.cinfo.col_custom_occurrence[i] != 0) {
-						tooltip_text = g_strdup_printf("%s\n%s (%s#%d)", proto_get_protocol_name(hfi->parent), hfi->name, hfi->abbrev, cfile.cinfo.col_custom_occurrence[i]);
+					if (col_item->col_custom_occurrence != 0) {
+						tooltip_text = g_strdup_printf("%s\n%s (%s#%d)", proto_get_protocol_name(hfi->parent), hfi->name, hfi->abbrev, col_item->col_custom_occurrence);
 					} else {
 						tooltip_text = g_strdup_printf("%s\n%s (%s)", proto_get_protocol_name(hfi->parent), hfi->name, hfi->abbrev);
 					}
@@ -720,9 +726,9 @@ create_view_and_model(void)
 				tooltip_text = g_strdup_printf("Unknown Field: %s", get_column_custom_field(i));
 			}
 		} else {
-			tooltip_text = g_strdup(col_format_desc(cfile.cinfo.col_fmt[i]));
+			tooltip_text = g_strdup(col_format_desc(col_item->col_fmt));
 		}
-		escaped_title = ws_strdup_escape_char(cfile.cinfo.col_title[i], '_');
+		escaped_title = ws_strdup_escape_char(col_item->col_title, '_');
 		gtk_tree_view_column_set_title(col, escaped_title);
 		g_free (escaped_title);
 		gtk_tree_view_column_set_clickable(col, TRUE);
@@ -739,7 +745,7 @@ create_view_and_model(void)
 		 * XXX The minimum size will be the size of the title
 		 * should that be limited for long titles?
 		 */
-		col_min_width = get_default_col_size (packetlist->view, cfile.cinfo.col_title[i]);
+		col_min_width = get_default_col_size (packetlist->view, cfile.cinfo.columns[i].col_title);
 		if(col_min_width<COLUMN_WIDTH_MIN){
 			gtk_tree_view_column_set_min_width(col, COLUMN_WIDTH_MIN);
 		}else{
@@ -1728,6 +1734,25 @@ query_packet_list_tooltip_cb(GtkWidget *widget, gint x, gint y, gboolean keyboar
 	gtk_tree_path_free(path);
 
 	return result;
+}
+
+void plugin_if_pktlist_preference(gconstpointer user_data)
+{
+	if ( packetlist != NULL && user_data != NULL )
+	{
+		GHashTable * dataSet = (GHashTable *) user_data;
+		const char * module_name;
+		const char * pref_name;
+		const char * pref_value;
+		if ( g_hash_table_lookup_extended(dataSet, "pref_module", NULL, (void**)&module_name ) &&
+				g_hash_table_lookup_extended(dataSet, "pref_key", NULL, (void**)&pref_name ) &&
+				g_hash_table_lookup_extended(dataSet, "pref_value", NULL, (void**)&pref_value ) )
+		{
+			if ( prefs_store_ext(module_name, pref_name, pref_value) )
+				packet_list_recreate();
+
+		}
+	}
 }
 
 /*

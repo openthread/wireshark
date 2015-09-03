@@ -333,12 +333,6 @@ void proto_reg_handoff_ssl(void);
 /* Desegmentation of SSL streams */
 /* table to hold defragmented SSL streams */
 static reassembly_table ssl_reassembly_table;
-static void
-ssl_fragment_init(void)
-{
-    reassembly_table_init(&ssl_reassembly_table,
-                          &addresses_ports_reassembly_table_functions);
-}
 
 /* initialize/reset per capture state data (ssl sessions cache) */
 static void
@@ -347,9 +341,10 @@ ssl_init(void)
     module_t *ssl_module = prefs_find_module("ssl");
     pref_t   *keys_list_pref;
 
-    ssl_common_init(&ssl_master_key_map, &ssl_keylog_file,
+    ssl_common_init(&ssl_master_key_map,
                     &ssl_decrypted_data, &ssl_compressed_data);
-    ssl_fragment_init();
+    reassembly_table_init(&ssl_reassembly_table,
+                          &addresses_ports_reassembly_table_functions);
     ssl_debug_flush();
 
     /* for "Export SSL Session Keys" */
@@ -363,6 +358,19 @@ ssl_init(void)
             prefs_set_preference_obsolete(keys_list_pref);
         }
     }
+}
+
+static void
+ssl_cleanup(void)
+{
+    reassembly_table_destroy(&ssl_reassembly_table);
+    ssl_common_cleanup(&ssl_master_key_map, &ssl_keylog_file,
+                       &ssl_decrypted_data, &ssl_compressed_data);
+
+    /* should not be needed since the UI code prevents this from being accessed
+     * when no file is open. Clear it anyway just to be sure. */
+    ssl_session_hash = NULL;
+    ssl_crandom_hash = NULL;
 }
 
 /* parse ssl related preferences (private keys and ports association strings) */
@@ -415,9 +423,11 @@ ssl_parse_old_keys(void)
         for (i = 0; old_keys[i] != NULL; i++) {
             parts = wmem_strsplit(NULL, old_keys[i], ",", 5);
             if (parts[0] && parts[1] && parts[2] && parts[3]) {
+                gchar *path = uat_esc(parts[3], (guint)strlen(parts[3]));
                 const gchar *password = parts[4] ? parts[4] : "";
                 uat_entry = wmem_strdup_printf(NULL, "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"",
-                                parts[0], parts[1], parts[2], parts[3], password);
+                                parts[0], parts[1], parts[2], path, password);
+                g_free(path);
                 if (!uat_load_str(ssldecrypt_uat, uat_entry, &err)) {
                     ssl_debug_printf("ssl_parse_old_keys: Can't load UAT string %s: %s\n",
                                      uat_entry, err);
@@ -1284,6 +1294,22 @@ again:
 }
 
 static void
+export_pdu_packet(tvbuff_t *tvb, packet_info *pinfo, guint tag, const gchar *name)
+{
+    exp_pdu_data_t *exp_pdu_data;
+    guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
+                  EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
+
+    exp_pdu_data = load_export_pdu_tags(pinfo, tag, name, &tags, 1);
+
+    exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
+    exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
+    exp_pdu_data->pdu_tvb = tvb;
+
+    tap_queue_packet(exported_pdu_tap, pinfo, exp_pdu_data);
+}
+
+static void
 process_ssl_payload(tvbuff_t *tvb, volatile int offset, packet_info *pinfo,
                     proto_tree *tree, SslSession *session)
 {
@@ -1300,20 +1326,13 @@ process_ssl_payload(tvbuff_t *tvb, volatile int offset, packet_info *pinfo,
 
         if (dissector_try_heuristic(ssl_heur_subdissector_list, next_tvb,
                                     pinfo, proto_tree_get_root(tree), &hdtbl_entry, NULL)) {
+            if (have_tap_listener(exported_pdu_tap)) {
+                export_pdu_packet(next_tvb, pinfo, EXP_PDU_TAG_HEUR_PROTO_NAME, hdtbl_entry->short_name);
+            }
         } else {
             if (have_tap_listener(exported_pdu_tap)) {
-                exp_pdu_data_t *exp_pdu_data;
-                guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
-                              EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
-
-                exp_pdu_data = load_export_pdu_tags(pinfo, dissector_handle_get_dissector_name(session->app_handle), -1,
-                                                    &tags, 1);
-
-                exp_pdu_data->tvb_captured_length = tvb_captured_length(next_tvb);
-                exp_pdu_data->tvb_reported_length = tvb_reported_length(next_tvb);
-                exp_pdu_data->pdu_tvb = next_tvb;
-
-                tap_queue_packet(exported_pdu_tap, pinfo, exp_pdu_data);
+                export_pdu_packet(next_tvb, pinfo, EXP_PDU_TAG_PROTO_NAME,
+                                  dissector_handle_get_dissector_name(session->app_handle));
             }
             saved_match_port = pinfo->match_uint;
             if (ssl_packet_from_server(session, ssl_associations, pinfo)) {
@@ -4197,6 +4216,7 @@ proto_register_ssl(void)
     ssl_associations = g_tree_new(ssl_association_cmp);
 
     register_init_routine(ssl_init);
+    register_cleanup_routine(ssl_cleanup);
     ssl_lib_init();
     ssl_tap = register_tap("ssl");
     ssl_debug_printf("proto_register_ssl: registered tap %s:%d\n",

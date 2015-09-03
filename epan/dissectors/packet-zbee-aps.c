@@ -61,6 +61,7 @@ static guint   dissect_zbee_t2                 (tvbuff_t *tvb, proto_tree *tree,
 static guint   zbee_apf_transaction_len    (tvbuff_t *tvb, guint offset, guint8 type);
 
 static void proto_init_zbee_aps(void);
+static void proto_cleanup_zbee_aps(void);
 void proto_reg_handoff_zbee_aps(void);
 void proto_register_zbee_aps(void);
 
@@ -1287,14 +1288,6 @@ dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
 
         nwk_keyring = (GSList **)g_hash_table_lookup(zbee_table_nwk_keyring, &nwk_hints->src_pan);
         if ( !nwk_keyring ) {
-            /* Create an empty key ring for this pan. Use g_malloc0() because we must free
-             * GSLists after a capture is closed and wireshark frees seasonal memory
-             * with se_free_all() before calling the registered init routine.
-             *
-             * XXX - we don't use seasonal memory any more, and libwireshark
-             * just does wmem_enter_file_scope() before calling registered init
-             * routines; does this still apply?
-             */
             nwk_keyring = (GSList **)g_malloc0(sizeof(GSList*));
             g_hash_table_insert(zbee_table_nwk_keyring,
                     g_memdup(&nwk_hints->src_pan, sizeof(nwk_hints->src_pan)), nwk_keyring);
@@ -1308,8 +1301,7 @@ dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
                 key_record.frame_num = pinfo->fd->num;
                 key_record.label = NULL;
                 memcpy(&key_record.key, &key, ZBEE_APS_CMD_KEY_LENGTH);
-                *nwk_keyring = g_slist_prepend(*nwk_keyring, wmem_memdup(wmem_file_scope(),
-                            &key_record, sizeof(key_record_t)));
+                *nwk_keyring = g_slist_prepend(*nwk_keyring, g_memdup(&key_record, sizeof(key_record_t)));
             }
         }
     }
@@ -2127,6 +2119,7 @@ void proto_register_zbee_aps(void)
 
     /* Register the init routine. */
     register_init_routine(proto_init_zbee_aps);
+    register_cleanup_routine(proto_cleanup_zbee_aps);
 
     /* Register the ZigBee Application Framework protocol with Wireshark. */
     proto_zbee_apf = proto_register_protocol("ZigBee Application Framework", "ZigBee APF", "zbee_apf");
@@ -2171,6 +2164,11 @@ static void proto_init_zbee_aps(void)
     reassembly_table_init(&zbee_aps_reassembly_table,
                           &addresses_reassembly_table_functions);
 } /* proto_init_zbee_aps */
+
+static void proto_cleanup_zbee_aps(void)
+{
+    reassembly_table_destroy(&zbee_aps_reassembly_table);
+}
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

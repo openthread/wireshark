@@ -2867,7 +2867,7 @@ dissect_ldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
      * packets that happen to be going to or from the
      * LDP port but that aren't LDP packets.
      */
-    if (tvb_length(tvb) < 2) {
+    if (tvb_captured_length(tvb) < 2) {
         /*
          * Not enough information to tell.
          */
@@ -2885,7 +2885,7 @@ dissect_ldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     /*
      * XXX - return minimum of this and the length of the PDU?
      */
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -3095,7 +3095,7 @@ dissect_ldp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
     int                 length;
     tvbuff_t *volatile  next_tvb;
     while (tvb_reported_length_remaining(tvb, offset) != 0) {
-        length_remaining = tvb_length_remaining(tvb, offset);
+        length_remaining = tvb_captured_length_remaining(tvb, offset);
 
         /*
          * Make sure the first PDU has a version number of 1;
@@ -3221,7 +3221,7 @@ dissect_ldp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
          */
         offset += plen + 4;
     }
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* Register all the bits needed with the filtering engine */

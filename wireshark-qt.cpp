@@ -49,6 +49,7 @@
 #endif
 #include <wsutil/report_err.h>
 #include <wsutil/u3.h>
+#include <wsutil/unicode-utils.h>
 #include <wsutil/ws_diag_control.h>
 #include <wsutil/ws_version_info.h>
 
@@ -73,8 +74,10 @@
 #include "file.h"
 #include "color.h"
 #include "color_filters.h"
-#include "ui/util.h"
 #include "log.h"
+
+#include "epan/rtd_table.h"
+#include "epan/srt_table.h"
 
 #include "ui/alert_box.h"
 #include "ui/console.h"
@@ -83,9 +86,15 @@
 #include "ui/persfilepath_opt.h"
 #include "ui/recent.h"
 #include "ui/simple_dialog.h"
+#include "ui/util.h"
 
-#include "ui/qt/simple_dialog.h"
+#include "ui/qt/conversation_dialog.h"
+#include "ui/qt/endpoint_dialog.h"
 #include "ui/qt/main_window.h"
+#include "ui/qt/response_time_delay_dialog.h"
+#include "ui/qt/service_response_time_dialog.h"
+#include "ui/qt/simple_dialog.h"
+#include "ui/qt/simple_statistics_dialog.h"
 #include "ui/qt/splash_overlay.h"
 #include "ui/qt/wireshark_application.h"
 
@@ -112,15 +121,8 @@
 #include <QTextCodec>
 #endif
 
-#include "ui/qt/conversation_dialog.h"
-#include "ui/qt/endpoint_dialog.h"
-
 #if defined(HAVE_LIBPCAP) || defined(HAVE_EXTCAP)
 capture_options global_capture_opts;
-#endif
-
-#ifdef HAVE_AIRPCAP
-int    airpcap_dll_ret_val = -1;
 #endif
 
 GString *comp_info_str, *runtime_info_str;
@@ -213,7 +215,13 @@ print_usage(gboolean for_help_option) {
     fprintf(output, "Processing:\n");
     fprintf(output, "  -R <read filter>         packet filter in Wireshark display filter syntax\n");
     fprintf(output, "  -n                       disable all name resolutions (def: all enabled)\n");
-    fprintf(output, "  -N <name resolve flags>  enable specific name resolution(s): \"mntC\"\n");
+    fprintf(output, "  -N <name resolve flags>  enable specific name resolution(s): \"mnNtCd\"\n");
+    fprintf(output, "  --disable-protocol <proto_name>\n");
+    fprintf(output, "                           disable dissection of proto_name\n");
+    fprintf(output, "  --enable-heuristic <short_name>\n");
+    fprintf(output, "                           enable dissection of heuristic protocol\n");
+    fprintf(output, "  --disable-heuristic <short_name>\n");
+    fprintf(output, "                           disable dissection of heuristic protocol\n");
 
     fprintf(output, "\n");
     fprintf(output, "User interface:\n");
@@ -436,9 +444,10 @@ int main(int argc, char *argv[])
 
     int                  opt;
     gboolean             arg_error = FALSE;
+    char               **ws_argv = argv;
 
 #ifdef _WIN32
-    WSADATA            wsaData;
+    WSADATA              wsaData;
 #endif  /* _WIN32 */
 
     char                *rf_path;
@@ -464,12 +473,34 @@ int main(int argc, char *argv[])
     guint                go_to_packet = 0;
 
     QString              dfilter, read_filter;
+    GSList              *disable_protocol_slist = NULL;
+    GSList              *enable_heur_slist = NULL;
+    GSList              *disable_heur_slist = NULL;
 
     cmdarg_err_init(wireshark_cmdarg_err, wireshark_cmdarg_err_cont);
 
-#ifdef _WIN32
-    create_app_running_mutex();
+    // In Qt 5, C strings are treated always as UTF-8 when converted to
+    // QStrings; in Qt 4, the codec must be set to make that happen
+#if (QT_VERSION < QT_VERSION_CHECK(5, 0, 0))
+    // Hopefully we won't have to use QString::fromUtf8() in as many places.
+    QTextCodec *utf8codec = QTextCodec::codecForName("UTF-8");
+    QTextCodec::setCodecForCStrings(utf8codec);
+    // XXX - QObject doesn't *have* a tr method in 5.0, as far as I can see...
+    QTextCodec::setCodecForTr(utf8codec);
 #endif
+
+    /* Set the C-language locale to the native environment. */
+    // The GTK+ UI calls this. Should we as well?
+    //setlocale(LC_ALL, "");
+#ifdef _WIN32
+    // QCoreApplication clobbers argv. Let's have a local copy.
+    ws_argv = (char **) g_malloc(sizeof(char *) * argc);
+    for (opt = 0; opt < argc; opt++) {
+        ws_argv[opt] = argv[opt];
+    }
+    arg_list_utf_16to8(argc, ws_argv);
+    create_app_running_mutex();
+#endif /* _WIN32 */
 
     /*
      * Get credential information for later use, and drop privileges
@@ -482,9 +513,60 @@ int main(int argc, char *argv[])
     /*
      * Attempt to get the pathname of the executable file.
      */
-    /* init_progfile_dir_error = */ init_progfile_dir(argv[0],
+    /* init_progfile_dir_error = */ init_progfile_dir(ws_argv[0],
         (void *) get_gui_compiled_info);
     g_log(NULL, G_LOG_LEVEL_DEBUG, "progfile_dir: %s", get_progfile_dir());
+
+#ifdef _WIN32
+    /* Load wpcap if possible. Do this before collecting the run-time version information */
+    load_wpcap();
+
+    /* ... and also load the packet.dll from wpcap */
+    wpcap_packet_load();
+
+#ifdef HAVE_AIRPCAP
+    /* Load the airpcap.dll.  This must also be done before collecting
+     * run-time version information. */
+    load_airpcap();
+#if 0
+    airpcap_dll_ret_val = load_airpcap();
+
+    switch (airpcap_dll_ret_val) {
+    case AIRPCAP_DLL_OK:
+        /* load the airpcap interfaces */
+        g_airpcap_if_list = get_airpcap_interface_list(&err, &err_str);
+
+        if (g_airpcap_if_list == NULL || g_list_length(g_airpcap_if_list) == 0){
+            if (err == CANT_GET_AIRPCAP_INTERFACE_LIST && err_str != NULL) {
+                simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", "Failed to open Airpcap Adapters.");
+                g_free(err_str);
+            }
+            airpcap_if_active = NULL;
+
+        } else {
+
+            /* select the first ad default (THIS SHOULD BE CHANGED) */
+            airpcap_if_active = airpcap_get_default_if(airpcap_if_list);
+        }
+        break;
+    /*
+     * XXX - Maybe we need to warn the user if one of the following happens???
+     */
+    case AIRPCAP_DLL_OLD:
+        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s","AIRPCAP_DLL_OLD\n");
+        break;
+
+    case AIRPCAP_DLL_ERROR:
+        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s","AIRPCAP_DLL_ERROR\n");
+        break;
+
+    case AIRPCAP_DLL_NOT_FOUND:
+        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s","AIRPCAP_DDL_NOT_FOUND\n");
+        break;
+    }
+#endif
+#endif /* HAVE_AIRPCAP */
+#endif /* _WIN32 */
 
     /* Get the compile-time version information string */
     // XXX qtshark
@@ -545,7 +627,7 @@ DIAG_ON(cast-qual)
 
     opterr = 0;
 
-    while ((opt = getopt_long(argc, argv, optstring, long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, ws_argv, optstring, long_options, NULL)) != -1) {
         switch (opt) {
             case 'C':        /* Configuration Profile */
                 if (profile_exists (optarg, FALSE)) {
@@ -633,70 +715,9 @@ DIAG_ON(cast-qual)
 
     AirPDcapInitContext(&airpdcap_ctx);
 
-// xxx qtshark
-#ifdef _WIN32
-    /* Load wpcap if possible. Do this before collecting the run-time version information */
-    load_wpcap();
-
-    /* ... and also load the packet.dll from wpcap */
-    wpcap_packet_load();
-
-#ifdef HAVE_AIRPCAP
-    /* Load the airpcap.dll.  This must also be done before collecting
-     * run-time version information. */
-    airpcap_dll_ret_val = load_airpcap();
-
-    switch (airpcap_dll_ret_val) {
-    case AIRPCAP_DLL_OK:
-        /* load the airpcap interfaces */
-        airpcap_if_list = get_airpcap_interface_list(&err, &err_str);
-
-        if (airpcap_if_list == NULL || g_list_length(airpcap_if_list) == 0){
-            if (err == CANT_GET_AIRPCAP_INTERFACE_LIST && err_str != NULL) {
-                simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", "Failed to open Airpcap Adapters.");
-                g_free(err_str);
-            }
-            airpcap_if_active = NULL;
-
-        } else {
-
-            /* select the first ad default (THIS SHOULD BE CHANGED) */
-            airpcap_if_active = airpcap_get_default_if(airpcap_if_list);
-        }
-        break;
-#if 0
-    /*
-     * XXX - Maybe we need to warn the user if one of the following happens???
-     */
-    case AIRPCAP_DLL_OLD:
-        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s","AIRPCAP_DLL_OLD\n");
-        break;
-
-    case AIRPCAP_DLL_ERROR:
-        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s","AIRPCAP_DLL_ERROR\n");
-        break;
-
-    case AIRPCAP_DLL_NOT_FOUND:
-        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s","AIRPCAP_DDL_NOT_FOUND\n");
-        break;
-#endif
-    }
-#endif /* HAVE_AIRPCAP */
-#endif /* _WIN32 */
-
     QString locale;
     QString cf_name;
     unsigned int in_file_type = WTAP_TYPE_AUTO;
-
-    // In Qt 5, C strings are treated always as UTF-8 when converted to
-    // QStrings; in Qt 4, the codec must be set to make that happen
-#if (QT_VERSION < QT_VERSION_CHECK(5, 0, 0))
-    // Hopefully we won't have to use QString::fromUtf8() in as many places.
-    QTextCodec *utf8codec = QTextCodec::codecForName("UTF-8");
-    QTextCodec::setCodecForCStrings(utf8codec);
-    // XXX - QObject doesn't *have* a tr method in 5.0, as far as I can see...
-    QTextCodec::setCodecForTr(utf8codec);
-#endif
 
     /* Add it to the information to be reported on a crash. */
     ws_add_crash_info("Wireshark %s\n"
@@ -829,6 +850,9 @@ DIAG_ON(cast-qual)
     register_all_tap_listeners();
     conversation_table_set_gui_info(init_conversation_table);
     hostlist_table_set_gui_info(init_endpoint_table);
+    srt_table_iterate_tables(register_service_response_tables, NULL);
+    rtd_table_iterate_tables(register_response_time_delay_tables, NULL);
+    new_stat_tap_iterate_tables(register_simple_stat_tables, NULL);
 
     if (ex_opt_count("read_format") > 0) {
         in_file_type = open_info_name_to_type(ex_opt_get_next("read_format"));
@@ -873,7 +897,7 @@ DIAG_ON(cast-qual)
     opterr = 1;
 
     /* Now get our args */
-    while ((opt = getopt_long(argc, argv, optstring, long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, ws_argv, optstring, long_options, NULL)) != -1) {
         switch (opt) {
         /*** capture option specific ***/
         case 'a':        /* autostop criteria */
@@ -947,15 +971,12 @@ DIAG_ON(cast-qual)
             /* Not supported yet */
             break;
         case 'n':        /* No name resolution */
-            gbl_resolv_flags.mac_name = FALSE;
-            gbl_resolv_flags.network_name = FALSE;
-            gbl_resolv_flags.transport_name = FALSE;
-            gbl_resolv_flags.concurrent_dns = FALSE;
+            disable_name_resolution();
             break;
         case 'N':        /* Select what types of addresses/port #s to resolve */
             badopt = string_to_name_resolve(optarg, &gbl_resolv_flags);
             if (badopt != '\0') {
-                cmdarg_err("-N specifies unknown resolving option '%c'; valid options are 'm', 'n', and 't'",
+                cmdarg_err("-N specifies unknown resolving option '%c'; valid options are 'C', 'd', m', 'n', 'N', and 't'",
                            badopt);
                 exit(1);
             }
@@ -1078,6 +1099,16 @@ DIAG_ON(cast-qual)
                 exit(1);
             }
             break;
+        case LONGOPT_DISABLE_PROTOCOL: /* disable dissection of protocol */
+            disable_protocol_slist = g_slist_append(disable_protocol_slist, optarg);
+            break;
+        case LONGOPT_ENABLE_HEURISTIC: /* enable heuristic dissection of protocol */
+            enable_heur_slist = g_slist_append(enable_heur_slist, optarg);
+            break;
+        case LONGOPT_DISABLE_HEURISTIC: /* disable heuristic dissection of protocol */
+            disable_heur_slist = g_slist_append(disable_heur_slist, optarg);
+            break;
+
         default:
         case '?':        /* Bad flag - print usage message */
             print_usage(FALSE);
@@ -1088,7 +1119,7 @@ DIAG_ON(cast-qual)
 
     if (!arg_error) {
         argc -= optind;
-        argv += optind;
+        ws_argv += optind;
         if (argc >= 1) {
             if (!cf_name.isEmpty()) {
                 /*
@@ -1108,18 +1139,18 @@ DIAG_ON(cast-qual)
                  * file - yes, you could have "-r" as the last part of the command,
                  * but that's a bit ugly.
                  */
-                cf_name = argv[0];
+                cf_name = ws_argv[0];
 
             }
             argc--;
-            argv++;
+            ws_argv++;
         }
 
         if (argc != 0) {
             /*
              * Extra command line arguments were specified; complain.
              */
-            cmdarg_err("Invalid argument: %s", argv[0]);
+            cmdarg_err("Invalid argument: %s", ws_argv[0]);
             arg_error = TRUE;
         }
     }
@@ -1214,9 +1245,9 @@ DIAG_ON(cast-qual)
             device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
             if (device.selected) {
 #if defined(HAVE_PCAP_CREATE)
-                caps = capture_get_if_capabilities(device.name, device.monitor_mode_supported, &err_str, main_window_update);
+                caps = capture_get_if_capabilities(device.name, device.monitor_mode_supported, NULL, &err_str, main_window_update);
 #else
-                caps = capture_get_if_capabilities(device.name, FALSE, &err_str,main_window_update);
+                caps = capture_get_if_capabilities(device.name, FALSE, NULL, &err_str,main_window_update);
 #endif
                 if (caps == NULL) {
                     cmdarg_err("%s", err_str);
@@ -1275,6 +1306,31 @@ DIAG_ON(cast-qual)
     /* disabled protocols as per configuration file */
     if (gdp_path == NULL && dp_path == NULL) {
         set_disabled_protos_list();
+        set_disabled_heur_dissector_list();
+    }
+
+    if(disable_protocol_slist) {
+        GSList *proto_disable;
+        for (proto_disable = disable_protocol_slist; proto_disable != NULL; proto_disable = g_slist_next(proto_disable))
+        {
+            proto_disable_proto_by_name((char*)proto_disable->data);
+        }
+    }
+
+    if(enable_heur_slist) {
+        GSList *heur_enable;
+        for (heur_enable = enable_heur_slist; heur_enable != NULL; heur_enable = g_slist_next(heur_enable))
+        {
+            proto_enable_heuristic_by_name((char*)heur_enable->data, TRUE);
+        }
+    }
+
+    if(disable_heur_slist) {
+        GSList *heur_disable;
+        for (heur_disable = disable_heur_slist; heur_disable != NULL; heur_disable = g_slist_next(heur_disable))
+        {
+            proto_enable_heuristic_by_name((char*)heur_disable->data, FALSE);
+        }
     }
 
     build_column_format_array(&CaptureFile::globalCapFile()->cinfo, prefs_p->num_cols, TRUE);
@@ -1316,31 +1372,30 @@ DIAG_ON(cast-qual)
     ////////
 #endif /* HAVE_LIBPCAP */
 
-//    w->setEnabled(true);
     wsApp->allSystemsGo();
     g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_INFO, "Wireshark is up and ready to go");
     SimpleDialog::displayQueuedMessages(main_w);
 
-    /* user could specify filename, or display filter, or both */
+    /* User could specify filename, or display filter, or both */
     if (!cf_name.isEmpty()) {
+        if (main_w->openCaptureFile(cf_name, read_filter, in_file_type)) {
+            if (!dfilter.isEmpty())
+                main_w->filterPackets(dfilter, false);
 
-        /* Open stat windows; we do so after creating the main window,
-           to avoid Qt warnings, and after successfully opening the
-           capture file, so we know we have something to compute stats
-           on, and after registering all dissectors, so that MATE will
-           have registered its field array and we can have a tap filter
-           with one of MATE's late-registered fields as part of the
-           filter. */
-        start_requested_stats();
+            /* Open stat windows; we do so after creating the main window,
+               to avoid Qt warnings, and after successfully opening the
+               capture file, so we know we have something to compute stats
+               on, and after registering all dissectors, so that MATE will
+               have registered its field array and we can have a tap filter
+               with one of MATE's late-registered fields as part of the
+               filter. */
+            start_requested_stats();
 
-        // XXX The GTK+ UI does error checking here.
-        main_w->openCaptureFile(cf_name, read_filter, in_file_type);
-        if (!dfilter.isEmpty())
-            main_w->filterPackets(dfilter, false);
-        if(go_to_packet != 0) {
-            /* Jump to the specified frame number, kept for backward
-               compatibility. */
-            cf_goto_frame(CaptureFile::globalCapFile(), go_to_packet);
+            if(go_to_packet != 0) {
+                /* Jump to the specified frame number, kept for backward
+                   compatibility. */
+                cf_goto_frame(CaptureFile::globalCapFile(), go_to_packet);
+            }
         }
     }
 #ifdef HAVE_LIBPCAP

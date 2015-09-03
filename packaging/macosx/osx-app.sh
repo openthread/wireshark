@@ -178,6 +178,26 @@ elif [ ! -d "$bundle" ] ; then
 	exit 1
 fi
 
+if [ "$ui_toolkit" = "qt" ] ; then
+	for i in 5 ""
+	do
+		qt_frameworks_dir=`pkg-config --libs Qt${i}Core | sed -e 's/-F//' -e 's/ -framework.*//'`
+		if [ ! -z "$qt_frameworks_dir" ] ; then
+			# found it
+			break;
+		fi
+	done
+	if [ -z "$qt_frameworks_dir" ] ; then
+		echo "Can't find the Qt frameworks directory" >&2
+		exit 1
+	fi
+
+	#
+	# Leave the Qt frameworks out of the special processing.
+	#
+	exclude_prefixes="$exclude_prefixes|$qt_frameworks_dir"
+fi
+
 # Package paths
 pkgexec="$bundle/Contents/MacOS"
 pkgres="$bundle/Contents/Resources"
@@ -466,6 +486,17 @@ if [ "$strip" = "true" ]; then
 	strip -ur "$binpath"
 fi
 
+if [ "$ui_toolkit" = "qt" ] ; then
+	macdeployqt "$bundle" -verbose=2 || exit 1
+
+	#
+	# The build process added to the Wireshark binary an rpath entry
+	# pointing to the directory containing the Qt frameworks; remove
+	# that entry from the Wireshark binary in the package.
+	#
+	/usr/bin/install_name_tool -delete_rpath "$qt_frameworks_dir" $pkgbin/Wireshark
+fi
+
 # NOTE: we must rpathify *all* files, *including* plugins for GTK+ etc.,
 #	to keep	GTK+ from crashing at startup.
 #
@@ -498,6 +529,16 @@ rpathify_file () {
 				to=@rpath/$base
 				/usr/bin/install_name_tool -id $to $1
 			fi
+
+			#
+			# Add -Wl,-rpath,@executable_path/../Frameworks
+			# to the rpath, so it'll find the bundled
+			# frameworks and libraries if they're referred
+			# to by @rpath/, rather than having a wrapper
+			# script tweak DYLD_LIBRARY_PATH.
+			#
+			echo "Adding @executable_path/../Frameworks to rpath of $1"
+			/usr/bin/install_name_tool -add_rpath @executable_path/../Frameworks $1
 
 			#
 			# Show the minimum supported version of Mac OS X
@@ -585,10 +626,6 @@ rpathify_files () {
 	rpathify_dir "$pkgbin" "*"
 	rpathify_dir "$pkgbin/extcap" "*"
 }
-
-if [ "$ui_toolkit" = "qt" ] ; then
-	macdeployqt "$bundle" -verbose=2 || exit 1
-fi
 
 PATHLENGTH=`echo $LIBPREFIX | wc -c`
 if [ "$PATHLENGTH" -ge "6" ]; then

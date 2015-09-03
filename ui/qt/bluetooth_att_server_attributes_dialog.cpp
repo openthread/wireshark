@@ -20,7 +20,7 @@
  */
 
 #include "bluetooth_att_server_attributes_dialog.h"
-#include "ui_bluetooth_att_server_attributes_dialog.h"
+#include <ui_bluetooth_att_server_attributes_dialog.h>
 
 #include "epan/epan.h"
 #include "epan/to_str.h"
@@ -34,6 +34,7 @@
 #include <QContextMenuEvent>
 #include <QPushButton>
 #include <QTreeWidget>
+#include <QFileDialog>
 
 static const int column_number_handle = 0;
 static const int column_number_uuid = 1;
@@ -97,27 +98,6 @@ btatt_handle_tap_reset(void *tapinfo_ptr)
         tapinfo->tap_reset(tapinfo);
 }
 
-
-static void
-bluetooth_att_server_attributes_tap(void *data)
-{
-    GString *error_string;
-
-    error_string = register_tap_listener("btatt.handles", data, NULL,
-            0,
-            btatt_handle_tap_reset,
-            btatt_handle_tap_packet,
-            NULL
-            );
-
-    if (error_string != NULL) {
-        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-                "%s", error_string->str);
-        g_string_free(error_string, TRUE);
-    }
-}
-
-
 BluetoothAttServerAttributesDialog::BluetoothAttServerAttributesDialog(QWidget &parent, CaptureFile &cf) :
     WiresharkDialog(parent, cf),
     ui(new Ui::BluetoothAttServerAttributesDialog)
@@ -134,14 +114,19 @@ BluetoothAttServerAttributesDialog::BluetoothAttServerAttributesDialog(QWidget &
 
     context_menu_.addActions(QList<QAction *>() << ui->actionCopy_Cell);
     context_menu_.addActions(QList<QAction *>() << ui->actionCopy_Rows);
-
-    copy_all_button_ = ui->buttonBox->addButton(tr("Copy All"), QDialogButtonBox::ApplyRole);
+    context_menu_.addActions(QList<QAction *>() << ui->actionCopy_All);
+    context_menu_.addActions(QList<QAction *>() << ui->actionSave_as_image);
 
     tapinfo_.tap_packet = tapPacket;
     tapinfo_.tap_reset  = tapReset;
     tapinfo_.ui = this;
 
-    bluetooth_att_server_attributes_tap(&tapinfo_);
+    registerTapListener("btatt.handles", &tapinfo_, NULL,
+                        0,
+                        btatt_handle_tap_reset,
+                        btatt_handle_tap_packet,
+                        NULL
+                        );
 
     cap_file_.retapPackets();
 }
@@ -150,14 +135,14 @@ BluetoothAttServerAttributesDialog::BluetoothAttServerAttributesDialog(QWidget &
 BluetoothAttServerAttributesDialog::~BluetoothAttServerAttributesDialog()
 {
     delete ui;
-
-    remove_tap_listener(&tapinfo_);
 }
 
 
 void BluetoothAttServerAttributesDialog::captureFileClosing()
 {
-    remove_tap_listener(&tapinfo_);
+    ui->interfaceComboBox->setEnabled(FALSE);
+    ui->deviceComboBox->setEnabled(FALSE);
+    ui->removeDuplicatesCheckBox->setEnabled(FALSE);
 
     WiresharkDialog::captureFileClosing();
 }
@@ -317,13 +302,16 @@ void BluetoothAttServerAttributesDialog::removeDuplicatesStateChanged(int)
 
 void BluetoothAttServerAttributesDialog::on_tableTreeWidget_itemActivated(QTreeWidgetItem *item, int)
 {
+    if (!cap_file_.isValid())
+        return;
+
     guint32 frame_number = item->data(0, Qt::UserRole).value<guint32>();
 
     emit goToPacket(frame_number);
 }
 
 
-void BluetoothAttServerAttributesDialog::copyAll()
+void BluetoothAttServerAttributesDialog::on_actionCopy_All_triggered()
 {
     QClipboard             *clipboard = QApplication::clipboard();
     QString                 copy;
@@ -346,11 +334,23 @@ void BluetoothAttServerAttributesDialog::copyAll()
     clipboard->setText(copy);
 }
 
-
-void BluetoothAttServerAttributesDialog::on_buttonBox_clicked(QAbstractButton *button)
+void BluetoothAttServerAttributesDialog::on_actionSave_as_image_triggered()
 {
-    if (button == copy_all_button_)
-        copyAll();
+    QPixmap image;
+
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Save Table Image"),
+                           "att_server_attributes_table.png",
+                           tr("PNG Image (*.png)"));
+
+    if (fileName.isEmpty()) return;
+
+    image = QPixmap::grabWidget(ui->tableTreeWidget);
+    image.save(fileName, "PNG");
+}
+
+void BluetoothAttServerAttributesDialog::on_buttonBox_clicked(QAbstractButton *)
+{
+/*    if (button == foo_button_) */
 }
 
 /*

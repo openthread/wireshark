@@ -295,7 +295,7 @@ void igmp_checksum(proto_tree *tree, tvbuff_t *tvb, int hf_index,
 	}
 
 	hdrcksum = tvb_get_ntohs(tvb, 2);
-	if (!pinfo->fragmented && tvb_length(tvb) >= len) {
+	if (!pinfo->fragmented && tvb_captured_length(tvb) >= len) {
 		/*
 		 * The packet isn't part of a fragmented datagram and isn't
 		 * truncated, so we can checksum it.
@@ -373,7 +373,7 @@ dissect_igmp_unknown(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	offset += 1;
 
 	/* Just call the rest of it "data" */
-	len = tvb_length_remaining(tvb, offset);
+	len = tvb_captured_length_remaining(tvb, offset);
 	proto_tree_add_item(tree, hf_data, tvb, offset, -1, ENC_NA);
 	offset += len;
 
@@ -558,14 +558,14 @@ dissect_igmp_v3_report(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tre
 
 	tree = dissect_igmp_common(tvb, pinfo, parent_tree, &offset, &type, 3);
 
-	/* skip reserved field*/
+        proto_tree_add_item(tree, hf_reserved, tvb, offset, 1, ENC_NA);
 	offset += 1;
 
 	/* checksum */
 	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
 	offset += 2;
 
-	/* skip reserved field */
+        proto_tree_add_item(tree, hf_reserved, tvb, offset, 2, ENC_NA);
 	offset += 2;
 
 	/* number of group records */
@@ -927,7 +927,7 @@ proto_register_igmp(void)
 			  VALS(commands), 0, "IGMP Packet Type", HFILL }},
 
 		{ &hf_reserved,
-			{ "Reserved", "igmp.reserved", FT_UINT8, BASE_HEX,
+			{ "Reserved", "igmp.reserved", FT_BYTES, BASE_NONE,
 			  NULL, 0, "IGMP Reserved", HFILL }},
 
 		{ &hf_version,

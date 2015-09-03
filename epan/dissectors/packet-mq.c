@@ -1397,6 +1397,8 @@ DEF_VALSB(notifcode)
     DEF_VALS2(NC_MESSAGE_TOO_LARGE , "MESSAGE_TOO_LARGE"),
     DEF_VALS2(NC_STREAMING_FAILURE , "STREAMING_FAILURE"),
     DEF_VALS2(NC_CLIENT_ASYNC_EMPTY, "CLIENT_ASYNC_EMPTY"),
+    DEF_VALS2(NC_STREAMING_TXN_PAUSED, "STREAMING_TXN_PAUSED"),
+    DEF_VALS2(NC_RECONNECTION_COMPLETE, "RECONNECTION_COMPLETE"),
 DEF_VALSE;
 
 DEF_VALSB(spi_verbs)
@@ -2813,7 +2815,10 @@ static void dissect_mq_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                                 else
                                     iCod = ENC_BIG_ENDIAN;
                                 cChr = tvb_get_guint8(tvb, offset + 48);
-                                if (cChr >='A' && cChr <='Z')
+                                if ((cChr >= 'A' && cChr <= 'Z') ||
+                                    (cChr >= 'a' && cChr <= 'z') ||
+                                    (cChr >= '0' && cChr <= '9') ||
+                                    (cChr == '\\'))
                                 {
                                     iEnc = p_mq_parm->mq_str_enc;
                                 }
@@ -3695,7 +3700,7 @@ static void dissect_mq_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                                                 proto_tree_add_item(mq_tree, hf_mq_wih_servicename  , tvb, offset +  32, 32, p_mq_parm->mq_str_enc);
                                                 proto_tree_add_item(mq_tree, hf_mq_wih_servicestep  , tvb, offset +  64,  8, p_mq_parm->mq_str_enc);
                                                 proto_tree_add_item(mq_tree, hf_mq_wih_msgtoken     , tvb, offset +  72, 16, ENC_NA);
-                                                proto_tree_add_item(mq_tree, hf_mq_wih_reserved     , tvb, offset +  86, 32, p_mq_parm->mq_str_enc);
+                                                proto_tree_add_item(mq_tree, hf_mq_wih_reserved     , tvb, offset +  88, 32, p_mq_parm->mq_str_enc);
                                             }
                                             else if (p_mq_parm->mq_strucID == MQ_STRUCTID_RFH || p_mq_parm->mq_strucID == MQ_STRUCTID_RFH_EBCDIC)
                                             {
@@ -3777,14 +3782,8 @@ static void dissect_mq_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     if (tvb_reported_length_remaining(tvb, offset) >= 4)
                     {
                         p_mq_parm->mq_strucID = tvb_get_ntohl(tvb, offset);
-                        if (tree)
-                        {
-                            /*
-                            proto_tree_add_text(mqroot_tree, tvb, offset, -1, "%s", val_to_str_ext(p_mq_parm->mq_strucID, GET_VALS_EXTP(StructID), "Unknown (0x%08x)"));
-                            */
-                            proto_tree_add_subtree_format(mqroot_tree, tvb, offset, -1, ett_mq_structid, NULL,
+                        proto_tree_add_subtree_format(mqroot_tree, tvb, offset, -1, ett_mq_structid, NULL,
                                 "%s", val_to_str_ext(p_mq_parm->mq_strucID, GET_VALS_EXTP(StructID), "Unknown (0x%08x)"));
-                        }
                     }
                 }
                 else
@@ -4088,6 +4087,11 @@ static void mq_init(void)
 {
     reassembly_table_init(&mq_reassembly_table,
         &addresses_reassembly_table_functions);
+}
+
+static void mq_cleanup(void)
+{
+    reassembly_table_destroy(&mq_reassembly_table);
 }
 
 void proto_register_mq(void)
@@ -4679,7 +4683,7 @@ void proto_register_mq(void)
         { &hf_mq_wih_servicename  , {"ServiceName..", "mq.wih.servicename"  , FT_STRINGZ, BASE_NONE, NULL, 0x0, "Service Name", HFILL }},
         { &hf_mq_wih_servicestep  , {"ServiceStep..", "mq.wih.servicestep"  , FT_STRINGZ, BASE_NONE, NULL, 0x0, "Service Step Name", HFILL }},
         { &hf_mq_wih_msgtoken     , {"MsgToken.....", "mq.wih.msgtoken"     , FT_BYTES  , BASE_NONE, NULL, 0x0, "Message Token", HFILL }},
-        { &hf_mq_wih_reserved     , {"Resereved....", "mq.wih.reserved"     , FT_STRINGZ, BASE_NONE, NULL, 0x0, "Resereved", HFILL }},
+        { &hf_mq_wih_reserved     , {"Reserved.....", "mq.wih.reserved"     , FT_STRINGZ, BASE_NONE, NULL, 0x0, "Reserved", HFILL }},
     };
 
     static gint *ett[] =
@@ -4754,6 +4758,7 @@ void proto_register_mq(void)
 
     mq_heur_subdissector_list = register_heur_dissector_list("mq");
     register_init_routine(mq_init);
+    register_cleanup_routine(mq_cleanup);
 
     mq_module = prefs_register_protocol(proto_mq, NULL);
     prefs_register_bool_preference(mq_module, "desegment",
@@ -4777,9 +4782,9 @@ void proto_reg_handoff_mq(void)
     mq_spx_handle = create_dissector_handle(dissect_mq_spx, proto_mq);
 
     dissector_add_for_decode_as("tcp.port", mq_tcp_handle);
-    heur_dissector_add("tcp",     dissect_mq_heur_tcp, proto_mq);
-    heur_dissector_add("netbios", dissect_mq_heur_netbios, proto_mq);
-    heur_dissector_add("http",    dissect_mq_heur_http, proto_mq);
+    heur_dissector_add("tcp",     dissect_mq_heur_tcp, "WebSphere MQ over TCP", "mq_tcp", proto_mq, HEURISTIC_ENABLE);
+    heur_dissector_add("netbios", dissect_mq_heur_netbios, "WebSphere MQ over Netbios", "mq_netbios", proto_mq, HEURISTIC_ENABLE);
+    heur_dissector_add("http",    dissect_mq_heur_http, "WebSphere MQ over HTTP", "mq_http", proto_mq, HEURISTIC_ENABLE);
     dissector_add_uint("spx.socket", MQ_SOCKET_SPX, mq_spx_handle);
     data_handle  = find_dissector("data");
     mqpcf_handle = find_dissector("mqpcf");

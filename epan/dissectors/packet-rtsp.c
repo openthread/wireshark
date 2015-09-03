@@ -145,6 +145,7 @@ static dissector_handle_t rtp_handle;
 static dissector_handle_t rtcp_handle;
 static dissector_handle_t rdt_handle;
 static dissector_table_t media_type_dissector_table;
+static heur_dissector_list_t heur_subdissector_list;
 
 static const gchar *st_str_packets = "Total RTSP Packets";
 static const gchar *st_str_requests = "RTSP Request Packets";
@@ -297,7 +298,7 @@ dissect_rtspinterleaved(tvbuff_t *tvb, int offset, packet_info *pinfo,
      * That's what we want.  (See "tcp_dissect_pdus()", which is
      * similar.)
      */
-    length_remaining = tvb_ensure_length_remaining(tvb, offset);
+    length_remaining = tvb_ensure_captured_length_remaining(tvb, offset);
 
     /*
      * Can we do reassembly?
@@ -394,7 +395,15 @@ dissect_rtspinterleaved(tvbuff_t *tvb, int offset, packet_info *pinfo,
         (dissector = data->interleaved[rf_chan].dissector)) {
         call_dissector(dissector, next_tvb, pinfo, tree);
     } else {
-        proto_tree_add_item(rtspframe_tree, hf_rtsp_data, tvb, offset, rf_len, ENC_NA);
+        gboolean dissected = FALSE;
+        heur_dtbl_entry_t *hdtbl_entry = NULL;
+
+        dissected = dissector_try_heuristic(heur_subdissector_list,
+                            next_tvb, pinfo, tree, &hdtbl_entry, NULL);
+
+        if (!dissected) {
+            proto_tree_add_item(rtspframe_tree, hf_rtsp_data, tvb, offset, rf_len, ENC_NA);
+        }
     }
 
     offset += rf_len;
@@ -728,9 +737,7 @@ dissect_rtspmessage(tvbuff_t *tvb, int offset, packet_info *pinfo,
      * is not longer than what's in the buffer, so the
      * "tvb_get_ptr()" call won't throw an exception.
      */
-    first_linelen = tvb_find_line_end(tvb, offset,
-        tvb_ensure_length_remaining(tvb, offset), &next_offset,
-        FALSE);
+    first_linelen = tvb_find_line_end(tvb, offset, -1, &next_offset, FALSE);
 
     /*
      * Is the first line a request or response?
@@ -842,9 +849,7 @@ dissect_rtspmessage(tvbuff_t *tvb, int offset, packet_info *pinfo,
         /*
          * Find the end of the line.
          */
-        linelen = tvb_find_line_end(tvb, offset,
-            tvb_ensure_length_remaining(tvb, offset), &next_offset,
-            FALSE);
+        linelen = tvb_find_line_end(tvb, offset, -1, &next_offset, FALSE);
         if (linelen < 0)
             return -1;
         line_end_offset = offset + linelen;
@@ -1152,7 +1157,7 @@ dissect_rtspmessage(tvbuff_t *tvb, int offset, packet_info *pinfo,
      * was supplied), the amount of data to be processed is the amount
      * of data remaining in the frame.
      */
-    datalen = tvb_length_remaining(tvb, offset);
+    datalen = tvb_captured_length_remaining(tvb, offset);
     reported_datalen = tvb_reported_length_remaining(tvb, offset);
     if (content_length != -1) {
         /*
@@ -1484,6 +1489,13 @@ proto_register_rtsp(void)
         "\"Content-length:\" value to desegment the body "
         "of a request spanning multiple TCP segments",
         &rtsp_desegment_body);
+
+    /*
+     * Heuristic dissectors SHOULD register themselves in
+     * this table using the standard heur_dissector_add()
+     * function.
+     */
+    heur_subdissector_list = register_heur_dissector_list("rtsp");
 
     /*
      * Register for tapping

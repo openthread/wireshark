@@ -306,9 +306,6 @@ static void get_conv_info(packet_info *pinfo, struct _rtp_info *rtp_info);
 /* Preferences bool to control whether or not setup info should be shown */
 static gboolean global_rtp_show_setup_info = TRUE;
 
-/* Try heuristic RTP decode */
-static gboolean global_rtp_heur = FALSE;
-
 /* desegment RTP streams */
 static gboolean desegment_rtp = TRUE;
 
@@ -915,6 +912,12 @@ rtp_fragment_init(void)
                   &addresses_reassembly_table_functions);
 }
 
+static void
+rtp_fragment_cleanup(void)
+{
+    reassembly_table_destroy(&rtp_reassembly_table);
+}
+
 /* A single hash table to hold pointers to all the rtp_dyn_payload_t's we create/destroy.
    This is necessary because we need to g_hash_table_destroy() them, either individually or
    all at once at the end of the wmem file scope. Since rtp_dyn_payload_free() removes them
@@ -1329,14 +1332,6 @@ dissect_rtp_heur_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     unsigned int version;
     unsigned int offset = 0;
 
-    /* This is a heuristic dissector, which means we get all the UDP
-     * traffic not sent to a known dissector and not claimed by
-     * a heuristic dissector called before us!
-     */
-
-    if (! global_rtp_heur)
-        return FALSE;
-
     /* Get the fields in the first octet */
     octet1 = tvb_get_guint8( tvb, offset );
     version = RTP_VERSION( octet1 );
@@ -1378,6 +1373,30 @@ dissect_rtp_heur_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
         return FALSE;
     }
 
+    /* Create a conversation in case none exists so as to allow reassembly code to work */
+    if (!find_conversation(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src, pinfo->ptype,
+                           pinfo->destport, pinfo->srcport, NO_ADDR2)) {
+        conversation_t *p_conv;
+        struct _rtp_conversation_info *p_conv_data;
+        p_conv = conversation_new(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src, pinfo->ptype,
+                                  pinfo->destport, pinfo->srcport, NO_ADDR2);
+        p_conv_data = (struct _rtp_conversation_info *)conversation_get_proto_data(p_conv, proto_rtp);
+        if (! p_conv_data) {
+            /* Create conversation data */
+            p_conv_data = wmem_new(wmem_file_scope(), struct _rtp_conversation_info);
+            p_conv_data->rtp_dyn_payload = NULL;
+            p_conv_data->extended_seqno = 0x10000;
+            p_conv_data->rtp_conv_info = wmem_new(wmem_file_scope(), rtp_private_conv_info);
+            p_conv_data->rtp_conv_info->multisegment_pdus = wmem_tree_new(wmem_file_scope());
+            conversation_add_proto_data(p_conv, proto_rtp, p_conv_data);
+        }
+        g_strlcpy(p_conv_data->method, "HEUR RTP", MAX_RTP_SETUP_METHOD_SIZE+1);
+        p_conv_data->frame_number = pinfo->fd->num;
+        p_conv_data->is_video = FALSE;
+        p_conv_data->srtp_info = NULL;
+        p_conv_data->bta2dp_info = NULL;
+        p_conv_data->btvdp_info = NULL;
+    }
     dissect_rtp( tvb, pinfo, tree, data );
     return TRUE;
 }
@@ -1389,7 +1408,7 @@ dissect_rtp_heur_udp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
 }
 
 static gboolean
-dissect_rtp_heur_stun( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data )
+dissect_rtp_heur_app( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data )
 {
     return dissect_rtp_heur_common(tvb, pinfo, tree, data, FALSE);
 }
@@ -3671,11 +3690,7 @@ proto_register_rtp(void)
                                     "this RTP stream to be created",
                                     &global_rtp_show_setup_info);
 
-    prefs_register_bool_preference(rtp_module, "heuristic_rtp",
-                                    "Try to decode RTP outside of conversations",
-                                    "If call control SIP/H323/RTSP/.. messages are missing in the trace, "
-                                    "RTP isn't decoded without this",
-                                    &global_rtp_heur);
+    prefs_register_obsolete_preference(rtp_module, "heuristic_rtp");
 
     prefs_register_bool_preference(rtp_module, "desegment_rtp_streams",
                                     "Allow subdissector to reassemble RTP streams",
@@ -3695,6 +3710,7 @@ proto_register_rtp(void)
                                     &rtp_rfc2198_pt);
 
     register_init_routine(rtp_fragment_init);
+    register_cleanup_routine(rtp_fragment_cleanup);
     register_init_routine(rtp_dyn_payloads_init);
 }
 
@@ -3714,8 +3730,9 @@ proto_reg_handoff_rtp(void)
 
         dissector_add_for_decode_as("udp.port", rtp_handle);
         dissector_add_string("rtp_dyn_payload_type", "red", rtp_rfc2198_handle);
-        heur_dissector_add( "udp", dissect_rtp_heur_udp,  proto_rtp);
-        heur_dissector_add("stun", dissect_rtp_heur_stun, proto_rtp);
+        heur_dissector_add( "udp", dissect_rtp_heur_udp,  "RTP over UDP", "rtp_udp", proto_rtp, HEURISTIC_DISABLE);
+        heur_dissector_add("stun", dissect_rtp_heur_app, "RTP over TURN", "rtp_stun", proto_rtp, HEURISTIC_DISABLE);
+        heur_dissector_add("rtsp", dissect_rtp_heur_app, "RTP over RTSP", "rtp_rtsp", proto_rtp, HEURISTIC_DISABLE);
 
         rtp_hdr_ext_ed137_handle = find_dissector("rtp.ext.ed137");
         rtp_hdr_ext_ed137a_handle = find_dissector("rtp.ext.ed137a");

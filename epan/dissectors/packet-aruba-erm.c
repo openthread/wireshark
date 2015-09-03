@@ -89,6 +89,8 @@
 
 #include "config.h"
 
+#include <wiretap/wtap.h>
+
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/prefs.h>
@@ -131,6 +133,7 @@ static int  proto_aruba_erm_type1 = -1;
 static int  proto_aruba_erm_type2 = -1;
 static int  proto_aruba_erm_type3 = -1;
 static int  proto_aruba_erm_type4 = -1;
+static int  proto_aruba_erm_type5 = -1;
 
 static int  hf_aruba_erm_time             = -1;
 static int  hf_aruba_erm_incl_len         = -1;
@@ -151,8 +154,9 @@ static dissector_handle_t aruba_erm_handle_type1;
 static dissector_handle_t aruba_erm_handle_type2;
 static dissector_handle_t aruba_erm_handle_type3;
 static dissector_handle_t aruba_erm_handle_type4;
-static dissector_handle_t wlan_withoutfcs;
-static dissector_handle_t wlan_withfcs;
+static dissector_handle_t aruba_erm_handle_type5;
+static dissector_handle_t wlan_radio_handle;
+static dissector_handle_t wlan_withfcs_handle;
 static dissector_handle_t peek_handle;
 static dissector_handle_t ppi_handle;
 static dissector_handle_t data_handle;
@@ -174,30 +178,6 @@ dissect_aruba_erm_pcap(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *aruba_
 
     proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_orig_len, tvb, 12, 4, ENC_BIG_ENDIAN);
     offset +=4;
-
-    return offset;
-}
-static int
-dissect_aruba_erm_pcap_radio(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *aruba_erm_tree, gint offset, guint32 *signal_strength)
-{
-    proto_item *ti_data_rate;
-    guint16 data_rate;
-
-    data_rate = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_data_rate, tvb, offset, 2, ENC_BIG_ENDIAN);
-    ti_data_rate = proto_tree_add_float_format(aruba_erm_tree, hf_aruba_erm_data_rate_gen,
-                                                tvb, 16, 2,
-                                                (float)data_rate / 2,
-                                                "Data Rate: %.1f Mb/s",
-                                                (float)data_rate / 2);
-    PROTO_ITEM_SET_GENERATED(ti_data_rate);
-    offset += 2;
-
-    proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_channel, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
-    proto_tree_add_item_ret_uint(aruba_erm_tree, hf_aruba_erm_signal_strength, tvb, offset, 1, ENC_BIG_ENDIAN, signal_strength);
-    offset += 1;
 
     return offset;
 }
@@ -257,7 +237,7 @@ dissect_aruba_erm_type0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
     /* No way to determine if TX or RX packet... (TX = no FCS, RX = FCS...)*/
-    call_dissector(wlan_withfcs, next_tvb, pinfo, tree);
+    call_dissector(wlan_withfcs_handle, next_tvb, pinfo, tree);
 
 }
 
@@ -292,22 +272,51 @@ dissect_aruba_erm_type3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tvbuff_t * next_tvb;
     int offset = 0;
     proto_tree *aruba_erm_tree;
+    struct ieee_802_11_phdr phdr;
     guint32 signal_strength;
+    proto_item *ti_data_rate;
+    guint16 data_rate;
+    guint channel;
 
     aruba_erm_tree = dissect_aruba_erm_common(tvb, pinfo, tree, &offset);
 
-
     offset = dissect_aruba_erm_pcap(tvb, pinfo, aruba_erm_tree, offset);
-    offset = dissect_aruba_erm_pcap_radio(tvb, pinfo, aruba_erm_tree, offset, &signal_strength);
+
+    phdr.decrypted = FALSE;
+    phdr.datapad = FALSE;
+    phdr.phy = PHDR_802_11_PHY_UNKNOWN;
+    phdr.presence_flags =
+        PHDR_802_11_HAS_DATA_RATE|
+        PHDR_802_11_HAS_CHANNEL|
+        PHDR_802_11_HAS_SIGNAL_PERCENT;
+    data_rate = tvb_get_ntohs(tvb, offset);
+    phdr.data_rate = data_rate;
+    proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_data_rate, tvb, offset, 2, ENC_BIG_ENDIAN);
+    ti_data_rate = proto_tree_add_float_format(aruba_erm_tree, hf_aruba_erm_data_rate_gen,
+                                                tvb, 16, 2,
+                                                (float)data_rate / 2,
+                                                "Data Rate: %.1f Mb/s",
+                                                (float)data_rate / 2);
+    PROTO_ITEM_SET_GENERATED(ti_data_rate);
+    offset += 2;
+
+    proto_tree_add_item_ret_uint(aruba_erm_tree, hf_aruba_erm_channel, tvb, offset, 1, ENC_BIG_ENDIAN, &channel);
+    phdr.channel = channel;
+    offset += 1;
+
+    proto_tree_add_item_ret_uint(aruba_erm_tree, hf_aruba_erm_signal_strength, tvb, offset, 1, ENC_BIG_ENDIAN, &signal_strength);
+    phdr.signal_percent = signal_strength;
+    offset += 1;
+
     proto_item_set_len(aruba_erm_tree, offset);
     next_tvb = tvb_new_subset_remaining(tvb, offset);
 
     if(signal_strength == 100){ /* When signal = 100 %, it is TX packet and there is no FCS */
-        call_dissector(wlan_withoutfcs, next_tvb, pinfo, tree);
+        phdr.fcs_len = 0; /* TX packet, no FCS */
     } else {
-        call_dissector(wlan_withfcs, next_tvb, pinfo, tree);
+        phdr.fcs_len = 4; /* We have an FCS */
     }
-
+    call_dissector_with_data(wlan_radio_handle, next_tvb, pinfo, tree, &phdr);
 }
 
 static void
@@ -318,6 +327,19 @@ dissect_aruba_erm_type4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     dissect_aruba_erm_common(tvb, pinfo, tree, &offset);
 
     call_dissector(ppi_handle, tvb, pinfo, tree);
+
+}
+
+/* Type 5 is the same of type 1 but with Peek Header version = 2, named internaly Peekremote -ng */
+static void
+dissect_aruba_erm_type5(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+{
+    int offset = 0;
+
+    dissect_aruba_erm_common(tvb, pinfo, tree, &offset);
+
+    /* Say to PEEK dissector, it is a Aruba PEEK  packet */
+    call_dissector_with_data(peek_handle, tvb, pinfo, tree, GUINT_TO_POINTER(IS_ARUBA));
 
 }
 
@@ -406,6 +428,7 @@ proto_register_aruba_erm(void)
     proto_aruba_erm_type2 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - AIRMAGNET (Type 2)", "ARUBA ERM AIRMAGNET (Type 2)", "aruba_erm_type2");
     proto_aruba_erm_type3 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PCAP+RADIO (Type 3)", "ARUBA ERM PCAP+RADIO (Type 3)", "aruba_erm_type3");
     proto_aruba_erm_type4 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PPI (Type 4)", "ARUBA ERM PPI (Type 4)", "aruba_erm_type4");
+    proto_aruba_erm_type5 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PEEK (Type 5)", "ARUBA ERM PEEK-NG (type 5)", "aruba_erm_type5");
 
     range_convert_str (&global_aruba_erm_port_range, "0", MAX_UDP_PORT);
 
@@ -446,8 +469,8 @@ proto_reg_handoff_aruba_erm(void)
     static gboolean initialized = FALSE;
 
     if (!initialized) {
-        wlan_withoutfcs = find_dissector("wlan_withoutfcs");
-        wlan_withfcs = find_dissector("wlan_withfcs");
+        wlan_radio_handle = find_dissector("wlan_radio");
+        wlan_withfcs_handle = find_dissector("wlan_withfcs");
         ppi_handle = find_dissector("ppi");
         peek_handle = find_dissector("peekremote");
         data_handle = find_dissector("data");
@@ -457,6 +480,7 @@ proto_reg_handoff_aruba_erm(void)
         aruba_erm_handle_type2 = create_dissector_handle(dissect_aruba_erm_type2, proto_aruba_erm_type2);
         aruba_erm_handle_type3 = create_dissector_handle(dissect_aruba_erm_type3, proto_aruba_erm_type3);
         aruba_erm_handle_type4 = create_dissector_handle(dissect_aruba_erm_type4, proto_aruba_erm_type4);
+        aruba_erm_handle_type5 = create_dissector_handle(dissect_aruba_erm_type5, proto_aruba_erm_type5);
         initialized = TRUE;
     } else {
         dissector_delete_uint_range("udp.port", aruba_erm_port_range, aruba_erm_handle);
@@ -471,6 +495,8 @@ proto_reg_handoff_aruba_erm(void)
     dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type1);
     dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type2);
     dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type3);
+    dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type4);
+    dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type5);
 }
 
 /*

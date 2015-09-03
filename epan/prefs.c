@@ -194,6 +194,14 @@ static const gchar *capture_cols[5] = {
     "Possible values: INTERFACE, LINK, PMODE, SNAPLEN, FILTER\n"
 #endif
 
+static const enum_val_t gui_packet_list_elide_mode[] = {
+    {"LEFT", "LEFT", ELIDE_LEFT},
+    {"RIGHT", "RIGHT", ELIDE_RIGHT},
+    {"MIDDLE", "MIDDLE", ELIDE_MIDDLE},
+    {"NONE", "NONE", ELIDE_NONE},
+    {NULL, NULL, -1}
+};
+
 /*
  * List of all modules with preference settings.
  */
@@ -295,6 +303,27 @@ prefs_register_module(module_t *parent, const char *name, const char *title,
 {
     return prefs_register_module_or_subtree(parent, name, title, description,
                                             FALSE, apply_cb, use_gui);
+}
+
+static void
+prefs_deregister_module(module_t *parent, const char *name, const char *title)
+{
+    /* Remove this module from the list of all modules */
+    module_t *module = (module_t *)wmem_tree_remove_string(prefs_modules, name, WMEM_TREE_STRING_NOCASE);
+
+    if (!module)
+        return;
+
+    if (parent == NULL) {
+        /* Remove from top */
+        wmem_tree_remove_string(prefs_top_level_modules, title, WMEM_TREE_STRING_NOCASE);
+    } else if (parent->submodules) {
+        /* Remove from parent */
+        wmem_tree_remove_string(parent->submodules, title, WMEM_TREE_STRING_NOCASE);
+    }
+
+    free_module_prefs(module, NULL);
+    wmem_free(wmem_epan_scope(), module);
 }
 
 /*
@@ -436,6 +465,7 @@ prefs_register_protocol(int id, void (*apply_cb)(void))
          * No.  Register Protocols subtree as well as any preferences
          * for non-dissector modules.
          */
+        pre_init_prefs();
         prefs_register_modules();
     }
     protocol = find_protocol_by_id(id);
@@ -443,6 +473,15 @@ prefs_register_protocol(int id, void (*apply_cb)(void))
                                  proto_get_protocol_filter_name(id),
                                  proto_get_protocol_short_name(protocol),
                                  proto_get_protocol_name(id), apply_cb, TRUE);
+}
+
+void
+prefs_deregister_protocol (int id)
+{
+    protocol_t *protocol = find_protocol_by_id(id);
+    prefs_deregister_module (protocols_module,
+                             proto_get_protocol_filter_name(id),
+                             proto_get_protocol_short_name(protocol));
 }
 
 module_t *
@@ -463,6 +502,7 @@ prefs_register_protocol_subtree(const char *subtree, int id, void (*apply_cb)(vo
          * No.  Register Protocols subtree as well as any preferences
          * for non-dissector modules.
          */
+        pre_init_prefs();
         prefs_register_modules();
     }
 
@@ -522,6 +562,7 @@ prefs_register_protocol_obsolete(int id)
          * No.  Register Protocols subtree as well as any preferences
          * for non-dissector modules.
          */
+        pre_init_prefs();
         prefs_register_modules();
     }
     protocol = find_protocol_by_id(id);
@@ -557,7 +598,8 @@ prefs_register_stat(const char *name, const char *title,
          * No.  Register Statistics subtree as well as any preferences
          * for non-dissector modules.
          */
-         prefs_register_modules();
+        pre_init_prefs();
+        prefs_register_modules();
     }
 
     return prefs_register_module(stats_module, name, title, description,
@@ -1790,29 +1832,12 @@ capture_column_init_cb(pref_t* pref, GList** capture_cols_values)
 static void
 capture_column_free_cb(pref_t* pref)
 {
-    GList    *clist = prefs.capture_columns;
-    gchar    *col_name;
-
-    while (clist) {
-        col_name = (gchar *)clist->data;
-        g_free(col_name);
-        clist = g_list_remove_link(clist, clist);
-    }
-    g_list_free(clist);
+    prefs_clear_string_list(prefs.capture_columns);
     prefs.capture_columns = NULL;
 
     if (pref->stashed_val.boolval == TRUE) {
-      GList *dlist;
-      gchar *col;
-
-      dlist = pref->default_val.list;
-      while (dlist != NULL) {
-        col = (gchar *)dlist->data;
-        g_free(col);
-        dlist = g_list_remove_link(dlist, dlist);
-      }
-      g_list_free(dlist);
-      dlist = NULL;
+      prefs_clear_string_list(pref->default_val.list);
+      pref->default_val.list = NULL;
     }
 }
 
@@ -1821,18 +1846,10 @@ capture_column_free_cb(pref_t* pref)
 static void
 capture_column_reset_cb(pref_t* pref)
 {
-    GList *vlist, *dlist;
-    gchar *vcol;
+    GList *vlist = NULL, *dlist;
 
     /* Free the column name strings and remove the links from *pref->varp.list */
-    vlist = *pref->varp.list;
-    while (vlist != NULL) {
-      vcol = (gchar *)vlist->data;
-      g_free(vcol);
-      vlist = g_list_remove_link(vlist, vlist);
-    }
-    g_list_free(vlist);
-    vlist = NULL;
+    prefs_clear_string_list(*pref->varp.list);
 
     for (dlist = pref->default_val.list; dlist != NULL; dlist = g_list_next(dlist)) {
       vlist = g_list_append(vlist, g_strdup((gchar *)dlist->data));
@@ -1843,9 +1860,9 @@ capture_column_reset_cb(pref_t* pref)
 static prefs_set_pref_e
 capture_column_set_cb(pref_t* pref, const gchar* value, gboolean* changed _U_)
 {
-    GList   *col_l  = prefs_get_string_list(value);
-    GList    *col_l_elt;
-    gchar   *col_name;
+    GList *col_l  = prefs_get_string_list(value);
+    GList *col_l_elt;
+    gchar *col_name;
     int i;
 
     if (col_l == NULL)
@@ -1882,6 +1899,7 @@ capture_column_set_cb(pref_t* pref, const gchar* value, gboolean* changed _U_)
           prefs.capture_columns = g_list_append(prefs.capture_columns, col_name);
         }
         pref->varp.list = &prefs.capture_columns;
+        prefs_clear_string_list(col_l);
         return PREFS_SET_SYNTAX_ERR;
       }
       col_l_elt = col_l_elt->next;
@@ -1894,6 +1912,7 @@ capture_column_set_cb(pref_t* pref, const gchar* value, gboolean* changed _U_)
       col_l_elt = col_l_elt->next;
     }
     pref->varp.list = &prefs.capture_columns;
+    g_list_free(col_l);
     return PREFS_SET_OK;
 }
 
@@ -2034,6 +2053,7 @@ prefs_register_modules(void)
     module_t *printing, *capture_module, *console_module,
         *gui_layout_module, *gui_font_module;
     struct pref_custom_cbs custom_cbs;
+    gchar *tmp;
 
     if (protocols_module != NULL) {
         /* Already setup preferences */
@@ -2054,7 +2074,7 @@ prefs_register_modules(void)
      */
     prefs_register_enum_preference(gui_module, "console_open",
                        "Open a console window",
-                       "Open a console window (WIN32 only)",
+                       "Open a console window (Windows only)",
                        (gint*)(void*)(&prefs.gui_console_open), gui_console_open_type, FALSE);
 
     prefs_register_obsolete_preference(gui_module, "scrollbar_on_right");
@@ -2133,11 +2153,15 @@ prefs_register_modules(void)
 
     prefs_register_obsolete_preference(gui_font_module, "font_name");
 
+    tmp = prefs.gui_gtk2_font_name;
     prefs_register_string_preference(gui_font_module, "gtk2.font_name", "Font name",
         "Font name for packet list, protocol tree, and hex dump panes. (GTK+)", (const char **)&prefs.gui_gtk2_font_name);
+    g_free(tmp);
 
+    tmp = prefs.gui_qt_font_name;
     prefs_register_string_preference(gui_font_module, "qt.font_name", "Font name",
         "Font name for packet list, protocol tree, and hex dump panes. (Qt)", (const char **)&prefs.gui_qt_font_name);
+    g_free(tmp);
 
     /* User Interface : Colors */
     gui_color_module = prefs_register_subtree(gui_module, "Colors", "Colors", NULL);
@@ -2173,8 +2197,10 @@ prefs_register_modules(void)
     custom_cbs.type_description_cb = colorized_frame_type_description_cb;
     custom_cbs.is_default_cb = colorized_frame_is_default_cb;
     custom_cbs.to_str_cb = colorized_frame_to_str_cb;
+    tmp = prefs.gui_colorized_fg;
     prefs_register_string_custom_preference(gui_column_module, "colorized_frame.fg", "Colorized Foreground",
         "Filter Colorized Foreground", &custom_cbs, (const char **)&prefs.gui_colorized_fg);
+    g_free(tmp);
 
     custom_cbs.free_cb = colorized_frame_free_cb;
     custom_cbs.reset_cb = colorized_frame_reset_cb;
@@ -2183,8 +2209,10 @@ prefs_register_modules(void)
     custom_cbs.type_description_cb = colorized_frame_type_description_cb;
     custom_cbs.is_default_cb = colorized_frame_is_default_cb;
     custom_cbs.to_str_cb = colorized_frame_to_str_cb;
+    tmp = prefs.gui_colorized_bg;
     prefs_register_string_custom_preference(gui_column_module, "colorized_frame.bg", "Colorized Background",
         "Filter Colorized Background", &custom_cbs, (const char **)&prefs.gui_colorized_bg);
+    g_free(tmp);
 
     prefs_register_color_preference(gui_color_module, "color_filter_bg.valid", "Valid color filter background",
         "Valid color filter background", &prefs.gui_text_valid);
@@ -2212,8 +2240,10 @@ prefs_register_modules(void)
                                    10,
                                    &prefs.gui_recent_df_entries_max);
 
+    tmp = prefs.gui_fileopen_dir;
     prefs_register_directory_preference(gui_module, "fileopen.dir", "Start Directory",
         "Directory to start in when opening File Open dialog.", (const char **)&prefs.gui_fileopen_dir);
+    g_free(tmp);
 
     prefs_register_obsolete_preference(gui_module, "fileopen.remembered_dir");
 
@@ -2274,8 +2304,10 @@ prefs_register_modules(void)
                        "Filter Toolbar style",
                        &prefs.gui_toolbar_filter_style, gui_toolbar_style, FALSE);
 
+    tmp = prefs.gui_webbrowser;
     prefs_register_string_preference(gui_module, "webbrowser", "The path to the webbrowser",
         "The path to the webbrowser (Ex: mozilla)", (const char **)&prefs.gui_webbrowser);
+    g_free(tmp);
 
     prefs_register_bool_preference(gui_module, "update.enabled",
                                    "Check for updates",
@@ -2293,11 +2325,15 @@ prefs_register_modules(void)
                                    10,
                                    &prefs.gui_update_interval);
 
+    tmp = prefs.gui_window_title;
     prefs_register_string_preference(gui_module, "window_title", "Custom window title",
         "Custom window title. (Appended to existing titles.)", (const char **)&prefs.gui_window_title);
+    g_free(tmp);
 
+    tmp = prefs.gui_start_title;
     prefs_register_string_preference(gui_module, "start_title", "Custom start page title",
         "Custom start page title", (const char**)(&prefs.gui_start_title));
+    g_free(tmp);
 
     prefs_register_enum_preference(gui_module, "version_placement",
                        "Show version in the start page and/or main screen's title bar",
@@ -2339,10 +2375,21 @@ prefs_register_modules(void)
                        "Layout content of the pane 3",
                        (gint*)(void*)(&prefs.gui_layout_content_3), gui_layout_content, FALSE);
 
+    prefs_register_bool_preference(gui_layout_module, "packet_list_separator.enabled",
+                                   "Enable Packet List Separator",
+                                   "Enable Packet List Separator",
+                                   &prefs.gui_qt_packet_list_separator);
+
     prefs_register_bool_preference(gui_module, "packet_editor.enabled",
                                    "Enable Packet Editor",
                                    "Enable Packet Editor (Experimental)",
                                    &prefs.gui_packet_editor);
+
+    prefs_register_enum_preference(gui_module, "packet_list_elide_mode",
+                       "Elide mode",
+                       "The position of \"...\" in packet list text.",
+                       (gint*)(void*)(&prefs.gui_packet_list_elide_mode), gui_packet_list_elide_mode, FALSE);
+
     /* Console
      * These are preferences that can be read/written using the
      * preference module API.  These preferences still use their own
@@ -2457,13 +2504,16 @@ prefs_register_modules(void)
                                    &prefs.pr_dest, print_dest_vals, TRUE);
 
 #ifndef _WIN32
+    tmp = prefs.pr_cmd;
     prefs_register_string_preference(printing, "command", "Command",
         "Output gets piped to this command when the destination is set to \"command\"", (const char**)(&prefs.pr_cmd));
+    g_free(tmp);
 #endif
 
+    tmp = prefs.pr_file;
     prefs_register_filename_preference(printing, "file", "File",
         "This is the file that gets written to when the destination is set to \"file\"", (const char**)(&prefs.pr_file));
-
+    g_free(tmp);
 
     /* Statistics */
     stats_module = prefs_register_module(NULL, "statistics", "Statistics",
@@ -2710,12 +2760,9 @@ char *join_string_list(GList *sl)
 void
 prefs_clear_string_list(GList *sl)
 {
-    GList *l = sl;
-
-    while (l) {
-        g_free(l->data);
-        l = g_list_remove_link(l, l);
-    }
+    /* g_list_free_full() only exists since 2.28. */
+    g_list_foreach(sl, (GFunc)g_free, NULL);
+    g_list_free(sl);
 }
 
 /*
@@ -2976,6 +3023,9 @@ pre_init_prefs(void)
     prefs.gui_layout_content_2       = layout_pane_content_pdetails;
     prefs.gui_layout_content_3       = layout_pane_content_pbytes;
     prefs.gui_packet_editor          = FALSE;
+    prefs.gui_packet_list_elide_mode = ELIDE_RIGHT;
+
+    prefs.gui_qt_packet_list_separator = FALSE;
 
     if (!prefs.col_list) {
         /* First time through */
@@ -3311,6 +3361,7 @@ read_prefs_file(const char *pf_path, FILE *pf,
     /* Try to read in the profile name in the first line of the preferences file. */
     if (fscanf(pf, "# Configuration file for %127[^\r\n]", ver) == 1) {
         /* Assume trailing period and remove it */
+        g_free(prefs.saved_at_version);
         prefs.saved_at_version = g_strndup(ver, strlen(ver) - 1);
     }
     rewind(pf);
@@ -3755,6 +3806,9 @@ string_to_name_resolve(const char *string, e_addr_resolve *name_resolve)
         case 'C':
             name_resolve->concurrent_dns = TRUE;
             break;
+        case 'd':
+            name_resolve->dns_pkt_addr_resolution = TRUE;
+            break;
         default:
             /*
              * Unrecognized letter.
@@ -3809,6 +3863,78 @@ try_convert_to_custom_column(gpointer *el_data)
     }
 }
 
+static gboolean
+deprecated_heur_dissector_pref(gchar *pref_name, const gchar *value)
+{
+    struct heur_pref_name
+    {
+        const char* pref_name;
+        const char* short_name;
+        gboolean  more_dissectors; /* For multiple dissectors controlled by the same preference */
+    };
+
+    struct heur_pref_name heur_prefs[] = {
+        {"acn.heuristic_acn", "acn_udp", 0},
+        {"bfcp.enable", "bfcp_tcp", 1},
+        {"bfcp.enable", "bfcp_udp", 0},
+        {"bt-dht.enable", "bittorrent_dht_udp", 0},
+        {"bt-utp.enable", "bt_utp_udp", 0},
+        {"cattp.enable", "cattp_udp", 0},
+        {"cfp.enable", "fp_eth", 0},
+        {"dicom.heuristic", "dicom_tcp", 0},
+        {"dnp3.heuristics", "dnp3_tcp", 1},
+        {"dnp3.heuristics", "dnp3_udp", 0},
+        {"dvb-s2_modeadapt.enable", "dvb_s2_udp", 0},
+        {"esl.enable", "esl_eth", 0},
+        {"fp.udp_heur", "fp_udp", 0},
+        {"gvsp.enable_heuristic", "gvsp_udp", 0},
+        {"hdcp2.enable", "hdcp2_tcp", 0},
+        {"hislip.enable_heuristic", "hislip_tcp", 0},
+        {"jxta.udp.heuristic", "jxta_udp", 0},
+        {"jxta.tcp.heuristic", "jxta_tcp", 0},
+        {"jxta.sctp.heuristic", "jxta_sctp", 0},
+        {"mac-lte.heuristic_mac_lte_over_udp", "mac_lte_udp", 0},
+        {"mbim.bulk_heuristic", "mbim_usb_bulk", 0},
+        {"norm.heuristic_norm", "rmt_norm_udp", 0},
+        {"openflow.heuristic", "openflow_tcp", 0},
+        {"pdcp-lte.heuristic_pdcp_lte_over_udp", "pdcp_lte_udp", 0},
+        {"rlc.heuristic_rlc_over_udp", "rlc_udp", 0},
+        {"rlc-lte.heuristic_rlc_lte_over_udp", "rlc_lte_udp", 0},
+        {"rtcp.heuristic_rtcp", "rtcp_udp", 1},
+        {"rtcp.heuristic_rtcp", "rtcp_stun", 0},
+        {"rtp.heuristic_rtp", "rtp_udp", 1},
+        {"rtp.heuristic_rtp", "rtp_stun", 0},
+        {"teredo.heuristic_teredo", "teredo_udp", 0},
+        {"vssmonitoring.use_heuristics", "vssmonitoring_eth", 0},
+        {"xml.heuristic", "xml_http", 1},
+        {"xml.heuristic", "xml_sip", 1},
+        {"xml.heuristic", "xml_media", 0},
+        {"xml.heuristic_tcp", "xml_tcp", 0},
+        {"xml.heuristic_udp", "xml_udp", 0},
+    };
+
+    unsigned int i;
+    heur_dtbl_entry_t* heuristic;
+
+
+    for (i = 0; i < sizeof(heur_prefs)/sizeof(struct heur_pref_name); i++)
+    {
+        if (strcmp(pref_name, heur_prefs[i].pref_name) == 0)
+        {
+            heuristic = find_heur_dissector_by_unique_short_name(heur_prefs[i].short_name);
+            if (heuristic != NULL) {
+                heuristic->enabled = ((g_ascii_strcasecmp(value, "true") == 0) ? TRUE : FALSE);
+            }
+
+            if (!heur_prefs[i].more_dissectors)
+                return TRUE;
+        }
+    }
+
+
+    return FALSE;
+}
+
 static prefs_set_pref_e
 set_pref(gchar *pref_name, const gchar *value, void *private_data _U_,
          gboolean return_range_errors)
@@ -3858,20 +3984,16 @@ set_pref(gchar *pref_name, const gchar *value, void *private_data _U_,
             gbl_resolv_flags.concurrent_dns = TRUE;
         }
         else if (g_ascii_strcasecmp(value, "false") == 0) {
-            gbl_resolv_flags.mac_name = FALSE;
-            gbl_resolv_flags.network_name = FALSE;
-            gbl_resolv_flags.transport_name = FALSE;
-            gbl_resolv_flags.concurrent_dns = FALSE;
+            disable_name_resolution();
         }
         else {
             /* start out with none set */
-            gbl_resolv_flags.mac_name = FALSE;
-            gbl_resolv_flags.network_name = FALSE;
-            gbl_resolv_flags.transport_name = FALSE;
-            gbl_resolv_flags.concurrent_dns = FALSE;
+            disable_name_resolution();
             if (string_to_name_resolve(value, &gbl_resolv_flags) != '\0')
                 return PREFS_SET_SYNTAX_ERR;
         }
+    } else if (deprecated_heur_dissector_pref(pref_name, value)) {
+         /* Handled within deprecated_heur_dissector_pref() if found */
     } else {
         /* Handle deprecated "global" options that don't have a module
          * associated with them
@@ -4868,9 +4990,10 @@ write_prefs(char **pf_path_return)
  * it's freed here
  */
 static void
-free_col_info(GList * list)
+free_col_info(GList *list)
 {
     fmt_data *cfmt;
+    GList *list_head = list;
 
     while (list != NULL) {
         cfmt = (fmt_data *)list->data;
@@ -4878,10 +5001,9 @@ free_col_info(GList * list)
         g_free(cfmt->title);
         g_free(cfmt->custom_field);
         g_free(cfmt);
-        list = g_list_remove_link(list, list);
+        list = g_list_next(list);
     }
-    g_list_free(list);
-    list = NULL;
+    g_list_free(list_head);
 }
 
 /*

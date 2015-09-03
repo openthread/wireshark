@@ -30,12 +30,10 @@
 #include "wsutil/str_util.h"
 
 #include "qt_ui_utils.h"
-
 #include "wireshark_application.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
-#include <QMessageBox>
 #include <QPushButton>
 
 // To do:
@@ -62,13 +60,15 @@ const QString table_name_ = QObject::tr("Conversation");
 ConversationDialog::ConversationDialog(QWidget &parent, CaptureFile &cf, int cli_proto_id, const char *filter) :
     TrafficTableDialog(parent, cf, filter, table_name_)
 {
-    follow_bt_ = buttonBox()->addButton(tr("Follow Stream..."), QDialogButtonBox::ActionRole);
+    follow_bt_ = buttonBox()->addButton(tr("Follow Stream" UTF8_HORIZONTAL_ELLIPSIS), QDialogButtonBox::ActionRole);
     follow_bt_->setToolTip(tr("Follow a TCP or UDP stream."));
     connect(follow_bt_, SIGNAL(clicked()), this, SLOT(followStream()));
 
-    graph_bt_ = buttonBox()->addButton(tr("Graph..."), QDialogButtonBox::ActionRole);
+    graph_bt_ = buttonBox()->addButton(tr("Graph" UTF8_HORIZONTAL_ELLIPSIS), QDialogButtonBox::ActionRole);
     graph_bt_->setToolTip(tr("Graph a TCP conversation."));
     connect(graph_bt_, SIGNAL(clicked()), this, SLOT(graphTcp()));
+
+    addProgressFrame(&parent);
 
     QList<int> conv_protos;
     for (GList *conv_tab = recent.conversation_tabs; conv_tab; conv_tab = conv_tab->next) {
@@ -98,7 +98,7 @@ ConversationDialog::ConversationDialog(QWidget &parent, CaptureFile &cf, int cli
     updateWidgets();
     itemSelectionChanged();
 
-    cap_file_.retapPackets();
+    cap_file_.delayedRetapPackets();
 }
 
 ConversationDialog::~ConversationDialog()
@@ -126,7 +126,6 @@ void ConversationDialog::captureFileClosing()
     // on a live capture file.
     for (int i = 0; i < trafficTableTabWidget()->count(); i++) {
         ConversationTreeWidget *cur_tree = qobject_cast<ConversationTreeWidget *>(trafficTableTabWidget()->widget(i));
-        remove_tap_listener(cur_tree->trafficTreeHash());
         disconnect(cur_tree, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
                    this, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
     }
@@ -173,16 +172,10 @@ bool ConversationDialog::addTrafficTable(register_ct_t* table)
 
     conv_tree->trafficTreeHash()->user_data = conv_tree;
 
-    GString *error_string = register_tap_listener(proto_get_protocol_filter_name(proto_id), conv_tree->trafficTreeHash(), filter, 0,
-                                                  ConversationTreeWidget::tapReset,
-                                                  get_conversation_packet_func(table),
-                                                  ConversationTreeWidget::tapDraw);
-
-    if (error_string) {
-        QMessageBox::warning(this, tr("Conversation %1 failed to register tap listener").arg(table_name),
-                             error_string->str);
-        g_string_free(error_string, TRUE);
-    }
+    registerTapListener(proto_get_protocol_filter_name(proto_id), conv_tree->trafficTreeHash(), filter, 0,
+                        ConversationTreeWidget::tapReset,
+                        get_conversation_packet_func(table),
+                        ConversationTreeWidget::tapDraw);
 
     return true;
 }
@@ -228,7 +221,7 @@ void ConversationDialog::followStream()
     }
 
     emit filterAction(filter, FilterAction::ActionApply, FilterAction::ActionTypePlain);
-    openFollowStreamDialog(ftype);
+    emit openFollowStreamDialog(ftype);
 }
 
 void ConversationDialog::graphTcp()
@@ -279,9 +272,8 @@ void ConversationDialog::itemSelectionChanged()
     graph_bt_->setEnabled(graph_enable);
 }
 
-void ConversationDialog::on_nameResolutionCheckBox_toggled(bool checked)
+void ConversationDialog::on_nameResolutionCheckBox_toggled(bool)
 {
-    Q_UNUSED(checked);
     updateWidgets();
 }
 
@@ -314,7 +306,6 @@ void ConversationDialog::on_buttonBox_helpRequested()
 
 void init_conversation_table(struct register_ct* ct, const char *filter)
 {
-    Q_UNUSED(ct)
     wsApp->emitStatCommandSignal("Conversations", filter, GINT_TO_POINTER(get_conversation_proto_id(ct)));
 }
 

@@ -170,9 +170,10 @@ static const value_string teklink_vtc_modes[] = {
 	{ 0, NULL },
 };
 
-static int dissect_teklink_tlaframeopen_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_tlaframeopen_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_string(tvb, tree, hf_teklink_unknown_string, offset, NULL);
 	offset = dissect_rpc_string(tvb, tree, hf_teklink_unknown_string, offset, NULL);
@@ -180,32 +181,32 @@ static int dissect_teklink_tlaframeopen_call(tvbuff_t *tvb, int offset, packet_i
 	return offset;
 }
 
-static int dissect_teklink_tlaframeclose_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_tlaframeclose_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	return dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, 0);
+}
+
+static int dissect_teklink_tlaframeclose_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
+	proto_tree *tree, void* data _U_)
+{
+	return dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, 0);
+}
+
+static int dissect_teklink_tlaframeopen_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
+	proto_tree *tree, void* data _U_)
+{
+	int offset = 0;
+	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
+	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	return offset;
 }
 
-static int dissect_teklink_tlaframeclose_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_get_software_version_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
-	return offset;
-}
-
-static int dissect_teklink_tlaframeopen_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
-	proto_tree *tree, void* data _U_)
-{
-	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
-	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
-	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
-	return offset;
-}
-
-static int dissect_teklink_get_software_version_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
-	proto_tree *tree, void* data _U_)
-{
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_string(tvb, tree, hf_teklink_unknown_string, offset, NULL);
@@ -213,9 +214,10 @@ static int dissect_teklink_get_software_version_reply(tvbuff_t *tvb, int offset,
 	return offset;
 }
 
-static int dissect_teklink_call65_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_call65_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_cmd, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
@@ -225,16 +227,16 @@ static int dissect_teklink_call65_call(tvbuff_t *tvb, int offset, packet_info *p
 	return offset;
 }
 
-static int dissect_teklink_call65_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_call65_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
-	return offset;
+	return dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, 0);
 }
 
-static int dissect_teklink_info_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_info_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_locked, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_tla_type, offset);
@@ -247,34 +249,38 @@ static int dissect_teklink_info_reply(tvbuff_t *tvb, int offset, packet_info *pi
 	return offset;
 }
 
-static int dissect_teklink_info_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_info_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	return offset;
 }
 
 
-static int dissect_teklink_vtc_ident(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_ident(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	return offset;
 }
 
-static int dissect_teklink_vtc_sigstatall(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_sigstatall(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	return offset;
 }
 
-static int dissect_teklink_vtc_outen(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_outen(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	guint32 sig = tvb_get_ntohl(tvb, offset);
 	guint32 sigon = tvb_get_ntohl(tvb, offset + 4);
 
@@ -287,10 +293,11 @@ static int dissect_teklink_vtc_outen(tvbuff_t *tvb, int offset, packet_info *pin
 	return offset;
 }
 
-static int dissect_teklink_vtc_map(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_map(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
 	guint32 src, dst;
+	int offset = 0;
 
 	src = tvb_get_ntohl(tvb, offset);
 	dst = tvb_get_ntohl(tvb, offset + 4);
@@ -304,10 +311,11 @@ static int dissect_teklink_vtc_map(tvbuff_t *tvb, int offset, packet_info *pinfo
 	return offset;
 }
 
-static int dissect_teklink_vtc_clk(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_clk(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
 	guint32 sig, clksource, clkedge, clkmode;
+	int offset = 0;
 
 	sig = tvb_get_ntohl(tvb, offset);
 	clksource = tvb_get_ntohl(tvb, offset + 4);
@@ -327,10 +335,11 @@ static int dissect_teklink_vtc_clk(tvbuff_t *tvb, int offset, packet_info *pinfo
 	return offset;
 }
 
-static int dissect_teklink_vtc_mode(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_mode(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
 	guint32 sig, edge, mode;
+	int offset = 0;
 
 	sig = tvb_get_ntohl(tvb, offset);
 	edge = tvb_get_ntohl(tvb, offset + 4);
@@ -348,10 +357,11 @@ static int dissect_teklink_vtc_mode(tvbuff_t *tvb, int offset, packet_info *pinf
 	return offset;
 }
 
-static int dissect_teklink_vtc_outsetup(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_outsetup(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
 	guint32 sig, en, pol, feedback;
+	int offset = 0;
 
 	sig = tvb_get_ntohl(tvb, offset);
 	en = tvb_get_ntohl(tvb, offset + 4);
@@ -371,9 +381,10 @@ static int dissect_teklink_vtc_outsetup(tvbuff_t *tvb, int offset, packet_info *
 	return offset;
 }
 
-static int dissect_teklink_vtc_res(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtc_res(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	guint32 sig = tvb_get_ntohl(tvb, offset);
 
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_vtc_dstnames, offset);
@@ -383,36 +394,36 @@ static int dissect_teklink_vtc_res(tvbuff_t *tvb, int offset, packet_info *pinfo
 	return offset;
 }
 
-static int dissect_teklink_vtl_spinbits(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtl_spinbits(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
 	return offset;
 }
 
-static int dissect_teklink_vtl_zmode(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
+static int dissect_teklink_vtl_zmode(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, offset);
-	return offset;
+	return dissect_rpc_uint32(tvb, tree, hf_teklink_unknown_long, 0);
 }
 
 static const vsff teklink_proc[] = {
 	{ 1, "TLAFrameOpen", dissect_teklink_tlaframeopen_call, dissect_teklink_tlaframeopen_reply },
 	{ 2, "TLAFrameClose", dissect_teklink_tlaframeclose_call, dissect_teklink_tlaframeclose_reply },
-	{ 3, "GetSoftwareVersion", NULL, dissect_teklink_get_software_version_reply },
+	{ 3, "GetSoftwareVersion", dissect_rpc_void, dissect_teklink_get_software_version_reply },
 	{ 4, "GetInfo", dissect_teklink_info_call, dissect_teklink_info_reply },
-	{ 5, "VtcIdent", NULL, dissect_teklink_vtc_ident },
-	{ 7, "VtcOutEn", dissect_teklink_vtc_outen, NULL },
-	{ 8, "VtcMap", dissect_teklink_vtc_map, NULL },
-	{ 9, "VtcOutSetup", dissect_teklink_vtc_outsetup, NULL },
-	{ 10, "VtcClk", dissect_teklink_vtc_clk, NULL },
-	{ 11, "VtcMode", dissect_teklink_vtc_mode, NULL },
-	{ 12, "VtcRes", dissect_teklink_vtc_res, NULL },
-	{ 13, "VtcHardRes", NULL, NULL },
-	{ 14, "VtcSigStatAll", NULL, dissect_teklink_vtc_sigstatall },
-	{ 20, "VtlZMode", NULL, dissect_teklink_vtl_zmode },
-	{ 21, "VtlSpinBits", NULL, dissect_teklink_vtl_spinbits },
+	{ 5, "VtcIdent", dissect_rpc_void, dissect_teklink_vtc_ident },
+	{ 7, "VtcOutEn", dissect_teklink_vtc_outen, dissect_rpc_void },
+	{ 8, "VtcMap", dissect_teklink_vtc_map, dissect_rpc_void },
+	{ 9, "VtcOutSetup", dissect_teklink_vtc_outsetup, dissect_rpc_void },
+	{ 10, "VtcClk", dissect_teklink_vtc_clk, dissect_rpc_void },
+	{ 11, "VtcMode", dissect_teklink_vtc_mode, dissect_rpc_void },
+	{ 12, "VtcRes", dissect_teklink_vtc_res, dissect_rpc_void },
+	{ 13, "VtcHardRes", dissect_rpc_void, dissect_rpc_void },
+	{ 14, "VtcSigStatAll", dissect_rpc_void, dissect_teklink_vtc_sigstatall },
+	{ 20, "VtlZMode", dissect_rpc_void, dissect_teklink_vtl_zmode },
+	{ 21, "VtlSpinBits", dissect_rpc_void, dissect_teklink_vtl_spinbits },
 	{ 65, "Unknown (65)", dissect_teklink_call65_call, dissect_teklink_call65_reply },
 	{ 0, NULL, NULL, NULL }
 };
@@ -449,6 +460,10 @@ static const value_string teklink_proc_vals[] = {
 	{ 54, "TLAFlashImage" },
 
 	{ 0, NULL }
+};
+
+static const rpc_prog_vers_info teklink_vers_info[] = {
+	{ 1, teklink_proc, &hf_teklink_procedure },
 };
 
 #if 0
@@ -562,10 +577,8 @@ void
 proto_reg_handoff_teklink(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_teklink, PROGRAM_TEKLINK, ett_teklink);
-
-	/* Register the procedure tables */
-	rpc_init_proc_table(PROGRAM_TEKLINK, 1, teklink_proc, hf_teklink_procedure);
+	rpc_init_prog(proto_teklink, PROGRAM_TEKLINK, ett_teklink,
+	    G_N_ELEMENTS(teklink_vers_info), teklink_vers_info);
 }
 
 /*

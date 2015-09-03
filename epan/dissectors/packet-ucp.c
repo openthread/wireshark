@@ -814,7 +814,7 @@ ucp_handle_string(proto_tree *tree, tvbuff_t *tvb, int field, int *offset)
     idx = tvb_find_guint8(tvb, *offset, -1, '/');
     if (idx == -1) {
         /* Force the appropriate exception to be thrown. */
-        len = tvb_length_remaining(tvb, *offset);
+        len = tvb_captured_length_remaining(tvb, *offset);
         tvb_ensure_bytes_exist(tvb, *offset, len + 1);
     } else
         len = idx - *offset;
@@ -898,7 +898,7 @@ ucp_handle_int(proto_tree *tree, tvbuff_t *tvb, int field, int *offset)
     idx = tvb_find_guint8(tvb, *offset, -1, '/');
     if (idx == -1) {
         /* Force the appropriate exception to be thrown. */
-        len = tvb_length_remaining(tvb, *offset);
+        len = tvb_captured_length_remaining(tvb, *offset);
         tvb_ensure_bytes_exist(tvb, *offset, len + 1);
     } else
         len = idx - *offset;
@@ -924,7 +924,7 @@ ucp_handle_time(proto_tree *tree, tvbuff_t *tvb, int field, int *offset)
     idx = tvb_find_guint8(tvb, *offset, -1, '/');
     if (idx == -1) {
         /* Force the appropriate exception to be thrown. */
-        len = tvb_length_remaining(tvb, *offset);
+        len = tvb_captured_length_remaining(tvb, *offset);
         tvb_ensure_bytes_exist(tvb, *offset, len + 1);
     } else
         len = idx - *offset;
@@ -1778,7 +1778,7 @@ dissect_ucp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 
     if (tvb_get_guint8(tvb, 0) != UCP_STX){
         proto_tree_add_expert(tree, pinfo, &ei_ucp_stx_missing, tvb, 0, -1);
-        return tvb_length(tvb);
+        return tvb_captured_length(tvb);
     }
 
     /* Get data needed for dissect_ucp_common */
@@ -1946,7 +1946,7 @@ dissect_ucp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
     /* Queue packet for Tap */
     tap_queue_packet(ucp_tap, pinfo, tap_rec);
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -1954,7 +1954,7 @@ dissect_ucp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     tcp_dissect_pdus(tvb, pinfo, tree, ucp_desegment, UCP_HEADER_SIZE,
                      get_ucp_pdu_len, dissect_ucp_common, data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /*
@@ -1968,7 +1968,7 @@ dissect_ucp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 
     /* Heuristic */
 
-    if (tvb_length(tvb) < UCP_HEADER_SIZE)
+    if (tvb_captured_length(tvb) < UCP_HEADER_SIZE)
         return FALSE;
 
     if ((tvb_get_guint8(tvb, 0)                            != UCP_STX) ||
@@ -2822,7 +2822,7 @@ proto_reg_handoff_ucp(void)
      * UCP can be spoken on any port so, when not on a specific port, try heuristic
      * whenever TCP is spoken.
      */
-    heur_dissector_add("tcp", dissect_ucp_heur, proto_ucp);
+    heur_dissector_add("tcp", dissect_ucp_heur, "UCP over TCP", "ucp_tcp", proto_ucp, HEURISTIC_ENABLE);
 
     /*
      * Also register as a dissector that can be selected by a TCP port number via "decode as".

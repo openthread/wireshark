@@ -72,9 +72,6 @@ static dissector_table_t teredo_dissector_table;
 /*static heur_dissector_list_t heur_subdissector_list;*/
 static dissector_handle_t data_handle;
 
-static gboolean global_teredo_heur = FALSE;
-
-
 static int
 parse_teredo_auth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			int offset, e_teredohdr *teredoh)
@@ -257,10 +254,7 @@ dissect_teredo_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 	guint16 val;
 	int offset = 0;
 
-	if (!global_teredo_heur)
-		return FALSE;
-
-	if (tvb_length_remaining(tvb, offset) < 40)
+	if (tvb_captured_length_remaining(tvb, offset) < 40)
 		return FALSE;
 
 	val = tvb_get_ntohs(tvb, offset);
@@ -277,7 +271,7 @@ dissect_teredo_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 		aulen = tvb_get_guint8(tvb, offset);
 		offset += 10;
 
-		if (tvb_length_remaining(tvb, offset) < idlen + aulen + 40)
+		if (tvb_captured_length_remaining(tvb, offset) < idlen + aulen + 40)
 			return FALSE;
 
 		offset += idlen + aulen;
@@ -289,7 +283,7 @@ dissect_teredo_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 	{
 		offset += 8;
 
-		if (tvb_length_remaining(tvb, offset) < 40)
+		if (tvb_captured_length_remaining(tvb, offset) < 40)
 			return FALSE;
 
 		val = tvb_get_ntohs(tvb, offset);
@@ -311,7 +305,7 @@ dissect_teredo_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 		if (val > 65467)
 			return FALSE; /* length too big for Teredo */
 
-		if (tvb_length_remaining(tvb, offset) != val)
+		if (tvb_reported_length_remaining(tvb, offset) != val)
 			return FALSE; /* length mismatch */
 
 		dissect_teredo (tvb, pinfo, tree);
@@ -397,11 +391,7 @@ proto_register_teredo(void)
 
 	teredo_module = prefs_register_protocol(proto_teredo, NULL);
 
-	prefs_register_bool_preference(teredo_module, "heuristic_teredo",
-		"Try to decode UDP packets as Teredo IPv6",
-		"Check this to decode IPv6 traffic between Teredo clients and "
-		"relays",
-		&global_teredo_heur);
+	prefs_register_obsolete_preference(teredo_module, "heuristic_teredo");
 
 }
 
@@ -415,7 +405,7 @@ proto_reg_handoff_teredo(void)
 	teredo_tap    = register_tap("teredo");
 
 	dissector_add_uint("udp.port", UDP_PORT_TEREDO, teredo_handle);
-	heur_dissector_add("udp", dissect_teredo_heur, proto_teredo);
+	heur_dissector_add("udp", dissect_teredo_heur, "Teredo over UDP", "teredo_udp", proto_teredo, HEURISTIC_DISABLE);
 }
 
 /*

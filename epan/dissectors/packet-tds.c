@@ -1422,7 +1422,7 @@ netlib_check_login_pkt(tvbuff_t *tvb, guint offset, packet_info *pinfo, guint8 t
 {
     guint tds_major, bytes_avail;
 
-    bytes_avail = tvb_length(tvb) - offset;
+    bytes_avail = tvb_captured_length(tvb) - offset;
     /*
      * we have two login packet styles, one for TDS 4.2 and 5.0
      */
@@ -2115,7 +2115,7 @@ dissect_tds_rpc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tree = proto_item_add_subtree(item, ett_tds_message);
 
     dissect_tds_all_headers(tvb, &offset, pinfo, tree);
-    while(tvb_length_remaining(tvb, offset) > 0) {
+    while(tvb_reported_length_remaining(tvb, offset) > 0) {
         /*
          * RPC name.
          */
@@ -2154,7 +2154,7 @@ dissect_tds_rpc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         offset += 2;
 
         /* dissect parameters */
-        while(tvb_length_remaining(tvb, offset) > 0) {
+        while(tvb_reported_length_remaining(tvb, offset) > 0) {
             gboolean plp;
 
             len = tvb_get_guint8(tvb, offset);
@@ -2442,9 +2442,7 @@ dissect_tds_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_item *tds_item = NULL;
     proto_tree *tds_tree = NULL;
 
-    while (tvb_reported_length_remaining(tvb, offset) != 0) {
-        length_remaining = tvb_ensure_length_remaining(tvb, offset);
-
+    while ((length_remaining = tvb_reported_length_remaining(tvb, offset)) > 0) {
         /*
          * Can we do reassembly?
          */
@@ -2596,7 +2594,7 @@ dissect_tds_tcp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
      * If we don't have even enough data for a Netlib header,
      * just say it's not TDS.
      */
-    if (tvb_length(tvb) < 8)
+    if (tvb_captured_length(tvb) < 8)
         return FALSE;
 
     /*
@@ -2674,6 +2672,12 @@ tds_init(void)
      */
     reassembly_table_init(&tds_reassembly_table,
                           &addresses_ports_reassembly_table_functions);
+}
+
+static void
+tds_cleanup(void)
+{
+    reassembly_table_destroy(&tds_reassembly_table);
 }
 
 /* Register the protocol with Wireshark */
@@ -3250,6 +3254,7 @@ proto_register_tds(void)
                                     &tds_tcp_ports, 0xFFFF);
 
     register_init_routine(tds_init);
+    register_cleanup_routine(tds_cleanup);
 }
 
 /* If this dissector uses sub-dissector registration add a registration routine.
@@ -3263,7 +3268,7 @@ proto_reg_handoff_tds(void)
     dissector_add_uint("tcp.port", 1433, tds_tcp_handle);
     dissector_add_uint("tcp.port", 2433, tds_tcp_handle);
 
-    heur_dissector_add("tcp", dissect_tds_tcp_heur, proto_tds);
+    heur_dissector_add("tcp", dissect_tds_tcp_heur, "Tabular Data Stream over TCP", "tds_tcp", proto_tds, HEURISTIC_ENABLE);
 
     ntlmssp_handle = find_dissector("ntlmssp");
     gssapi_handle = find_dissector("gssapi");

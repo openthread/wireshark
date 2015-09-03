@@ -1322,6 +1322,17 @@ pcap_byteswap_nflog_pseudoheader(struct wtap_pkthdr *phdr, guint8 *pd)
 	}
 }
 
+/*
+ * Pseudo-header at the beginning of DLT_BLUETOOTH_HCI_H4_WITH_PHDR frames.
+ * Values in network byte order.
+ */
+struct libpcap_bt_phdr {
+	guint32 direction;     /* Bit 0 hold the frame direction. */
+};
+
+#define LIBPCAP_BT_PHDR_SENT    0
+#define LIBPCAP_BT_PHDR_RECV    1
+
 static gboolean
 pcap_read_bt_pseudoheader(FILE_T fh,
     union wtap_pseudo_header *pseudo_header, int *err, gchar **err_info)
@@ -1334,6 +1345,15 @@ pcap_read_bt_pseudoheader(FILE_T fh,
 	pseudo_header->p2p.sent = ((g_ntohl(phdr.direction) & LIBPCAP_BT_PHDR_RECV) == 0)? TRUE: FALSE;
 	return TRUE;
 }
+
+/*
+ * Pseudo-header at the beginning of DLT_BLUETOOTH_LINUX_MONITOR frames.
+ * Values in network byte order.
+ */
+struct libpcap_bt_monitor_phdr {
+	guint16 adapter_id;
+	guint16 opcode;
+};
 
 static gboolean
 pcap_read_bt_monitor_pseudoheader(FILE_T fh,
@@ -1362,6 +1382,16 @@ pcap_read_llcp_pseudoheader(FILE_T fh,
 	pseudo_header->llcp.flags = phdr[LLCP_FLAGS_OFFSET];
 	return TRUE;
 }
+
+/*
+ * Pseudo-header at the beginning of DLT_PPP_WITH_DIR frames.
+ */
+struct libpcap_ppp_phdr {
+	guint8 direction;
+};
+
+#define LIBPCAP_PPP_PHDR_RECV    0
+#define LIBPCAP_PPP_PHDR_SENT    1
 
 static gboolean
 pcap_read_ppp_pseudoheader(FILE_T fh,
@@ -1574,9 +1604,10 @@ pcap_process_pseudo_header(FILE_T fh, int file_type, int wtap_encap,
 		 * XXX - in pcap-ng, there *could* be a packet option
 		 * indicating the FCS length.
 		 */
-		phdr->pseudo_header.ieee_802_11.presence_flags = 0; /* absent or supplied in the packet data */
 		phdr->pseudo_header.ieee_802_11.fcs_len = -1;
 		phdr->pseudo_header.ieee_802_11.decrypted = FALSE;
+		phdr->pseudo_header.ieee_802_11.datapad = FALSE;
+		phdr->pseudo_header.ieee_802_11.presence_flags = 0; /* absent or supplied in the packet data */
 		break;
 
 	case WTAP_ENCAP_IRDA:

@@ -1917,7 +1917,7 @@ dissect_ntlmssp_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
   guint32               ntlm_signature_size = 8;
   guint32               ntlm_seq_size       = 4;
 
-  length = tvb_length (tvb);
+  length = tvb_captured_length (tvb);
   /* signature + seq + real payload */
   encrypted_block_length = length - ntlm_magic_size;
 
@@ -2349,7 +2349,7 @@ dissect_ntlmssp_payload_only(tvbuff_t *tvb, packet_info *pinfo, _U_ proto_tree *
 
   /* the magic ntlm is the identifier of a NTLMSSP packet that's 00 00 00 01
    */
-  encrypted_block_length = tvb_length (tvb);
+  encrypted_block_length = tvb_captured_length (tvb);
   /* signature + seq + real payload */
 
   /* Setup a new tree for the NTLMSSP payload */
@@ -2402,7 +2402,7 @@ dissect_ntlmssp_verf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
   guint32               verifier_length;
   guint32               encrypted_block_length;
 
-  verifier_length = tvb_length (tvb);
+  verifier_length = tvb_captured_length (tvb);
   encrypted_block_length = verifier_length - 4;
 
   if (encrypted_block_length < 12) {
@@ -2587,21 +2587,18 @@ header_equal(gconstpointer pointer1, gconstpointer pointer2)
 static void
 ntlmssp_init_protocol(void)
 {
-  /*
-   * Free the decrypted payloads, and then free the list of decrypted
-   * payloads.
-   */
+  hash_packet = g_hash_table_new(header_hash, header_equal);
+}
+
+static void
+ntlmssp_cleanup_protocol(void)
+{
   if (decrypted_payloads != NULL) {
     g_slist_foreach(decrypted_payloads, free_payload, NULL);
     g_slist_free(decrypted_payloads);
     decrypted_payloads = NULL;
   }
-
-  if (hash_packet != NULL) {
-    g_hash_table_remove_all(hash_packet);
-  } else {
-    hash_packet = g_hash_table_new(header_hash, header_equal);
-  }
+  g_hash_table_destroy(hash_packet);
 }
 
 
@@ -2616,7 +2613,7 @@ wrap_dissect_ntlmssp(tvbuff_t *tvb, int offset, packet_info *pinfo,
 
   dissect_ntlmssp(auth_tvb, pinfo, tree);
 
-  return tvb_length_remaining(tvb, offset);
+  return tvb_captured_length_remaining(tvb, offset);
 }
 
 static int
@@ -3267,6 +3264,7 @@ proto_register_ntlmssp(void)
   expert_ntlmssp = expert_register_protocol(proto_ntlmssp);
   expert_register_field_array(expert_ntlmssp, ei, array_length(ei));
   register_init_routine(&ntlmssp_init_protocol);
+  register_cleanup_routine(&ntlmssp_cleanup_protocol);
 
   ntlmssp_module = prefs_register_protocol(proto_ntlmssp, NULL);
 
@@ -3321,7 +3319,7 @@ proto_reg_handoff_ntlmssp(void)
                                     &ntlmssp_seal_fns);
   ntlmssp_tap = register_tap("ntlmssp");
 
-  heur_dissector_add("credssp", dissect_ntlmssp_heur, proto_ntlmssp);
+  heur_dissector_add("credssp", dissect_ntlmssp_heur, "NTLMSSP over CredSSP", "ntlmssp_credssp", proto_ntlmssp, HEURISTIC_ENABLE);
 
 }
 

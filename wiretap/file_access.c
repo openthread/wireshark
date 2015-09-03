@@ -349,8 +349,8 @@ static struct open_info open_info_base[] = {
 	{ "Symbian OS btsnoop",                     OPEN_INFO_MAGIC,     btsnoop_open,             "log",      NULL, NULL },
 	{ "EyeSDN USB S0/E1 ISDN trace format",     OPEN_INFO_MAGIC,     eyesdn_open,              NULL,       NULL, NULL },
 	{ "Transport-Neutral Encapsulation Format", OPEN_INFO_MAGIC,     tnef_open,                NULL,       NULL, NULL },
-	/* 3GPP Nettrace must come before MIME Files as it's XML based*/
-	{ "3GPP Nettrace 32 423 Format",            OPEN_INFO_MAGIC,     nettrace_3gpp_32_423_file_open, NULL, NULL, NULL },
+	/* 3GPP TS 32.423 Trace must come before MIME Files as it's XML based*/
+	{ "3GPP TS 32.423 Trace format",            OPEN_INFO_MAGIC,     nettrace_3gpp_32_423_file_open, NULL, NULL, NULL },
 	{ "MIME Files Format",                      OPEN_INFO_MAGIC,     mime_file_open,           NULL,       NULL, NULL },
 	{ "Novell LANalyzer",                       OPEN_INFO_HEURISTIC, lanalyzer_open,           "tr1",      NULL, NULL },
 	/*
@@ -1111,19 +1111,27 @@ success:
 	wth->frame_buffer = (struct Buffer *)g_malloc(sizeof(struct Buffer));
 	ws_buffer_init(wth->frame_buffer, 1500);
 
-	if(wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP){
+	if ((wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP) ||
+		(wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP_NSEC)) {
 
 		wtapng_if_descr_t descr;
 
 		descr.wtap_encap = wth->file_encap;
-		descr.time_units_per_second = 1000000; /* default microsecond resolution */
+		if (wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP_NSEC) {
+			descr.time_units_per_second = 1000000000; /* nanosecond resolution */
+			descr.if_tsresol = 9;
+			descr.tsprecision = WTAP_TSPREC_NSEC;
+		} else {
+			descr.time_units_per_second = 1000000; /* default microsecond resolution */
+			descr.if_tsresol = 6;
+			descr.tsprecision = WTAP_TSPREC_USEC;
+		}
 		descr.link_type = wtap_wtap_encap_to_pcap_encap(wth->file_encap);
 		descr.snap_len = wth->snapshot_length;
 		descr.opt_comment = NULL;
 		descr.if_name = NULL;
 		descr.if_description = NULL;
 		descr.if_speed = 0;
-		descr.if_tsresol = 6;
 		descr.if_filter_str= NULL;
 		descr.bpf_filter_len= 0;
 		descr.if_filter_bpf_bytes= NULL;
@@ -1547,11 +1555,6 @@ static const struct file_type_subtype_info dump_open_table_base[] = {
 	  FALSE, FALSE, 0,
 	  logcat_dump_can_write_encap, logcat_binary_dump_open, NULL },
 
-	/* WTAP_FILE_TYPE_SUBTYPE_JSON */
-	{ "JavaScript Object Notation", "json", "json", "NULL",
-	  FALSE, FALSE, 0,
-	  NULL, NULL, NULL },
-
 	/* WTAP_FILE_TYPE_SUBTYPE_LOGCAT_BRIEF */
 	{ "Android Logcat Brief text format", "logcat-brief", NULL, NULL,
 	  FALSE, FALSE, 0,
@@ -1597,13 +1600,18 @@ static const struct file_type_subtype_info dump_open_table_base[] = {
 	  FALSE, FALSE, 0,
 	  NULL, NULL, NULL },
 
+	/* WTAP_FILE_TYPE_SUBTYPE_JSON */
+	{ "JavaScript Object Notation", "json", "json", "NULL",
+	  FALSE, FALSE, 0,
+	  NULL, NULL, NULL },
+
 	/* WTAP_FILE_TYPE_SUBTYPE_NETSCALER_3_5 */
 	{ "NetScaler Trace (Version 3.5)", "nstrace35", "cap", NULL,
 	  TRUE, FALSE, 0,
 	  nstrace_35_dump_can_write_encap, nstrace_dump_open, NULL },
 
 	/* WTAP_FILE_TYPE_SUBTYPE_NETTRACE_3GPP_32_423 */
-	{ "Nettrace 3GPP 32 423", "nettrace3gpp324423", NULL, NULL,
+	{ "3GPP TS 32.423 Trace", "3gpp32423", NULL, NULL,
 	  FALSE, FALSE, 0,
 	  NULL, NULL, NULL },
 };
@@ -2137,14 +2145,16 @@ wtap_dumper *
 wtap_dump_open(const char *filename, int file_type_subtype, int encap,
 	       int snaplen, gboolean compressed, int *err)
 {
-	return wtap_dump_open_ng(filename, file_type_subtype, encap,snaplen, compressed, NULL, NULL, err);
+	return wtap_dump_open_ng(filename, file_type_subtype, encap,snaplen, compressed, NULL, NULL, NULL, err);
 }
 
 static wtap_dumper *
 wtap_dump_init_dumper(int file_type_subtype, int encap, int snaplen, gboolean compressed,
-    wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf, int *err)
+                      wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+                      wtapng_name_res_t *nrb_hdr, int *err)
 {
 	wtap_dumper *wdh;
+	wtapng_if_descr_t descr, *file_int_data;
 
 	/* Allocate a data structure for the output stream. */
 	wdh = wtap_dump_alloc_wdh(file_type_subtype, encap, snaplen, compressed, err);
@@ -2153,12 +2163,27 @@ wtap_dump_init_dumper(int file_type_subtype, int encap, int snaplen, gboolean co
 
 	/* Set Section Header Block data */
 	wdh->shb_hdr = shb_hdr;
+	/* Set Name Resolution Block data */
+	wdh->nrb_hdr = nrb_hdr;
 	/* Set Interface Description Block data */
 	if ((idb_inf != NULL) && (idb_inf->interface_data->len > 0)) {
-		wdh->interface_data = idb_inf->interface_data;
-	} else {
-		wtapng_if_descr_t descr;
+		guint itf_count;
 
+		/* XXX: what free's this stuff? */
+		wdh->interface_data = g_array_new(FALSE, FALSE, sizeof(wtapng_if_descr_t));
+		for (itf_count = 0; itf_count < idb_inf->interface_data->len; itf_count++) {
+			file_int_data = &g_array_index(idb_inf->interface_data, wtapng_if_descr_t, itf_count);
+			if ((encap != WTAP_ENCAP_PER_PACKET) && (encap != file_int_data->wtap_encap)) {
+				/* XXX: this does a shallow copy, not a true clone; e.g., comments are not duped */
+				memcpy(&descr, file_int_data, sizeof(wtapng_if_descr_t));
+				descr.wtap_encap = encap;
+				descr.link_type = wtap_wtap_encap_to_pcap_encap(encap);
+				g_array_append_val(wdh->interface_data, descr);
+			} else {
+				g_array_append_val(wdh->interface_data, *file_int_data);
+			}
+		}
+	} else {
 		descr.wtap_encap = encap;
 		descr.time_units_per_second = 1000000; /* default microsecond resolution */
 		descr.link_type = wtap_wtap_encap_to_pcap_encap(encap);
@@ -2183,7 +2208,8 @@ wtap_dump_init_dumper(int file_type_subtype, int encap, int snaplen, gboolean co
 
 wtap_dumper *
 wtap_dump_open_ng(const char *filename, int file_type_subtype, int encap,
-		  int snaplen, gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf, int *err)
+		  int snaplen, gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+		  wtapng_name_res_t *nrb_hdr, int *err)
 {
 	wtap_dumper *wdh;
 	WFILE_T fh;
@@ -2195,7 +2221,7 @@ wtap_dump_open_ng(const char *filename, int file_type_subtype, int encap,
 
 	/* Allocate and initialize a data structure for the output stream. */
 	wdh = wtap_dump_init_dumper(file_type_subtype, encap, snaplen, compressed,
-	    shb_hdr, idb_inf, err);
+	    shb_hdr, idb_inf, nrb_hdr, err);
 	if (wdh == NULL)
 		return NULL;
 
@@ -2245,12 +2271,13 @@ wtap_dumper *
 wtap_dump_fdopen(int fd, int file_type_subtype, int encap, int snaplen,
 		 gboolean compressed, int *err)
 {
-	return wtap_dump_fdopen_ng(fd, file_type_subtype, encap, snaplen, compressed, NULL, NULL, err);
+	return wtap_dump_fdopen_ng(fd, file_type_subtype, encap, snaplen, compressed, NULL, NULL, NULL, err);
 }
 
 wtap_dumper *
 wtap_dump_fdopen_ng(int fd, int file_type_subtype, int encap, int snaplen,
-		    gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf, int *err)
+		    gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+		    wtapng_name_res_t *nrb_hdr, int *err)
 {
 	wtap_dumper *wdh;
 	WFILE_T fh;
@@ -2262,7 +2289,7 @@ wtap_dump_fdopen_ng(int fd, int file_type_subtype, int encap, int snaplen,
 
 	/* Allocate and initialize a data structure for the output stream. */
 	wdh = wtap_dump_init_dumper(file_type_subtype, encap, snaplen, compressed,
-	    shb_hdr, idb_inf, err);
+	    shb_hdr, idb_inf, nrb_hdr, err);
 	if (wdh == NULL)
 		return NULL;
 

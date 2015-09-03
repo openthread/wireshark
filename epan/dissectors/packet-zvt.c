@@ -46,6 +46,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/addr_resolv.h>
+#include <epan/expert.h>
 
 /* special characters of the serial transport protocol */
 #define STX 0x02
@@ -62,6 +63,12 @@ static GHashTable *apdu_table = NULL;
 
 static wmem_tree_t *transactions = NULL;
 
+typedef struct _zvt_transaction_t {
+    guint32 rqst_frame;
+    guint32 resp_frame;
+    guint16 ctrl;
+} zvt_transaction_t;
+
 typedef enum _zvt_direction_t {
     DIRECTION_UNKNOWN,
     DIRECTION_ECR_TO_PT,
@@ -75,11 +82,15 @@ typedef enum _zvt_direction_t {
 #define CCRC_POS 0x80
 #define CCRC_NEG 0x84
 
+/* "don't care" value for min_len_field */
+#define LEN_FIELD_ANY G_MAXUINT32
+
 typedef struct _apdu_info_t {
     guint16          ctrl;
     guint32          min_len_field;
     zvt_direction_t  direction;
-    void (*dissect_payload)(tvbuff_t *, gint, guint16, packet_info *, proto_tree *);
+    void (*dissect_payload)(tvbuff_t *, gint, guint16,
+            packet_info *, proto_tree *, zvt_transaction_t *);
 } apdu_info_t;
 
 /* control code 0 is not defined in the specification */
@@ -96,10 +107,10 @@ typedef struct _apdu_info_t {
 #define CTRL_INIT          0x0693
 #define CTRL_PRINT_LINE    0x06D1
 
-static void dissect_zvt_reg(
-        tvbuff_t *tvb, gint offset, guint16 len, packet_info *pinfo, proto_tree *tree);
-static void dissect_zvt_bitmap_apdu(
-        tvbuff_t *tvb, gint offset, guint16 len, packet_info *pinfo, proto_tree *tree);
+static void dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len,
+        packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans);
+static void dissect_zvt_bitmap_apdu(tvbuff_t *tvb, gint offset, guint16 len,
+        packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans);
 
 static const apdu_info_t apdu_info[] = {
     { CTRL_STATUS,        0, DIRECTION_PT_TO_ECR, NULL },
@@ -127,6 +138,7 @@ static int proto_zvt = -1;
 static int ett_zvt = -1;
 static int ett_zvt_apdu = -1;
 static int ett_zvt_tlv_dat_obj = -1;
+static int ett_zvt_tlv_tag = -1;
 
 static int hf_zvt_resp_in = -1;
 static int hf_zvt_resp_to = -1;
@@ -142,14 +154,13 @@ static int hf_zvt_reg_cfg = -1;
 static int hf_zvt_cc = -1;
 static int hf_zvt_reg_svc_byte = -1;
 static int hf_zvt_bitmap = -1;
+static int hf_zvt_tlv_total_len = -1;
 static int hf_zvt_tlv_tag = -1;
+static int hf_zvt_tlv_tag_class = -1;
+static int hf_zvt_tlv_tag_type = -1;
 static int hf_zvt_tlv_len = -1;
 
-typedef struct _zvt_transaction_t {
-    guint32 rqst_frame;
-    guint32 resp_frame;
-    guint16 ctrl;
-} zvt_transaction_t;
+static expert_field ei_invalid_apdu_len = EI_INIT;
 
 static const value_string serial_char[] = {
     { STX, "Start of text (STX)" },
@@ -217,28 +228,92 @@ static const value_string tlv_tags[] = {
 };
 static value_string_ext tlv_tags_ext = VALUE_STRING_EXT_INIT(tlv_tags);
 
+static const value_string tlv_tag_class[] = {
+    { 0x00, "Universal" },
+    { 0x01, "Application" },
+    { 0x02, "Context-specific" },
+    { 0x03, "Private" },
+    { 0, NULL }
+};
+static value_string_ext tlv_tag_class_ext = VALUE_STRING_EXT_INIT(tlv_tag_class);
+
+
+
 
 static gint
 dissect_zvt_tlv_tag(tvbuff_t *tvb, gint offset,
         packet_info *pinfo _U_, proto_tree *tree, guint32 *tag)
 {
-    guint8 tag_byte;
+    gint offset_start;
+    guint8 one_byte;
+    guint32 _tag;
+    proto_item *tag_ti;
+    proto_tree *tag_tree;
 
-    tag_byte = tvb_get_guint8(tvb, offset);
-    if ((tag_byte & 0x1F) == 0x1F) {
-        /* XXX - handle multi-byte tags */
-        return -1;
+    offset_start = offset;
+
+    one_byte = tvb_get_guint8(tvb, offset);
+    _tag = one_byte;
+    offset++;
+    if ((one_byte & 0x1F) == 0x1F) {
+        do {
+            if ((offset-offset_start)>4) {
+                /* we support tags of <= 4 bytes
+                   (the specification defines only 1 and 2-byte tags) */
+                return -1;
+            }
+            one_byte = tvb_get_guint8(tvb, offset);
+            _tag = _tag << 8 | (one_byte&0x7F);
+            offset++;
+        } while (one_byte & 0x80);
     }
 
-    proto_tree_add_uint_format(tree, hf_zvt_tlv_tag,
-            tvb, offset, 1, tag_byte, "Tag: 0x%x", tag_byte);
+    tag_ti = proto_tree_add_uint_format(tree, hf_zvt_tlv_tag,
+            tvb, offset_start, offset-offset_start, _tag, "Tag: 0x%x", _tag);
+
+    tag_tree = proto_item_add_subtree(tag_ti, ett_zvt_tlv_tag);
+    proto_tree_add_item(tag_tree, hf_zvt_tlv_tag_class,
+            tvb, offset_start, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tag_tree, hf_zvt_tlv_tag_type,
+            tvb, offset_start, 1, ENC_BIG_ENDIAN);
 
     if (tag)
-        *tag = tag_byte;
-    return 1;
+        *tag = _tag;
+    return offset-offset_start;
 }
 
 
+static gint
+dissect_zvt_tlv_len(tvbuff_t *tvb, gint offset,
+        packet_info *pinfo _U_, proto_tree *tree, int hf, guint16 *len)
+{
+    guint16 _len;
+    gint    len_bytes = 1;
+
+    _len = tvb_get_guint8(tvb, offset);
+    if (_len & 0x80) {
+        if ((_len & 0x03) == 1) {
+            len_bytes++;
+            _len = tvb_get_guint8(tvb, offset+1);
+        }
+        else if ((_len & 0x03) == 2) {
+            len_bytes += 2;
+            _len = tvb_get_ntohs(tvb, offset+1);
+        }
+        else {
+            /* XXX - expert info */
+            return -1;
+        }
+    }
+
+    proto_tree_add_uint(tree, hf, tvb, offset, len_bytes, _len);
+    if (len)
+        *len = _len;
+
+    return len_bytes;
+}
+
+ 
 static gint
 dissect_zvt_tlv_container(tvbuff_t *tvb, gint offset,
         packet_info *pinfo, proto_tree *tree)
@@ -248,10 +323,15 @@ dissect_zvt_tlv_container(tvbuff_t *tvb, gint offset,
     proto_tree *dat_obj_tree;
     gint        tag_len;
     guint32     tag;
-    guint8      data_len_bytes = 1;
-    guint16     data_len;
+    gint        total_len_bytes, data_len_bytes;
+    guint16     data_len = 0;
 
     offset_start = offset;
+
+    total_len_bytes = dissect_zvt_tlv_len(tvb, offset, pinfo,
+                tree, hf_zvt_tlv_total_len, NULL);
+    if (total_len_bytes > 0)
+        offset += total_len_bytes;
 
     while (tvb_captured_length_remaining(tvb, offset) > 0) {
         dat_obj_tree = proto_tree_add_subtree(tree,
@@ -263,23 +343,10 @@ dissect_zvt_tlv_container(tvbuff_t *tvb, gint offset,
             return offset - offset_start;
         offset += tag_len;
 
-        data_len = tvb_get_guint8(tvb, offset);
-        if (data_len & 0x80) {
-            if ((data_len & 0x03) == 1) {
-                data_len_bytes++;
-                data_len = tvb_get_guint8(tvb, offset+1);
-            }
-            else if ((data_len & 0x03) == 2) {
-                data_len_bytes += 2;
-                data_len = tvb_get_ntohs(tvb, offset+1);
-            }
-            else {
-                /* XXX - expert info, exit */
-            }
-        }
-        proto_tree_add_uint(dat_obj_tree, hf_zvt_tlv_len,
-                tvb, offset, data_len_bytes, data_len);
-        offset += data_len_bytes;
+        data_len_bytes = dissect_zvt_tlv_len(tvb, offset, pinfo,
+                dat_obj_tree,hf_zvt_tlv_len, &data_len); 
+        if (data_len_bytes > 0)
+            offset += data_len_bytes;
 
         /* XXX - dissect the data-element */
         offset += data_len;
@@ -363,7 +430,7 @@ dissect_zvt_bitmap(tvbuff_t *tvb, gint offset,
 
 static void
 dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len _U_,
-        packet_info *pinfo, proto_tree *tree)
+        packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans)
 {
     proto_tree_add_item(tree, hf_zvt_reg_pwd, tvb, offset, 3, ENC_NA);
     offset += 3;
@@ -390,14 +457,14 @@ dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len _U_,
     /* it's ok if the remaining len is 0 */
     dissect_zvt_bitmap_apdu(tvb, offset,
             tvb_captured_length_remaining(tvb, offset),
-            pinfo, tree);
+            pinfo, tree, zvt_trans);
 }
 
 
 /* dissect an APDU that contains a sequence of bitmaps */
 static void
 dissect_zvt_bitmap_apdu(tvbuff_t *tvb, gint offset, guint16 len,
-        packet_info *pinfo _U_, proto_tree *tree)
+        packet_info *pinfo _U_, proto_tree *tree, zvt_transaction_t *zvt_trans _U_)
 {
     gint offset_start, ret;
 
@@ -497,22 +564,18 @@ dissect_zvt_apdu(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tre
         proto_tree_add_item(apdu_tree, hf_zvt_aprc, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset++;
 
-        /* XXX - can this ever be NULL? */
-        if (transactions) {
-            zvt_trans = (zvt_transaction_t *)wmem_tree_lookup32_le(
-                    transactions, PINFO_FD_NUM(pinfo));
-           if (zvt_trans && zvt_trans->resp_frame==0) {
-               /* there's a pending request, this packet is the response */
-               zvt_trans->resp_frame = PINFO_FD_NUM(pinfo);
-           }
-
-           if (zvt_trans && zvt_trans->resp_frame == PINFO_FD_NUM(pinfo)) {
-               it = proto_tree_add_uint(apdu_tree, hf_zvt_resp_to,
-                       NULL, 0, 0, zvt_trans->rqst_frame);
-               PROTO_ITEM_SET_GENERATED(it);
-           }
+        zvt_trans = (zvt_transaction_t *)wmem_tree_lookup32_le(
+                transactions, PINFO_FD_NUM(pinfo));
+        if (zvt_trans && zvt_trans->resp_frame==0) {
+            /* there's a pending request, this packet is the response */
+            zvt_trans->resp_frame = PINFO_FD_NUM(pinfo);
         }
 
+        if (zvt_trans && zvt_trans->resp_frame == PINFO_FD_NUM(pinfo)) {
+            it = proto_tree_add_uint(apdu_tree, hf_zvt_resp_to,
+                    NULL, 0, 0, zvt_trans->rqst_frame);
+            PROTO_ITEM_SET_GENERATED(it);
+        }
     }
     else {
         ctrl = tvb_get_ntohs(tvb, offset);
@@ -532,32 +595,34 @@ dissect_zvt_apdu(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tre
             }
         }
         else {
-            /* XXX - can this ever be NULL? */
-            if (transactions) {
-                zvt_trans = wmem_new(wmem_file_scope(), zvt_transaction_t);
-                zvt_trans->rqst_frame = PINFO_FD_NUM(pinfo);
-                zvt_trans->resp_frame = 0;
-                zvt_trans->ctrl = ctrl;
-                wmem_tree_insert32(transactions,
-                        zvt_trans->rqst_frame, (void *)zvt_trans);
-            }
+            zvt_trans = wmem_new(wmem_file_scope(), zvt_transaction_t);
+            zvt_trans->rqst_frame = PINFO_FD_NUM(pinfo);
+            zvt_trans->resp_frame = 0;
+            zvt_trans->ctrl = ctrl;
+            wmem_tree_insert32(transactions,
+                    zvt_trans->rqst_frame, (void *)zvt_trans);
         }
     }
-
-    proto_tree_add_uint(apdu_tree, hf_zvt_len, tvb, offset, len_bytes, len);
-    offset += len_bytes;
 
     ai = (apdu_info_t *)g_hash_table_lookup(
             apdu_table, GUINT_TO_POINTER((guint)ctrl));
 
+    it = proto_tree_add_uint(apdu_tree, hf_zvt_len, tvb, offset, len_bytes, len);
+    if (ai && ai->min_len_field!=LEN_FIELD_ANY && len<ai->min_len_field) {
+        expert_add_info_format(pinfo, it, &ei_invalid_apdu_len,
+                "The APDU length is too short. The minimum length is %d",
+                ai->min_len_field);
+    }
+    offset += len_bytes;
+
     zvt_set_addresses(pinfo, zvt_trans);
-    /* XXX - check the minimum length */
 
     if (len > 0) {
         if (ai && ai->dissect_payload)
-            ai->dissect_payload(tvb, offset, len, pinfo, apdu_tree);
+            ai->dissect_payload(tvb, offset, len, pinfo, apdu_tree, zvt_trans);
         else
-            proto_tree_add_item(apdu_tree, hf_zvt_data, tvb, offset, len, ENC_NA);
+            proto_tree_add_item(apdu_tree, hf_zvt_data,
+                    tvb, offset, len, ENC_NA);
     }
     offset += len;
 
@@ -730,11 +795,13 @@ proto_register_zvt(void)
 {
     guint     i;
     module_t *zvt_module;
+    expert_module_t* expert_zvt;
 
     static gint *ett[] = {
         &ett_zvt,
         &ett_zvt_apdu,
-        &ett_zvt_tlv_dat_obj
+        &ett_zvt_tlv_dat_obj,
+        &ett_zvt_tlv_tag
     };
     static hf_register_info hf[] = {
         { &hf_zvt_resp_in,
@@ -781,14 +848,30 @@ proto_register_zvt(void)
         { &hf_zvt_bitmap,
             { "Bitmap", "zvt.bitmap", FT_UINT8,
                 BASE_HEX|BASE_EXT_STRING, &bitmap_ext, 0, NULL, HFILL } },
+        { &hf_zvt_tlv_total_len,
+            { "Total length", "zvt.tlv.total_len",
+                FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL } },
         { &hf_zvt_tlv_tag,
             { "Tag", "zvt.tlv.tag", FT_UINT32,
                 BASE_HEX|BASE_EXT_STRING, &tlv_tags_ext, 0, NULL, HFILL } },
+        { &hf_zvt_tlv_tag_class,
+            { "Class", "zvt.tlv.tag.class", FT_UINT8,
+                BASE_HEX|BASE_EXT_STRING, &tlv_tag_class_ext,
+                0xC0, NULL, HFILL } },
+        { &hf_zvt_tlv_tag_type,
+            { "Type", "zvt.tlv.tag.type", FT_BOOLEAN,
+                8, TFS(&tfs_constructed_primitive), 0x20, NULL, HFILL } },
         { &hf_zvt_tlv_len,
             { "Length", "zvt.tlv.len",
-                FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL } }
+                FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL } }
     };
 
+    static ei_register_info ei[] = {
+        { &ei_invalid_apdu_len,
+            { "zvt.apdu_len.invalid", PI_PROTOCOL, PI_WARN,
+                "The APDU length is too short. The minimum length is %d",
+                EXPFILL }}
+    };
 
     apdu_table = g_hash_table_new(g_direct_hash, g_direct_equal);
     for(i=0; i<array_length(apdu_info); i++) {
@@ -801,6 +884,8 @@ proto_register_zvt(void)
             "ZVT Kassenschnittstelle", "ZVT", "zvt");
     proto_register_field_array(proto_zvt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_zvt = expert_register_protocol(proto_zvt);
+    expert_register_field_array(expert_zvt, ei, array_length(ei));
 
     zvt_module = prefs_register_protocol(proto_zvt, proto_reg_handoff_zvt);
     prefs_register_uint_preference(zvt_module, "tcp.port",

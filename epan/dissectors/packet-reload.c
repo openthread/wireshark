@@ -1035,6 +1035,12 @@ reload_defragment_init(void)
                         &addresses_reassembly_table_functions);
 }
 
+static void
+reload_defragment_cleanup(void)
+{
+  reassembly_table_destroy(&reload_reassembly_table);
+}
+
 
 static guint
 get_reload_message_length(packet_info *pinfo _U_, tvbuff_t *tvb, int offset)
@@ -3931,7 +3937,7 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   gboolean              update_col_info = TRUE;
 
   offset = 0;
-  effective_length = tvb_length(tvb);
+  effective_length = tvb_captured_length(tvb);
 
   /* First, make sure we have enough data to do the check. */
   if (effective_length < MIN_HDR_LENGTH)
@@ -4154,7 +4160,7 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset = 0;
   }
 
-  effective_length = tvb_length(tvb);
+  effective_length = tvb_captured_length(tvb);
   if (effective_length < msg_length) {
     /* The effective length is too small for the packet */
     expert_add_info(pinfo, NULL, &ei_reload_truncated_packet);
@@ -5931,6 +5937,7 @@ proto_register_reload(void)
                                    "topology plugin", "topology plugin defined in the overlay", &reload_topology_plugin);
 
   register_init_routine(reload_defragment_init);
+  register_cleanup_routine(reload_defragment_cleanup);
 }
 
 void
@@ -5940,8 +5947,8 @@ proto_reg_handoff_reload(void)
   data_handle = find_dissector("data");
   xml_handle  = find_dissector("xml");
 
-  heur_dissector_add("udp", dissect_reload_heur, proto_reload);
-  heur_dissector_add("tcp", dissect_reload_heur, proto_reload);
+  heur_dissector_add("udp", dissect_reload_heur, "RELOAD over UDP", "reload_udp", proto_reload, HEURISTIC_ENABLE);
+  heur_dissector_add("tcp", dissect_reload_heur, "RELOAD over TCP", "reload_tcp", proto_reload, HEURISTIC_ENABLE);
 }
 
 /*

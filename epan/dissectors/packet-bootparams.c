@@ -86,72 +86,69 @@ dissect_bp_address(tvbuff_t *tvb, int offset, proto_tree *tree, int hfindex)
 
 
 static int
-dissect_getfile_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_getfile_call(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	if ( tree )
-	{
-		offset = dissect_rpc_string(tvb, tree, hf_bootparams_host, offset, NULL);
-		offset = dissect_rpc_string(tvb, tree, hf_bootparams_fileid, offset, NULL);
-	}
+	int offset = 0;
+
+	offset = dissect_rpc_string(tvb, tree, hf_bootparams_host, offset, NULL);
+	offset = dissect_rpc_string(tvb, tree, hf_bootparams_fileid, offset, NULL);
 
 	return offset;
 }
 
 static int
-dissect_getfile_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_getfile_reply(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	if ( tree )
-	{
-		offset = dissect_rpc_string(tvb, tree, hf_bootparams_host, offset, NULL);
-		offset = dissect_bp_address(tvb, offset, tree, hf_bootparams_hostaddr);
-		offset = dissect_rpc_string(tvb, tree, hf_bootparams_filepath, offset, NULL);
-	}
+	int offset = 0;
+
+	offset = dissect_rpc_string(tvb, tree, hf_bootparams_host, offset, NULL);
+	offset = dissect_bp_address(tvb, offset, tree, hf_bootparams_hostaddr);
+	offset = dissect_rpc_string(tvb, tree, hf_bootparams_filepath, offset, NULL);
 
 	return offset;
 }
 
 static int
-dissect_whoami_call(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_whoami_call(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	if ( tree )
-	{
-		offset = dissect_bp_address(tvb, offset, tree, hf_bootparams_hostaddr);
-	}
+	int offset = dissect_bp_address(tvb, 0, tree, hf_bootparams_hostaddr);
 
 	return offset;
 }
 
 static int
-dissect_whoami_reply(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_whoami_reply(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	if ( tree )
-	{
-		offset = dissect_rpc_string(tvb, tree, hf_bootparams_host, offset, NULL);
-		offset = dissect_rpc_string(tvb, tree, hf_bootparams_domain, offset, NULL);
-		offset = dissect_bp_address(tvb, offset, tree, hf_bootparams_routeraddr);
-	}
+	int offset = 0;
+
+    offset = dissect_rpc_string(tvb, tree, hf_bootparams_host, offset, NULL);
+	offset = dissect_rpc_string(tvb, tree, hf_bootparams_domain, offset, NULL);
+	offset = dissect_bp_address(tvb, offset, tree, hf_bootparams_routeraddr);
 
 	return offset;
 }
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff bootparams1_proc[] = {
 	{ BOOTPARAMSPROC_NULL, "NULL",
-		NULL, NULL },
+		dissect_rpc_void, dissect_rpc_void },
 	{ BOOTPARAMSPROC_WHOAMI, "WHOAMI",
 		dissect_whoami_call, dissect_whoami_reply },
 	{ BOOTPARAMSPROC_GETFILE, "GETFILE",
 		dissect_getfile_call, dissect_getfile_reply },
 	{ 0, NULL, NULL, NULL }
 };
-/* end of Bootparams version 1 */
 
 static const value_string bootparams1_proc_vals[] = {
 	{ BOOTPARAMSPROC_NULL, "NULL" },
 	{ BOOTPARAMSPROC_WHOAMI, "WHOAMI" },
 	{ BOOTPARAMSPROC_GETFILE, "GETFILE" },
 	{ 0, NULL }
+};
+/* end of Bootparams version 1 */
+
+static const rpc_prog_vers_info bootparams_vers_info[] = {
+	{ 1, bootparams1_proc, &hf_bootparams_procedure_v1 },
 };
 
 void
@@ -197,9 +194,8 @@ void
 proto_reg_handoff_bootparams(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_bootparams, BOOTPARAMS_PROGRAM, ett_bootparams);
-	/* Register the procedure tables */
-	rpc_init_proc_table(BOOTPARAMS_PROGRAM, 1, bootparams1_proc, hf_bootparams_procedure_v1);
+	rpc_init_prog(proto_bootparams, BOOTPARAMS_PROGRAM, ett_bootparams,
+	    G_N_ELEMENTS(bootparams_vers_info), bootparams_vers_info);
 }
 
 /*

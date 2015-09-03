@@ -36,7 +36,7 @@ typedef struct _e_udphdr {
   guint16 uh_sport;
   guint16 uh_dport;
   guint16 uh_ulen;
-  guint16 uh_sum_cov;
+  guint32 uh_sum_cov;
   guint16 uh_sum;
   guint32 uh_stream; /* this stream index field is included to help differentiate when address/port pairs are reused */
   address ip_src;
@@ -108,6 +108,28 @@ WS_DLL_PUBLIC void decode_udp_ports(tvbuff_t *, int, packet_info *,
 
 WS_DLL_PUBLIC struct udp_analysis *get_udp_conversation_data(conversation_t *,
 	packet_info *);
+
+/*
+ * Loop for dissecting PDUs within a UDP packet; Similar to tcp_dissect_pdus,
+ * but doesn't have stream support. Assumes that a PDU consists of a
+ * fixed-length chunk of data that contains enough information
+ * to determine the length of the PDU, followed by rest of the PDU.
+ *
+ * The first three arguments are the arguments passed to the dissector
+ * that calls this routine.
+ *
+ * "fixed_len" is the length of the fixed-length part of the PDU.
+ *
+ * "get_pdu_len()" is a routine called to get the length of the PDU from
+ * the fixed-length part of the PDU; it's passed "pinfo", "tvb", "offset" and
+ * "dissector_data".
+ *
+ * "dissect_pdu()" is the routine to dissect a PDU.
+ */
+WS_DLL_PUBLIC void
+udp_dissect_pdus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+		 guint fixed_len, guint (*get_pdu_len)(packet_info *, tvbuff_t *, int, void*),
+		 new_dissector_t dissect_pdu, void* dissector_data);
 
 #ifdef __cplusplus
 }

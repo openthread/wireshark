@@ -57,7 +57,8 @@ macro( ADD_PORTABLEAPPS_PACKAGE_TARGET )
 	)
 	set_target_properties(portableapps_app_dir PROPERTIES FOLDER "Packaging")
 
-	#Build the PortableApps package.
+	# Build the PortableApps package.
+	# nsis_package_prep must be built prior to this.
 	set (_portableapps_package ${CMAKE_BINARY_DIR}/packaging/portableapps/WiresharkPortable_$(VERSION).exe)
 	add_custom_target(portableapps_package
 		DEPENDS

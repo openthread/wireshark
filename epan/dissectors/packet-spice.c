@@ -3339,15 +3339,10 @@ dissect_spice(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
                 } else {
                     pdu_len = sizeof_SpiceDataHeader;
                     GET_PDU_FROM_OFFSET(offset)
-                    pdu_len = tvb_get_letohl(tvb, offset + 14); /* this is actually the sub-message list size */
-                    if (pdu_len == 0) {
-                        /* if there are no sub-messages, get the usual message body size.   */
-                        /* Note that we do not dissect properly yet sub-messages - but they */
-                        /* are not used in the protcol either */
-                        pdu_len = tvb_get_letohl(tvb, offset + 10);
-                    } else {
-                        pdu_len = tvb_get_letohl(tvb, offset + 10);
-                    }
+                    /* if there are no sub-messages, get the usual message body size.   */
+                    /* Note that we do not dissect properly yet sub-messages - but they */
+                    /* are not used in the protcol either */
+                    pdu_len = tvb_get_letohl(tvb, offset + 10);
                     pdu_len += sizeof_SpiceDataHeader; /* +sizeof_SpiceDataHeader since you need to exclude the SPICE   */
                                                    /* data header, which is sizeof_SpiceDataHeader (18) bytes long) */
                 }
@@ -4580,7 +4575,7 @@ proto_reg_handoff_spice(void)
 {
     spice_handle = new_create_dissector_handle(dissect_spice, proto_spice);
     dissector_add_for_decode_as("tcp.port", spice_handle);
-    heur_dissector_add("tcp", test_spice_protocol, proto_spice);
+    heur_dissector_add("tcp", test_spice_protocol, "Spice over TCP", "spice_tcp", proto_spice, HEURISTIC_ENABLE);
     jpeg_handle  = find_dissector("image-jfif");
 }
 

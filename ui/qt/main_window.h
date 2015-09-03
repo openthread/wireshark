@@ -33,7 +33,7 @@
 #include "ui/ui_util.h"
 
 #include <epan/prefs.h>
-#include <epan/ext_menubar.h>
+#include <epan/plugin_if.h>
 
 #ifdef HAVE_LIBPCAP
 #include "capture_opts.h"
@@ -59,10 +59,13 @@
 #include "follow_stream_dialog.h"
 #include "preferences_dialog.h"
 
+class AccordionFrame;
 class ByteViewTab;
+class FunnelStatistics;
 class MainWelcome;
 class PacketList;
 class ProtoTree;
+class WirelessFrame;
 
 class QAction;
 class QActionGroup;
@@ -85,10 +88,14 @@ public:
     capture_session *captureSession() { return &cap_session_; }
 #endif
 
+    virtual QMenu *createPopupMenu();
+
 protected:
     bool eventFilter(QObject *obj, QEvent *event);
     void keyPressEvent(QKeyEvent *event);
     void closeEvent(QCloseEvent *event);
+    void dragEnterEvent(QDragEnterEvent *event);
+    void dropEvent(QDropEvent *event);
 
 private:
     // XXX Move to FilterUtils
@@ -118,6 +125,7 @@ private:
     DisplayFilterCombo *df_combo_box_;
     CaptureFile capture_file_;
     QFont mono_font_;
+    WirelessFrame *wireless_frame_;
     // XXX - packet_list_, proto_tree_, and byte_view_tab_ should
     // probably be full-on values instead of pointers.
     PacketList *packet_list_;
@@ -129,6 +137,7 @@ private:
     QActionGroup *show_hide_actions_;
     QActionGroup *time_display_actions_;
     QActionGroup *time_precision_actions_;
+    FunnelStatistics *funnel_statistics_;
 
     bool capture_stopping_;
     bool capture_filter_valid_;
@@ -183,18 +192,30 @@ private:
     void recursiveCopyProtoTreeItems(QTreeWidgetItem *item, QString &clip, int ident_level);
     void captureFileReadStarted(const QString &action);
 
+    void addMenuActions(QList<QAction *> &actions, int menu_group);
+    void removeMenuActions(QList<QAction *> &actions, int menu_group);
+
 signals:
-    void showProgress(struct progdlg **dlg_p, bool animate, const QString message, bool terminate_is_stop, bool *stop_flag, float pct);
     void setCaptureFile(capture_file *cf);
     void setDissectedCaptureFile(capture_file *cf);
     void displayFilterSuccess(bool success);
     void monospaceFontChanged(const QFont &mono_font);
+    void closePacketDialogs();
+    void reloadFields();
 
 public slots:
     // in main_window_slots.cpp
-    void openCaptureFile(QString& cf_path = *new QString(), QString& display_filter = *new QString(), unsigned int type = WTAP_TYPE_AUTO);
+    /**
+     * Open a capture file.
+     * @param cf_path Path to the file.
+     * @param display_filter Display filter to apply. May be empty.
+     * @param type File type.
+     * @return True on success, false on failure.
+     */
+    // XXX We might want to return a cf_read_status_t or a CaptureFile.
+    bool openCaptureFile(QString& cf_path, QString& display_filter, unsigned int type);
+    bool openCaptureFile(QString& cf_path = *new QString(), QString& display_filter = *new QString()) { return openCaptureFile(cf_path, display_filter, WTAP_TYPE_AUTO); }
     void filterPackets(QString& new_filter = *new QString(), bool force = false);
-    void setCaptureStopFlag(bool stop_flag = true);
     void updateForUnsavedChanges();
     void layoutPanes();
     void applyRecentPaneGeometry();
@@ -214,6 +235,8 @@ public slots:
     void captureFileReadFinished();
     void captureFileReloadStarted() { captureFileReadStarted(tr("Reloading")); }
     void captureFileRescanStarted() { captureFileReadStarted(tr("Rescanning")); }
+    void captureFileRetapStarted();
+    void captureFileRetapFinished();
     void captureFileClosing();
     void captureFileClosed();
     void captureFileSaveStarted(const QString &file_path);
@@ -222,6 +245,8 @@ public slots:
 
 private slots:
     // Manually connected slots (no "on_<object>_<signal>").
+
+    void initViewColorizeMenu();
 
     // in main_window_slots.cpp
     void startCapture();
@@ -234,15 +259,18 @@ private slots:
     void saveWindowGeometry();
     void updateRecentFiles();
     void recentActionTriggered();
-    void setMenusForFollowStream();
     void setMenusForSelectedPacket();
     void setMenusForSelectedTreeRow(field_info *fi = NULL);
     void interfaceSelectionChanged();
     void captureFilterSyntaxChanged(bool valid);
     void redissectPackets();
     void fieldsChanged();
+    void showAccordionFrame(AccordionFrame *show_frame, bool toggle = false);
     void showColumnEditor(int column);
+    void showPreferenceEditor(); // module_t *, pref *
     void addStatsPluginsToMenu();
+    void addDynamicMenus();
+    void reloadDynamicMenus();
     void addExternalMenus();
 
     void startInterfaceCapture(bool valid);
@@ -262,6 +290,14 @@ private slots:
      * @param userdata Optional user data.
      */
     void openStatCommandDialog(const QString &menu_path, const char *arg, void *userdata);
+
+    /** Pass tap parameter arguments to a slot.
+     * @param cfg_str slot Partial slot name, e.g. "StatisticsAFPSrt".
+     * @param arg "-z" argument, e.g. "afp,srt".
+     * @param userdata Optional user data.
+     */
+    void openTapParameterDialog(const QString cfg_str, const QString arg, void *userdata);
+    void openTapParameterDialog();
 
     // Automatically connected slots ("on_<object>_<signal>").
     //
@@ -328,12 +364,14 @@ private slots:
     void on_actionEditPacketComment_triggered();
     void on_actionEditConfigurationProfiles_triggered();
     void showPreferencesDialog(PreferencesDialog::PreferencesPane start_pane = PreferencesDialog::ppAppearance);
+    void showPreferencesDialog(QString module_name);
     void on_actionEditPreferences_triggered();
 
     void showHideMainWidgets(QAction *action);
     void setTimestampFormat(QAction *action);
     void setTimestampPrecision(QAction *action);
     void on_actionViewTimeDisplaySecondsWithHoursAndMinutes_triggered(bool checked);
+    void on_actionViewEditResolvedName_triggered();
     void setNameResolution();
     void on_actionViewNameResolutionPhysical_triggered();
     void on_actionViewNameResolutionNetwork_triggered();
@@ -345,14 +383,19 @@ private slots:
     void on_actionViewNormalSize_triggered();
     void on_actionViewColorizePacketList_triggered(bool checked);
     void on_actionViewColoringRules_triggered();
+    void colorizeConversation(bool create_rule = false);
+    void colorizeWithFilter();
+    void on_actionViewColorizeResetColorization_triggered();
+    void on_actionViewColorizeNewConversationRule_triggered();
     void on_actionViewResizeColumns_triggered();
 
     void openPacketDialog(bool from_reference = false);
     void on_actionViewShowPacketInNewWindow_triggered();
-    void on_actionViewShowPacketReferenceInNewWindow_triggered();
+    void on_actionContextShowLinkedPacketInNewWindow_triggered();
     void on_actionViewReload_triggered();
 
     void on_actionGoGoToPacket_triggered();
+    void on_actionGoGoToLinkedPacket_triggered();
     void on_actionGoAutoScroll_toggled(bool checked);
     void resetPreviousFocus();
 
@@ -363,6 +406,7 @@ private slots:
     void on_actionCaptureCaptureFilters_triggered();
 
     void on_actionAnalyzeDisplayFilters_triggered();
+    void on_actionAnalyzeDisplayFilterMacros_triggered();
     void matchFieldFilter(FilterAction::Action action, FilterAction::ActionType filter_type);
     void on_actionAnalyzeCreateAColumn_triggered();
     void on_actionAnalyzeAAFSelected_triggered();
@@ -380,7 +424,11 @@ private slots:
 
     void applyConversationFilter();
 
+    void on_actionAnalyzeEnabledProtocols_triggered();
     void on_actionAnalyzeDecodeAs_triggered();
+#ifdef HAVE_LUA
+    void on_actionAnalyzeReloadLuaPlugins_triggered();
+#endif
 
     void openFollowStreamDialog(follow_type_t type);
     void on_actionAnalyzeFollowTCPStream_triggered();
@@ -420,6 +468,7 @@ private slots:
     void on_actionCaptureRestart_triggered();
 
     void on_actionStatisticsCaptureFileProperties_triggered();
+    void on_actionStatisticsResolvedAddresses_triggered();
     void on_actionStatisticsProtocolHierarchy_triggered();
     void on_actionStatisticsFlowGraph_triggered();
     void openTcpStreamDialog(int graph_type);
@@ -432,6 +481,11 @@ private slots:
     void on_actionSCTPShowAllAssociations_triggered();
     void on_actionSCTPAnalyseThisAssociation_triggered();
     void on_actionSCTPFilterThisAssociation_triggered();
+    void statCommandMulticastStatistics(const char *arg, void *);
+    void on_actionStatisticsUdpMulticastStreams_triggered();
+
+    void statCommandWlanStatistics(const char *arg, void *);
+    void on_actionWirelessWlanStatistics_triggered();
 
     void openStatisticsTreeDialog(const gchar *abbr);
     void on_actionStatistics29WestTopics_Advertisements_by_Topic_triggered();
@@ -463,7 +517,7 @@ private slots:
     void on_actionStatisticsHTTPPacketCounter_triggered();
     void on_actionStatisticsHTTPRequests_triggered();
     void on_actionStatisticsHTTPLoadDistribution_triggered();
-    void on_actionStatisticsPacketLen_triggered();
+    void on_actionStatisticsPacketLengths_triggered();
     void statCommandIOGraph(const char *, void *);
     void on_actionStatisticsIOGraph_triggered();
     void on_actionStatisticsSametime_triggered();
@@ -474,16 +528,30 @@ private slots:
 
     void openVoipCallsDialog(bool all_flows = false);
     void on_actionTelephonyVoipCalls_triggered();
+    void on_actionTelephonyGsmMapSummary_triggered();
+    void on_actionTelephonyMtp3Summary_triggered();
     void on_actionTelephonyISUPMessages_triggered();
     void on_actionTelephonyRTPStreams_triggered();
+    void on_actionTelephonyRTPStreamAnalysis_triggered();
     void on_actionTelephonyRTSPPacketCounter_triggered();
     void on_actionTelephonySMPPOperations_triggered();
     void on_actionTelephonyUCPMessages_triggered();
     void on_actionTelephonySipFlows_triggered();
 
     void on_actionATT_Server_Attributes_triggered();
+    void on_actionDevices_triggered();
+    void on_actionHCI_Summary_triggered();
 
     void externalMenuItem_triggered();
+
+    void on_actionContextCopyBytesHexTextDump_triggered();
+    void on_actionContextCopyBytesHexDump_triggered();
+    void on_actionContextCopyBytesPrintableText_triggered();
+    void on_actionContextCopyBytesHexStream_triggered();
+    void on_actionContextCopyBytesBinary_triggered();
+
+    void on_actionContextWikiProtocolPage_triggered();
+    void on_actionContextFilterFieldReference_triggered();
 
     void changeEvent(QEvent* event);
 

@@ -27,7 +27,7 @@
 #include "qt_ui_utils.h"
 #include "ui/capture_globals.h"
 #include "remote_capture_dialog.h"
-#include "ui_remote_capture_dialog.h"
+#include <ui_remote_capture_dialog.h>
 #include "capture_opts.h"
 #include "caputils/capture-pcap-util.h"
 #include "ui/capture_ui_utils.h"
@@ -76,11 +76,8 @@ void RemoteCaptureDialog::hostChanged(QString host)
 
 }
 
-static void fillBox(gpointer key, gpointer value, gpointer user_data)
+static void fillBox(gpointer key, gpointer, gpointer user_data)
 {
-    Q_UNUSED(value);
-    Q_UNUSED(user_data);
-
     QComboBox *cb = (QComboBox *)user_data;
     cb->addItem(QString((gchar*)key));
 }

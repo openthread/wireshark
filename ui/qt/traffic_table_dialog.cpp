@@ -20,17 +20,17 @@
  */
 
 #include "traffic_table_dialog.h"
-#include "ui_traffic_table_dialog.h"
+#include <ui_traffic_table_dialog.h>
 
 #include <epan/addr_resolv.h>
 #include <epan/prefs.h>
-#include <epan/stat_tap_ui.h>
 
 //#include <epan/dissectors/packet-tcp.h>
 
 #include "ui/recent.h"
 //#include "ui/tap-tcp-stream.h"
 
+#include "progress_frame.h"
 #include "wireshark_application.h"
 
 #include <QCheckBox>
@@ -120,6 +120,11 @@ void TrafficTableDialog::fillTypeMenu(QList<int> &enabled_protos)
     }
 }
 
+void TrafficTableDialog::addProgressFrame(QObject *parent)
+{
+    ProgressFrame::addToButtonBox(ui->buttonBox, parent);
+}
+
 QDialogButtonBox *TrafficTableDialog::buttonBox() const
 {
     return ui->buttonBox;
@@ -145,9 +150,8 @@ QPushButton *TrafficTableDialog::enabledTypesPushButton() const
     return ui->enabledTypesPushButton;
 }
 
-void TrafficTableDialog::on_nameResolutionCheckBox_toggled(bool checked)
+void TrafficTableDialog::on_nameResolutionCheckBox_toggled(bool)
 {
-    Q_UNUSED(checked);
     updateWidgets();
 }
 

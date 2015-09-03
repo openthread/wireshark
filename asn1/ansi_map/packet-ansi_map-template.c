@@ -88,6 +88,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/tap.h>
+#include <epan/stat_tap_ui.h>
 #include <epan/asn1.h>
 
 #include "packet-ber.h"
@@ -388,20 +389,16 @@ static void dissect_ansi_map_win_trigger_list(tvbuff_t *tvb, packet_info *pinfo 
 static GHashTable *TransactionId_table=NULL;
 
 static void
-ansi_map_init_transaction_table(void){
-
-    /* Destroy any existing memory chunks / hashes. */
-    if (TransactionId_table){
-        g_hash_table_destroy(TransactionId_table);
-    }
-
+ansi_map_init(void)
+{
     TransactionId_table = g_hash_table_new(g_str_hash, g_str_equal);
 }
 
 static void
-ansi_map_init_protocol(void)
+ansi_map_cleanup(void)
 {
-    ansi_map_init_transaction_table();
+    /* Destroy any existing memory chunks / hashes. */
+    g_hash_table_destroy(TransactionId_table);
 }
 
 /* Store Invoke information needed for the corresponding reply */
@@ -4448,6 +4445,104 @@ static void range_add_callback(guint32 ssn)
     }
 }
 
+/* TAP STAT INFO */
+typedef enum
+{
+    OPCODE_COLUMN = 0,
+    OPERATION_COLUMN,
+    COUNT_COLUMN,
+    TOTAL_BYTES_COLUMN,
+    AVG_BYTES_COLUMN
+} ansi_map_stat_columns;
+
+static stat_tap_table_item stat_fields[] = {{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "OpCode", "0x%02x"}, {TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Operation Name", "%-50s"},
+        {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "  %d  "}, {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Total Bytes", "  %d  "},
+        {TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Avg Bytes", "  %8.2f  "}};
+
+static void ansi_map_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+{
+    int num_fields = sizeof(stat_fields)/sizeof(stat_tap_table_item);
+    new_stat_tap_table* table = new_stat_tap_init_table("ANSI MAP Operation Statistics", num_fields, 0, "ansi_map.op_code", gui_callback, gui_data);
+    int i = 0;
+    stat_tap_table_item_type items[sizeof(stat_fields)/sizeof(stat_tap_table_item)];
+
+    new_stat_tap_add_table(new_stat, table);
+
+    /* Add a fow for each value type */
+    while (ansi_map_opr_code_strings[i].strptr)
+    {
+        items[OPCODE_COLUMN].type = TABLE_ITEM_UINT;
+        items[OPCODE_COLUMN].value.uint_value = ansi_map_opr_code_strings[i].value;
+        items[OPERATION_COLUMN].type = TABLE_ITEM_STRING;
+        items[OPERATION_COLUMN].value.string_value = ansi_map_opr_code_strings[i].strptr;
+        items[COUNT_COLUMN].type = TABLE_ITEM_UINT;
+        items[COUNT_COLUMN].value.uint_value = 0;
+        items[TOTAL_BYTES_COLUMN].type = TABLE_ITEM_UINT;
+        items[TOTAL_BYTES_COLUMN].value.uint_value = 0;
+        items[AVG_BYTES_COLUMN].type = TABLE_ITEM_FLOAT;
+        items[AVG_BYTES_COLUMN].value.float_value = 0.0f;
+
+        new_stat_tap_init_table_row(table, ansi_map_opr_code_strings[i].value, num_fields, items);
+        i++;
+    }
+}
+
+
+static gboolean
+ansi_map_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const void *data)
+{
+    new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+    const ansi_map_tap_rec_t    *data_p = (const ansi_map_tap_rec_t *)data;
+    new_stat_tap_table* table;
+    stat_tap_table_item_type* item_data;
+    guint i = 0, count, total_bytes;
+
+    /* Only tracking field values we know */
+    if (try_val_to_str(data_p->message_type, ansi_map_opr_code_strings) == NULL)
+        return FALSE;
+
+    table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+
+    item_data = new_stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
+    item_data->value.uint_value++;
+    count = item_data->value.uint_value;
+    new_stat_tap_set_field_data(table, data_p->message_type, COUNT_COLUMN, item_data);
+
+    item_data = new_stat_tap_get_field_data(table, data_p->message_type, TOTAL_BYTES_COLUMN);
+    item_data->value.uint_value += data_p->size;
+    total_bytes = item_data->value.uint_value;
+    new_stat_tap_set_field_data(table, data_p->message_type, TOTAL_BYTES_COLUMN, item_data);
+
+    item_data = new_stat_tap_get_field_data(table, data_p->message_type, AVG_BYTES_COLUMN);
+    item_data->value.float_value = (float)total_bytes/(float)count;
+    new_stat_tap_set_field_data(table, data_p->message_type, AVG_BYTES_COLUMN, item_data);
+
+    return TRUE;
+}
+
+static void
+ansi_map_stat_reset(new_stat_tap_table* table)
+{
+    guint element;
+    stat_tap_table_item_type* item_data;
+
+    for (element = 0; element < table->num_elements; element++)
+    {
+        item_data = new_stat_tap_get_field_data(table, element, COUNT_COLUMN);
+        item_data->value.uint_value = 0;
+        new_stat_tap_set_field_data(table, element, COUNT_COLUMN, item_data);
+
+        item_data = new_stat_tap_get_field_data(table, element, TOTAL_BYTES_COLUMN);
+        item_data->value.uint_value = 0;
+        new_stat_tap_set_field_data(table, element, TOTAL_BYTES_COLUMN, item_data);
+
+        item_data = new_stat_tap_get_field_data(table, element, AVG_BYTES_COLUMN);
+        item_data->value.float_value = 0.0f;
+        new_stat_tap_set_field_data(table, element, AVG_BYTES_COLUMN, item_data);
+    }
+
+}
+
 void
 proto_reg_handoff_ansi_map(void)
 {
@@ -5338,6 +5433,22 @@ void proto_register_ansi_map(void) {
         {NULL, NULL, -1}
     };
 
+    /* TAP STAT INFO */
+    static new_stat_tap_ui stat_table = {
+        REGISTER_STAT_GROUP_TELEPHONY_ANSI,
+        "Map Operation Statistics",
+        "ansi_map",
+        "ansi_map",
+        ansi_map_stat_init,
+        ansi_map_stat_packet,
+        ansi_map_stat_reset,
+        NULL,
+        NULL,
+        sizeof(stat_fields)/sizeof(stat_tap_table_item), stat_fields,
+        0, NULL,
+        NULL
+    };
+
     /* Register protocol */
     proto_ansi_map = proto_register_protocol(PNAME, PSNAME, PFNAME);
     /* Register fields and subtrees */
@@ -5377,5 +5488,20 @@ void proto_register_ansi_map(void) {
                                   "Type of matching invoke/response, risk of missmatch if loose matching choosen",
                                   &ansi_map_response_matching_type, ansi_map_response_matching_type_values, FALSE);
 
-    register_init_routine(&ansi_map_init_protocol);
+    register_init_routine(&ansi_map_init);
+    register_cleanup_routine(&ansi_map_cleanup);
+    register_new_stat_tap_ui(&stat_table);
 }
+
+/*
+ * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ *
+ * Local variables:
+ * c-basic-offset: 4
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
+ */

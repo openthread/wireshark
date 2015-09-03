@@ -234,6 +234,12 @@ wtp_defragment_init(void)
                           &addresses_reassembly_table_functions);
 }
 
+static void
+wtp_defragment_cleanup(void)
+{
+    reassembly_table_destroy(&wtp_reassembly_table);
+}
+
 /*
  * Extract some bitfields
  */
@@ -276,7 +282,7 @@ wtp_handle_tpi(proto_tree *tree, tvbuff_t *tvb)
     else
         tLen = tByte & 0x03;
     pi = proto_tree_add_uint(tree, hf_wtp_tpi_type,
-            tvb, 0, tvb_length(tvb), tType);
+            tvb, 0, tvb_captured_length(tvb), tType);
     subTree = proto_item_add_subtree(pi, ett_tpilist);
     switch (tType) {
         case 0x00:            /* Error*/
@@ -400,7 +406,7 @@ dissect_wtp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     printf("WTP packet %u: tree = %p, pdu = %s (%u) length: %u\n",
             pinfo->fd->num, tree,
             val_to_str(pdut, vals_wtp_pdu_type, "Unknown PDU type 0x%x"),
-            pdut, tvb_length(tvb));
+            pdut, tvb_captured_length(tvb));
 #endif
 
     /* Develop the string to put in the Info column */
@@ -1055,6 +1061,7 @@ proto_register_wtp(void)
     register_dissector("wtp-wtls", dissect_wtp_fromwtls, proto_wtp);
     register_dissector("wtp-udp", dissect_wtp_fromudp, proto_wtp);
     register_init_routine(wtp_defragment_init);
+    register_cleanup_routine(wtp_defragment_cleanup);
 }
 
 void

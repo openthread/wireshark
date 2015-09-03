@@ -143,6 +143,25 @@ addresses_equal(const address *addr1, const address *addr2) {
 }
 #define ADDRESSES_EQUAL(addr1, addr2) addresses_equal((addr1), (addr2))
 
+/** Check the data of two addresses for equality.
+ *
+ * Given two addresses, return "true" if they have the same length and,
+ * their data is equal, "false" otherwise.
+ * The address types are ignored. This can be used to compare custom
+ * address types defined with address_type_dissector_register.
+ *
+ * @param addr1 [in] The first address to compare.
+ * @param addr2 [in] The second address to compare.
+ * @return TRUE if the adresses are equal, FALSE otherwise.
+ */
+static inline gboolean
+addresses_data_equal(const address *addr1, const address *addr2) {
+    if ( addr1->len == addr2->len
+            && memcmp(addr1->data, addr2->data, addr1->len) == 0
+            ) return TRUE;
+    return FALSE;
+}
+
 /** Copy an address, allocating a new buffer for the address data.
  *
  * @param to [in,out] The destination address.
@@ -155,7 +174,8 @@ copy_address(address *to, const address *from) {
     to->type = from->type;
     to->len = from->len;
     to_data = (guint8 *)g_malloc(from->len);
-    memcpy(to_data, from->data, from->len);
+    if (from->len != 0)
+        memcpy(to_data, from->data, from->len);
     to->data = to_data;
 }
 #define COPY_ADDRESS(to, from) copy_address((to), (from))
@@ -189,7 +209,8 @@ copy_address_shallow(address *to, const address *from) {
         void *WMEM_COPY_ADDRESS_data; \
         copy_address_shallow((to), (from)); \
         WMEM_COPY_ADDRESS_data = wmem_alloc(scope, (from)->len); \
-        memcpy(WMEM_COPY_ADDRESS_data, (from)->data, (from)->len); \
+        if ((from)->len != 0) \
+            memcpy(WMEM_COPY_ADDRESS_data, (from)->data, (from)->len); \
         (to)->data = WMEM_COPY_ADDRESS_data; \
     } while (0)
 
@@ -251,7 +272,8 @@ typedef enum {
     PT_USB,             /* USB endpoint 0xffff means the host */
     PT_I2C,
     PT_IBQP,            /* Infiniband QP number */
-    PT_BLUETOOTH
+    PT_BLUETOOTH,
+    PT_TDMOP
 } port_type;
 
 /* Types of circuit IDs Wireshark knows about. */

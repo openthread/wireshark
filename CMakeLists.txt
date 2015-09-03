@@ -110,7 +110,9 @@ if(WIN32)
 	# Download third-party libraries
 	file (TO_NATIVE_PATH ${CMAKE_SOURCE_DIR}/tools/win-setup.ps1 _win_setup)
 	file (TO_NATIVE_PATH ${_PROJECT_LIB_DIR} _ws_lib_dir)
-	if(MSVC12)
+	if(MSVC14)
+		set(_vsversion_args "14")
+	elseif(MSVC12)
 		set(_vsversion_args "12")
 	elseif(MSVC11)
 		set(_vsversion_args "11")
@@ -178,7 +180,7 @@ include(CMakeInstallDirs)
 set(GIT_REVISION 0)
 set(PROJECT_MAJOR_VERSION 1)
 set(PROJECT_MINOR_VERSION 99)
-set(PROJECT_PATCH_VERSION 7)
+set(PROJECT_PATCH_VERSION 10)
 set(PROJECT_BUILD_VERSION ${GIT_REVISION})
 set(PROJECT_VERSION_EXTENSION "$ENV{WIRESHARK_VERSION_EXTRA}")
 set(PROJECT_VERSION "${PROJECT_MAJOR_VERSION}.${PROJECT_MINOR_VERSION}.${PROJECT_PATCH_VERSION}${PROJECT_VERSION_EXTENSION}")
@@ -231,15 +233,17 @@ if( CMAKE_C_COMPILER_ID MATCHES "MSVC")
 		set(MSC_VER_REQUIRED 1700)
 	elseif(MSVC12)
 		set(MSC_VER_REQUIRED 1800)
+	elseif(MSVC14)
+		set(MSC_VER_REQUIRED 1900)
 	else()
 		message(FATAL_ERROR "You are using an unsupported version of MSVC")
 	endif()
-	set(LOCAL_CFLAGS
+
+	add_definitions(
 		/DWIN32_LEAN_AND_MEAN
 		"/DMSC_VER_REQUIRED=${MSC_VER_REQUIRED}"
 		/D_CRT_SECURE_NO_DEPRECATE
 		/D_CRT_NONSTDC_NO_DEPRECATE
-		/MP
 		# NOMINMAX keeps windows.h from defining "min" and "max" via windef.h.
 		# This avoids conflicts with the C++ standard library.
 		/DNOMINMAX
@@ -262,15 +266,27 @@ if( CMAKE_C_COMPILER_ID MATCHES "MSVC")
 		/D_ALLOW_KEYWORD_MACROS
 	)
 
+	if(NOT "${WIRESHARK_TARGET_PLATFORM}" STREQUAL "win64")
+		add_definitions("/D_BIND_TO_CURRENT_CRT_VERSION=1")
+	endif()
+
+	# FIXME: WINPCAP_VERSION cannot be determined from source or executable.
+	set(WINPCAP_VERSION "unknown")
+	add_definitions("/DWINPCAP_VERSION=${WINPCAP_VERSION}")
+
+	set(LOCAL_CFLAGS
+		/MP
+	)
+
 	if(MSVC12)
-		# /Zo                               Enhanced debugging of optimised codem for VS2013 Update 3 and beyond,
+		# /Zo                               Enhanced debugging of optimised code for VS2013 Update 3 and beyond,
 		#                                   Assume all VS2013 builds are at least Update 3.
 		#                                   See http://msdn.microsoft.com/en-us/library/dn785163.aspx
 		set(LOCAL_CFLAGS ${LOCAL_CFLAGS} "/Zo")
-	endif()
-
-	if(NOT WIN64)
-		set(LOCAL_CFLAGS ${LOCAL_CFLAGS} "/D_BIND_TO_CURRENT_CRT_VERSION=1")
+	elseif(MSVC14)
+		# /Zo                               Enhanced debugging of optimised code
+		#                                   VS2015(MSVC14): On by default when /Zi or /Z7 used.
+		set(LOCAL_CFLAGS ${LOCAL_CFLAGS} "/Zo")
 	endif()
 
 	if(ENABLE_CODE_ANALYSIS)
@@ -283,10 +299,7 @@ if( CMAKE_C_COMPILER_ID MATCHES "MSVC")
 	## 4189: local variable is initialized but not referenced
 	set(WARNINGS_CFLAGS "/w34295 /w34189")
 
-	# FIXME: WINPCAP_VERSION cannot be determined from source or executable.
-	set(WINPCAP_VERSION "unknown")
 	set(WIRESHARK_COMMON_FLAGS
-		"/DWINPCAP_VERSION=${WINPCAP_VERSION}"
 		${LOCAL_CFLAGS}
 		${WARNINGS_CFLAGS}
 	)
@@ -706,6 +719,7 @@ if(ENABLE_ZLIB)
 		add_subdirectory("${ZLIB_SRC_DIR}" "${CMAKE_BINARY_DIR}/zlib")
 		set(ZLIB_INCLUDE_DIR  "${ZLIB_SRC_DIR}" "${CMAKE_BINARY_DIR}/zlib")
 		set(ZLIB_LIBRARY zlib)
+		set(ZLIB_DLL "zlib1.dll")
 		set_target_properties(zlib PROPERTIES FOLDER "Libs/zlib")
 		# Annoyingly zlib also builds some other stuff we aren't interested in
 		set_target_properties(zlibstatic PROPERTIES FOLDER "Libs/zlib")
@@ -881,8 +895,8 @@ if (Qt5Widgets_FOUND)
 elseif(QT_FOUND)
 	include(${QT_USE_FILE})
 	include_directories(${QT_INCLUDE_DIR})
-	message(STATUS "QT includes: ${QT_INCLUDE_DIR}")
-	message(STATUS "QT libs: ${QT_LIBRARIES}")
+	message(STATUS "Qt includes: ${QT_INCLUDE_DIR}")
+	message(STATUS "Qt libs: ${QT_LIBRARIES}")
 endif()
 
 message(STATUS "C-Flags: ${CMAKE_C_FLAGS}")
@@ -907,21 +921,6 @@ test_big_endian(WORDS_BIGENDIAN)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-add_custom_command(
-	OUTPUT	${CMAKE_BINARY_DIR}/version.h
-	COMMAND ${PERL_EXECUTABLE}
-		${CMAKE_CURRENT_SOURCE_DIR}/make-version.pl
-		${CMAKE_CURRENT_SOURCE_DIR}
-	DEPENDS
-		${CMAKE_CURRENT_SOURCE_DIR}/make-version.pl
-)
-
-add_custom_target(
-	gitversion ALL
-	DEPENDS ${CMAKE_BINARY_DIR}/version.h
-)
-set_target_properties(gitversion PROPERTIES FOLDER "Auxiliary")
-
 add_subdirectory( asn1 EXCLUDE_FROM_ALL )
 add_subdirectory( capchild )
 add_subdirectory( caputils )
@@ -932,8 +931,6 @@ add_subdirectory( tools/lemon )
 add_subdirectory( ui )
 add_subdirectory( wiretap )
 add_subdirectory( wsutil )
-
-add_dependencies(wsutil gitversion)
 
 if(NOT WIN32)
 	add_custom_target(dumpabi DEPENDS dumpabi-libwireshark dumpabi-libwiretap dumpabi-libwsutil color.h)
@@ -1049,8 +1046,18 @@ else()
 endif()
 
 set( VERSION ${PROJECT_VERSION} )
+execute_process(
+	COMMAND ${PERL_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/make-version.pl
+		--print-vcs
+		${CMAKE_CURRENT_SOURCE_DIR}
+	OUTPUT_VARIABLE VERSION_H_CONTENT
+)
 set( configure_input "Built with CMake ${CMAKE_VERSION}" )
 configure_file(${CMAKE_SOURCE_DIR}/cmakeconfig.h.in ${CMAKE_BINARY_DIR}/config.h)
+configure_file(${CMAKE_SOURCE_DIR}/version.h.in ${CMAKE_BINARY_DIR}/version.h)
+#set_target_properties(${CMAKE_BINARY_DIR}/version.h PROPERTIES FOLDER "Auxiliary")
+
 set(ICON_PATH "${CMAKE_SOURCE_DIR}/image/")
 set( IN_FILES
 	adns_dll.rc
@@ -1134,47 +1141,33 @@ if(ENABLE_EXTCAP)
 endif()
 
 set(TSHARK_TAP_SRC
-	ui/cli/cli_service_response_time_table.c
-	ui/cli/tap-afpstat.c
-	ui/cli/tap-ansi_astat.c
-	ui/cli/tap-bootpstat.c
-	ui/cli/tap-camelcounter.c
 	ui/cli/tap-camelsrt.c
 	ui/cli/tap-comparestat.c
-	ui/cli/tap-dcerpcstat.c
 	ui/cli/tap-diameter-avp.c
 	ui/cli/tap-expert.c
 	ui/cli/tap-endpoints.c
 	ui/cli/tap-follow.c
 	ui/cli/tap-funnel.c
 	ui/cli/tap-gsm_astat.c
-	ui/cli/tap-h225counter.c
-	ui/cli/tap-h225rassrt.c
 	ui/cli/tap-hosts.c
 	ui/cli/tap-httpstat.c
 	ui/cli/tap-icmpstat.c
 	ui/cli/tap-icmpv6stat.c
 	ui/cli/tap-iostat.c
 	ui/cli/tap-iousers.c
-	ui/cli/tap-ldapstat.c
 	ui/cli/tap-macltestat.c
-	ui/cli/tap-mgcpstat.c
-	ui/cli/tap-megacostat.c
-	ui/cli/tap-ncpstat.c
 	ui/cli/tap-protocolinfo.c
 	ui/cli/tap-protohierstat.c
-	ui/cli/tap-radiusstat.c
 	ui/cli/tap-rlcltestat.c
-	ui/cli/tap-rpcstat.c
 	ui/cli/tap-rpcprogs.c
+	ui/cli/tap-rtd.c
 	ui/cli/tap-rtp.c
 	ui/cli/tap-rtspstat.c
-	ui/cli/tap-scsistat.c
 	ui/cli/tap-sctpchunkstat.c
+	ui/cli/tap-simple_stattable.c
 	ui/cli/tap-sipstat.c
 	ui/cli/tap-smbsids.c
-	ui/cli/tap-smb2stat.c
-	ui/cli/tap-smbstat.c
+	ui/cli/tap-srt.c
 	ui/cli/tap-stats_tree.c
 	ui/cli/tap-sv.c
 	ui/cli/tap-wspstat.c
@@ -1377,6 +1370,8 @@ if(WIN32)
 		)
 	endif(LUA_FOUND)
 	if (SMI_FOUND)
+		# Wireshark.nsi wants SMI_DIR which is the base SMI directory
+		get_filename_component(SMI_DIR ${SMI_DLL_DIR} DIRECTORY)
 		add_custom_command(TARGET copy_cli_dlls PRE_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
 				"${SMI_DLL_DIR}/${SMI_DLL}"
@@ -1627,17 +1622,9 @@ if(ENABLE_APPLICATION_BUNDLE)
 	# with a static version installed in /usr/local/lib rather than
 	# the system version in /usr/lib).
 	#
-	# Also add -Wl,-rpath,@executable_path/../Frameworks,
-	# -Wl,-rpath,@executable_path/../lib and
-	# -Wl,-rpath,/usr/local/lib, so that, if we build an app
-	# bundle, we can tweak all the executable images, shared
-	# libraries, and plugins in the bundle to look for non-system
-	# libraries in the rpath, rather than having a script tweak
-	# DYLD_LIBRARY_PATH.
-	#
 
 	set(CMAKE_EXE_LINKER_FLAGS
-	"-Wl,-headerpad_max_install_names -Wl,-search_paths_first -Wl,-rpath,@executable_path/../Frameworks -Wl,-rpath,@executable_path/../lib -Wl,-rpath,/usr/local/lib ${CMAKE_EXE_LINKER_FLAGS}"
+	"-Wl,-headerpad_max_install_names -Wl,-search_paths_first ${CMAKE_EXE_LINKER_FLAGS}"
 	)
 
 	# Add files to the app bundle
@@ -1698,8 +1685,6 @@ if(BUILD_wireshark AND QT_FOUND)
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
 		${NL_LIBRARIES}
 	)
-	# wireshark and wireshark-gtk share wireshark_FILES
-	add_dependencies(qtui gitversion)
 
 	# Policy since 2.8.11
 	if (POLICY CMP0020)
@@ -2247,7 +2232,6 @@ if(BUILD_androiddump)
 
 	add_executable(androiddump WIN32 ${androiddump_FILES})
 	# XXX Shouldn't we add wsutil to androiddump_LIBS instead?
-	add_dependencies(androiddump gitversion)
 	set_extcap_executable_properties(androiddump)
 	target_link_libraries(androiddump ${androiddump_LIBS})
 	install(TARGETS androiddump RUNTIME DESTINATION ${EXTCAP_DIR})

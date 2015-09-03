@@ -181,6 +181,9 @@ MPEG-2 Transport Streams as defined in ISO/IEC 13818-1
 =item *
 Rabbit Labs CAM Inspector files
 
+=item *
+Colasoft Capsa files
+
 =back
 
 There is no need to tell B<Wireshark> what type of
@@ -470,6 +473,8 @@ B<t> to enable transport-layer port number resolution
 
 B<C> to enable concurrent (asynchronous) DNS lookups
 
+B<d> to enable resolution from captured DNS packets
+
 =item -o  E<lt>preference/recent settingE<gt>
 
 Set a preference or recent value, overriding the default value and any value
@@ -643,6 +648,14 @@ Currently implemented statistics are:
 
 =over 4
 
+=item B<-z help>
+
+Display all possible values for B<-z>.
+
+=item B<-z> afp,srt[,I<filter>]
+
+Show Apple Filing Protocol service response time statistics.
+
 =item B<-z> conv,I<type>[,I<filter>]
 
 Create a table that lists all conversations that could be seen in the
@@ -670,12 +683,13 @@ the total number of packets.
 These tables can also be generated at runtime by selecting the appropriate
 conversation type from the menu "Tools/Statistics/Conversation List/".
 
-=item B<-z> dcerpc,srt,I<uuid>,I<major>.I<minor>[,I<filter>]
+=item B<-z> dcerpc,srt,I<name-or-uuid>,I<major>.I<minor>[,I<filter>]
 
-Collect call/reply SRT (Service Response Time) data for DCERPC interface I<uuid>,
-version I<major>.I<minor>.
+Collect call/reply SRT (Service Response Time) data for DCERPC interface
+I<name> or I<uuid>, version I<major>.I<minor>.
 Data collected is the number of calls for each procedure, MinSRT, MaxSRT
 and AvgSRT.
+Interface I<name> and I<uuid> are case-insensitive.
 
 Example: S<B<-z dcerpc,srt,12345778-1234-abcd-ef00-0123456789ac,1.0>> will collect data for the CIFS SAMR Interface.
 
@@ -686,6 +700,14 @@ on those calls that match that filter.
 
 Example: S<B<-z dcerpc,srt,12345778-1234-abcd-ef00-0123456789ac,1.0,ip.addr==1.2.3.4>> will collect SAMR
 SRT statistics for a specific host.
+
+=item B<-z> bootp,stat[,I<filter>]
+
+Show DHCP (BOOTP) statistics.
+
+=item B<-z> expert
+
+Show expert information.
 
 =item B<-z> fc,srt[,I<filter>]
 
@@ -818,16 +840,27 @@ on those calls that match that filter.
 Example: B<-z "mgcp,srt,ip.addr==1.2.3.4"> will collect stats only for
 MGCP packets exchanged by the host at IP address 1.2.3.4 .
 
+=item B<-z> mtp3,msus[,<filter>]
+
+Show MTP3 MSU statistics.
+
+=item B<-z> multicast,stat[,<filter>]
+
+Show UDP multicast stream statistics.
+
 =item B<-z> rpc,programs
 
 Collect call/reply SRT data for all known ONC-RPC programs/versions.
 Data collected is the number of calls for each protocol/version, MinSRT,
 MaxSRT and AvgSRT.
 
-=item B<-z> rpc,srt,I<program>,I<version>[,<filter>]
+=item B<-z> rpc,srt,I<name-or-number>,I<version>[,<filter>]
 
-Collect call/reply SRT (Service Response Time) data for I<program>/I<version>.  Data collected
-is the number of calls for each procedure, MinSRT, MaxSRT and AvgSRT.
+Collect call/reply SRT (Service Response Time) data for program
+I<name>/I<version> or I<number>/I<version>.
+Data collected is the number of calls for each procedure, MinSRT, MaxSRT and
+AvgSRT.
+Program I<name> is case-insensitive.
 
 Example: B<-z rpc,srt,100003,3> will collect data for NFS v3.
 
@@ -836,7 +869,7 @@ This option can be used multiple times on the command line.
 If the optional I<filter> is provided, the stats will only be calculated
 on those calls that match that filter.
 
-Example: S<B<-z rpc,srt,100003,3,nfs.fh.hash==0x12345678>> will collect NFS v3
+Example: S<B<-z rpc,srt,nfs,3,nfs.fh.hash==0x12345678>> will collect NFS v3
 SRT statistics for a specific file.
 
 =item B<-z> scsi,srt,I<cmdset>[,<filter>]
@@ -905,6 +938,26 @@ This is the same window shown as when you go to the Statistics Menu and choose
 VoIP Calls.
 
 Example: B<-z voip,calls>
+
+=item B<-z> wlan,stat[,<filter>]
+
+Show IEEE 802.11 network and station statistics.
+
+=item B<-z> wsp,stat[,<filter>]
+
+Show WSP packet counters.
+
+=item --disable-protocol E<lt>proto_nameE<gt>
+
+Disable dissection of proto_name.
+
+=item --enable-heuristic E<lt>short_nameE<gt>
+
+Enable dissection of heuristic protocol.
+
+=item --disable-heuristic E<lt>short_nameE<gt>
+
+Disable dissection of heuristic protocol.
 
 =back
 

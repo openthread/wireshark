@@ -705,8 +705,9 @@ dissect_nisplus_object(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree
 
 
 static int
-dissect_ns_request(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_ns_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
 	offset = dissect_rpc_string(tvb, tree,
 			hf_nisplus_object_name, offset, NULL);
 
@@ -717,8 +718,10 @@ dissect_ns_request(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tr
 }
 
 static int
-dissect_ib_request(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_ib_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_string(tvb, tree,
 			hf_nisplus_object_name, offset, NULL);
 
@@ -744,8 +747,10 @@ dissect_ib_request(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tr
 }
 
 static int
-dissect_fd_args(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_fd_args(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_string(tvb, tree,
 			hf_nisplus_fd_dirname, offset, NULL);
 
@@ -778,17 +783,17 @@ dissect_nisplus_tag(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tre
 }
 
 static int
-dissect_nisplus_taglist(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_nisplus_taglist(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_array(tvb, pinfo, tree, offset,
+	return dissect_rpc_array(tvb, pinfo, tree, 0,
 			dissect_nisplus_tag, hf_nisplus_taglist);
-
-	return offset;
 }
 
 static int
-dissect_dump_args(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_dump_args(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_string(tvb, tree,
 			hf_nisplus_dump_dir, offset, NULL);
 
@@ -802,26 +807,23 @@ dissect_dump_args(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tre
 }
 
 static int
-dissect_netobj(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_netobj(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_data(tvb, tree,
-			hf_nisplus_dummy, offset);
-
-	return offset;
+	return dissect_rpc_data(tvb, tree, hf_nisplus_dummy, 0);
 }
 
 static int
-dissect_nisname(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_nisname(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_string(tvb, tree,
-			hf_nisplus_object_name, offset, NULL);
-
-	return offset;
+	return dissect_rpc_string(tvb, tree,
+			hf_nisplus_object_name, 0, NULL);
 }
 
 static int
-dissect_ping_args(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_ping_args(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_string(tvb, tree,
 			hf_nisplus_ping_dir, offset, NULL);
 
@@ -933,8 +935,10 @@ static const value_string nis_error[] = {
 };
 
 static int
-dissect_nisplus_result(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_nisplus_result(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_uint32(tvb, tree,
 			hf_nisplus_error, offset);
 
@@ -960,8 +964,10 @@ dissect_nisplus_result(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree
 }
 
 static int
-dissect_fd_result(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_fd_result(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_uint32(tvb, tree,
 			hf_nisplus_error, offset);
 
@@ -1032,8 +1038,10 @@ dissect_log_entry(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tre
 }
 
 static int
-dissect_log_result(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_log_result(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_uint32(tvb, tree,
 			hf_nisplus_error, offset);
 
@@ -1047,26 +1055,22 @@ dissect_log_result(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tr
 }
 
 static int
-dissect_callback_result(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_callback_result(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_bool(tvb, tree, hf_nisplus_callback_status,
-			offset);
-
-	return offset;
+	return dissect_rpc_bool(tvb, tree, hf_nisplus_callback_status, 0);
 }
 
 static int
-dissect_change_time(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_change_time(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_nisplus_time(tvb, offset, tree,
-			hf_nisplus_log_time);
-
-	return offset;
+	return dissect_nisplus_time(tvb, 0, tree, hf_nisplus_log_time);
 }
 
 static int
-dissect_cp_result(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_cp_result(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
+	int offset = 0;
+
 	offset = dissect_rpc_uint32(tvb, tree,
 			hf_nisplus_cp_status, offset);
 
@@ -1080,19 +1084,15 @@ dissect_cp_result(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree 
 }
 
 static int
-dissect_nisplus_error(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+dissect_nisplus_error(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_uint32(tvb, tree,
-			hf_nisplus_error, offset);
-
-	return offset;
+	return dissect_rpc_uint32(tvb, tree, hf_nisplus_error, 0);
 }
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff nisplus3_proc[] = {
 	{ NISPROC_NULL,			"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ NISPROC_LOOKUP,		"LOOKUP",
 		dissect_ns_request,	dissect_nisplus_result },
 	{ NISPROC_ADD,			"ADD",
@@ -1128,7 +1128,7 @@ static const vsff nisplus3_proc[] = {
 	{ NISPROC_CHECKPOINT,		"CHECKPOINT",
 		dissect_nisname,	dissect_cp_result },
 	{ NISPROC_PING,			"PING",
-		dissect_ping_args,	NULL },
+		dissect_ping_args,	dissect_rpc_void },
 	{ NISPROC_SERVSTATE,		"SERVSTATE",
 		dissect_nisplus_taglist, dissect_nisplus_taglist },
 	{ NISPROC_MKDIR,		"MKDIR",
@@ -1164,6 +1164,9 @@ static const value_string nisplus3_proc_vals[] = {
 	{ NISPROC_RMDIR,		"RMDIR" },
 	{ NISPROC_UPDKEYS,		"UPDKEYS" },
 	{ 0,	NULL }
+};
+static const rpc_prog_vers_info nisplus_vers_info[] = {
+	{ 3, nisplus3_proc, &hf_nisplus_procedure_v3 },
 };
 
 
@@ -1831,9 +1834,8 @@ void
 proto_reg_handoff_nis(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_nisplus, NIS_PROGRAM, ett_nisplus);
-	/* Register the procedure tables */
-	rpc_init_proc_table(NIS_PROGRAM, 3, nisplus3_proc, hf_nisplus_procedure_v3);
+	rpc_init_prog(proto_nisplus, NIS_PROGRAM, ett_nisplus,
+	    G_N_ELEMENTS(nisplus_vers_info), nisplus_vers_info);
 }
 
 
@@ -1872,25 +1874,22 @@ dissect_cb_entry(tvbuff_t *tvb, int offset, packet_info *pinfo _U_, proto_tree *
 }
 
 static int
-dissect_cback_data(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, void* data _U_)
+dissect_cback_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	offset = dissect_rpc_array(tvb, pinfo, tree, offset,
+	return dissect_rpc_array(tvb, pinfo, tree, 0,
 			dissect_cb_entry, hf_nispluscb_entries);
-
-	return offset;
 }
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff cb1_proc[] = {
 	{ CBPROC_NULL,			"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ CBPROC_RECEIVE,		"RECEIVE",
 		dissect_cback_data,	dissect_callback_result },
 	{ CBPROC_FINISH,		"FINISH",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ CBPROC_ERROR,			"ERROR",
-		dissect_nisplus_error,	NULL },
+		dissect_nisplus_error,	dissect_rpc_void },
 	{	0,	NULL,	NULL,	NULL },
 };
 static const value_string nispluscb1_proc_vals[] = {
@@ -1899,6 +1898,9 @@ static const value_string nispluscb1_proc_vals[] = {
 	{ CBPROC_FINISH,	"FINISH" },
 	{ CBPROC_ERROR,		"ERROR" },
 	{	0,	NULL }
+};
+static const rpc_prog_vers_info nispluscb_vers_info[] = {
+	{ 1, cb1_proc, &hf_nispluscb_procedure_v1 },
 };
 
 void
@@ -1933,9 +1935,8 @@ void
 proto_reg_handoff_niscb(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_nispluscb, CB_PROGRAM, ett_nispluscb);
-	/* Register the procedure tables */
-	rpc_init_proc_table(CB_PROGRAM, 1, cb1_proc, hf_nispluscb_procedure_v1);
+	rpc_init_prog(proto_nispluscb, CB_PROGRAM, ett_nispluscb,
+	    G_N_ELEMENTS(nispluscb_vers_info), nispluscb_vers_info);
 }
 
 /*

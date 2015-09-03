@@ -1524,7 +1524,7 @@ static gboolean dissect_knxnetip_heur(tvbuff_t *tvb, packet_info *pinfo, proto_t
     gint idx;
     idx = 0;
 
-    if (tvb_length(tvb) < 8){
+    if (tvb_captured_length(tvb) < 8){
         return (FALSE);
     }
     if ( tvb_get_guint8(tvb, 0) != KNXNETIP_HEADER_LENGTH) {
@@ -1865,8 +1865,8 @@ void proto_register_knxnetip (void) {
 
 void proto_reg_handoff_knxnetip(void) {
     /* register as heuristic dissector for both TCP and UDP */
-    heur_dissector_add("tcp", dissect_knxnetip_heur, proto_knxnetip);
-    heur_dissector_add("udp", dissect_knxnetip_heur, proto_knxnetip);
+    heur_dissector_add("tcp", dissect_knxnetip_heur, "KNXnet/IP over TCP", "knxnetip_tcp", proto_knxnetip, HEURISTIC_ENABLE);
+    heur_dissector_add("udp", dissect_knxnetip_heur, "KNXnet/IP over UDP", "knxnetip_udp", proto_knxnetip, HEURISTIC_ENABLE);
 }
 
 /*

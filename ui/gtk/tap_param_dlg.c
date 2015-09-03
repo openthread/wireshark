@@ -62,15 +62,27 @@ void
 register_param_stat(tap_param_dlg *info, const char *name,
     register_stat_group_t group)
 {
+    gchar *action_name;
     gchar *full_name;
     const gchar *stock_id = NULL;
     stat_tap_ui ui_info;
+    size_t i;
 
+    /* XXX We appear to leak memory here. */
     /*
      * This menu item will pop up a dialog box, so append "..."
      * to it.
      */
     full_name = g_strdup_printf("%s...", name);
+    /*
+     * Escape path separators for add_menu_item_to_main_menubar.
+     */
+    action_name = g_strdup(name);
+    for (i = 0; i < strlen(action_name); i++) {
+        if (action_name[i] == '/') {
+            action_name[i] = '#';
+        }
+    }
 
     ui_info.group = group;
     ui_info.title = full_name;
@@ -101,8 +113,10 @@ register_param_stat(tap_param_dlg *info, const char *name,
         break;
 
     case REGISTER_STAT_GROUP_TELEPHONY:
+    case REGISTER_STAT_GROUP_TELEPHONY_ANSI:
     case REGISTER_STAT_GROUP_TELEPHONY_GSM:
     case REGISTER_STAT_GROUP_TELEPHONY_LTE:
+    case REGISTER_STAT_GROUP_TELEPHONY_MTP3:
     case REGISTER_STAT_GROUP_TELEPHONY_SCTP:
         break;
 
@@ -112,7 +126,7 @@ register_param_stat(tap_param_dlg *info, const char *name,
 
     register_menu_bar_menu_items(
         stat_group_name(group), /* GUI path to the place holder in the menu */
-        name,                   /* Action name */
+        action_name,            /* Action name */
         stock_id,               /* Stock id */
         full_name,              /* label */
         NULL,                   /* Accelerator */
@@ -183,7 +197,7 @@ tap_param_dlg_start_button_clicked(GtkWidget *item _U_, gpointer dialog_data)
             break;
         }
     }
-    (dlg_data->cont.tap_init_cb)(params->str,NULL);
+    (dlg_data->cont.tap_init_cb)(params->str, dlg_data->cont.user_data);
     g_string_free(params, TRUE);
 }
 
@@ -222,6 +236,7 @@ tap_param_dlg_cb(GtkAction *action _U_, gpointer data)
         end_dlg_list->cont.tap_init_cb = dlg_data->tap_init_cb;
         end_dlg_list->cont.nparams = dlg_data->nparams;
         end_dlg_list->cont.params = dlg_data->params;
+        end_dlg_list->cont.user_data = dlg_data->user_data;
         end_dlg_list->args.title = g_strdup_printf("%s Filter", dlg_data->win_title);
         end_dlg_list->args.wants_apply_button = TRUE;
         end_dlg_list->args.activate_on_ok = FALSE;
@@ -245,6 +260,13 @@ tap_param_dlg_cb(GtkAction *action _U_, gpointer data)
     /* if the window is already open, bring it to front */
     if(current_dlg->dlg){
         gdk_window_raise(gtk_widget_get_window(current_dlg->dlg));
+        return;
+    }
+
+    /* If we don't have any parameters, just launch the stat dialog */
+    if (current_dlg->cont.nparams == 0)
+    {
+        tap_param_dlg_start_button_clicked(NULL, current_dlg);
         return;
     }
 

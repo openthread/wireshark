@@ -21,6 +21,7 @@
 
 #include "wireshark_application.h"
 
+#include <algorithm>
 #include <errno.h>
 
 #include "wsutil/filesystem.h"
@@ -62,6 +63,7 @@
 #  include "ui/win32/console_win32.h"
 #endif /* _WIN32 */
 
+#include <QAction>
 #include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
@@ -87,6 +89,9 @@ WiresharkApplication *wsApp = NULL;
 static char *last_open_dir = NULL;
 static bool updated_last_open_dir = FALSE;
 static QList<recent_item_status *> recent_items_;
+static QHash<int, QList<QAction *> > dynamic_menu_groups_;
+static QHash<int, QList<QAction *> > added_menu_groups_;
+static QHash<int, QList<QAction *> > removed_menu_groups_;
 
 QString WiresharkApplication::window_title_separator_ = QString::fromUtf8(" " UTF8_MIDDLE_DOT " ");
 
@@ -220,13 +225,10 @@ void WiresharkApplication::setLastOpenDir(QString *dir_str) {
 
 void WiresharkApplication::helpTopicAction(topic_action_e action)
 {
-    char *url;
+    QString url = gchar_free_to_qstring(topic_action_url(action));
 
-    url = topic_action_url(action);
-
-    if(url != NULL) {
+    if(!url.isEmpty()) {
         QDesktopServices::openUrl(QUrl(url));
-        g_free(url);
     }
 }
 
@@ -368,6 +370,7 @@ void WiresharkApplication::setConfigurationProfile(const gchar *profile_name)
     proto_enable_all();
     if (gdp_path == NULL && dp_path == NULL) {
         set_disabled_protos_list();
+        set_disabled_heur_dissector_list();
     }
 
     /* Reload color filters */
@@ -395,7 +398,7 @@ void WiresharkApplication::setLastOpenDir(const char *dir_name)
     qint64 len;
     gchar *new_last_open_dir;
 
-    if (dir_name) {
+    if (dir_name && dir_name[0]) {
         len = strlen(dir_name);
         if (dir_name[len-1] == G_DIR_SEPARATOR) {
             new_last_open_dir = g_strconcat(dir_name, (char *)NULL);
@@ -474,7 +477,8 @@ void WiresharkApplication::itemStatusFinished(const QString filename, qint64 siz
 
 WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
     QApplication(argc, argv),
-    initialized_(false)
+    initialized_(false),
+    is_reloading_lua_(false)
 {
     wsApp = this;
     setApplicationName("Wireshark");
@@ -511,6 +515,92 @@ WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
         capture_icon_.addFile(icon_path);
     }
 
+    //
+    // XXX - this means we try to check for the existence of all files
+    // in the recent list every 2 seconds; that causes noticeable network
+    // traffic if any of them are stored on file servers.
+    //
+    // QFileSystemWatcher should allow us to watch for files being
+    // removed or renamed.  It uses kqueues and EVFILT_VNODE on FreeBSD,
+    // NetBSD, FSEvents on OS X, inotify on Linux if available, and
+    // FindFirstChagneNotification() on Windows.  On all other platforms,
+    // it just periodically polls, as we're doing now.
+    //
+    // For unmounts:
+    //
+    // OS X and FreeBSD deliver NOTE_REVOKE notes for EVFILT_VNODE, and
+    // QFileSystemWatcher delivers signals for them, just as it does for
+    // NOTE_DELETE and NOTE_RENAME.
+    //
+    // On Linux, inotify:
+    //
+    //    http://man7.org/linux/man-pages/man7/inotify.7.html
+    //
+    // appears to deliver "filesystem containing watched object was
+    // unmounted" events.  It looks as if Qt turns them into "changed"
+    // events.
+    //
+    // On Windows, it's not clearly documented what happens on a handle
+    // opened with FindFirstChangeNotification() if the volume on which
+    // the path handed to FindFirstChangeNotification() is removed, or
+    // ejected, or whatever the Windowsese is for "unmounted".  The
+    // handle obviously isn't valid any more, but whether it just hangs
+    // around and never delivers any notifications or delivers an
+    // event that turns into an error indication doesn't seem to be
+    // documented.  If it just hangs around, I think our main loop will
+    // receive a WM_DEVICECHANGE Windows message with DBT_DEVICEREMOVECOMPLETE
+    // if an unmount occurs - even for network devices.  If we need to watch
+    // for those, we can use the winEvent method of the QWidget for the
+    // top-level window to get Windows messages.
+    //
+    // Note also that remote file systems might not report file
+    // removal or renames if they're done on the server or done by
+    // another client.  At least on OS X, they *will* get reported
+    // if they're done on the machine running the program doing the
+    // kqueue stuff, and, at least in newer versions, should get
+    // reported on SMB-mounted (and AFP-mounted?) file systems
+    // even if done on the server or another client.
+    //
+    // But, when push comes to shove, the file manager(s) on the
+    // OSes in question probably use the same mechanisms to
+    // monitor folders in folder windows or open/save dialogs or...,
+    // so my inclination is just to use QFileSystemWatcher.
+    //
+    // However, that wouldn't catch files that become *re*-accessible
+    // by virtue of a file system being re-mounted.  The only way to
+    // catch *that* would be to watch for mounts and re-check all
+    // marked-as-inaccessible files.
+    //
+    // OS X and FreeBSD also support EVFILT_FS events, which notify you
+    // of file system mounts and unmounts.  We'd need to add our own
+    // kqueue for that, if we can check those with QSocketNotifier.
+    //
+    // On Linux, at least as of 2006, you're supposed to poll /proc/mounts:
+    //
+    //    https://lkml.org/lkml/2006/2/22/169
+    //
+    // to discover mounts.
+    //
+    // On Windows, you'd probably have to watch for WM_DEVICECHANGE events.
+    //
+    // Then again, with an automounter, a file system containing a
+    // recent capture might get unmounted automatically if you haven't
+    // referred to anything on that file system for a while, and get
+    // treated as inaccessible.  However, if you try to access it,
+    // the automounter will attempt to re-mount it, so the access *will*
+    // succeed if the automounter can remount the file.
+    //
+    // (Speaking of automounters, repeatedly polling recent files will
+    // keep the file system from being unmounted, for what that's worth.)
+    //
+    // At least on OS X, you can determine whether a file is on an
+    // automounted file system by calling statfs() on its path and
+    // checking whether MNT_AUTOMOUNTED is set in f_flags.  FreeBSD
+    // appears to support that flag as well, but no other *BSD appears
+    // to.
+    //
+    // I'm not sure what can be done on Linux.
+    //
     recent_timer_.setParent(this);
     connect(&recent_timer_, SIGNAL(timeout()), this, SLOT(refreshRecentFiles()));
     recent_timer_.start(2000);
@@ -523,6 +613,19 @@ WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
     tap_update_timer_.setInterval(TAP_UPDATE_DEFAULT_INTERVAL);
     connect(this, SIGNAL(appInitialized()), &tap_update_timer_, SLOT(start()));
     connect(&tap_update_timer_, SIGNAL(timeout()), this, SLOT(updateTaps()));
+
+    // Application-wide style sheet
+    QString app_style_sheet = qApp->styleSheet();
+#if defined(Q_OS_MAC)
+    // Qt uses the HITheme API to draw splitters. In recent versions of OS X
+    // this looks particularly bad: https://bugreports.qt.io/browse/QTBUG-43425
+    // This doesn't look native but it looks better than Yosemite's bit-rotten
+    // rendering of HIThemeSplitterDrawInfo.
+    app_style_sheet +=
+            "QSplitter::handle:vertical { height: 0px; }\n"
+            "QSplitter::handle:horizontal { width: 0px; }\n";
+#endif
+    qApp->setStyleSheet(app_style_sheet);
 
     connect(qApp, SIGNAL(aboutToQuit()), this, SLOT(cleanup()));
 }
@@ -558,9 +661,111 @@ void WiresharkApplication::emitAppSignal(AppSignal signal)
     }
 }
 
+// Flush any collected app signals.
+//
+// On OS X emitting PacketDissectionChanged from a dialog can
+// render the application unusable:
+// https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=11361
+// https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=11448
+// Work around the problem by queueing up app signals and emitting them
+// after the dialog is closed.
+//
+// The following bugs might be related although they don't describe the
+// exact behavior we're working around here:
+// https://bugreports.qt.io/browse/QTBUG-38512
+// https://bugreports.qt.io/browse/QTBUG-38600
+void WiresharkApplication::flushAppSignals()
+{
+    while (!app_signals_.isEmpty()) {
+        wsApp->emitAppSignal(app_signals_.takeFirst());
+    }
+}
+
 void WiresharkApplication::emitStatCommandSignal(const QString &menu_path, const char *arg, void *userdata)
 {
     emit openStatCommandDialog(menu_path, arg, userdata);
+}
+
+void WiresharkApplication::emitTapParameterSignal(const QString cfg_abbr, const QString arg, void *userdata)
+{
+    emit openTapParameterDialog(cfg_abbr, arg, userdata);
+}
+
+// XXX Combine statistics and funnel routines into addGroupItem + groupItems?
+void WiresharkApplication::addDynamicMenuGroupItem(int group, QAction *sg_action)
+{
+    if (!dynamic_menu_groups_.contains(group)) {
+        dynamic_menu_groups_[group] = QList<QAction *>();
+    }
+    dynamic_menu_groups_[group] << sg_action;
+}
+
+void WiresharkApplication::appendDynamicMenuGroupItem(int group, QAction *sg_action)
+{
+    if (!added_menu_groups_.contains(group)) {
+        added_menu_groups_[group] = QList<QAction *>();
+    }
+    added_menu_groups_[group] << sg_action;
+    addDynamicMenuGroupItem(group, sg_action);
+}
+
+void WiresharkApplication::removeDynamicMenuGroupItem(int group, QAction *sg_action)
+{
+    if (!removed_menu_groups_.contains(group)) {
+        removed_menu_groups_[group] = QList<QAction *>();
+    }
+    removed_menu_groups_[group] << sg_action;
+    dynamic_menu_groups_[group].removeAll(sg_action);
+}
+
+QList<QAction *> WiresharkApplication::dynamicMenuGroupItems(int group)
+{
+    if (!dynamic_menu_groups_.contains(group)) {
+        return QList<QAction *>();
+    }
+
+    QList<QAction *> sgi_list = dynamic_menu_groups_[group];
+    std::sort(sgi_list.begin(), sgi_list.end(), qActionLessThan);
+    return sgi_list;
+}
+
+QList<QAction *> WiresharkApplication::addedMenuGroupItems(int group)
+{
+    if (!added_menu_groups_.contains(group)) {
+        return QList<QAction *>();
+    }
+
+    QList<QAction *> sgi_list = added_menu_groups_[group];
+    std::sort(sgi_list.begin(), sgi_list.end(), qActionLessThan);
+    return sgi_list;
+}
+
+QList<QAction *> WiresharkApplication::removedMenuGroupItems(int group)
+{
+    if (!removed_menu_groups_.contains(group)) {
+        return QList<QAction *>();
+    }
+
+    QList<QAction *> sgi_list = removed_menu_groups_[group];
+    std::sort(sgi_list.begin(), sgi_list.end(), qActionLessThan);
+    return sgi_list;
+}
+
+void WiresharkApplication::clearAddedMenuGroupItems()
+{
+    foreach (int group, added_menu_groups_.uniqueKeys()) {
+        added_menu_groups_[group].clear();
+    }
+}
+
+void WiresharkApplication::clearRemovedMenuGroupItems()
+{
+    foreach (int group, removed_menu_groups_.uniqueKeys()) {
+        foreach (QAction *action, removed_menu_groups_[group]) {
+            delete action;
+        }
+        removed_menu_groups_[group].clear();
+    }
 }
 
 #ifdef HAVE_LIBPCAP
@@ -738,6 +943,8 @@ _e_prefs *WiresharkApplication::readConfigurationFiles(char **gdp_path, char **d
 
     /* Read the disabled protocols file. */
     read_disabled_protos_list(gdp_path, &gdp_open_errno, &gdp_read_errno,
+                              dp_path, &dp_open_errno, &dp_read_errno);
+    read_disabled_heur_dissector_list(gdp_path, &gdp_open_errno, &gdp_read_errno,
                               dp_path, &dp_open_errno, &dp_read_errno);
     if (*gdp_path != NULL) {
         if (gdp_open_errno != 0) {

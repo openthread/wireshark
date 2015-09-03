@@ -30,7 +30,7 @@
 #include "ui/profile.h"
 
 #include "profile_dialog.h"
-#include "ui_profile_dialog.h"
+#include <ui_profile_dialog.h>
 #include "wireshark_application.h"
 #include "color_utils.h"
 
@@ -189,10 +189,8 @@ void ProfileDialog::updateWidgets()
     ok_button_->setEnabled(enable_ok);
 }
 
-void ProfileDialog::on_profileTreeWidget_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous)
+void ProfileDialog::on_profileTreeWidget_currentItemChanged(QTreeWidgetItem *, QTreeWidgetItem *)
 {
-    Q_UNUSED(current);
-    Q_UNUSED(previous);
     if (pd_ui_->profileTreeWidget->updatesEnabled()) updateWidgets();
 }
 

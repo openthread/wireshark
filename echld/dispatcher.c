@@ -264,7 +264,7 @@ static char* intflist2json(GList* if_list, char** if_cap_err) {
 
 
 
-		caps = capture_get_if_capabilities(if_info->name, 0, if_cap_err, NULL);
+		caps = capture_get_if_capabilities(if_info->name, 0, NULL, if_cap_err, NULL);
 
 		if (caps != NULL) {
 			if (caps->data_link_types != NULL) {
@@ -287,7 +287,7 @@ static char* intflist2json(GList* if_list, char** if_cap_err) {
 
 			if (caps->can_set_rfmon) {
 				free_if_capabilities(caps);
-				caps = capture_get_if_capabilities(if_info->name, 1, if_cap_err, NULL);
+				caps = capture_get_if_capabilities(if_info->name, 1, NULL, if_cap_err, NULL);
 
 				if (caps->data_link_types != NULL) {
 					GList* lt_entry = caps->data_link_types;
@@ -508,12 +508,13 @@ static void preinit_epan(char* argv0, int (*main)(int, char **)) {
 
 	/* disabled protocols as per configuration file */
 	set_disabled_protos_list();
-
+	set_disabled_heur_dissector_list();
 
 	setlocale(LC_ALL, "");
 	DISP_DBG((1,"---5"));
 
 	read_disabled_protos_list(&gdp_path, &gdp_open_errno, &gdp_read_errno, &dp_path, &dp_open_errno, &dp_read_errno);
+	read_disabled_heur_dissector_list(&gdp_path, &gdp_open_errno, &gdp_read_errno, &dp_path, &dp_open_errno, &dp_read_errno);
 
 	DISP_DBG((1,"---6"));
 

@@ -20,7 +20,7 @@
  */
 
 #include "sequence_dialog.h"
-#include "ui_sequence_dialog.h"
+#include <ui_sequence_dialog.h>
 
 #include "epan/addr_resolv.h"
 
@@ -121,7 +121,7 @@ SequenceDialog::SequenceDialog(QWidget &parent, CaptureFile &cf, seq_analysis_in
     }
 
     QPushButton *save_bt = ui->buttonBox->button(QDialogButtonBox::Save);
-    save_bt->setText(tr("Save As..."));
+    save_bt->setText(tr("Save As" UTF8_HORIZONTAL_ELLIPSIS));
 
     // XXX Use recent settings instead
     resize(parent.width(), parent.height() * 4 / 5);
@@ -152,15 +152,13 @@ void SequenceDialog::updateWidgets()
 {
 }
 
-void SequenceDialog::showEvent(QShowEvent *event)
+void SequenceDialog::showEvent(QShowEvent *)
 {
-    Q_UNUSED(event);
     resetAxes();
 }
 
-void SequenceDialog::resizeEvent(QResizeEvent *event)
+void SequenceDialog::resizeEvent(QResizeEvent *)
 {
-    Q_UNUSED(event);
     resetAxes(true);
 }
 
@@ -288,9 +286,8 @@ void SequenceDialog::mouseMoved(QMouseEvent *event)
     ui->hintLabel->setText(hint);
 }
 
-void SequenceDialog::mouseReleased(QMouseEvent *event)
+void SequenceDialog::mouseReleased(QMouseEvent *)
 {
-    Q_UNUSED(event);
     if (ui->sequencePlot->cursor().shape() == Qt::ClosedHandCursor) {
         ui->sequencePlot->setCursor(QCursor(Qt::OpenHandCursor));
     }

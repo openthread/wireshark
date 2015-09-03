@@ -100,6 +100,15 @@ void DisplayFilterCombo::writeRecent(FILE *rf) {
     }
 }
 
+bool DisplayFilterCombo::checkDisplayFilter()
+{
+    DisplayFilterEdit *df_edit = qobject_cast<DisplayFilterEdit *>(lineEdit());
+    bool state = false;
+
+    if (df_edit) state = df_edit->checkFilter();
+    return state;
+}
+
 void DisplayFilterCombo::applyDisplayFilter()
 {
     DisplayFilterEdit *df_edit = qobject_cast<DisplayFilterEdit *>(lineEdit());
@@ -116,8 +125,14 @@ extern "C" gboolean dfilter_combo_add_recent(const gchar *filter) {
     if (!cur_display_filter_combo)
         return FALSE;
 
+    // Adding an item to a QComboBox also sets its lineEdit. In our case
+    // that means we might trigger a temporary status message so we block
+    // the lineEdit's signals.
+    // Another approach would be to update QComboBox->model directly.
+    bool block_state = cur_display_filter_combo->lineEdit()->blockSignals(true);
     cur_display_filter_combo->addItem(filter);
     cur_display_filter_combo->clearEditText();
+    cur_display_filter_combo->lineEdit()->blockSignals(block_state);
     return TRUE;
 }
 

@@ -524,21 +524,20 @@ static void dissect_wa_payload(guint32 starting_offset, proto_item *parent_tree,
                 tag_len = tvb_get_ntohl(tvb, current_offset + 52);
 
                 if (tag_len != 0) {
-                    const guint8  *tag_data_ptr;
-                    guint32        isr;
-
-                    tag_data_ptr = tvb_get_ptr (tvb, offset + 36, tag_len);
+                    guint32       isr;
+                    guint8        isr_value;
 
                     for (isr = 0; isr < tag_len; isr++) {
-                        if (tag_data_ptr[isr] == 0xFF){
+                        isr_value = tvb_get_guint8(tvb, offset + 36 + isr);
+                        if (isr_value == 0xFF){
                             proto_tree_add_string (bss_tree, hf_waveagent_ifwlansupprates, tvb, offset + 36 + isr,
                                                    1,
                                                    "BSS requires support for mandatory features of HT PHY (IEEE 802.11"
                                                    " - Clause 20)");
                         } else {
                             wmem_strbuf_append_printf(sb, "%2.1f%s ",
-                                      (tag_data_ptr[isr] & 0x7F) * 0.5,
-                                      (tag_data_ptr[isr] & 0x80) ? "(B)" : "");
+                                      (isr_value & 0x7F) * 0.5,
+                                      (isr_value & 0x80) ? "(B)" : "");
 
                         }
                     }
@@ -1003,7 +1002,7 @@ static int dissect_waveagent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     guint32     wa_payload_offset;
 
     /* Check that there's enough data */
-    if (tvb_length(tvb) < 52 )
+    if (tvb_reported_length(tvb) < 52 )
         return 0;
 
     magic_number    = tvb_get_ntohl(tvb, 16) & 0x0FFFFFFF;  /* Mask magic number off */
@@ -1071,8 +1070,8 @@ static int dissect_waveagent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         dissect_wa_payload(wa_payload_offset, payload_tree, tvb, control_word, version);
     }
 
-/* Return the amount of data this dissector was able to dissect */
-    return tvb_length(tvb);
+    /* Return the amount of data this dissector was able to dissect */
+    return tvb_captured_length(tvb);
 }
 
 static gboolean dissect_waveagent_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -1906,7 +1905,7 @@ void proto_register_waveagent(void)
 
 void proto_reg_handoff_waveagent(void)
 {
-    heur_dissector_add("udp", dissect_waveagent_heur, proto_waveagent);
+    heur_dissector_add("udp", dissect_waveagent_heur, "WaveAgent over UDP", "waveagent_udp", proto_waveagent, HEURISTIC_ENABLE);
 }
 
 

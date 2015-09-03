@@ -178,7 +178,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
                   EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
 
-    exp_pdu_data = load_export_pdu_tags(pinfo, "reload-framing", -1, &tags, 1);
+    exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, "reload-framing", &tags, 1);
 
     exp_pdu_data->tvb_captured_length = effective_length;
     exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
@@ -350,7 +350,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     next_tvb = tvb_new_subset(tvb, offset, effective_length - offset, message_length);
     if (reload_handle == NULL) {
       expert_add_info(pinfo, ti, &ei_reload_no_dissector);
-      return tvb_length(tvb);
+      return tvb_captured_length(tvb);
     }
     call_dissector_only(reload_handle, next_tvb, pinfo, tree, NULL);
   }
@@ -442,7 +442,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     DISSECTOR_ASSERT_NOT_REACHED();
   }
 
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 static int
@@ -457,7 +457,7 @@ dissect_reload_framing_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
   /* XXX: Check if we have a valid RELOAD Frame Type ? */
   tcp_dissect_pdus(tvb, pinfo, tree, TRUE, MIN_HDR_LENGTH,
                    get_reload_framing_message_length, dissect_reload_framing, data);
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 /* ToDo: If a TCP connection is identified heuristically as reload-framing, then
@@ -599,9 +599,9 @@ proto_reg_handoff_reload_framing(void)
   dissector_add_uint("tcp.port", TCP_PORT_RELOAD, reload_framing_tcp_handle);
   dissector_add_uint("udp.port", UDP_PORT_RELOAD, reload_framing_udp_handle);
 
-  heur_dissector_add("udp",  dissect_reload_framing_heur, proto_reload_framing);
-  heur_dissector_add("tcp",  dissect_reload_framing_heur, proto_reload_framing);
-  heur_dissector_add("dtls", dissect_reload_framing_heur_dtls, proto_reload_framing);
+  heur_dissector_add("udp",  dissect_reload_framing_heur, "RELOAD Framing over UDP", "reload_framing_udp", proto_reload_framing, HEURISTIC_ENABLE);
+  heur_dissector_add("tcp",  dissect_reload_framing_heur, "RELOAD Framing over TCP", "reload_framing_tcp", proto_reload_framing, HEURISTIC_ENABLE);
+  heur_dissector_add("dtls", dissect_reload_framing_heur_dtls, "RELOAD Framing over DTLS", "reload_framing_dtls", proto_reload_framing, HEURISTIC_ENABLE);
 
   exported_pdu_tap = find_tap_id(EXPORT_PDU_TAP_NAME_LAYER_7);
 }

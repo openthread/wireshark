@@ -1,6 +1,6 @@
-                         Wireshark 1.99.6 Release Notes
+                         Wireshark 1.99.9 Release Notes
 
-   This is an experimental release intended to test new features for
+   This is a semi-experimental release intended to test new features for
    Wireshark 2.0.
      __________________________________________________________________
 
@@ -13,6 +13,57 @@ What is Wireshark?
 What's New
 
   New and Updated Features
+
+   The following features are new (or have been significantly updated)
+   since version 1.99.8:
+     * Qt port:
+          + The MTP3 statistics and summary dialogs have been added.
+          + The WAP-WSP statistics dialog has been added.
+          + The UDP multicast statistics dialog has been added.
+          + The WLAN statistics dialog has been added.
+          + The display filter macros dialog has been added.
+          + The capture file properties dialog now includes packet
+            comments.
+          + Many more statistics dialogs can be opened from the command
+            line via -z ....
+          + Most dialogs now have a cancellable progress bar.
+          + Many packet list and packet detail context menus items have
+            been added.
+          + Lua plugins can be reloaded from the Analyze menu.
+          + Many bug fixes and improvements.
+
+   The following features are new (or have been significantly updated)
+   since version 1.99.7:
+     * Qt port:
+          + The Enabled Protocols dialog has been added.
+          + Many statistics dialogs have been added, including Service
+            response time, DHCP/BOOTP, and ANSI.
+          + The RTP Analysis dialog has been added.
+          + Lua dialog support has been added.
+          + You can now manually resolve addresses.
+          + The Resolved Addresses dialog has been added.
+          + The packet list scrollbar now has a minimap.
+          + The capture interfaces dialog has been updated.
+          + You can now colorize conversations.
+          + Welcome screen behavior has been improved.
+          + Plugin support has been improved.
+          + Many dialogs should now more correctly minimize and maximize.
+          + The reload button has been added back to the toolbar.
+          + The "Decode As" dialog no longer saves decoding behavior.
+          + You can now stop loading large capture files.
+          + The Bluetooth HCI Summary has been added.
+
+   The following features are new (or have been significantly updated)
+   since version 1.99.6:
+     * Qt port:
+          + The Bluetooth Devices dialog has been added.
+          + The wireless toolbar has been added.
+          + Opening files via drag and drop is now supported.
+          + The Capture Filter and Display Filter dialogs have been added.
+          + The Display Filter Expression dialog has been added.
+          + Conversation Filter menu items have been added.
+          + You can change protocol preferences by right clicking on the
+            packet list and details.
 
    The following features are new (or have been significantly updated)
    since version 1.99.4 and 1.99.5:
@@ -109,25 +160,34 @@ What's New
           + Most toolbar actions are in place and work.
           + More command line options are now supported
 
+  New File Format Support
+
+   BTSNOOP, PCAP, and PCAPNG
+
   New Protocol Support
 
-   (LISP) TCP Control Message, AllJoyn Reliable Datagram Protocol, Android
-   ADB, Android Logcat text, Apache Tribes Heartbeat, BGP Monitoring
-   Prototol (BMP), C15 Call History Protocol dissection (C15ch), ceph,
+   (LISP) TCP Control Message, Aeron, AllJoyn Reliable Datagram Protocol,
+   Android ADB, Android Logcat text, Apache Tribes Heartbeat, BGP
+   Monitoring Prototol (BMP), C15 Call History Protocol dissection
+   (C15ch), ceph, Concise Binary Object Representation (CBOR) (RFC 7049),
    corosync/totemnet corosync cluster engine ( lowest
    levelencryption/decryption protocol), corosync/totemsrp corosync
    cluster engine ( totem single ring protocol), Couchbase, CP "Cooper"
    2179, DJI UAV Drone Control Protocol, Dynamic Source Routing (RFC
    4728), Elasticsearch, ETSI Card Application Toolkit - Transport
-   Protocol, Generic Network Virtualization Encapsulation (Geneve),
-   Geospatial and Imagery Access Service (GIAS), GVSP GigE Vision (TM)
-   Streaming Protocol, HCrt, HiQnet, IP Detail Record (IPDR), IPMI Trace,
-   iSER, KNXnetIP, MACsec Key Agreement - EAPoL-MKA, MCPE (Minecraft
-   Pocket Edition), OCFS2, OptoMMP, QNEX6 (QNET), RakNet games library,
-   Remote Shared Virtual Disk - RSVD, Riemann, S7 Communication, Secure
-   Socket Tunnel Protocol (SSTP), Shared Memory Communications - RDMA,
-   Stateless Transport Tunneling, Thrift, Video Services over IP (VSIP),
-   and ZVT Kassenschnittstelle
+   Protocol, eXpressive Internet Protocol (XIP), Generic Network
+   Virtualization Encapsulation (Geneve), Geospatial and Imagery Access
+   Service (GIAS), GVSP GigE Vision (TM) Streaming Protocol, HCrt, HiQnet,
+   IP Detail Record (IPDR), IPMI Trace, iSER, KNXnetIP, MACsec Key
+   Agreement - EAPoL-MKA, MCPE (Minecraft Pocket Edition), Message Queuing
+   Telemetry Transport For Sensor Networks (MQTT-SN), Network File System
+   over Remote Direct Memory Access (NFSoRDMA), OCFS2, OptoMMP,
+   Performance Co-Pilot Proxy, QNEX6 (QNET), RakNet games library, Remote
+   Shared Virtual Disk - RSVD, Riemann, S7 Communication, Secure Socket
+   Tunnel Protocol (SSTP), Shared Memory Communications - RDMA, Stateless
+   Transport Tunneling, Thrift, Time Division Multiplexing over Packet
+   Network (TDMoP), Video Services over IP (VSIP), Windows Search Protocol
+   (MS-WSP), and ZVT Kassenschnittstelle
 
   Updated Protocol Support
 
@@ -135,8 +195,8 @@ What's New
 
   New and Updated Capture File Support
 
-   3GPP Nettrace TS 34 423, Android Logcat text files, Colasoft Capsa
-   files, Netscaler 3.5, and Wireshark now supports nanosecond timestamp
+   3GPP TS 32.423 Trace, Android Logcat text files, Colasoft Capsa files,
+   Netscaler 3.5, and Wireshark now supports nanosecond timestamp
    resolution in PCAP-NG files.
 
   New and Updated Capture Interfaces support
@@ -153,6 +213,9 @@ What's New
      * The (long-since-broken) Python bindings support has been removed.
        If you want to write dissectors in something other than C, use Lua.
      * Plugins can now create GUI menu items.
+     * Heuristic dissectors can now be globally enabled/disabled so
+       heur_dissector_add() has a few more parameters to make that
+       possible
      __________________________________________________________________
 
 Getting Wireshark
@@ -222,7 +285,7 @@ Frequently Asked Questions
    A complete FAQ is available on the [19]Wireshark web site.
      __________________________________________________________________
 
-   Last updated 2015-05-28 18:47:50 UTC
+   Last updated 2015-09-01 18:01:23 UTC
 
 References
 

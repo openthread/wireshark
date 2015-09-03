@@ -47,17 +47,18 @@ PacketListRecord::PacketListRecord(frame_data *frameData) :
 {
 }
 
-const QVariant PacketListRecord::columnString(capture_file *cap_file, int column)
+const QByteArray PacketListRecord::columnString(capture_file *cap_file, int column, bool colorized)
 {
     // packet_list_store.c:packet_list_get_value
     g_assert(fdata_);
 
     if (!cap_file || column < 0 || column > cap_file->cinfo.num_cols) {
-        return QVariant();
+        return QByteArray();
     }
 
-    if (column >= col_text_.size() || col_text_[column].isNull() || data_ver_ != col_data_ver_ || !colorized_) {
-        dissect(cap_file, !colorized_);
+    bool dissect_color = colorized && !colorized_;
+    if (column >= col_text_.size() || col_text_[column].isNull() || data_ver_ != col_data_ver_ || dissect_color) {
+        dissect(cap_file, dissect_color);
     }
 
     return col_text_.value(column, QByteArray());
@@ -192,11 +193,28 @@ void PacketListRecord::cacheColumnStrings(column_info *cinfo)
         /* Column based on frame_data or it already contains a value */
         if (text_col < 0) {
             col_fill_in_frame_data(fdata_, cinfo, column, FALSE);
-            col_text_.append(cinfo->col_data[column]);
+            col_text_.append(cinfo->columns[column].col_data);
             continue;
         }
 
         switch (cinfo->col_fmt[column]) {
+        case COL_PROTOCOL:
+        case COL_INFO:
+        case COL_IF_DIR:
+        case COL_DCE_CALL:
+        case COL_8021Q_VLAN_ID:
+        case COL_EXPERT:
+        case COL_FREQ_CHAN:
+            if (cinfo->columns[column].col_data && cinfo->columns[column].col_data != cinfo->columns[column].col_buf) {
+                /* This is a constant string, so we don't have to copy it */
+                // XXX - ui/gtk/packet_list_store.c uses G_MAXUSHORT. We don't do proper UTF8
+                // truncation in either case.
+                int col_text_len = MIN(qstrlen(cinfo->col_data[column]) + 1, COL_MAX_INFO_LEN);
+                col_text_.append(QByteArray::fromRawData(cinfo->columns[column].col_data, col_text_len));
+                break;
+            }
+            /* !! FALL-THROUGH!! */
+
         case COL_DEF_SRC:
         case COL_RES_SRC:        /* COL_DEF_SRC is currently just like COL_RES_SRC */
         case COL_UNRES_SRC:
@@ -215,35 +233,20 @@ void PacketListRecord::cacheColumnStrings(column_info *cinfo)
         case COL_DEF_NET_DST:
         case COL_RES_NET_DST:
         case COL_UNRES_NET_DST:
-        case COL_PROTOCOL:
-        case COL_INFO:
-        case COL_IF_DIR:
-        case COL_DCE_CALL:
-        case COL_8021Q_VLAN_ID:
-        case COL_EXPERT:
-        case COL_FREQ_CHAN:
-            if (cinfo->col_data[column] && cinfo->col_data[column] != cinfo->col_buf[column]) {
-                /* This is a constant string, so we don't have to copy it */
-                // XXX - ui/gtk/packet_list_store.c uses G_MAXUSHORT. We don't do proper UTF8
-                // truncation in either case.
-                int col_text_len = MIN(qstrlen(cinfo->col_data[column]) + 1, COL_MAX_INFO_LEN);
-                col_text_.append(QByteArray::fromRawData(cinfo->col_data[column], col_text_len));
-                break;
-            }
-            /* !! FALL-THROUGH!! */
-
         default:
             if (!get_column_resolved(column) && cinfo->col_expr.col_expr_val[column]) {
                 /* Use the unresolved value in col_expr_val */
                 // XXX Use QContiguousCache?
                 col_text_.append(cinfo->col_expr.col_expr_val[column]);
             } else {
-                col_text_.append(cinfo->col_data[column]);
+                col_text_.append(cinfo->columns[column].col_data);
             }
             break;
         }
 #else // MINIMIZE_STRING_COPYING
-        // XXX Use QContiguousCache?
+        // XXX The GTK+ code uses GStringChunk for string storage. It
+        // doesn't appear to be that much faster, but it probably uses
+        // less memory.
         QByteArray col_text;
         if (!get_column_resolved(column) && cinfo->col_expr.col_expr_val[column]) {
             /* Use the unresolved value in col_expr_val */
@@ -254,7 +257,7 @@ void PacketListRecord::cacheColumnStrings(column_info *cinfo)
             if (text_col < 0) {
                 col_fill_in_frame_data(fdata_, cinfo, column, FALSE);
             }
-            col_text = cinfo->col_data[column];
+            col_text = cinfo->columns[column].col_data;
         }
         col_text_.append(col_text);
         col_lines += col_text.count('\n');

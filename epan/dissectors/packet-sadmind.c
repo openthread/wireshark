@@ -41,10 +41,9 @@ static gint ett_sadmind = -1;
 #define SADMINDPROC_NULL		0
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff sadmind1_proc[] = {
 	{ SADMINDPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string sadmind1_proc_vals[] = {
@@ -54,7 +53,7 @@ static const value_string sadmind1_proc_vals[] = {
 
 static const vsff sadmind2_proc[] = {
 	{ SADMINDPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string sadmind2_proc_vals[] = {
@@ -64,12 +63,18 @@ static const value_string sadmind2_proc_vals[] = {
 
 static const vsff sadmind3_proc[] = {
 	{ SADMINDPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string sadmind3_proc_vals[] = {
 	{ SADMINDPROC_NULL,	"NULL" },
 	{ 0,	NULL }
+};
+
+static const rpc_prog_vers_info sadmind_vers_info[] = {
+	{ 1, sadmind1_proc, &hf_sadmind_procedure_v1 },
+	{ 2, sadmind2_proc, &hf_sadmind_procedure_v2 },
+	{ 3, sadmind3_proc, &hf_sadmind_procedure_v3 },
 };
 
 void
@@ -100,11 +105,8 @@ void
 proto_reg_handoff_sadmind(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_sadmind, SADMIND_PROGRAM, ett_sadmind);
-	/* Register the procedure tables */
-	rpc_init_proc_table(SADMIND_PROGRAM, 1, sadmind1_proc, hf_sadmind_procedure_v1);
-	rpc_init_proc_table(SADMIND_PROGRAM, 2, sadmind2_proc, hf_sadmind_procedure_v2);
-	rpc_init_proc_table(SADMIND_PROGRAM, 3, sadmind3_proc, hf_sadmind_procedure_v3);
+	rpc_init_prog(proto_sadmind, SADMIND_PROGRAM, ett_sadmind,
+	    G_N_ELEMENTS(sadmind_vers_info), sadmind_vers_info);
 }
 
 /*

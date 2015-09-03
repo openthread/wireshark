@@ -21,7 +21,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * References: 3GPP TS 24.301 V12.8.0 (2015-03)
+ * References: 3GPP TS 24.301 V12.9.0 (2015-06)
  */
 
 #include "config.h"
@@ -1527,7 +1527,7 @@ static const range_string nas_eps_service_type_vals[] = {
     { 1,  1, "Mobile terminating CS fallback or 1xCS fallback"},
     { 2,  2, "Mobile originating CS fallback emergency call or 1xCS fallback emergency call"},
     { 3,  4, "Mobile originating CS fallback or 1xCS fallback"},
-    { 8, 11, "packet services via S1"},
+    { 8, 11, "Packet services via S1"},
     { 0, 0, NULL }
 };
 
@@ -2752,8 +2752,8 @@ static const value_string nas_eps_esm_pdn_type_values[] = {
  * 9.9.4.13a Re-attempt indicator
  */
 const true_false_string nas_eps_esm_ratc_value = {
-    "UE is not allowed to repeat the request after inter-system change from S1 mode to A/Gb mode or Iu mode",
-    "UE is allowed to repeat the request after inter-system change from S1 mode to A/Gb mode or Iu mode"
+    "UE is not allowed to re-attempt the procedure in A/Gb mode or Iu mode",
+    "UE is allowed to re-attempt the procedure in A/Gb mode or Iu mode"
 };
 
 static guint16

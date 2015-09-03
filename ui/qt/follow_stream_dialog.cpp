@@ -20,7 +20,7 @@
  */
 
 #include "follow_stream_dialog.h"
-#include "ui_follow_stream_dialog.h"
+#include <ui_follow_stream_dialog.h>
 
 #include "main_window.h"
 #include "wireshark_application.h"
@@ -49,6 +49,7 @@
 
 #include "ui/follow.h"
 
+#include "progress_frame.h"
 #include "qt_ui_utils.h"
 
 #include <QKeyEvent>
@@ -101,8 +102,10 @@ FollowStreamDialog::FollowStreamDialog(QWidget &parent, CaptureFile &cf, follow_
     b_print_ = ui->buttonBox->addButton(tr("Print"), QDialogButtonBox::ActionRole);
     connect(b_print_, SIGNAL(clicked()), this, SLOT(printStream()));
 
-    b_save_ = ui->buttonBox->addButton(tr("Save as..."), QDialogButtonBox::ActionRole);
+    b_save_ = ui->buttonBox->addButton(tr("Save as" UTF8_HORIZONTAL_ELLIPSIS), QDialogButtonBox::ActionRole);
     connect(b_save_, SIGNAL(clicked()), this, SLOT(saveAs()));
+
+    ProgressFrame::addToButtonBox(ui->buttonBox, &parent);
 
     connect(ui->buttonBox, SIGNAL(helpRequested()), this, SLOT(helpButton()));
     connect(ui->teStreamContent, SIGNAL(mouseMovedToTextCursorPosition(int)),
@@ -366,22 +369,20 @@ FollowStreamDialog::readStream()
 }
 
 //Copy from ui/gtk/follow_udp.c
-static int
+static gboolean
 udp_queue_packet_data(void *tapdata, packet_info *pinfo,
-                      epan_dissect_t *edt, const void *data)
+                      epan_dissect_t *, const void *data)
 {
-    Q_UNUSED(edt);
-
     follow_record_t *follow_record;
     follow_info_t *follow_info = (follow_info_t *)tapdata;
     tvbuff_t *next_tvb = (tvbuff_t *)data;
 
     follow_record = g_new(follow_record_t,1);
 
-    follow_record->data = g_byte_array_sized_new(tvb_length(next_tvb));
+    follow_record->data = g_byte_array_sized_new(tvb_captured_length(next_tvb));
     follow_record->data = g_byte_array_append(follow_record->data,
                                               tvb_get_ptr(next_tvb, 0, -1),
-                                              tvb_length(next_tvb));
+                                              tvb_captured_length(next_tvb));
     follow_record->packet_num = pinfo->fd->num;
 
     if (follow_info->client_port == 0) {
@@ -398,15 +399,13 @@ udp_queue_packet_data(void *tapdata, packet_info *pinfo,
     follow_info->bytes_written[follow_record->is_server] += follow_record->data->len;
 
     follow_info->payload = g_list_append(follow_info->payload, follow_record);
-    return 0;
+    return FALSE;
 }
 
 //Copy from ui/gtk/follow_ssl.c
-static int
-ssl_queue_packet_data(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, const void *ssl)
+static gboolean
+ssl_queue_packet_data(void *tapdata, packet_info *pinfo, epan_dissect_t *, const void *ssl)
 {
-    Q_UNUSED(edt);
-
     follow_info_t *      follow_info = (follow_info_t*) tapdata;
     SslDecryptedRecord * rec = NULL;
     SslDataInfo *        appl_data = NULL;
@@ -461,7 +460,7 @@ ssl_queue_packet_data(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, co
         follow_info->bytes_written[from] += rec->data.data_len;
     }
 
-    return 0;
+    return FALSE;
 }
 
 /*
@@ -597,9 +596,8 @@ void FollowStreamDialog::addText(QString text, gboolean is_from_server, guint32 
 // / (slash), Ctrl-F - Focus and highlight the search box
 // Ctrl-G, Ctrl-N, F3 - Find next
 // Should we make it so that typing any text starts searching?
-bool FollowStreamDialog::eventFilter(QObject *obj, QEvent *event)
+bool FollowStreamDialog::eventFilter(QObject *, QEvent *event)
 {
-    Q_UNUSED(obj);
     if (ui->teStreamContent->hasFocus() && event->type() == QEvent::KeyPress) {
         QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
         if (keyEvent->matches(QKeySequence::SelectAll) || keyEvent->matches(QKeySequence::Copy)
@@ -843,9 +841,9 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index)
     follow_stats_t      stats;
     tcp_stream_chunk    sc;
     size_t              nchars;
-    GString *           msg;
     gboolean is_tcp = FALSE, is_udp = FALSE;
 
+    beginRetapPackets();
     resetStream();
 
     if (file_closed_)
@@ -860,7 +858,7 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index)
         return false;
     }
 
-    proto_get_frame_protocols(cap_file_.capFile()->edt->pi.layers, NULL, &is_tcp, &is_udp, NULL, NULL);
+    proto_get_frame_protocols(cap_file_.capFile()->edt->pi.layers, NULL, &is_tcp, &is_udp, NULL, NULL, NULL);
 
     switch (follow_type_)
     {
@@ -970,13 +968,9 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index)
     case FOLLOW_UDP:
     {
         /* data will be passed via tap callback*/
-        msg = register_tap_listener("udp_follow", &follow_info_,
-                                    follow_filter.toUtf8().constData(),
-                                    0, NULL, udp_queue_packet_data, NULL);
-        if (msg) {
-            QMessageBox::critical(this, "Error",
-                               "Can't register udp_follow tap: %1",
-                               msg->str);
+        if (!registerTapListener("udp_follow", &follow_info_,
+                                 follow_filter.toUtf8().constData(),
+                                 0, NULL, udp_queue_packet_data, NULL)) {
             return false;
         }
 
@@ -992,13 +986,9 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index)
     }
     case FOLLOW_SSL:
         /* we got ssl so we can follow */
-        msg = register_tap_listener("ssl", &follow_info_,
-                                    follow_filter.toUtf8().constData(), 0,
-                                    NULL, ssl_queue_packet_data, NULL);
-        if (msg)
-        {
-            QMessageBox::critical(this, "Error",
-                          "Can't register ssl tap: %1", msg->str);
+        if (!registerTapListener("ssl", &follow_info_,
+                                 follow_filter.toUtf8().constData(), 0,
+                                 NULL, ssl_queue_packet_data, NULL)) {
             return false;
         }
         break;
@@ -1014,10 +1004,8 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index)
 
         break;
     case FOLLOW_UDP:
-        remove_tap_listener(&follow_info_);
-        break;
     case FOLLOW_SSL:
-        remove_tap_listener(&follow_info_);
+        removeTapListeners();
         break;
     }
 
@@ -1237,6 +1225,7 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index)
         data_out_file = NULL;
     }
 
+    endRetapPackets();
     return true;
 }
 

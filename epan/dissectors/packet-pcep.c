@@ -92,10 +92,11 @@ void proto_reg_handoff_pcep(void);
 #define PCEP_SUB_IPv6                    2
 #define PCEP_SUB_LABEL_CONTROL           3
 #define PCEP_SUB_UNNUMB_INTERFACE_ID     4
-#define PCEP_SUB_SR                      5
+#define PCEP_SUB_SR_PRE_IANA             5 /* squatted, pre IANA assignment */
 #define PCEP_SUB_AUTONOMOUS_SYS_NUM     32
 #define PCEP_SUB_EXRS                   33
 #define PCEP_SUB_SRLG                   34
+#define PCEP_SUB_SR                     36 /* IANA assigned code point */
 #define PCEP_SUB_PKSv4                  64
 #define PCEP_SUB_PKSv6                  65
 
@@ -662,9 +663,10 @@ static const value_string pcep_subobj_vals[] = {
     {PCEP_SUB_UNNUMB_INTERFACE_ID, "SUBOBJECT UNNUMBERED INTERFACE-ID"  },
     {PCEP_SUB_AUTONOMOUS_SYS_NUM,  "SUBOBJECT AUTONOMOUS SYSTEM NUMBER" },
     {PCEP_SUB_SRLG,                "SUBOBJECT SRLG"                     },
-    {PCEP_SUB_SR,                  "SUBOBJECT SR"                       },
+    {PCEP_SUB_SR_PRE_IANA,         "SUBOBJECT SR"                       },
     {PCEP_SUB_PKSv4,               "SUBOBJECT PATH KEY (IPv4)"          },
     {PCEP_SUB_PKSv6,               "SUBOBJECT PATH KEY (IPv6)"          },
+    {PCEP_SUB_SR,                  "SUBOBJECT SR"                       },
     {0, NULL }
 };
 
@@ -756,6 +758,7 @@ static const value_string pcep_tlvs_vals[] = {
     {24, "SPEAKER-ENTITY-ID"        },
     {26, "SR-PCE-CAPABILITY"        },
     {27, "PATH-SETUP-TYPE"          },
+    {28, "PATH-SETUP-TYPE"          },
     {0, NULL                        }
 };
 
@@ -1070,23 +1073,23 @@ dissect_pcep_tlvs(proto_tree *pcep_obj, tvbuff_t *tvb, int offset, gint length, 
                 break;
 
             case 18:    /* IPV4-LSP-IDENTIFIERS TLV */
-                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_tunnnel_sender_address, tvb, offset+4+j, 4, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_lsp_id, tvb, offset+4+j + 4, 2, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_tunnel_id, tvb, offset+4+j + 6, 2, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_extended_tunnel_id, tvb, offset+4+j + 8, 4, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_tunnel_endpoint_address, tvb, offset+4+j + 12, 4, ENC_NA);
+                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_tunnnel_sender_address, tvb, offset+4+j, 4, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_lsp_id, tvb, offset+4+j + 4, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_tunnel_id, tvb, offset+4+j + 6, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_extended_tunnel_id, tvb, offset+4+j + 8, 4, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_ipv4_lsp_id_tunnel_endpoint_address, tvb, offset+4+j + 12, 4, ENC_BIG_ENDIAN);
                 break;
 
             case 19:    /* IPV6-LSP-IDENTIFIERS TLV */
                 proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_tunnnel_sender_address, tvb, offset+4+j, 16, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_lsp_id, tvb, offset+4+j + 16, 2, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_tunnel_id, tvb, offset+4+j + 18, 2, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_extended_tunnel_id, tvb, offset+4+j + 20, 16, ENC_NA);
+                proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_lsp_id, tvb, offset+4+j + 16, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_tunnel_id, tvb, offset+4+j + 18, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_extended_tunnel_id, tvb, offset+4+j + 20, 16, ENC_BIG_ENDIAN);
                 proto_tree_add_item(tlv, hf_pcep_ipv6_lsp_id_tunnel_endpoint_address, tvb, offset+4+j + 36, 16, ENC_NA);
                 break;
 
             case 20:    /* LSP-ERROR-CODE TLV */
-                proto_tree_add_item(tlv, hf_pcep_lsp_error_code, tvb, offset+4+j, 4, ENC_NA);
+                proto_tree_add_item(tlv, hf_pcep_lsp_error_code, tvb, offset+4+j, 4, ENC_BIG_ENDIAN);
                 break;
 
             case 21:    /* RSVP-ERROR-SPEC TLV */
@@ -1094,7 +1097,7 @@ dissect_pcep_tlvs(proto_tree *pcep_obj, tvbuff_t *tvb, int offset, gint length, 
                 break;
 
             case 23:    /* LSP-DB-VERSION TLV */
-                proto_tree_add_item(tlv, hf_pcep_lsp_state_db_version_number, tvb, offset+4+j, 8, ENC_NA);
+                proto_tree_add_item(tlv, hf_pcep_lsp_state_db_version_number, tvb, offset+4+j, 8, ENC_BIG_ENDIAN);
                 break;
 
             case 24:    /* SPEAKER-ENTITY-ID TLV */
@@ -1102,14 +1105,14 @@ dissect_pcep_tlvs(proto_tree *pcep_obj, tvbuff_t *tvb, int offset, gint length, 
                 break;
 
             case 26:    /* SR-PCE-CAPABILITY TLV */
-                proto_tree_add_item(tlv, hf_pcep_sr_capability_reserved16, tvb, offset + 4 + j, 2, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_sr_capability_flags_reserved, tvb, offset + 4 + j + 2, 1, ENC_NA);
-                proto_tree_add_item(tlv, hf_pcep_sr_capability_msd, tvb, offset + 4 + j + 3, 1, ENC_NA);
+                proto_tree_add_item(tlv, hf_pcep_sr_capability_reserved16, tvb, offset + 4 + j, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_sr_capability_flags_reserved, tvb, offset + 4 + j + 2, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tlv, hf_pcep_sr_capability_msd, tvb, offset + 4 + j + 3, 1, ENC_BIG_ENDIAN);
                 break;
 
-            case 27:    /* PATH-SETUP-TYPE TLV */
-            case 28:
-                proto_tree_add_item(tlv, hf_pcep_path_setup_type_reserved24, tvb, offset + 4 + j, 3, ENC_NA);
+            case 27:    /* PATH-SETUP-TYPE TLV (FF: squatted pre IANA assignment) */
+            case 28:    /* PATH-SETUP-TYPE TLV (FF: IANA code point) */
+                proto_tree_add_item(tlv, hf_pcep_path_setup_type_reserved24, tvb, offset + 4 + j, 3, ENC_BIG_ENDIAN);
                 proto_tree_add_item(tlv, hf_pcep_path_setup_type, tvb, offset + 4 + j + 3, 1, ENC_NA);
                 break;
 
@@ -1814,7 +1817,7 @@ dissect_pcep_end_point_obj(proto_tree *pcep_object_tree, packet_info *pinfo,
             break;
 
        case IPv6_P2MP:
-            proto_tree_add_item(pcep_object_tree, hf_pcep_endpoint_p2mp_leaf, tvb, offset2, 4, ENC_NA);
+            proto_tree_add_item(pcep_object_tree, hf_pcep_endpoint_p2mp_leaf, tvb, offset2, 4, ENC_BIG_ENDIAN);
             proto_tree_add_item(pcep_object_tree, hf_pcep_end_point_obj_source_ipv6_address, tvb, offset2+4, 16, ENC_NA);
             dest_leafs = (obj_length - OBJ_HDR_LEN - 20)/16;
             for (i=0; i<dest_leafs; i++)
@@ -1940,6 +1943,7 @@ dissect_pcep_explicit_route_obj(proto_tree *pcep_object_tree, packet_info *pinfo
             case PCEP_SUB_PKSv4:
                 dissect_subobj_pksv4(pcep_object_tree, pinfo, tvb, offset2, ett_pcep_obj_explicit_route, length);
                 break;
+            case PCEP_SUB_SR_PRE_IANA:
             case PCEP_SUB_SR:
                 dissect_subobj_sr(pcep_object_tree, pinfo, tvb, offset2, obj_class, ett_pcep_obj_explicit_route, length);
                 break;

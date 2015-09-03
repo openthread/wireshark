@@ -126,6 +126,14 @@ typedef enum {
     pref_current
 } pref_source_t;
 
+typedef enum {
+    ELIDE_LEFT,
+    ELIDE_RIGHT,
+    ELIDE_MIDDLE,
+    ELIDE_NONE
+} elide_mode_e;
+
+
 /*
  * Update channel.
  */
@@ -212,8 +220,9 @@ typedef struct _e_prefs {
   gchar       *saved_at_version;
   gboolean     unknown_prefs; /* unknown or obsolete pref(s) */
   gboolean     unknown_colorfilters; /* unknown or obsolete color filter(s) */
-  guint        gui_qt_language; /* Qt Translation language selection */
+  gboolean     gui_qt_packet_list_separator;
   gboolean     gui_packet_editor; /* Enable Packet Editor */
+  elide_mode_e gui_packet_list_elide_mode;
   gboolean     st_enable_burstinfo;
   gboolean     st_burst_showcount;
   gint         st_burst_resolution;
@@ -279,6 +288,11 @@ module_t *prefs_register_subtree(module_t *parent, const char *title,
  * Register that a protocol has preferences.
  */
 WS_DLL_PUBLIC module_t *prefs_register_protocol(int id, void (*apply_cb)(void));
+
+/**
+ * Deregister preferences from a protocol.
+ */
+WS_DLL_PUBLIC void prefs_deregister_protocol(int id);
 
 /*
  * Register that a statistical tap has preferences.

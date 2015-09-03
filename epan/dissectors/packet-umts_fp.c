@@ -251,7 +251,6 @@ static gboolean preferences_call_mac_dissectors = TRUE;
 static gboolean preferences_show_release_info = TRUE;
 static gboolean preferences_payload_checksum = TRUE;
 static gboolean preferences_header_checksum = TRUE;
-static gboolean preferences_udp_do_heur = FALSE;
 
 #define UMTS_FP_USE_UAT 1
 
@@ -619,11 +618,11 @@ static gboolean verify_control_frame_crc(tvbuff_t * tvb, packet_info * pinfo, pr
     guint8 crc = 0;
     guint8 * data = NULL;
     /* Get data. */
-    data = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_length(tvb));
+    data = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_reported_length(tvb));
     /* Include only FT flag bit in CRC calculation. */
     data[0] = data[0] & 1;
     /* Calculate crc7 sum. */
-    crc = crc7update(0, data, tvb_length(tvb));
+    crc = crc7update(0, data, tvb_reported_length(tvb));
     crc = crc7finalize(crc); /* finalize crc */
     if (frame_crc == crc) {
         proto_item_append_text(pi, " [correct]");
@@ -985,7 +984,7 @@ dissect_spare_extension_and_crc(tvbuff_t *tvb, packet_info *pinfo,
                                 int offset, guint header_length)
 {
     int         crc_size = 0;
-    int         remain   = tvb_length_remaining(tvb, offset);
+    int         remain   = tvb_captured_length_remaining(tvb, offset);
 
     /* Payload CRC (optional) */
     if ((dch_crc_present == 1) || ((dch_crc_present == 2) && (remain >= 2))) {
@@ -1529,7 +1528,7 @@ dissect_rach_channel_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         /* Info introduced in R6 */
         /* only check if it looks as if they are present */
         if (((p_fp_info->release == 6) || (p_fp_info->release == 7)) &&
-            (tvb_length_remaining(tvb, offset) > 2))
+            (tvb_reported_length_remaining(tvb, offset) > 2))
         {
             int n;
             guint8 flags;
@@ -1753,7 +1752,7 @@ dissect_fach_channel_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
         /* New IE flags (if it looks as though they are present) */
         if ((p_fp_info->release == 7) &&
-            (tvb_length_remaining(tvb, offset) > 2)) {
+            (tvb_reported_length_remaining(tvb, offset) > 2)) {
 
             guint8 flags = tvb_get_guint8(tvb, offset);
             guint8 aoa_present = flags & 0x01;
@@ -1915,7 +1914,7 @@ dissect_usch_channel_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
         /* New IEs */
         if ((p_fp_info->release == 7) &&
-            (tvb_length_remaining(tvb, offset) > 2)) {
+            (tvb_reported_length_remaining(tvb, offset) > 2)) {
 
             guint8 flags = tvb_get_guint8(tvb, offset);
             guint8 bits_extended = flags & 0x01;
@@ -2166,7 +2165,7 @@ dissect_dch_rx_timing_deviation(packet_info *pinfo, proto_tree *tree,
 
     /* May be extended in R7, but in this case there are at least 2 bytes remaining */
     if ((p_fp_info->release == 7) &&
-        (tvb_length_remaining(tvb, offset) >= 2)) {
+        (tvb_reported_length_remaining(tvb, offset) >= 2)) {
 
         /* New IE flags */
         guint64 extended_bits_present;
@@ -2361,7 +2360,7 @@ dissect_dch_timing_advance(proto_tree *tree, packet_info *pinfo,
     offset++;
 
     if ((p_fp_info->release == 7) &&
-        (tvb_length_remaining(tvb, offset) > 0)) {
+        (tvb_reported_length_remaining(tvb, offset) > 0)) {
 
         /* New IE flags */
         guint8 flags = tvb_get_guint8(tvb, offset);
@@ -3213,7 +3212,7 @@ dissect_hsdsch_channel_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         /* Extra IEs (if there is room for them) */
         if (((p_fp_info->release == 6) ||
              (p_fp_info->release == 7)) &&
-            (tvb_length_remaining(tvb, offset) > 2)) {
+            (tvb_reported_length_remaining(tvb, offset) > 2)) {
 
             int n;
             guint8 flags;
@@ -3760,10 +3759,6 @@ heur_dissect_fp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
 {
     struct fp_info *p_fp_info;
 
-    if (!preferences_udp_do_heur) {
-        return FALSE;
-    }
-
     p_fp_info = (fp_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_fp, 0);
 
     /* if no FP info is present, this might be FP in a pcap(ng) file */
@@ -3782,7 +3777,7 @@ heur_dissect_fp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
              * i.e. from bit 0 of the first byte of the header (the FT IE) to bit 0 of the last byte of the payload,
              * with the corresponding generator polynomial: G(D) = D7+D6+D2+1. See subclause 7.2.
              */
-            length =  tvb_length(tvb);
+            length =  tvb_reported_length(tvb);
             buf = (unsigned char *)tvb_memdup(wmem_packet_scope(), tvb, 0, length);
             buf[0] = 01;
 
@@ -4492,7 +4487,6 @@ umts_fp_init_protocol(void)
 {
     guint32 hosta_addr[4];
     guint32 hostb_addr[4];
-    /*struct e_in6_addr ip6_addr;*/
     address     src_addr, dst_addr;
     conversation_t *conversation;
     umts_fp_conversation_info_t *umts_fp_conversation_info;
@@ -5610,10 +5604,7 @@ void proto_register_fp(void)
                                     "Validate FP header checksums",
                                     &preferences_header_checksum);
      /* Determines whether or not to validate FP header checksums */
-    prefs_register_bool_preference(fp_module, "udp_heur",
-                                    "Enable UDP heur dissector",
-                                    "Enable UDP heur dissector",
-                                    &preferences_udp_do_heur);
+    prefs_register_obsolete_preference(fp_module, "udp_heur");
 #ifdef UMTS_FP_USE_UAT
 
   umts_fp_uat = uat_new("Endpoint and Channel Configuration",
@@ -5654,7 +5645,7 @@ void proto_reg_handoff_fp(void)
     mac_fdd_hsdsch_handle     = find_dissector("mac.fdd.hsdsch");
     fp_handle                 = find_dissector("fp");
 
-    heur_dissector_add("udp", heur_dissect_fp, proto_fp);
+    heur_dissector_add("udp", heur_dissect_fp, "FP over UDP", "fp_udp", proto_fp, HEURISTIC_DISABLE);
     dissector_add_uint("atm.aal2.type", TRAF_UMTS_FP, fp_handle);
 }
 

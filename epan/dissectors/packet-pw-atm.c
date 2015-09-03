@@ -1170,7 +1170,7 @@ dissect_control_word(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, voi
 			expert_add_info_format(pinfo, item, &ei_pw_payload_size_invalid_error,
 					       "Packet (size: %d) is too small to carry MPLS PW Control Word"
 					       ,(int)size);
-			return tvb_length(tvb);
+			return tvb_captured_length(tvb);
 		}
 	}
 
@@ -1327,7 +1327,7 @@ dissect_control_word(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, voi
 		}
 	}
 
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 
@@ -1971,9 +1971,9 @@ proto_reg_handoff_pw_atm_ata(void)
 	dh_cell		   = find_dissector("mpls_pw_atm_cell");
 	dh_cell_header	   = find_dissector("mpls_pw_atm_cell_header");
 	dh_control_word	   = find_dissector("mpls_pw_atm_control_word");
-	dh_atm_truncated   = find_dissector("atm_truncated");
-	dh_atm_untruncated = find_dissector("atm_untruncated");
-	dh_atm_oam_cell	   = find_dissector("atm_oam_cell");
+	dh_atm_truncated   = find_dissector("atm_pw_truncated");
+	dh_atm_untruncated = find_dissector("atm_pw_untruncated");
+	dh_atm_oam_cell	   = find_dissector("atm_pw_oam_cell");
 	dh_padding	   = find_dissector("pw_padding");
 	dh_data		   = find_dissector("data");
 }

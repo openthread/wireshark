@@ -36,6 +36,7 @@
 #include <math.h>
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 
 void proto_register_ansi_801(void);
 void proto_reg_handoff_ansi_801(void);
@@ -184,6 +185,17 @@ static int hf_ansi_801_for_message_number_requests16 = -1;
 static int hf_ansi_801_reserved_24_7 = -1;
 static int hf_ansi_801_loc_calc_cap = -1;
 static int hf_ansi_801_toa = -1;
+static int hf_ansi_801_data = -1;
+static int hf_ansi_801_proprietary_data = -1;
+static int hf_ansi_801_time_ref_ms = -1;
+static int hf_ansi_801_time_of_almanac = -1;
+static int hf_ansi_801_gps_week_number = -1;
+
+
+static expert_field ei_ansi_801_extraneous_data = EI_INIT;
+static expert_field ei_ansi_801_short_data = EI_INIT;
+static expert_field ei_ansi_801_unexpected_length = EI_INIT;
+
 
 static dissector_handle_t ansi_801_handle;
 
@@ -192,23 +204,23 @@ static dissector_handle_t ansi_801_handle;
 #define	EXTRANEOUS_DATA_CHECK(edc_len, edc_max_len)			\
 	if ((edc_len) > (edc_max_len))					\
 	{								\
-		proto_tree_add_text(tree, tvb,				\
-				    offset, (edc_len) - (edc_max_len), "Extraneous Data"); \
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_extraneous_data, tvb,	\
+				    offset, (edc_len) - (edc_max_len)); \
 	}
 
 #define	SHORT_DATA_CHECK(sdc_len, sdc_min_len)				\
 	if ((sdc_len) < (sdc_min_len))					\
 	{								\
-		proto_tree_add_text(tree, tvb,				\
-				    offset, (sdc_len), "Short Data (?)"); \
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_short_data, tvb,	\
+				    offset, (sdc_len)); \
 		return;							\
 	}
 
 #define	EXACT_DATA_CHECK(edc_len, edc_eq_len)				\
 	if ((edc_len) != (edc_eq_len))					\
 	{								\
-		proto_tree_add_text(tree, tvb,				\
-				    offset, (edc_len), "Unexpected Data Length"); \
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_unexpected_length, tvb,	\
+				    offset, (edc_len)); \
 		return;							\
 	}
 
@@ -298,7 +310,7 @@ const true_false_string tfs_desired_pilot_phase_resolution = { "at least 1/8th P
 const true_false_string tfs_spherical_cartesian = { "Spherical", "Cartesian" };
 
 static void
-for_req_pseudo_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_req_pseudo_meas(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset = offset;
 
@@ -317,7 +329,7 @@ for_req_pseudo_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-for_req_pilot_ph_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_req_pilot_ph_meas(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset;
 
@@ -337,7 +349,7 @@ for_req_pilot_ph_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset
 }
 
 static void
-for_req_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_req_loc_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset;
 
@@ -358,7 +370,7 @@ for_req_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-for_req_time_off_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_req_time_off_meas(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint8	oct;
 	guint32	saved_offset;
@@ -386,7 +398,7 @@ for_req_time_off_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset
 }
 
 static void
-for_req_cancel(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_req_cancel(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint8       oct;
 	guint32      saved_offset;
@@ -409,7 +421,7 @@ for_req_cancel(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-for_reject(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_reject(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint8       oct;
 	guint32      saved_offset;
@@ -440,7 +452,7 @@ for_reject(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-for_pr_bs_cap(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_pr_bs_cap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint8	oct;
 	guint32	saved_offset;
@@ -471,7 +483,7 @@ for_pr_bs_cap(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-for_pr_gps_sense_ass(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_pr_gps_sense_ass(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset;
 
@@ -491,62 +503,45 @@ for_pr_gps_sense_ass(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 	proto_tree_add_item(tree, hf_ansi_801_data_records, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset++;
 
-	proto_tree_add_text(tree, tvb, offset, (len - (offset - saved_offset)),
-			    "Data records (LSB) + Reserved");
-
 	EXTRANEOUS_DATA_CHECK(len, offset - saved_offset);
 }
 
 static void
-for_pr_gps_almanac(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_pr_gps_almanac(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
-	guint8	num_sv;
-	guint32	value;
-	guint32	saved_offset;
-
-	saved_offset = offset;
+	guint32	saved_offset = offset;
+	const gint *fields[] = {
+		&hf_ansi_801_num_sv_p32,
+		&hf_ansi_801_week_num,
+		&hf_ansi_801_toa,
+		&hf_ansi_801_part_num32,
+		&hf_ansi_801_total_parts32,
+		NULL
+	};
 
 	SHORT_DATA_CHECK(len, 4);
 
-	value  = tvb_get_ntohl(tvb, offset);
-	num_sv = (value & 0xfc000000) >> 26;
-
-	proto_tree_add_item(tree, hf_ansi_801_num_sv_p32, tvb, offset, 4, ENC_BIG_ENDIAN);
-	proto_tree_add_item(tree, hf_ansi_801_week_num, tvb, offset, 4, ENC_BIG_ENDIAN);
-	proto_tree_add_item(tree, hf_ansi_801_toa, tvb, offset, 4, ENC_BIG_ENDIAN);
-	proto_tree_add_item(tree, hf_ansi_801_part_num32, tvb, offset, 4, ENC_BIG_ENDIAN);
-	proto_tree_add_item(tree, hf_ansi_801_total_parts32, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_bitmask_list(tree, tvb, offset, 4, fields, ENC_BIG_ENDIAN);
 	offset += 4;
-
-	proto_tree_add_text(tree, tvb, offset, (len - (offset - saved_offset)),
-			    "%u Data records + Reserved",
-			    num_sv);
 
 	EXTRANEOUS_DATA_CHECK(len, offset - saved_offset);
 }
 
 static void
-for_pr_gps_nav_msg_bits(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_pr_gps_nav_msg_bits(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
-	guint8	num_sv;
-	guint32	value;
-	guint32	saved_offset;
-
-	saved_offset = offset;
+	guint32	saved_offset = offset;
+	const gint *fields[] = {
+		&hf_ansi_801_num_sv_p16,
+		&hf_ansi_801_part_num16,
+		&hf_ansi_801_total_parts16,
+		NULL
+	};
 
 	SHORT_DATA_CHECK(len, 2);
 
-	value  = tvb_get_ntohs(tvb, offset);
-	num_sv = (value & 0xfc00) >> 10;
-
-	proto_tree_add_item(tree, hf_ansi_801_num_sv_p16, tvb, offset, 2, ENC_BIG_ENDIAN);
-	proto_tree_add_item(tree, hf_ansi_801_part_num16, tvb, offset, 2, ENC_BIG_ENDIAN);
-	proto_tree_add_item(tree, hf_ansi_801_total_parts16, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_bitmask_list(tree, tvb, offset, 2, fields, ENC_BIG_ENDIAN);
 	offset += 2;
-
-	proto_tree_add_text(tree, tvb, offset, (len - (offset - saved_offset)),
-			    "%u SUBF_4_5_INCL ... Data records + Reserved",
-			    num_sv);
 
 	EXTRANEOUS_DATA_CHECK(len, offset - saved_offset);
 }
@@ -560,7 +555,7 @@ static const true_false_string ansi_801_fix_type_vals = {
 };
 
 static void
-pr_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+pr_loc_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32      bit_offset, spare_bits;
 	guint32      value;
@@ -725,13 +720,13 @@ pr_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-for_pr_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_pr_loc_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
-	pr_loc_response(tvb, tree, len, offset);
+	pr_loc_response(tvb, pinfo, tree, len, offset);
 }
 
 static void
-for_pr_gps_sat_health(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+for_pr_gps_sat_health(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	bit_offset, spare_bits;
 	guint32	i;
@@ -776,7 +771,7 @@ for_pr_gps_sat_health(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset
 }
 
 static void
-rev_req_gps_acq_ass(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_gps_acq_ass(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset;
 	guint32	bit_offset;
@@ -796,7 +791,7 @@ rev_req_gps_acq_ass(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-rev_req_gps_loc_ass(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_gps_loc_ass(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32 saved_offset;
 
@@ -812,7 +807,7 @@ rev_req_gps_loc_ass(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-rev_req_bs_alm(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_bs_alm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32 saved_offset;
 
@@ -828,7 +823,7 @@ rev_req_bs_alm(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-rev_req_gps_ephemeris(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_gps_ephemeris(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32 saved_offset;
 
@@ -844,7 +839,7 @@ rev_req_gps_ephemeris(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset
 }
 
 static void
-rev_req_gps_nav_msg_bits(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_gps_nav_msg_bits(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32 saved_offset;
 
@@ -861,7 +856,7 @@ rev_req_gps_nav_msg_bits(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 off
 }
 
 static void
-rev_req_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_loc_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32 saved_offset;
 
@@ -879,20 +874,23 @@ rev_req_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-rev_req_gps_alm_correction(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_req_gps_alm_correction(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset;
+	guint8	oct;
 
 	SHORT_DATA_CHECK(len, 2);
 
 	saved_offset = offset;
 
-	proto_tree_add_text(tree, tvb, offset, 1,
-			    "Time of almanac (in units of 4096 seconds)");
+	oct = tvb_get_guint8(tvb, offset);
+	proto_tree_add_uint_format_value(tree, hf_ansi_801_time_of_almanac, tvb, offset, 1, oct,
+			    "%d (in units of 4096 seconds)", oct);
 
 	offset++;
-	proto_tree_add_text(tree, tvb, offset, 1,
-			    "GPS week number (8 least significant bits)");
+	oct = tvb_get_guint8(tvb, offset);
+	proto_tree_add_uint_format_value(tree, hf_ansi_801_gps_week_number, tvb, offset, 1, oct,
+			    "%d (8 least significant bits)", oct);
 
 	offset++;
 
@@ -900,7 +898,7 @@ rev_req_gps_alm_correction(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 o
 }
 
 static void
-rev_reject(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_reject(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint8       oct;
 	guint32      saved_offset;
@@ -934,7 +932,7 @@ rev_reject(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-rev_pr_ms_information(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_pr_ms_information(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32      value;
 	guint32      saved_offset;
@@ -997,13 +995,13 @@ rev_pr_ms_information(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset
 }
 
 static void
-rev_pr_loc_response(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_pr_loc_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
-	pr_loc_response(tvb, tree, len, offset);
+	pr_loc_response(tvb, pinfo, tree, len, offset);
 }
 
 static void
-rev_pr_time_off_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_pr_time_off_meas(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint32	saved_offset;
 
@@ -1011,8 +1009,8 @@ rev_pr_time_off_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 
 	SHORT_DATA_CHECK(len, 6);
 
-	proto_tree_add_text(tree, tvb, offset, 3,
-			    "TIME_REF_MS:  The time of validity of the parameters reported in this response element.");
+	proto_tree_add_uint_format_value(tree, hf_ansi_801_time_ref_ms, tvb, offset, 3, tvb_get_ntoh24(tvb, offset),
+			    "The time of validity of the parameters reported in this response element.");
 	offset += 3;
 
 	proto_tree_add_item(tree, hf_ansi_801_ref_pn, tvb, offset, 3, ENC_BIG_ENDIAN);
@@ -1024,7 +1022,7 @@ rev_pr_time_off_meas(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 }
 
 static void
-rev_pr_can_ack(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
+rev_pr_can_ack(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset)
 {
 	guint8       oct;
 	guint32      saved_offset;
@@ -1047,7 +1045,7 @@ rev_pr_can_ack(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset)
 	EXTRANEOUS_DATA_CHECK(len, offset - saved_offset);
 }
 
-static void (*for_req_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset) = {
+static void (*for_req_type_fcn[])(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset) = {
 	NULL, /* Reserved */
 	NULL, /* no data */	/* Request MS Information */
 	NULL, /* no data */	/* Request Autonomous Measurement Weighting Factors */
@@ -1059,7 +1057,7 @@ static void (*for_req_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, gu
 	NULL, /* NONE */
 };
 
-static void (*for_rsp_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset) = {
+static void (*for_rsp_type_fcn[])(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset) = {
 	for_reject,              /* Reject */
 	for_pr_bs_cap,           /* Provide BS Capabilities */
 	NULL,                    /* Provide GPS Acquisition Assistance */
@@ -1076,7 +1074,7 @@ static void (*for_rsp_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, gu
 	NULL,                    /* NONE */
 };
 
-static void (*rev_req_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset) = {
+static void (*rev_req_type_fcn[])(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset) = {
 	NULL,	/* Reserved */
 	NULL,   /* no data */		/* Request BS Capabilities */
 	rev_req_gps_acq_ass,		/* Request GPS Acquisition Assistance */
@@ -1093,7 +1091,7 @@ static void (*rev_req_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, gu
 	NULL,	/* NONE */
 };
 
-static void (*rev_rsp_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, guint32 offset) = {
+static void (*rev_rsp_type_fcn[])(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len, guint32 offset) = {
 	rev_reject,            /* Reject */
 	rev_pr_ms_information, /* Provide MS Information */
 	NULL,                  /* Provide Autonomous Measurement Weighting Factors */
@@ -1106,7 +1104,7 @@ static void (*rev_rsp_type_fcn[])(tvbuff_t *tvb, proto_tree *tree, guint len, gu
 };
 
 static void
-for_request(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_type)
+for_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_type)
 {
 	guint32      offset;
 	guint8       oct;
@@ -1153,11 +1151,11 @@ for_request(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_ty
 	{
 		if (for_req_type_fcn[idx] != NULL)
 		{
-			(*for_req_type_fcn[idx])(tvb, subtree, oct, offset);
+			(*for_req_type_fcn[idx])(tvb, pinfo, subtree, oct, offset);
 		}
 		else
 		{
-			proto_tree_add_text(subtree, tvb, offset, oct, "Data");
+			proto_tree_add_item(subtree, hf_ansi_801_data, tvb, offset, oct, ENC_NA);
 		}
 	}
 
@@ -1165,7 +1163,7 @@ for_request(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_ty
 }
 
 static void
-for_response(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p)
+for_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 *offset_p)
 {
 	guint32      offset;
 	guint8       oct;
@@ -1200,19 +1198,18 @@ for_response(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p)
 
 	if (for_rsp_type_fcn[idx] != NULL)
 	{
-		(*for_rsp_type_fcn[idx])(tvb, subtree, oct, offset);
+		(*for_rsp_type_fcn[idx])(tvb, pinfo, subtree, oct, offset);
 	}
 	else
 	{
-		proto_tree_add_text(subtree, tvb, offset, oct,
-				    "Data");
+		proto_tree_add_item(subtree, hf_ansi_801_data, tvb, offset, oct, ENC_NA);
 	}
 
 	*offset_p = offset + oct;
 }
 
 static void
-rev_request(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_type)
+rev_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_type)
 {
 	guint32      offset;
 	guint8       oct;
@@ -1258,19 +1255,18 @@ rev_request(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p, guint8 pd_msg_ty
 
 	if (rev_req_type_fcn[idx] != NULL)
 	{
-		(*rev_req_type_fcn[idx])(tvb, subtree, oct, offset);
+		(*rev_req_type_fcn[idx])(tvb, pinfo, subtree, oct, offset);
 	}
 	else
 	{
-		proto_tree_add_text(subtree, tvb, offset, oct,
-				    "Data");
+		proto_tree_add_item(subtree, hf_ansi_801_data, tvb, offset, oct, ENC_NA);
 	}
 
 	*offset_p = offset + oct;
 }
 
 static void
-rev_response(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p)
+rev_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 *offset_p)
 {
 	guint32      offset;
 	guint8       oct;
@@ -1305,19 +1301,18 @@ rev_response(tvbuff_t *tvb, proto_tree *tree, guint32 *offset_p)
 
 	if (rev_rsp_type_fcn[idx] != NULL)
 	{
-		(*rev_rsp_type_fcn[idx])(tvb, subtree, oct, offset);
+		(*rev_rsp_type_fcn[idx])(tvb, pinfo, subtree, oct, offset);
 	}
 	else
 	{
-		proto_tree_add_text(subtree, tvb, offset, oct,
-				    "Data");
+		proto_tree_add_item(subtree, hf_ansi_801_data, tvb, offset, oct, ENC_NA);
 	}
 
 	*offset_p = offset + oct;
 }
 
 static void
-dissect_ansi_801_for_message(tvbuff_t *tvb, proto_tree *tree)
+dissect_ansi_801_for_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
 	guint32      value;
 	guint32      offset;
@@ -1366,7 +1361,7 @@ dissect_ansi_801_for_message(tvbuff_t *tvb, proto_tree *tree)
 	if ((pd_msg_type != 0x00) &&
 	    (pd_msg_type != 0x01))
 	{
-		proto_tree_add_text(tree, tvb, offset, -1, "Reserved/Proprietary/Future Data");
+		proto_tree_add_item(tree, hf_ansi_801_proprietary_data, tvb, offset, -1, ENC_NA);
 		return;
 	}
 
@@ -1405,7 +1400,7 @@ dissect_ansi_801_for_message(tvbuff_t *tvb, proto_tree *tree)
 	while ((num_req > 0) &&
 	       (rem_len >= 2))
 	{
-		for_request(tvb, tree, &offset, pd_msg_type);
+		for_request(tvb, pinfo, tree, &offset, pd_msg_type);
 
 		rem_len = tvb_reported_length_remaining(tvb, offset);
 		num_req--;
@@ -1413,15 +1408,14 @@ dissect_ansi_801_for_message(tvbuff_t *tvb, proto_tree *tree)
 
 	if (num_req != 0)
 	{
-		proto_tree_add_text(tree, tvb,
-				    offset, -1, "Short Data (?)");
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_short_data, tvb, offset, -1);
 		return;
 	}
 
 	while ((num_rsp > 0) &&
 	       (rem_len >= 2))
 	{
-		for_response(tvb, tree, &offset);
+		for_response(tvb, pinfo, tree, &offset);
 
 		rem_len = tvb_reported_length_remaining(tvb, offset);
 		num_rsp--;
@@ -1429,20 +1423,18 @@ dissect_ansi_801_for_message(tvbuff_t *tvb, proto_tree *tree)
 
 	if (num_rsp != 0)
 	{
-		proto_tree_add_text(tree, tvb,
-				    offset, -1, "Short Data (?)");
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_short_data, tvb, offset, -1);
 		return;
 	}
 
 	if (rem_len > 0)
 	{
-		proto_tree_add_text(tree, tvb, offset, rem_len,
-				    "Extraneous Data");
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_extraneous_data, tvb, offset, rem_len);
 	}
 }
 
 static void
-dissect_ansi_801_rev_message(tvbuff_t *tvb, proto_tree *tree)
+dissect_ansi_801_rev_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
 	guint32      value;
 	guint32      offset;
@@ -1490,7 +1482,7 @@ dissect_ansi_801_rev_message(tvbuff_t *tvb, proto_tree *tree)
 	if ((pd_msg_type != 0x00) &&
 	    (pd_msg_type != 0x01))
 	{
-		proto_tree_add_text(tree, tvb, offset, -1, "Reserved/Proprietary/Future Data");
+		proto_tree_add_item(tree, hf_ansi_801_proprietary_data, tvb, offset, -1, ENC_NA);
 		return;
 	}
 
@@ -1529,7 +1521,7 @@ dissect_ansi_801_rev_message(tvbuff_t *tvb, proto_tree *tree)
 	while ((num_req > 0) &&
 	       (rem_len >= 2))
 	{
-		rev_request(tvb, tree, &offset, pd_msg_type);
+		rev_request(tvb, pinfo, tree, &offset, pd_msg_type);
 
 		rem_len = tvb_reported_length_remaining(tvb, offset);
 		num_req--;
@@ -1537,15 +1529,14 @@ dissect_ansi_801_rev_message(tvbuff_t *tvb, proto_tree *tree)
 
 	if (num_req != 0)
 	{
-		proto_tree_add_text(tree, tvb,
-				    offset, -1, "Short Data (?)");
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_short_data, tvb, offset, -1);
 		return;
 	}
 
 	while ((num_rsp > 0) &&
 	       (rem_len >= 2))
 	{
-		rev_response(tvb, tree, &offset);
+		rev_response(tvb, pinfo, tree, &offset);
 
 		rem_len = tvb_reported_length_remaining(tvb, offset);
 		num_rsp--;
@@ -1553,15 +1544,13 @@ dissect_ansi_801_rev_message(tvbuff_t *tvb, proto_tree *tree)
 
 	if (num_rsp != 0)
 	{
-		proto_tree_add_text(tree, tvb,
-				    offset, -1, "Short Data (?)");
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_short_data, tvb, offset, -1);
 		return;
 	}
 
 	if (rem_len > 0)
 	{
-		proto_tree_add_text(tree, tvb, offset, rem_len,
-				    "Extraneous Data");
+		proto_tree_add_expert(tree, pinfo, &ei_ansi_801_extraneous_data, tvb, offset, rem_len);
 	}
 }
 
@@ -1592,11 +1581,11 @@ dissect_ansi_801(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 		if (pinfo->match_uint == ANSI_801_FORWARD)
 		{
-			dissect_ansi_801_for_message(tvb, ansi_801_tree);
+			dissect_ansi_801_for_message(tvb, pinfo, ansi_801_tree);
 		}
 		else
 		{
-			dissect_ansi_801_rev_message(tvb, ansi_801_tree);
+			dissect_ansi_801_rev_message(tvb, pinfo, ansi_801_tree);
 		}
 	}
 }
@@ -2238,13 +2227,45 @@ proto_register_ansi_801(void)
 		    FT_UINT8, BASE_DEC, NULL, 0x0F,
 		    NULL, HFILL }
 		},
-
+		{ &hf_ansi_801_data,
+		  { "Data", "ansi_801.data",
+		    FT_BYTES, BASE_NONE, NULL, 0x0,
+		    NULL, HFILL }
+		},
+		{ &hf_ansi_801_proprietary_data,
+		  { "Reserved/Proprietary/Future Data", "ansi_801.proprietary_data",
+		    FT_BYTES, BASE_NONE, NULL, 0x0,
+		    NULL, HFILL }
+		},
+		{ &hf_ansi_801_time_ref_ms,
+		  { "TIME_REF_MS", "ansi_801.time_ref_ms",
+		    FT_UINT24, BASE_DEC, NULL, 0x0,
+		    NULL, HFILL }
+		},
+		{ &hf_ansi_801_time_of_almanac,
+		  { "Time of almanac", "ansi_801.time_of_almanac",
+		    FT_UINT8, BASE_DEC, NULL, 0x0,
+		    NULL, HFILL }
+		},
+		{ &hf_ansi_801_gps_week_number,
+		  { "GPS week number", "ansi_801.gps_week_number",
+		    FT_UINT8, BASE_DEC, NULL, 0x0,
+		    NULL, HFILL }
+		},
 	};
-
 
 	/* Setup protocol subtree array */
 #define	NUM_INDIVIDUAL_PARAMS	3
 	gint *ett[NUM_INDIVIDUAL_PARAMS+NUM_FOR_REQ_TYPE+NUM_FOR_RSP_TYPE+NUM_REV_REQ_TYPE+NUM_REV_RSP_TYPE];
+
+
+	static ei_register_info ei[] = {
+		{ &ei_ansi_801_extraneous_data, { "ansi_801.extraneous_data", PI_PROTOCOL, PI_NOTE, "Extraneous Data, dissector bug or later version spec(report to wireshark.org)", EXPFILL }},
+		{ &ei_ansi_801_short_data, { "ansi_801.short_data", PI_PROTOCOL, PI_NOTE, "Short Data (?) - try checking decoder variant preference or dissector bug/later version spec (report to wireshark.org)", EXPFILL }},
+		{ &ei_ansi_801_unexpected_length, { "ansi_801.unexpected_length", PI_PROTOCOL, PI_WARN, "Unexpected Data Length - try checking decoder variant preference or dissector bug/later version spec (report to wireshark.org)", EXPFILL }},
+	};
+
+	expert_module_t* expert_ansi_801;
 
 	ett[0] = &ett_ansi_801;
 	ett[1] = &ett_gps;
@@ -2283,6 +2304,8 @@ proto_register_ansi_801(void)
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_ansi_801, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+	expert_ansi_801 = expert_register_protocol(proto_ansi_801);
+	expert_register_field_array(expert_ansi_801, ei, array_length(ei));
 
 	/* subdissector code */
 	ansi_801_handle = register_dissector("ansi_801", dissect_ansi_801, proto_ansi_801);

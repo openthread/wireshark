@@ -20,10 +20,11 @@
  */
 
 #include "expert_info_dialog.h"
-#include "ui_expert_info_dialog.h"
+#include <ui_expert_info_dialog.h>
 
 #include "file.h"
 
+#include <epan/epan_dissect.h>
 #include <epan/expert.h>
 #include <epan/stat_tap_ui.h>
 #include <epan/tap.h>
@@ -90,8 +91,8 @@ public:
 class ExpertPacketTreeWidgetItem : public QTreeWidgetItem
 {
 public:
-    ExpertPacketTreeWidgetItem(QTreeWidgetItem *parent, expert_info_t *expert_info = NULL) :
-        QTreeWidgetItem (parent, packet_type_),
+    ExpertPacketTreeWidgetItem(expert_info_t *expert_info = NULL) :
+        QTreeWidgetItem (packet_type_),
         packet_num_(0),
         hf_id_(-1)
     {
@@ -142,9 +143,12 @@ ExpertInfoDialog::ExpertInfoDialog(QWidget &parent, CaptureFile &capture_file) :
     // Clicking on an item jumps to its associated packet. Make the dialog
     // narrow so that we avoid obscuring the packet list.
     // XXX Use recent settings instead
-    int dlg_width = parent.width() / 2;
+    int dlg_width = parent.width() * 3 / 5;
     if (dlg_width < width()) dlg_width = width();
     resize(dlg_width, parent.height());
+
+    int one_em = fontMetrics().height();
+    ui->expertInfoTreeWidget->setColumnWidth(severity_col_, one_em * 25); // Arbitrary
 
     severity_actions_ = QList<QAction *>() << ui->actionShowError << ui->actionShowWarning
                                            << ui->actionShowNote << ui->actionShowChat
@@ -198,8 +202,7 @@ ExpertInfoDialog::ExpertInfoDialog(QWidget &parent, CaptureFile &capture_file) :
     }
 
     setDisplayFilter();
-    retapPackets();
-
+    QTimer::singleShot(0, this, SLOT(retapPackets()));
 }
 
 ExpertInfoDialog::~ExpertInfoDialog()
@@ -218,6 +221,7 @@ void ExpertInfoDialog::clearAllData()
 
     need_show_hide_ = false;
     ei_to_ti_.clear();
+    gti_packets_.clear();
 }
 
 void ExpertInfoDialog::setDisplayFilter(const QString &display_filter)
@@ -231,24 +235,20 @@ void ExpertInfoDialog::retapPackets()
     if (file_closed_) return;
 
     clearAllData();
-    remove_tap_listener(this);
+    removeTapListeners();
 
-    GString *error_string = register_tap_listener("expert",
-                                                 this,
-                                                 NULL,
-                                                 TL_REQUIRES_NOTHING,
-                                                 tapReset,
-                                                 tapPacket,
-                                                 tapDraw);
-    if (error_string) {
-        QMessageBox::warning(this, tr("Endpoint expert failed to register tap listener"),
-                             error_string->str);
-        g_string_free(error_string, TRUE);
+    if (!registerTapListener("expert",
+                             this,
+                             NULL,
+                             TL_REQUIRES_NOTHING,
+                             tapReset,
+                             tapPacket,
+                             tapDraw)) {
         return;
     }
 
     if (ui->limitCheckBox->isChecked()) {
-        error_string = set_tap_dfilter(this, display_filter_.toUtf8().constData());
+        GString *error_string = set_tap_dfilter(this, display_filter_.toUtf8().constData());
         if (error_string) {
             QMessageBox::warning(this, tr("Endpoint expert failed to set filter"),
                                  error_string->str);
@@ -259,14 +259,22 @@ void ExpertInfoDialog::retapPackets()
 
     cap_file_.retapPackets();
 
-    updateWidgets();
-
+    setUpdatesEnabled(false);
+    // Adding a list of ExpertPacketTreeWidgetItems is much faster than
+    // adding them individually. We still add ExpertGroupTreeWidgetItems
+    // individually since that gives us a nice progress indicator.
     for (int i = 0; i < ui->expertInfoTreeWidget->topLevelItemCount(); i++) {
         QTreeWidgetItem *group_ti = ui->expertInfoTreeWidget->topLevelItem(i);
-        if (group_ti->childCount() <= auto_expand_threshold_) {
-            group_ti->setExpanded(true);
+        if (gti_packets_.contains(group_ti)) {
+            group_ti->addChildren(gti_packets_[group_ti]);
+            if (group_ti->childCount() <= auto_expand_threshold_) {
+                group_ti->setExpanded(true);
+            }
         }
     }
+    setUpdatesEnabled(true);
+
+    updateWidgets();
 }
 
 void ExpertInfoDialog::addExpertInfo(struct expert_info_s *expert_info)
@@ -311,9 +319,10 @@ void ExpertInfoDialog::addExpertInfo(struct expert_info_s *expert_info)
             }
         }
         ei_to_ti_[key] = group_ti;
+        gti_packets_[group_ti] = QList<QTreeWidgetItem *>();
     }
 
-    new ExpertPacketTreeWidgetItem(group_ti, expert_info);
+    gti_packets_[group_ti] << new ExpertPacketTreeWidgetItem(expert_info);
 
     // XXX Use plain colors until our users demand to be blinded.
 //    if (background.isValid()) {
@@ -338,13 +347,13 @@ void ExpertInfoDialog::tapReset(void *eid_ptr)
     eid->clearAllData();
 }
 
-gboolean ExpertInfoDialog::tapPacket(void *eid_ptr, packet_info *pinfo, epan_dissect_t *, const void *data)
+gboolean ExpertInfoDialog::tapPacket(void *eid_ptr, struct _packet_info *pinfo, struct epan_dissect *, const void *data)
 {
     ExpertInfoDialog *eid = static_cast<ExpertInfoDialog *>(eid_ptr);
     expert_info_t    *expert_info = (expert_info_t *) data;
     gboolean draw_required = FALSE;
 
-    if (!pinfo || !eid || !expert_info) return 0;
+    if (!pinfo || !eid || !expert_info) return FALSE;
 
     eid->addExpertInfo(expert_info);
 
@@ -503,7 +512,6 @@ void ExpertInfoDialog::filterActionTriggered()
 
 void ExpertInfoDialog::captureFileClosing()
 {
-    remove_tap_listener(this);
     WiresharkDialog::captureFileClosing();
 }
 
@@ -561,7 +569,7 @@ static stat_tap_ui expert_info_stat_ui = {
 
 extern "C" {
 void
-register_tap_listener_expert_info(void)
+register_tap_listener_qt_expert_info(void)
 {
     register_stat_tap_ui(&expert_info_stat_ui, NULL);
 }

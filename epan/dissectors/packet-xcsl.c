@@ -173,12 +173,7 @@ static void dissect_xcsl_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     /* switch whether it concerns a command or an answer */
     request = FALSE;
 
-    while (tvb_reported_length_remaining(tvb, offset) != 0) {
-
-        length_remaining = tvb_ensure_length_remaining(tvb, offset);
-        if ( length_remaining == -1 ) {
-            return;
-        }
+    while ((length_remaining = tvb_reported_length_remaining(tvb, offset)) > 0) {
 
         /* get next item */
         if (!(get_next_item(tvb, offset, length_remaining, str, &next_offset, &len))) {
@@ -299,11 +294,10 @@ static void dissect_xcsl_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 /* This function determines whether the first 4 octets equals to xcsl and the fifth is an ; or - */
 static gboolean dissect_xcsl_tcp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_) {
 
-    gint offset = 0;
     guint8 *protocol;
 
-    if (tvb_length_remaining (tvb, offset) >= 5) {
-        protocol = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 5, ENC_ASCII);
+    if (tvb_captured_length (tvb) >= 5) {
+        protocol = tvb_get_string_enc(wmem_packet_scope(), tvb, 0, 5, ENC_ASCII);
 
         if (strncmp(protocol,"xcsl",4) == 0 && (protocol[4] == ';' || protocol[4] == '-')) {
 
@@ -349,7 +343,7 @@ void proto_register_xcsl(void) {
 
 /* In case it concerns TCP, try to match on the xcsl header */
 void proto_reg_handoff_xcsl(void) {
-    heur_dissector_add("tcp", dissect_xcsl_tcp_heur, hfi_xcsl->id);
+    heur_dissector_add("tcp", dissect_xcsl_tcp_heur, "XCSL over TCP", "xcsl_tcp", hfi_xcsl->id, HEURISTIC_ENABLE);
 }
 
 /*

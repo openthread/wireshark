@@ -5,6 +5,7 @@
  * Changed 03/12/2003 Rui Carmo (http://the.taoofmac.com - added all 3GPP VSAs, some parsing)
  * Changed 07/2005 Luis Ontanon <luis@ontanon.org> - use FreeRADIUS' dictionary
  * Changed 10/2006 Alejandro Vaquero <alejandrovaquero@yahoo.com> - add Conversations support
+ * Changed 08/2015 Didier Arenzana <darenzana@yahoo.fr> - add response authenticator validation
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -63,6 +64,7 @@
 #include <epan/sminmpec.h>
 #include <epan/conversation.h>
 #include <epan/tap.h>
+#include <epan/rtd_table.h>
 #include <epan/addr_resolv.h>
 #include <wsutil/filesystem.h>
 #include <wsutil/report_err.h>
@@ -90,12 +92,16 @@ typedef struct {
 #define RD_HDR_LENGTH		4
 #define HDR_LENGTH		(RD_HDR_LENGTH + AUTHENTICATOR_LENGTH)
 
-#define UDP_PORT_RADIUS		1645
-#define UDP_PORT_RADIUS_NEW	1812
-#define UDP_PORT_RADACCT	1646
-#define UDP_PORT_RADACCT_NEW	1813
-#define UDP_PORT_DAE_OLD	1700 /* DAE: pre RFC */
-#define UDP_PORT_DAE		3799 /* DAE: rfc3576 */
+/*
+ * Default RADIUS ports:
+ * 1645 (Authentication, pre RFC 2865)
+ * 1646 (Accounting, pre RFC 2866)
+ * 1812 (Authentication, RFC 2865)
+ * 1813 (Accounting, RFC 2866)
+ * 1700 (Dynamic Authorization Extensions, pre RFC 3576)
+ * 3799 (Dynamic Authorization Extensions, RFC 3576)
+*/
+#define DEFAULT_RADIUS_PORT_RANGE "1645,1646,1700,1812,1813,3799"
 
 static radius_dictionary_t* dict = NULL;
 
@@ -115,6 +121,8 @@ static int hf_radius_id = -1;
 static int hf_radius_code = -1;
 static int hf_radius_length = -1;
 static int hf_radius_authenticator = -1;
+static int hf_radius_authenticator_valid = -1 ;
+static int hf_radius_authenticator_invalid = -1 ;
 
 static int hf_radius_chap_password = -1;
 static int hf_radius_chap_ident = -1;
@@ -135,6 +143,7 @@ static int hf_radius_3gpp_ms_tmime_zone = -1;
 
 static gint ett_radius = -1;
 static gint ett_radius_avp = -1;
+static gint ett_radius_authenticator = -1 ;
 static gint ett_eap = -1;
 static gint ett_chap = -1;
 
@@ -152,8 +161,10 @@ static radius_attr_info_t no_dictionary_entry = {"Unknown-Attribute",0,FALSE,FAL
 static dissector_handle_t eap_handle;
 
 static const gchar* shared_secret = "";
+static gboolean validate_authenticator = FALSE;
 static gboolean show_length = FALSE;
 static guint alt_port_pref = 0;
+static range_t *global_ports_range;
 static guint request_ttl = 5;
 
 static guint8 authenticator[AUTHENTICATOR_LENGTH];
@@ -211,6 +222,150 @@ static const value_string radius_pkt_type_codes[] =
 	{0, NULL}
 };
 static value_string_ext radius_pkt_type_codes_ext = VALUE_STRING_EXT_INIT(radius_pkt_type_codes);
+
+typedef enum _radius_category {
+	RADIUS_CAT_OVERALL = 0,
+	RADIUS_CAT_ACCESS,
+	RADIUS_CAT_ACCOUNTING,
+	RADIUS_CAT_PASSWORD,
+	RADIUS_CAT_RESOURCE_FREE,
+	RADIUS_CAT_RESOURCE_QUERY,
+	RADIUS_CAT_NAS_REBOOT,
+	RADIUS_CAT_EVENT,
+	RADIUS_CAT_DISCONNECT,
+	RADIUS_CAT_COA,
+	RADIUS_CAT_OTHERS,
+	RADIUS_CAT_NUM_TIMESTATS
+} radius_category;
+
+static const value_string radius_message_code[] = {
+	{  RADIUS_CAT_OVERALL,        "Overall"},
+	{  RADIUS_CAT_ACCESS,         "Access"},
+	{  RADIUS_CAT_ACCOUNTING,     "Accounting"},
+	{  RADIUS_CAT_PASSWORD,       "Password"},
+	{  RADIUS_CAT_RESOURCE_FREE,  "Resource Free"},
+	{  RADIUS_CAT_RESOURCE_QUERY, "Resource Query"},
+	{  RADIUS_CAT_NAS_REBOOT,     "NAS Reboot"},
+	{  RADIUS_CAT_EVENT,          "Event"},
+	{  RADIUS_CAT_DISCONNECT,     "Disconnect"},
+	{  RADIUS_CAT_COA,            "CoA"},
+	{  RADIUS_CAT_OTHERS,         "Other"},
+	{  0, NULL}
+};
+
+static int
+radiusstat_packet(void *prs, packet_info *pinfo, epan_dissect_t *edt _U_, const void *pri)
+{
+	rtd_data_t* rtd_data = (rtd_data_t*)prs;
+	rtd_stat_table* rs = &rtd_data->stat_table;
+	const radius_info_t *ri=(radius_info_t *)pri;
+	nstime_t delta;
+	radius_category radius_cat = RADIUS_CAT_OTHERS;
+	int ret = 0;
+
+	switch (ri->code) {
+		case RADIUS_PKT_TYPE_ACCESS_REQUEST:
+		case RADIUS_PKT_TYPE_ACCESS_ACCEPT:
+		case RADIUS_PKT_TYPE_ACCESS_REJECT:
+			radius_cat = RADIUS_CAT_ACCESS;
+			break;
+		case RADIUS_PKT_TYPE_ACCOUNTING_REQUEST:
+		case RADIUS_PKT_TYPE_ACCOUNTING_RESPONSE:
+			radius_cat = RADIUS_CAT_ACCOUNTING;
+			break;
+		case RADIUS_PKT_TYPE_PASSWORD_REQUEST:
+		case RADIUS_PKT_TYPE_PASSWORD_ACK:
+		case RADIUS_PKT_TYPE_PASSWORD_REJECT:
+			radius_cat = RADIUS_CAT_PASSWORD;
+			break;
+		case RADIUS_PKT_TYPE_RESOURCE_FREE_REQUEST:
+		case RADIUS_PKT_TYPE_RESOURCE_FREE_RESPONSE:
+			radius_cat = RADIUS_CAT_RESOURCE_FREE;
+			break;
+		case RADIUS_PKT_TYPE_RESOURCE_QUERY_REQUEST:
+		case RADIUS_PKT_TYPE_RESOURCE_QUERY_RESPONSE:
+			radius_cat = RADIUS_CAT_RESOURCE_QUERY;
+			break;
+		case RADIUS_PKT_TYPE_NAS_REBOOT_REQUEST:
+		case RADIUS_PKT_TYPE_NAS_REBOOT_RESPONSE:
+			radius_cat = RADIUS_CAT_NAS_REBOOT;
+			break;
+		case RADIUS_PKT_TYPE_EVENT_REQUEST:
+		case RADIUS_PKT_TYPE_EVENT_RESPONSE:
+			radius_cat = RADIUS_CAT_EVENT;
+			break;
+		case RADIUS_PKT_TYPE_DISCONNECT_REQUEST:
+		case RADIUS_PKT_TYPE_DISCONNECT_ACK:
+		case RADIUS_PKT_TYPE_DISCONNECT_NAK:
+			radius_cat = RADIUS_CAT_DISCONNECT;
+			break;
+		case RADIUS_PKT_TYPE_COA_REQUEST:
+		case RADIUS_PKT_TYPE_COA_ACK:
+		case RADIUS_PKT_TYPE_COA_NAK:
+			radius_cat = RADIUS_CAT_COA;
+			break;
+	}
+
+	switch (ri->code) {
+
+	case RADIUS_PKT_TYPE_ACCESS_REQUEST:
+	case RADIUS_PKT_TYPE_ACCOUNTING_REQUEST:
+	case RADIUS_PKT_TYPE_PASSWORD_REQUEST:
+	case RADIUS_PKT_TYPE_EVENT_REQUEST:
+	case RADIUS_PKT_TYPE_DISCONNECT_REQUEST:
+	case RADIUS_PKT_TYPE_COA_REQUEST:
+		if(ri->is_duplicate){
+			/* Duplicate is ignored */
+			rs->time_stats[RADIUS_CAT_OVERALL].req_dup_num++;
+			rs->time_stats[radius_cat].req_dup_num++;
+		}
+		else {
+			rs->time_stats[RADIUS_CAT_OVERALL].open_req_num++;
+			rs->time_stats[radius_cat].open_req_num++;
+		}
+		break;
+
+	case RADIUS_PKT_TYPE_ACCESS_ACCEPT:
+	case RADIUS_PKT_TYPE_ACCESS_REJECT:
+	case RADIUS_PKT_TYPE_ACCOUNTING_RESPONSE:
+	case RADIUS_PKT_TYPE_PASSWORD_ACK:
+	case RADIUS_PKT_TYPE_PASSWORD_REJECT:
+	case RADIUS_PKT_TYPE_EVENT_RESPONSE:
+	case RADIUS_PKT_TYPE_DISCONNECT_ACK:
+	case RADIUS_PKT_TYPE_DISCONNECT_NAK:
+	case RADIUS_PKT_TYPE_COA_ACK:
+	case RADIUS_PKT_TYPE_COA_NAK:
+		if(ri->is_duplicate){
+			/* Duplicate is ignored */
+			rs->time_stats[RADIUS_CAT_OVERALL].rsp_dup_num++;
+			rs->time_stats[radius_cat].rsp_dup_num++;
+		}
+		else if (!ri->request_available) {
+			/* no request was seen */
+			rs->time_stats[RADIUS_CAT_OVERALL].disc_rsp_num++;
+			rs->time_stats[radius_cat].disc_rsp_num++;
+		}
+		else {
+			rs->time_stats[RADIUS_CAT_OVERALL].open_req_num--;
+			rs->time_stats[radius_cat].open_req_num--;
+			/* calculate time delta between request and response */
+			nstime_delta(&delta, &pinfo->fd->abs_ts, &ri->req_time);
+
+			time_stat_update(&(rs->time_stats[RADIUS_CAT_OVERALL].rtd[0]),&delta, pinfo);
+			time_stat_update(&(rs->time_stats[radius_cat].rtd[0]),&delta, pinfo);
+
+			ret = 1;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+
 
 /*
  * Init Hash table stuff for conversation
@@ -333,7 +488,7 @@ static const gchar *dissect_chap_password(proto_tree* tree, tvbuff_t* tvb, packe
 	proto_item *ti;
 	proto_tree *chap_tree;
 
-	len = tvb_length(tvb);
+	len = tvb_reported_length(tvb);
 	if (len != 17)
 		return "[wrong length for CHAP-Password]";
 
@@ -418,7 +573,7 @@ static const gchar *dissect_ascend_data_filter(proto_tree* tree, tvbuff_t* tvb, 
 	guint16 srcport, dstport;
 	guint8 srcportq, dstportq;
 
-	len=tvb_length(tvb);
+	len=tvb_reported_length(tvb);
 
 	if (len != 24) {
 		return wmem_strdup_printf(wmem_packet_scope(), "Wrong attribute length %d", len);
@@ -471,7 +626,7 @@ static const gchar *dissect_framed_ipx_network(proto_tree* tree, tvbuff_t* tvb, 
 	guint32 net;
 	const gchar *str;
 
-	len = tvb_length(tvb);
+	len = tvb_reported_length(tvb);
 	if (len != 4)
 		return "[wrong length for IPX network]";
 
@@ -490,7 +645,7 @@ static const gchar *dissect_framed_ipx_network(proto_tree* tree, tvbuff_t* tvb, 
 static const gchar* dissect_cosine_vpvc(proto_tree* tree, tvbuff_t* tvb, packet_info* pinfo _U_) {
 	guint vpi, vci;
 
-	if ( tvb_length(tvb) != 4 )
+	if ( tvb_reported_length(tvb) != 4 )
 		return "[Wrong Length for VP/VC AVP]";
 
 	vpi = tvb_get_ntohs(tvb,0);
@@ -1204,7 +1359,7 @@ void dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_
 			PROTO_ITEM_SET_GENERATED(avp_len_item);
 		}
 
-		tvb_len = tvb_length_remaining(tvb, offset);
+		tvb_len = tvb_captured_length_remaining(tvb, offset);
 
 		if ((gint)avp_length < tvb_len)
 			tvb_len = avp_length;
@@ -1371,12 +1526,44 @@ is_radius(tvbuff_t *tvb)
 
 static void register_radius_fields(const char*);
 
+/*
+ * returns true if the response authenticator is valid
+ * input: tvb of the reponse, corresponding request authenticator
+ * uses the shared secret to calculate the Response authenticator
+ * and checks with the current.
+ * see RFC 2865, packet format page 16
+ */
+static gboolean
+valid_authenticator(tvbuff_t *tvb, guint8 request_authenticator[])
+{
+	md5_state_t md_ctx;
+	md5_byte_t digest[16];
+	guint tvb_length;
+	guint8 * payload;
+
+	tvb_length = tvb_captured_length(tvb) ; /* should it be tvb_reported_length ? */
+
+	/* copy response into payload */
+	payload = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_length) ;
+
+	/* replace authenticator in reply with the one in request*/
+	memcpy(payload+4, request_authenticator, AUTHENTICATOR_LENGTH);
+
+	/* calculate MD5 hash (payload+shared_secret) */
+	md5_init(&md_ctx);
+	md5_append(&md_ctx, payload, tvb_length) ;
+	md5_append(&md_ctx, shared_secret, strlen(shared_secret)) ;
+	md5_finish(&md_ctx, digest);
+
+	return !memcmp(digest, authenticator, AUTHENTICATOR_LENGTH) ;
+}
+
 static int
 dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
 	proto_tree *radius_tree = NULL;
 	proto_tree *avptree = NULL;
-	proto_item *ti, *hidden_item;
+	proto_item *ti, *hidden_item, *authenticator_item = NULL;
 	guint avplength;
 	e_radiushdr rh;
 	radius_info_t *rad_info;
@@ -1442,14 +1629,14 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 				tvb, 2, 2, rh.rh_pktlength, "%u (bogus, < %u)",
 				rh.rh_pktlength, HDR_LENGTH);
 		}
-		return tvb_length(tvb);
+		return tvb_captured_length(tvb);
 	}
 
 	avplength = rh.rh_pktlength - HDR_LENGTH;
 	if (tree)
 	{
 		proto_tree_add_uint(radius_tree, hf_radius_length, tvb, 2, 2, rh.rh_pktlength);
-		proto_tree_add_item(radius_tree, hf_radius_authenticator, tvb, 4, AUTHENTICATOR_LENGTH,ENC_NA);
+		authenticator_item = proto_tree_add_item(radius_tree, hf_radius_authenticator, tvb, 4, AUTHENTICATOR_LENGTH, ENC_NA);
 	}
 	tvb_memcpy(tvb, authenticator, 4, AUTHENTICATOR_LENGTH);
 
@@ -1552,6 +1739,11 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 				radius_call->responded = FALSE;
 				radius_call->req_time = pinfo->fd->abs_ts;
 				radius_call->rspcode = 0;
+				/* Copy request authenticator for future validation */
+				if (validate_authenticator && *shared_secret != '\0')
+				{
+					radius_call->req_authenticator=(guint8 *)tvb_memdup(wmem_file_scope(), tvb, 4, AUTHENTICATOR_LENGTH);
+				}
 
 				/* Store it */
 				g_hash_table_insert(radius_calls, new_radius_call_key, radius_call);
@@ -1644,6 +1836,26 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 							nstime_delta(&delta, &pinfo->fd->abs_ts, &radius_call->req_time);
 							item = proto_tree_add_time(radius_tree, hf_radius_time, tvb, 0, 0, &delta);
 							PROTO_ITEM_SET_GENERATED(item);
+							/* Resonse Authenticator Validation */
+							if (validate_authenticator && *shared_secret != '\0')
+							{
+								proto_item * authenticator_tree ;
+								int valid ;
+								valid = valid_authenticator(tvb, radius_call->req_authenticator) ;
+
+								proto_item_append_text(authenticator_item, " [%s]", valid? "correct" : "incorrect");
+								authenticator_tree = proto_item_add_subtree(authenticator_item, ett_radius_authenticator);
+								item = proto_tree_add_boolean(authenticator_tree, hf_radius_authenticator_valid, tvb, 4, AUTHENTICATOR_LENGTH, valid ? TRUE : FALSE);
+								PROTO_ITEM_SET_GENERATED(item);
+								item = proto_tree_add_boolean(authenticator_tree, hf_radius_authenticator_invalid, tvb, 4, AUTHENTICATOR_LENGTH, valid ? FALSE : TRUE);
+								PROTO_ITEM_SET_GENERATED(item);
+
+								if (!valid)
+								{
+									/* FIXME: this information disappears when a display filter is enterred */
+									col_append_fstr(pinfo->cinfo,COL_INFO," [incorrect authenticator]") ;
+								}
+							}
 						}
 					}
 
@@ -1702,7 +1914,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			avplength);
 	}
 
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 
@@ -1921,13 +2133,23 @@ extern void radius_register_avp_dissector(guint32 vendor_id, guint32 attribute_i
 static void
 radius_init_protocol(void)
 {
-	if (radius_calls != NULL)
-	{
-		g_hash_table_destroy(radius_calls);
-		radius_calls = NULL;
+	module_t *radius_module = prefs_find_module("radius");
+	pref_t *alternate_port;
+
+	if (radius_module) {
+		/* Find alternate_port preference and mark it obsolete (thus hiding it from a user) */
+		alternate_port = prefs_find_preference(radius_module, "alternate_port");
+		if (! prefs_get_preference_obsolete(alternate_port))
+			prefs_set_preference_obsolete(alternate_port);
 	}
 
 	radius_calls = g_hash_table_new(radius_call_hash, radius_call_equal);
+}
+
+static void
+radius_cleanup_protocol(void)
+{
+	g_hash_table_destroy(radius_calls);
 }
 
 static void register_radius_fields(const char* unused _U_) {
@@ -1956,6 +2178,12 @@ static void register_radius_fields(const char* unused _U_) {
 		 { &hf_radius_authenticator,
 		 { "Authenticator",	"radius.authenticator", FT_BYTES, BASE_NONE, NULL, 0x0,
 			 NULL, HFILL }},
+		 { &hf_radius_authenticator_valid,
+		 { "Valid Authenticator", "radius.authenticator.valid", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+			"TRUE if Authenticator is valid", HFILL }},
+		 { &hf_radius_authenticator_invalid,
+		 { "Invalid Authenticator", "radius.authenticator.invalid", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+			"TRUE if Authenticator is invalid", HFILL }},
 		 { &hf_radius_length,
 		 { "Length","radius.length", FT_UINT16, BASE_DEC, NULL, 0x0,
 			 NULL, HFILL }},
@@ -2018,6 +2246,7 @@ static void register_radius_fields(const char* unused _U_) {
 	 gint *base_ett[] = {
 		 &ett_radius,
 		 &ett_radius_avp,
+		 &ett_radius_authenticator,
 		 &ett_eap,
 		 &ett_chap,
 		 &(no_dictionary_entry.ett),
@@ -2110,15 +2339,23 @@ proto_register_radius(void)
 	proto_radius = proto_register_protocol("Radius Protocol", "RADIUS", "radius");
 	new_register_dissector("radius", dissect_radius, proto_radius);
 	register_init_routine(&radius_init_protocol);
+	register_cleanup_routine(&radius_cleanup_protocol);
 	radius_module = prefs_register_protocol(proto_radius, proto_reg_handoff_radius);
 	prefs_register_string_preference(radius_module,"shared_secret","Shared Secret",
-					 "Shared secret used to decode User Passwords",
+					 "Shared secret used to decode User Passwords and validate Response Authenticators",
 					 &shared_secret);
+	prefs_register_bool_preference(radius_module,"validate_authenticator","Validate Reponse Authenticator",
+                                   "Whether to check or not if Response Authenticator is correct. You need to define shared secret for this to work.",
+                                   &validate_authenticator);
 	prefs_register_bool_preference(radius_module,"show_length","Show AVP Lengths",
 				       "Whether to add or not to the tree the AVP's payload length",
 				       &show_length);
 	prefs_register_uint_preference(radius_module, "alternate_port","Alternate Port",
 				       "An alternate UDP port to decode as RADIUS", 10, &alt_port_pref);
+
+	range_convert_str(&global_ports_range, DEFAULT_RADIUS_PORT_RANGE, MAX_UDP_PORT);
+	prefs_register_range_preference(radius_module, "ports","RADIUS ports",
+				       "A list of UDP ports to decode as RADIUS", &global_ports_range, MAX_UDP_PORT);
 	prefs_register_uint_preference(radius_module, "request_ttl", "Request TimeToLive",
 				       "Time to live for a radius request used for matching it with a response", 10, &request_ttl);
 	radius_tap = register_tap("radius");
@@ -2130,6 +2367,8 @@ proto_register_radius(void)
 	dict->vendors_by_id   = g_hash_table_new(g_direct_hash,g_direct_equal);
 	dict->vendors_by_name = g_hash_table_new(g_str_hash,g_str_equal);
 	dict->tlvs_by_name    = g_hash_table_new(g_str_hash,g_str_equal);
+
+	register_rtd_table(proto_radius, NULL, RADIUS_CAT_NUM_TIMESTATS, 1, radius_message_code, radiusstat_packet, NULL);
 }
 
 void
@@ -2137,29 +2376,32 @@ proto_reg_handoff_radius(void)
 {
 	static gboolean initialized = FALSE;
 	static dissector_handle_t radius_handle;
-	static guint alt_port;
+	static range_t *ports_range;
 
 	if (!initialized) {
 		radius_handle = find_dissector("radius");
-		dissector_add_uint("udp.port", UDP_PORT_RADIUS, radius_handle);
-		dissector_add_uint("udp.port", UDP_PORT_RADIUS_NEW, radius_handle);
-		dissector_add_uint("udp.port", UDP_PORT_RADACCT, radius_handle);
-		dissector_add_uint("udp.port", UDP_PORT_RADACCT_NEW, radius_handle);
-		dissector_add_uint("udp.port", UDP_PORT_DAE_OLD, radius_handle);
-		dissector_add_uint("udp.port", UDP_PORT_DAE, radius_handle);
-
 		eap_handle = find_dissector("eap");
 
 		initialized = TRUE;
 	} else {
-		if (alt_port != 0)
-			dissector_delete_uint("udp.port", alt_port, radius_handle);
+		dissector_delete_uint_range("udp.port", ports_range, radius_handle);
+		g_free(ports_range);
 	}
 
-	if (alt_port_pref != 0)
-		dissector_add_uint("udp.port", alt_port_pref, radius_handle);
+	if (alt_port_pref != 0) {
+		/* Append it to the range of ports but only if necessary */
+		if (!value_is_in_range(global_ports_range, alt_port_pref)) {
+			global_ports_range = (range_t*)g_realloc(global_ports_range,
+					/* see epan/range.c:range_copy function */
+					sizeof (range_t) - sizeof (range_admin_t) + (global_ports_range->nranges + 1) * sizeof (range_admin_t));
+			global_ports_range->ranges[global_ports_range->nranges].low = alt_port_pref;
+			global_ports_range->ranges[global_ports_range->nranges].high = alt_port_pref;
+			global_ports_range->nranges++;
+		}
+	}
 
-	alt_port = alt_port_pref;
+	ports_range = range_copy(global_ports_range);
+	dissector_add_uint_range("udp.port", ports_range, radius_handle);
 }
 
 /*

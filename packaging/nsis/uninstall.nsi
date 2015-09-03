@@ -170,6 +170,7 @@ Delete "$INSTDIR\share\themes\Default\gtk-2.0\*.*"
 Delete "$INSTDIR\snmp\*.*"
 Delete "$INSTDIR\snmp\mibs\*.*"
 Delete "$INSTDIR\tpncp\*.*"
+Delete "$INSTDIR\translations\*.*"
 Delete "$INSTDIR\ui\*.*"
 Delete "$INSTDIR\wimaxasncp\*.*"
 Delete "$INSTDIR\ws.css"
@@ -243,6 +244,7 @@ RMDir "$INSTDIR\snmp"
 RMDir "$INSTDIR\radius"
 RMDir "$INSTDIR\dtds"
 RMDir "$INSTDIR\tpncp"
+RMDir "$INSTDIR\translations"
 RMDir "$INSTDIR\ui"
 RMDir "$INSTDIR\wimaxasncp"
 RMDir "$INSTDIR"
@@ -294,10 +296,12 @@ Section /o "Un.WinPcap" un.SecWinPcap
 SectionIn 2
 ReadRegStr $1 HKEY_LOCAL_MACHINE "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\WinPcapInst" "UninstallString"
 ;IfErrors un.lbl_winpcap_notinstalled ;if RegKey is unavailable, WinPcap is not installed
-;MessageBox MB_OK "WinPcap $1" /SD IDOK
-ExecWait '$1' $0
-DetailPrint "WinPcap uninstaller returned $0"
-;SetRebootFlag true
+${If} $1 != ""
+    ;MessageBox MB_OK "WinPcap $1" /SD IDOK
+    ExecWait '$1' $0
+    DetailPrint "WinPcap uninstaller returned $0"
+    ;SetRebootFlag true
+${EndIf}
 ;un.lbl_winpcap_notinstalled:
 SectionEnd
 

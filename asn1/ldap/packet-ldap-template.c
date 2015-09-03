@@ -87,6 +87,7 @@
 #include <epan/conversation.h>
 #include <epan/prefs.h>
 #include <epan/tap.h>
+#include <epan/srt_table.h>
 #include <epan/oids.h>
 #include <epan/strutil.h>
 #include <epan/show_exception.h>
@@ -299,6 +300,59 @@ static const value_string netlogon_opcode_vals[] = {
 	{ 0, NULL }
 };
 
+#define LDAP_NUM_PROCEDURES     24
+
+static void
+ldapstat_init(struct register_srt* srt _U_, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+{
+	srt_stat_table *ldap_srt_table;
+	guint32 i;
+
+	ldap_srt_table = init_srt_table("LDAP Commands", NULL, srt_array, LDAP_NUM_PROCEDURES, NULL, "ldap.protocolOp", gui_callback, gui_data, NULL);
+	for (i = 0; i < LDAP_NUM_PROCEDURES; i++)
+	{
+		init_srt_table_row(ldap_srt_table, i, val_to_str_const(i, ldap_procedure_names, "<unknown>"));
+	}
+}
+
+static int
+ldapstat_packet(void *pldap, packet_info *pinfo, epan_dissect_t *edt _U_, const void *psi)
+{
+	guint i = 0;
+	srt_stat_table *ldap_srt_table;
+	const ldap_call_response_t *ldap=(const ldap_call_response_t *)psi;
+	srt_data_t *data = (srt_data_t *)pldap;
+
+	/* we are only interested in reply packets */
+	if(ldap->is_request){
+		return 0;
+	}
+	/* if we havnt seen the request, just ignore it */
+	if(!ldap->req_frame){
+		return 0;
+	}
+
+	/* only use the commands we know how to handle */
+	switch(ldap->protocolOpTag){
+	case LDAP_REQ_BIND:
+	case LDAP_REQ_SEARCH:
+	case LDAP_REQ_MODIFY:
+	case LDAP_REQ_ADD:
+	case LDAP_REQ_DELETE:
+	case LDAP_REQ_MODRDN:
+	case LDAP_REQ_COMPARE:
+	case LDAP_REQ_EXTENDED:
+		break;
+	default:
+		return 0;
+	}
+
+	ldap_srt_table = g_array_index(data->srt_array, srt_stat_table*, i);
+
+	add_srt_table_data(ldap_srt_table, ldap->protocolOpTag, &ldap->req_time, pinfo);
+	return 1;
+}
+
 /*
  * Data structure attached to a conversation, giving authentication
  * information from a bind request.
@@ -503,9 +557,9 @@ attribute_types_initialize_cb(void)
 
   if (attribute_types_hash && hf) {
     guint hf_size = g_hash_table_size (attribute_types_hash);
-    /* Unregister all fields */
+    /* Deregister all fields */
     for (i = 0; i < hf_size; i++) {
-      proto_unregister_field (proto_ldap, *(hf[i].p_id));
+      proto_deregister_field (proto_ldap, *(hf[i].p_id));
       g_free (hf[i].p_id);
     }
     g_hash_table_destroy (attribute_types_hash);
@@ -1840,7 +1894,7 @@ dissect_mscldap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 
 static void
-ldap_reinit(void)
+ldap_cleanup(void)
 {
   ldap_conv_info_t *ldap_info;
 
@@ -2243,11 +2297,12 @@ void proto_register_ldap(void) {
 	  "Connectionless Lightweight Directory Access Protocol",
 	  "CLDAP", "cldap");
 
-  register_init_routine(ldap_reinit);
+  register_cleanup_routine(ldap_cleanup);
   ldap_tap=register_tap("ldap");
 
   ldap_name_dissector_table = register_dissector_table("ldap.name", "LDAP Attribute Type Dissectors", FT_STRING, BASE_NONE);
 
+  register_srt_table(proto_ldap, NULL, 1, ldapstat_packet, ldapstat_init, NULL);
 }
 
 

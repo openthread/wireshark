@@ -25,9 +25,12 @@
 #ifndef NGHTTP2_HELPER_H
 #define NGHTTP2_HELPER_H
 
+#ifdef HAVE_CONFIG_H
 #include <config.h>
+#endif /* HAVE_CONFIG_H */
 
 #include <string.h>
+#include <stddef.h>
 
 #include <nghttp2.h>
 #include "nghttp2_mem.h"
@@ -36,6 +39,12 @@
 #define nghttp2_max(A, B) ((A) > (B) ? (A) : (B))
 
 #define lstreq(A, B, N) ((sizeof((A)) - 1) == (N) && memcmp((A), (B), (N)) == 0)
+
+#define nghttp2_struct_of(ptr, type, member)                                    \
+  ({                                                                            \
+    const typeof(((type *)0)->member) *nghttp2__mptr = (nghttp2_pq_entry *)(ptr);                   \
+    (type *)(void *)((char *)nghttp2__mptr - __builtin_offsetof(type, member)); \
+  })
 
 /*
  * Copies 2 byte unsigned integer |n| in host byte order to |buf| in

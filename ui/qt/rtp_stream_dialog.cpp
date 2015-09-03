@@ -20,7 +20,7 @@
  */
 
 #include "rtp_stream_dialog.h"
-#include "ui_rtp_stream_dialog.h"
+#include <ui_rtp_stream_dialog.h>
 
 #include "file.h"
 
@@ -247,7 +247,7 @@ RtpStreamDialog::RtpStreamDialog(QWidget &parent, CaptureFile &cf) :
     find_reverse_button_->setToolTip(ui->actionFindReverse->toolTip());
     prepare_button_ = ui->buttonBox->addButton(ui->actionPrepareFilter->text(), QDialogButtonBox::ApplyRole);
     prepare_button_->setToolTip(ui->actionPrepareFilter->toolTip());
-    export_button_ = ui->buttonBox->addButton(tr("Export..."), QDialogButtonBox::ApplyRole);
+    export_button_ = ui->buttonBox->addButton(tr("Export" UTF8_HORIZONTAL_ELLIPSIS), QDialogButtonBox::ApplyRole);
     export_button_->setToolTip(ui->actionExportAsRtpDump->toolTip());
     copy_button_ = ui->buttonBox->addButton(tr("Copy"), QDialogButtonBox::ApplyRole);
     analyze_button_ = ui->buttonBox->addButton(ui->actionAnalyze->text(), QDialogButtonBox::ApplyRole);
@@ -283,9 +283,8 @@ RtpStreamDialog::~RtpStreamDialog()
     remove_tap_listener_rtp_stream(&tapinfo_);
 }
 
-bool RtpStreamDialog::eventFilter(QObject *obj, QEvent *event)
+bool RtpStreamDialog::eventFilter(QObject *, QEvent *event)
 {
-    Q_UNUSED(obj)
     if (ui->streamTreeWidget->hasFocus() && event->type() == QEvent::KeyPress) {
         QKeyEvent &keyEvent = static_cast<QKeyEvent&>(*event);
         switch(keyEvent.key()) {
@@ -317,7 +316,7 @@ bool RtpStreamDialog::eventFilter(QObject *obj, QEvent *event)
 
 void RtpStreamDialog::tapDraw(rtpstream_tapinfo_t *tapinfo)
 {
-    RtpStreamDialog *rtp_stream_dialog = static_cast<RtpStreamDialog *>(tapinfo->tap_data);
+    RtpStreamDialog *rtp_stream_dialog = dynamic_cast<RtpStreamDialog *>((RtpStreamDialog *)tapinfo->tap_data);
     if (rtp_stream_dialog) {
         rtp_stream_dialog->updateStreams();
     }
@@ -327,9 +326,8 @@ void RtpStreamDialog::tapMarkPacket(rtpstream_tapinfo_t *tapinfo, frame_data *fd
 {
     if (!tapinfo) return;
 
-    RtpStreamDialog *rtp_stream_dialog = static_cast<RtpStreamDialog *>(tapinfo->tap_data);
+    RtpStreamDialog *rtp_stream_dialog = dynamic_cast<RtpStreamDialog *>((RtpStreamDialog *)tapinfo->tap_data);
     if (rtp_stream_dialog) {
-        rtp_stream_dialog->need_redraw_ = true;
         cf_mark_frame(rtp_stream_dialog->cap_file_.capFile(), fd);
         rtp_stream_dialog->need_redraw_ = true;
     }

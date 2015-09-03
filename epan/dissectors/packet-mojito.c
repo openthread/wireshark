@@ -687,7 +687,7 @@ dissect_mojito(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 		break;
 	}
 
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 static gboolean dissect_mojito_heuristic (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -698,7 +698,7 @@ static gboolean dissect_mojito_heuristic (tvbuff_t *tvb, packet_info *pinfo, pro
 	  Test to make sure that the length field is there and correct
 	  (tvb_get_letohl(tvb, 20) + 23) == tvb_length(tvb)
 	*/
-	if ((tvb_length(tvb) >= 60) &&
+	if ((tvb_captured_length(tvb) >= 60) &&
 	    (tvb_get_guint8(tvb, 16) == 68) &&
 	    ((tvb_get_letohl(tvb, 19) + 23) == tvb_reported_length(tvb)))
 	{
@@ -1045,7 +1045,7 @@ proto_reg_handoff_mojito(void)
 
 	if (!initialized) {
 		mojito_handle = new_create_dissector_handle(dissect_mojito, proto_mojito);
-		heur_dissector_add("udp", dissect_mojito_heuristic, proto_mojito);
+		heur_dissector_add("udp", dissect_mojito_heuristic, "Mojito over UDP", "mojito_udp", proto_mojito, HEURISTIC_ENABLE);
 		initialized = TRUE;
 	}
 

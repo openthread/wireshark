@@ -2327,7 +2327,7 @@ dissect_control(tvbuff_t *parent_tvb, int offset, int control_len,
 	int		len, key;
 	gint		ett;
 
-	length = tvb_length_remaining(parent_tvb, offset);
+	length = tvb_captured_length_remaining(parent_tvb, offset);
 	reported_length = tvb_reported_length_remaining(parent_tvb, offset);
 	if (control_len < length)
 		length = control_len;
@@ -2509,6 +2509,12 @@ sna_init(void)
 {
 	reassembly_table_init(&sna_reassembly_table,
 	    &addresses_reassembly_table_functions);
+}
+
+static void
+sna_cleanup(void)
+{
+	reassembly_table_destroy(&sna_reassembly_table);
 }
 
 
@@ -3492,6 +3498,7 @@ proto_register_sna(void)
 		&sna_defragment);
 
 	register_init_routine(sna_init);
+	register_cleanup_routine(sna_cleanup);
 }
 
 void

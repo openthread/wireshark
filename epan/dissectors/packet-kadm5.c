@@ -62,30 +62,29 @@ static int hf_kadm5_procedure_v2 = -1;
 static gint ett_kadm5 = -1;
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff kadm5_v2_proc[] = {
-	{ KADM5PROC_NULL,	 	"NULL",			NULL,	NULL },
-	{ KADM5PROC_CREATE_PRINCIPAL,	"CREATE_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_DELETE_PRINCIPAL,	"DELETE_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_MODIFY_PRINCIPAL,	"MODIFY_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_RENAME_PRINCIPAL,	"RENAME_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_GET_PRINCIPAL,	"GET_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_CHPASS_PRINCIPAL,	"CHPASS_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_CHRAND_PRINCIPAL,	"CHRAND_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_CREATE_POLICY,	"CREATE_POLICY",	NULL,	NULL },
-	{ KADM5PROC_DELETE_POLICY,	"DELETE_POLICY",	NULL,	NULL },
-	{ KADM5PROC_MODIFY_POLICY,	"MODIFY_POLICY",	NULL,	NULL },
-	{ KADM5PROC_GET_POLICY,		"GET_POLICY",		NULL,	NULL },
-	{ KADM5PROC_GET_PRIVS,		"GET_PRIVS",		NULL,	NULL },
-	{ KADM5PROC_INIT,		"INIT",			NULL,	NULL },
-	{ KADM5PROC_GET_PRINCS,		"GET_PRINCS",		NULL,	NULL },
-	{ KADM5PROC_GET_POLS,		"GET_POLS",		NULL,	NULL },
-	{ KADM5PROC_SETKEY_PRINCIPAL,	"SETKEY_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_SETV4KEY_PRINCIPAL,	"SETV4KEY_PRINCIPAL",	NULL,	NULL },
-	{ KADM5PROC_CREATE_PRINCIPAL3,	"CREATE_PRINCIPAL3",	NULL,	NULL },
-	{ KADM5PROC_CHPASS_PRINCIPAL3,	"CHPASS_PRINCIPAL3",	NULL,	NULL },
-	{ KADM5PROC_CHRAND_PRINCIPAL3,	"CHRAND_PRINCIPAL3",	NULL,	NULL },
-	{ KADM5PROC_SETKEY_PRINCIPAL3,	"SETKEY_PRINCIPAL3",	NULL,	NULL },
+	{ KADM5PROC_NULL,	 	"NULL",			dissect_rpc_void,	dissect_rpc_void },
+	{ KADM5PROC_CREATE_PRINCIPAL,	"CREATE_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_DELETE_PRINCIPAL,	"DELETE_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_MODIFY_PRINCIPAL,	"MODIFY_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_RENAME_PRINCIPAL,	"RENAME_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_GET_PRINCIPAL,	"GET_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_CHPASS_PRINCIPAL,	"CHPASS_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_CHRAND_PRINCIPAL,	"CHRAND_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_CREATE_POLICY,	"CREATE_POLICY",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_DELETE_POLICY,	"DELETE_POLICY",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_MODIFY_POLICY,	"MODIFY_POLICY",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_GET_POLICY,		"GET_POLICY",		dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_GET_PRIVS,		"GET_PRIVS",		dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_INIT,		"INIT",			dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_GET_PRINCS,		"GET_PRINCS",		dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_GET_POLS,		"GET_POLS",		dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_SETKEY_PRINCIPAL,	"SETKEY_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_SETV4KEY_PRINCIPAL,	"SETV4KEY_PRINCIPAL",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_CREATE_PRINCIPAL3,	"CREATE_PRINCIPAL3",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_CHPASS_PRINCIPAL3,	"CHPASS_PRINCIPAL3",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_CHRAND_PRINCIPAL3,	"CHRAND_PRINCIPAL3",	dissect_rpc_unknown,	dissect_rpc_unknown },
+	{ KADM5PROC_SETKEY_PRINCIPAL3,	"SETKEY_PRINCIPAL3",	dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ 0,				 NULL,			NULL,	NULL }
 };
 
@@ -115,6 +114,10 @@ static const value_string kadm5_v2_proc_vals[] = {
 	{ 0,				 NULL }
 };
 
+static const rpc_prog_vers_info kadm5_vers_info[] = {
+	{ 2, kadm5_v2_proc, &hf_kadm5_procedure_v2 },
+};
+
 void
 proto_register_kadm5(void)
 {
@@ -138,10 +141,8 @@ void
 proto_reg_handoff_kadm5(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_kadm5, KADM5_PROGRAM, ett_kadm5);
-	/* Register the procedure tables */
-	rpc_init_proc_table(KADM5_PROGRAM, 2, kadm5_v2_proc,
-	    hf_kadm5_procedure_v2);
+	rpc_init_prog(proto_kadm5, KADM5_PROGRAM, ett_kadm5,
+	    G_N_ELEMENTS(kadm5_vers_info), kadm5_vers_info);
 }
 
 /*

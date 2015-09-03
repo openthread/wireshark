@@ -36,10 +36,10 @@ static int hf_ypxfr_procedure_v1 = -1;
 static gint ett_ypxfr = -1;
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff ypxfr1_proc[] = {
-	{ YPXFRPROC_NULL,	"NULL",		NULL,		NULL },
-	{ YPXFRPROC_GETMAP,	"GETMAP",	NULL,		NULL },
+	{ YPXFRPROC_NULL,	"NULL",
+		dissect_rpc_void,		dissect_rpc_void },
+	{ YPXFRPROC_GETMAP,	"GETMAP",	dissect_rpc_unknown,		dissect_rpc_unknown },
 	{ 0,			NULL,		NULL,		NULL }
 };
 static const value_string ypxfr1_proc_vals[] = {
@@ -48,6 +48,10 @@ static const value_string ypxfr1_proc_vals[] = {
 	{ 0,			NULL }
 };
 /* end of YPXFR version 1 */
+
+static const rpc_prog_vers_info ypxfr_vers_info[] = {
+	{ 1, ypxfr1_proc, &hf_ypxfr_procedure_v1 },
+};
 
 void
 proto_register_ypxfr(void)
@@ -72,9 +76,8 @@ void
 proto_reg_handoff_ypxfr(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_ypxfr, YPXFR_PROGRAM, ett_ypxfr);
-	/* Register the procedure tables */
-	rpc_init_proc_table(YPXFR_PROGRAM, 1, ypxfr1_proc, hf_ypxfr_procedure_v1);
+	rpc_init_prog(proto_ypxfr, YPXFR_PROGRAM, ett_ypxfr,
+	    G_N_ELEMENTS(ypxfr_vers_info), ypxfr_vers_info);
 }
 
 /*

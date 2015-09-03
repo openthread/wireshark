@@ -11,10 +11,13 @@ libwiretap.so.0 libwiretap0 #MINVER#
  init_open_routines@Base 1.12.0~rc1
  merge_append_read_packet@Base 1.12.0~rc1
  merge_close_in_files@Base 1.12.0~rc1
+ merge_files@Base 1.99.9
+ merge_idb_merge_mode_to_string@Base 1.99.9
  merge_max_snapshot_length@Base 1.12.0~rc1
  merge_open_in_files@Base 1.12.0~rc1
  merge_read_packet@Base 1.12.0~rc1
  merge_select_frame_type@Base 1.12.0~rc1
+ merge_string_to_idb_merge_mode@Base 1.99.9
  open_info_name_to_type@Base 1.12.0~rc1
  open_routines@Base 1.12.0~rc1
  register_all_wiretap_modules@Base 1.12.0~rc1
@@ -50,19 +53,27 @@ libwiretap.so.0 libwiretap0 #MINVER#
  wtap_fdreopen@Base 1.9.1
  wtap_file_encap@Base 1.9.1
  wtap_file_get_idb_info@Base 1.9.1
- wtap_file_get_shb_info@Base 1.9.1
+ wtap_file_get_nrb_for_new_file@Base 1.99.9
+ wtap_file_get_shb@Base 1.99.9
+ wtap_file_get_shb_comment@Base 1.99.9
+ wtap_file_get_shb_for_new_file@Base 1.99.9
  wtap_file_size@Base 1.9.1
  wtap_file_tsprec@Base 1.99.0
  wtap_file_type_subtype@Base 1.12.0~rc1
  wtap_file_type_subtype_short_string@Base 1.12.0~rc1
  wtap_file_type_subtype_string@Base 1.12.0~rc1
  wtap_free_extensions_list@Base 1.9.1
+ wtap_free_idb_info@Base 1.99.9
+ wtap_free_nrb@Base 1.99.9
+ wtap_free_shb@Base 1.99.9
  wtap_fstat@Base 1.9.1
  wtap_get_all_file_extensions_list@Base 1.12.0~rc1
  wtap_get_bytes_dumped@Base 1.9.1
+ wtap_get_debug_if_descr@Base 1.99.9
  wtap_get_file_extension_type_extensions@Base 1.12.0~rc1
  wtap_get_file_extension_type_name@Base 1.12.0~rc1
  wtap_get_file_extensions_list@Base 1.9.1
+ wtap_get_nrb_comment@Base 1.99.9
  wtap_get_num_encap_types@Base 1.9.1
  wtap_get_num_file_type_extensions@Base 1.12.0~rc1
  wtap_get_num_file_types_subtypes@Base 1.12.0~rc1
@@ -93,5 +104,7 @@ libwiretap.so.0 libwiretap0 #MINVER#
  wtap_short_string_to_file_type_subtype@Base 1.9.1
  wtap_snapshot_length@Base 1.9.1
  wtap_strerror@Base 1.9.1
+ wtap_tsprec_string@Base 1.99.9
+ wtap_write_nrb_comment@Base 1.99.9
  wtap_write_shb_comment@Base 1.9.1
  wtap_wtap_encap_to_pcap_encap@Base 1.9.1

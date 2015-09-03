@@ -293,7 +293,7 @@ static int dissect_control_get_nodemap_reply(packet_info *pinfo, proto_tree *tre
 
 	if (num_nodes > CTDB_MAX_NODES) {
 		expert_add_info_format(pinfo, item, &ei_ctdb_too_many_nodes, "Too many nodes (%u). Stopping dissection.", num_nodes);
-		THROW(ReportedBoundsError);
+		return offset;
 	}
 
 	while(num_nodes--){
@@ -1243,7 +1243,7 @@ proto_reg_handoff_ctdb(void)
 	ctdb_handle = new_create_dissector_handle(dissect_ctdb, proto_ctdb);
 	dissector_add_for_decode_as("tcp.port", ctdb_handle);
 
-	heur_dissector_add("tcp", dissect_ctdb, proto_ctdb);
+	heur_dissector_add("tcp", dissect_ctdb, "Cluster TDB over TCP", "ctdb_tcp", proto_ctdb, HEURISTIC_ENABLE);
 }
 
 /*

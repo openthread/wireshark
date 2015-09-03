@@ -118,7 +118,7 @@ typedef struct _wslua_field_t {
     int hfid;
     int ett;
     char* name;
-    char* abbr;
+    char* abbrev;
     char* blob;
     enum ftenum type;
     unsigned base;
@@ -128,7 +128,7 @@ typedef struct _wslua_field_t {
 
 typedef struct _wslua_expert_field_t {
     expert_field ids;
-    const gchar *abbr;
+    const gchar *abbrev;
     const gchar *text;
     int group;
     int severity;
@@ -188,12 +188,19 @@ typedef struct _wslua_proto_t {
     expert_module_t *expert_module;
     module_t *prefs_module;
     dissector_handle_t handle;
+    GArray *hfa;
+    GArray *etta;
+    GArray *eia;
     gboolean is_postdissector;
+    gboolean expired;
 } wslua_proto_t;
 
 struct _wslua_distbl_t {
     dissector_table_t table;
     const gchar* name;
+    const gchar* ui_name;
+    gboolean created;
+    gboolean expired;
 };
 
 struct _wslua_col_info {
@@ -295,7 +302,7 @@ struct _wslua_dir {
 };
 
 struct _wslua_progdlg {
-    funnel_progress_window_t* pw;
+    struct progdlg* pw;
     char* title;
     char* task;
     gboolean stopped;
@@ -696,6 +703,7 @@ extern void UInt64_pack(lua_State* L, luaL_Buffer *b, gint idx, gboolean asLittl
 extern int UInt64_unpack(lua_State* L, const gchar *buff, gboolean asLittleEndian);
 
 extern Tvb* push_Tvb(lua_State* L, tvbuff_t* tvb);
+extern int push_wsluaTvb(lua_State* L, Tvb t);
 extern gboolean push_TvbRange(lua_State* L, tvbuff_t* tvb, int offset, int len);
 extern void clear_outstanding_Tvb(void);
 extern void clear_outstanding_TvbRange(void);
@@ -707,26 +715,36 @@ extern void clear_outstanding_Columns(void);
 extern void clear_outstanding_PrivateTable(void);
 
 extern int get_hf_wslua_text(void);
-extern TreeItem* push_TreeItem(lua_State* L, TreeItem ti);
+extern TreeItem push_TreeItem(lua_State *L, proto_tree *tree, proto_item *item);
 extern void clear_outstanding_TreeItem(void);
 
+extern FieldInfo* push_FieldInfo(lua_State *L, field_info* f);
 extern void clear_outstanding_FieldInfo(void);
 
 extern void wslua_print_stack(char* s, lua_State* L);
 
-extern int wslua_init(register_cb cb, gpointer client_data);
-extern int wslua_cleanup(void);
+extern void wslua_init(register_cb cb, gpointer client_data);
+extern void wslua_cleanup(void);
 
 extern tap_extractor_t wslua_get_tap_extractor(const gchar* name);
 extern int wslua_set_tap_enums(lua_State* L);
 
-extern int wslua_is_field_available(lua_State* L, const char* field_abbr);
+extern ProtoField wslua_is_field_available(lua_State* L, const char* field_abbr);
 
 extern char* wslua_get_actual_filename(const char* fname);
 
 extern int wslua_bin2hex(lua_State* L, const guint8* data, const guint len, const gboolean lowercase, const gchar* sep);
 extern int wslua_hex2bin(lua_State* L, const char* data, const guint len, const gchar* sep);
 extern int luaopen_rex_glib(lua_State *L);
+
+extern const gchar* get_current_plugin_version(void);
+extern void clear_current_plugin_version(void);
+
+extern int wslua_deregister_protocols(lua_State* L);
+extern int wslua_deregister_dissector_tables(lua_State* L);
+extern int wslua_deregister_listeners(lua_State* L);
+extern int wslua_deregister_filehandlers(lua_State* L);
+extern void wslua_deregister_menus(void);
 
 #endif
 

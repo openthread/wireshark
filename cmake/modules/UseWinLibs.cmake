@@ -12,9 +12,7 @@ if( WIN32 )
 	set( WIN_WSOCK32_LIBRARY  wsock32.lib )
 	set( WIN_COMCTL32_LIBRARY comctl32.lib )
 
-	# Looks like this is not needed after all
-	# set( WIN_SETARGV_OBJECT   setargv.obj )
-	#
-	# set( WS_LINK_FLAGS ${WS_LINK_FLAGS} "${WIN_SETARGV_OBJECT}" )
+	# Linking with setargv.obj enables "wildcard expansion" of command-line arguments
+	set( WS_LINK_FLAGS "${WS_LINK_FLAGS} setargv.obj" )
 
 endif()

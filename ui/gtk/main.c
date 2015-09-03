@@ -80,7 +80,6 @@
 #include <epan/ex-opt.h>
 #include <epan/funnel.h>
 #include <epan/expert.h>
-#include <epan/frequency-utils.h>
 #include <epan/prefs.h>
 #include <epan/prefs-int.h>
 #include <epan/tap.h>
@@ -194,6 +193,9 @@
 #include "ui/gtk/filter_expression_save_dlg.h"
 #include "ui/gtk/conversations_table.h"
 #include "ui/gtk/hostlist_table.h"
+#include "ui/gtk/service_response_time_table.h"
+#include "ui/gtk/response_time_delay_table.h"
+#include "ui/gtk/simple_stattable.h"
 #include "simple_dialog.h"
 
 #include "ui/gtk/old-gtk-compat.h"
@@ -530,10 +532,10 @@ selected_ptree_ref_cb(GtkWidget *widget _U_, gpointer data _U_)
 static gboolean
 is_address_column (gint column)
 {
-    if (((cfile.cinfo.col_fmt[column] == COL_DEF_SRC) ||
-         (cfile.cinfo.col_fmt[column] == COL_RES_SRC) ||
-         (cfile.cinfo.col_fmt[column] == COL_DEF_DST) ||
-         (cfile.cinfo.col_fmt[column] == COL_RES_DST)) &&
+    if (((cfile.cinfo.columns[column].col_fmt == COL_DEF_SRC) ||
+         (cfile.cinfo.columns[column].col_fmt == COL_RES_SRC) ||
+         (cfile.cinfo.columns[column].col_fmt == COL_DEF_DST) ||
+         (cfile.cinfo.columns[column].col_fmt == COL_RES_DST)) &&
         strlen(cfile.cinfo.col_expr.col_expr_val[column]))
     {
         return TRUE;
@@ -608,7 +610,7 @@ get_filter_from_packet_list_row_and_column(gpointer data)
                          fdata, &cfile.cinfo);
         epan_dissect_fill_in_columns(&edt, TRUE, TRUE);
 
-        if ((cfile.cinfo.col_custom_occurrence[column]) ||
+        if ((cfile.cinfo.columns[column].col_custom_occurrence) ||
             (strchr (cfile.cinfo.col_expr.col_expr_val[column], ',') == NULL))
         {
             /* Only construct the filter when a single occurrence is displayed
@@ -621,8 +623,8 @@ get_filter_from_packet_list_row_and_column(gpointer data)
             if (strlen(cfile.cinfo.col_expr.col_expr[column]) != 0 &&
                 strlen(cfile.cinfo.col_expr.col_expr_val[column]) != 0) {
                 /* leak a little; is there a safe wmem_ scope here? */
-                if (cfile.cinfo.col_fmt[column] == COL_CUSTOM) {
-                    header_field_info *hfi = proto_registrar_get_byname(cfile.cinfo.col_custom_field[column]);
+                if (cfile.cinfo.columns[column].col_fmt == COL_CUSTOM) {
+                    header_field_info *hfi = proto_registrar_get_byname(cfile.cinfo.columns[column].col_custom_field);
                     if (hfi && hfi->parent == -1) {
                         /* Protocol only */
                         buf = g_strdup(cfile.cinfo.col_expr.col_expr[column]);
@@ -950,7 +952,15 @@ void collapse_tree_cb(GtkWidget *widget _U_, gpointer data _U_)
 
 void resolve_name_cb(GtkWidget *widget _U_, gpointer data _U_)
 {
-    static const e_addr_resolve resolv_flags = {TRUE, TRUE, TRUE, TRUE, TRUE, FALSE};
+    static const e_addr_resolve resolv_flags = {
+        TRUE,   /* mac_name */
+        TRUE,   /* network_name */
+        TRUE,   /* transport_name */
+        TRUE,   /* concurrent_dns */
+        TRUE,   /* dns_pkt_addr_resolution */
+        TRUE,   /* use_external_net_name_resolver */
+        FALSE   /* load_hosts_file_from_profile_only */
+    };
 
     if (cfile.edt->tree) {
         proto_tree_draw_resolve(cfile.edt->tree, tree_view_gbl, &resolv_flags);
@@ -1229,7 +1239,13 @@ print_usage(gboolean for_help_option) {
     fprintf(output, "Processing:\n");
     fprintf(output, "  -R <read filter>         packet filter in Wireshark display filter syntax\n");
     fprintf(output, "  -n                       disable all name resolutions (def: all enabled)\n");
-    fprintf(output, "  -N <name resolve flags>  enable specific name resolution(s): \"mntC\"\n");
+    fprintf(output, "  -N <name resolve flags>  enable specific name resolution(s): \"mnNtCd\"\n");
+    fprintf(output, "  --disable-protocol <proto_name>\n");
+    fprintf(output, "                           disable dissection of proto_name\n");
+    fprintf(output, "  --enable-heuristic <short_name>\n");
+    fprintf(output, "                           enable dissection of heuristic protocol\n");
+    fprintf(output, "  --disable-heuristic <short_name>\n");
+    fprintf(output, "                           disable dissection of heuristic protocol\n");
 
     fprintf(output, "\n");
     fprintf(output, "User interface:\n");
@@ -1785,6 +1801,12 @@ main_cf_callback(gint event, gpointer data, gpointer user_data _U_)
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Rescan finished");
         main_cf_cb_file_rescan_finished(cf);
         break;
+    case(cf_cb_file_retap_started):
+        g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Retap started");
+        break;
+    case(cf_cb_file_retap_finished):
+        g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Retap finished");
+        break;
     case(cf_cb_file_fast_save_finished):
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Fast save finished");
         main_cf_cb_file_rescan_finished(cf);
@@ -2052,6 +2074,8 @@ read_configuration_files(char **gdp_path, char **dp_path)
     /* Read the disabled protocols file. */
     read_disabled_protos_list(gdp_path, &gdp_open_errno, &gdp_read_errno,
                               dp_path, &dp_open_errno, &dp_read_errno);
+    read_disabled_heur_dissector_list(gdp_path, &gdp_open_errno, &gdp_read_errno,
+                              dp_path, &dp_open_errno, &dp_read_errno);
     if (*gdp_path != NULL) {
         if (gdp_open_errno != 0) {
             simple_dialog(ESD_TYPE_WARN, ESD_BTN_OK,
@@ -2176,6 +2200,9 @@ main(int argc, char *argv[])
 #ifdef HAVE_GTKOSXAPPLICATION
     GtkosxApplication   *theApp;
 #endif
+    GSList              *disable_protocol_slist = NULL;
+    GSList              *enable_heur_slist = NULL;
+    GSList              *disable_heur_slist = NULL;
 
 #define OPTSTRING OPTSTRING_CAPTURE_COMMON "C:g:Hh" "jJ:kK:lm:nN:o:P:r:R:St:u:vw:X:Y:z:"
 DIAG_OFF(cast-qual)
@@ -2233,9 +2260,9 @@ DIAG_ON(cast-qual)
     switch (airpcap_dll_ret_val) {
         case AIRPCAP_DLL_OK:
             /* load the airpcap interfaces */
-            airpcap_if_list = get_airpcap_interface_list(&err, &err_str);
+            g_airpcap_if_list = get_airpcap_interface_list(&err, &err_str);
 
-            if (airpcap_if_list == NULL || g_list_length(airpcap_if_list) == 0){
+            if (g_airpcap_if_list == NULL || g_list_length(g_airpcap_if_list) == 0){
                 if (err == CANT_GET_AIRPCAP_INTERFACE_LIST && err_str != NULL) {
                     simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", "Failed to open Airpcap Adapters.");
                     g_free(err_str);
@@ -2245,7 +2272,7 @@ DIAG_ON(cast-qual)
             } else {
 
                 /* select the first ad default (THIS SHOULD BE CHANGED) */
-                airpcap_if_active = airpcap_get_default_if(airpcap_if_list);
+                airpcap_if_active = airpcap_get_default_if(g_airpcap_if_list);
             }
         break;
 #if 0
@@ -2534,6 +2561,9 @@ DIAG_ON(cast-qual)
     register_all_tap_listeners();
     conversation_table_set_gui_info(init_conversation_table);
     hostlist_table_set_gui_info(init_hostlist_table);
+    srt_table_iterate_tables(register_service_response_tables, NULL);
+    rtd_table_iterate_tables(register_response_time_delay_tables, NULL);
+    new_stat_tap_iterate_tables(register_simple_stat_tables, NULL);
 
     splash_update(RA_PREFERENCES, NULL, (gpointer)splash_win);
 
@@ -2666,15 +2696,12 @@ DIAG_ON(cast-qual)
                 prefs_p->gui_gtk2_font_name = g_strdup(optarg);
                 break;
             case 'n':        /* No name resolution */
-                gbl_resolv_flags.mac_name = FALSE;
-                gbl_resolv_flags.network_name = FALSE;
-                gbl_resolv_flags.transport_name = FALSE;
-                gbl_resolv_flags.concurrent_dns = FALSE;
+                disable_name_resolution();
                 break;
             case 'N':        /* Select what types of addresses/port #s to resolve */
                 badopt = string_to_name_resolve(optarg, &gbl_resolv_flags);
                 if (badopt != '\0') {
-                    cmdarg_err("-N specifies unknown resolving option '%c'; valid options are 'm', 'n', and 't'",
+                    cmdarg_err("-N specifies unknown resolving option '%c'; valid options are 'C', 'd', m', 'n', 'N', and 't'",
                                badopt);
                     exit(1);
                 }
@@ -2799,6 +2826,15 @@ DIAG_ON(cast-qual)
                     list_stat_cmd_args();
                     exit(1);
                 }
+                break;
+            case LONGOPT_DISABLE_PROTOCOL: /* disable dissection of protocol */
+                disable_protocol_slist = g_slist_append(disable_protocol_slist, optarg);
+                break;
+            case LONGOPT_ENABLE_HEURISTIC: /* enable heuristic dissection of protocol */
+                enable_heur_slist = g_slist_append(enable_heur_slist, optarg);
+                break;
+            case LONGOPT_DISABLE_HEURISTIC: /* disable heuristic dissection of protocol */
+                disable_heur_slist = g_slist_append(disable_heur_slist, optarg);
                 break;
             default:
             case '?':        /* Bad flag - print usage message */
@@ -2930,11 +2966,19 @@ DIAG_ON(cast-qual)
 
             device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
             if (device.selected) {
-#if defined(HAVE_PCAP_CREATE)
-                caps = capture_get_if_capabilities(device.name, device.monitor_mode_supported, &err_str, main_window_update);
-#else
-                caps = capture_get_if_capabilities(device.name, FALSE, &err_str,main_window_update);
+                gchar* auth_str = NULL;
+#ifdef HAVE_PCAP_REMOTE
+                if (device.remote_opts.remote_host_opts.auth_type == CAPTURE_AUTH_PWD) {
+                    auth_str = g_strdup_printf("%s:%s", device.remote_opts.remote_host_opts.auth_username,
+                                               device.remote_opts.remote_host_opts.auth_password);
+                }
 #endif
+#if defined(HAVE_PCAP_CREATE)
+                caps = capture_get_if_capabilities(device.name, device.monitor_mode_supported, auth_str, &err_str, main_window_update);
+#else
+                caps = capture_get_if_capabilities(device.name, FALSE, auth_str, &err_str,main_window_update);
+#endif
+                g_free(auth_str);
                 if (caps == NULL) {
                     cmdarg_err("%s", err_str);
                     g_free(err_str);
@@ -2997,6 +3041,31 @@ DIAG_ON(cast-qual)
     /* disabled protocols as per configuration file */
     if (gdp_path == NULL && dp_path == NULL) {
         set_disabled_protos_list();
+        set_disabled_heur_dissector_list();
+    }
+
+    if(disable_protocol_slist) {
+        GSList *proto_disable;
+        for (proto_disable = disable_protocol_slist; proto_disable != NULL; proto_disable = g_slist_next(proto_disable))
+        {
+            proto_disable_proto_by_name((char*)proto_disable->data);
+        }
+    }
+
+    if(enable_heur_slist) {
+        GSList *heur_enable;
+        for (heur_enable = enable_heur_slist; heur_enable != NULL; heur_enable = g_slist_next(heur_enable))
+        {
+            proto_enable_heuristic_by_name((char*)heur_enable->data, TRUE);
+        }
+    }
+
+    if(disable_heur_slist) {
+        GSList *heur_disable;
+        for (heur_disable = disable_heur_slist; heur_disable != NULL; heur_disable = g_slist_next(heur_disable))
+        {
+            proto_enable_heuristic_by_name((char*)heur_disable->data, FALSE);
+        }
     }
 
     build_column_format_array(&cfile.cinfo, prefs_p->num_cols, TRUE);
@@ -3839,6 +3908,7 @@ void change_configuration_profile (const gchar *profile_name)
     proto_enable_all();
     if (gdp_path == NULL && dp_path == NULL) {
         set_disabled_protos_list();
+        set_disabled_heur_dissector_list();
     }
 
     /* Reload color filters */

@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-
+#include <stdio.h>
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/exceptions.h>
@@ -33,6 +33,8 @@
 #include <epan/prefs.h>
 #include <epan/reassemble.h>
 #include <epan/tap.h>
+#include <epan/stat_tap_ui.h>
+#include <epan/srt_table.h>
 #include <epan/strutil.h>
 #include <epan/show_exception.h>
 
@@ -246,6 +248,7 @@ static int hf_rpc_fragment_too_long_fragment = -1;
 static int hf_rpc_fragment_error = -1;
 static int hf_rpc_fragment_count = -1;
 static int hf_rpc_reassembled_length = -1;
+static int hf_rpc_unknown_body = -1;
 
 /* Generated from convert_proto_tree_add_text.pl */
 static int hf_rpc_opaque_data = -1;
@@ -279,6 +282,10 @@ static dissector_handle_t rpc_handle;
 static dissector_handle_t gssapi_handle;
 static dissector_handle_t data_handle;
 
+static dissector_table_t  subdissector_call_table;
+static dissector_table_t  subdissector_reply_table;
+
+
 static guint max_rpc_tcp_pdu_size = 4 * 1024 * 1024;
 
 static const fragment_items rpc_frag_items = {
@@ -302,15 +309,135 @@ static const fragment_items rpc_frag_items = {
 /* Hash table with info on RPC program numbers */
 GHashTable *rpc_progs = NULL;
 
-/* Hash table with info on RPC procedure numbers */
-GHashTable *rpc_procs = NULL;
-
 typedef gboolean (*rec_dissector_t)(tvbuff_t *, packet_info *, proto_tree *,
 	tvbuff_t *, fragment_head *, gboolean, guint32, gboolean);
 
 static void dissect_rpc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 static void show_rpc_fraginfo(tvbuff_t *tvb, tvbuff_t *frag_tvb, proto_tree *tree,
 			      guint32 rpc_rm, fragment_head *ipfd_head, packet_info *pinfo);
+
+
+static guint32 rpc_program = 0;
+static guint32 rpc_version = 0;
+static gint32 rpc_min_proc = -1;
+static gint32 rpc_max_proc = -1;
+
+static void
+rpcstat_find_procs(const gchar *table_name _U_, ftenum_t selector_type _U_, gpointer key, gpointer value _U_, gpointer user_data _U_)
+{
+	rpc_proc_info_key *k = (rpc_proc_info_key *)key;
+
+	if (k->prog != rpc_program) {
+		return;
+	}
+	if (k->vers != rpc_version) {
+		return;
+	}
+	if (rpc_min_proc == -1) {
+		rpc_min_proc = k->proc;
+		rpc_max_proc = k->proc;
+	}
+	if ((gint32)k->proc < rpc_min_proc) {
+		rpc_min_proc = k->proc;
+	}
+	if ((gint32)k->proc > rpc_max_proc) {
+		rpc_max_proc = k->proc;
+	}
+}
+
+static void
+rpcstat_init(struct register_srt* srt, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+{
+	rpcstat_tap_data_t* tap_data = (rpcstat_tap_data_t*)get_srt_table_param_data(srt);
+	srt_stat_table *rpc_srt_table;
+	int i, hf_index;
+	header_field_info *hfi;
+	static char table_name[100];
+
+	DISSECTOR_ASSERT(tap_data);
+
+	hf_index=rpc_prog_hf(tap_data->program, tap_data->version);
+	hfi=proto_registrar_get_nth(hf_index);
+
+	g_snprintf(table_name, sizeof(table_name), "%s Version %u", tap_data->prog, tap_data->version);
+	rpc_srt_table = init_srt_table(table_name, NULL, srt_array, tap_data->num_procedures, NULL, hfi->abbrev, gui_callback, gui_data, tap_data);
+	for (i = 0; i < rpc_srt_table->num_procs; i++)
+	{
+		init_srt_table_row(rpc_srt_table, i, rpc_proc_name(tap_data->program, tap_data->version, i));
+	}
+}
+
+static int
+rpcstat_packet(void *pss, packet_info *pinfo, epan_dissect_t *edt _U_, const void *prv)
+{
+	guint i = 0;
+	srt_stat_table *rpc_srt_table;
+	srt_data_t *data = (srt_data_t *)pss;
+	const rpc_call_info_value *ri = (const rpc_call_info_value *)prv;
+	rpcstat_tap_data_t* tap_data;
+
+	rpc_srt_table = g_array_index(data->srt_array, srt_stat_table*, i);
+	tap_data = (rpcstat_tap_data_t*)rpc_srt_table->table_specific_data;
+
+	if ((int)ri->proc >= rpc_srt_table->num_procs) {
+		/* don't handle this since its outside of known table */
+		return 0;
+	}
+	/* we are only interested in reply packets */
+	if (ri->request) {
+		return 0;
+	}
+	/* we are only interested in certain program/versions */
+	if ( (ri->prog != tap_data->program) || (ri->vers != tap_data->version) ) {
+		return 0;
+	}
+
+	add_srt_table_data(rpc_srt_table, ri->proc, &ri->req_time, pinfo);
+	return 1;
+
+}
+
+static guint
+rpcstat_param(register_srt_t* srt, const char* opt_arg, char** err)
+{
+	guint pos = 0;
+	int program, version;
+	rpcstat_tap_data_t* tap_data;
+
+	if (sscanf(opt_arg, ",%d,%d%n", &program, &version, &pos) == 2)
+	{
+		tap_data = g_new0(rpcstat_tap_data_t, 1);
+
+		tap_data->prog    = rpc_prog_name(program);
+		tap_data->program = program;
+		tap_data->version = version;
+
+		set_srt_table_param_data(srt, tap_data);
+
+		rpc_program  = tap_data->program;
+		rpc_version  = tap_data->version;
+		rpc_min_proc = -1;
+		rpc_max_proc = -1;
+		/* Need to run over both dissector tables */
+		dissector_table_foreach ("rpc.call", rpcstat_find_procs, NULL);
+		dissector_table_foreach ("rpc.reply", rpcstat_find_procs, NULL);
+
+		tap_data->num_procedures = rpc_max_proc+1;
+		if (rpc_min_proc == -1) {
+			*err = g_strdup_printf("Program:%u version:%u isn't supported", rpc_program, rpc_version);
+		}
+	}
+	else
+	{
+		*err = g_strdup_printf("<program>,<version>[,<filter>]");
+	}
+
+	return pos;
+}
+
+
+
+
 
 /***********************************/
 /* Hash array with procedure names */
@@ -339,59 +466,23 @@ rpc_proc_hash(gconstpointer k)
 }
 
 
-/* insert some entries */
-void
-rpc_init_proc_table(guint prog, guint vers, const vsff *proc_table,
-		    int procedure_hf)
-{
-	rpc_prog_info_key rpc_prog_key;
-	rpc_prog_info_value *rpc_prog;
-	const vsff *proc;
-
-	/*
-	 * Add the operation number hfinfo value for this version of the
-	 * program.
-	 */
-	rpc_prog_key.prog = prog;
-	rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs, &rpc_prog_key);
-	DISSECTOR_ASSERT(rpc_prog != NULL);
-	rpc_prog->procedure_hfs = g_array_set_size(rpc_prog->procedure_hfs,
-	    vers);
-	g_array_insert_val(rpc_prog->procedure_hfs, vers, procedure_hf);
-
-	for (proc = proc_table ; proc->strptr!=NULL; proc++) {
-		rpc_proc_info_key *key;
-		rpc_proc_info_value *value;
-
-		key = (rpc_proc_info_key *) g_malloc(sizeof(rpc_proc_info_key));
-		key->prog = prog;
-		key->vers = vers;
-		key->proc = proc->value;
-
-		value = (rpc_proc_info_value *) g_malloc(sizeof(rpc_proc_info_value));
-		value->name = proc->strptr;
-		value->dissect_call = proc->dissect_call;
-		value->dissect_reply = proc->dissect_reply;
-
-		g_hash_table_insert(rpc_procs,key,value);
-	}
-}
-
-
 /*	return the name associated with a previously registered procedure. */
 const char *
 rpc_proc_name(guint32 prog, guint32 vers, guint32 proc)
 {
 	rpc_proc_info_key key;
-	rpc_proc_info_value *value;
+	dissector_handle_t dissect_function;
 	const char *procname;
 
 	key.prog = prog;
 	key.vers = vers;
 	key.proc = proc;
 
-	if ((value = (rpc_proc_info_value *)g_hash_table_lookup(rpc_procs,&key)) != NULL)
-		procname = value->name;
+	/* Look at both tables for possible procedure names */
+	if ((dissect_function = dissector_get_custom_table_handle(subdissector_call_table, &key)) != NULL)
+		procname = dissector_handle_get_dissector_name(dissect_function);
+	else if ((dissect_function = dissector_get_custom_table_handle(subdissector_reply_table, &key)) != NULL)
+		procname = dissector_handle_get_dissector_name(dissect_function);
 	else {
 		/* happens only with strange program versions or
 		   non-existing dissectors */
@@ -409,27 +500,6 @@ rpc_proc_name(guint32 prog, guint32 vers, guint32 proc)
 /* Hash array with program names */
 /*********************************/
 
-/* compare 2 keys */
-static gint
-rpc_prog_equal(gconstpointer k1, gconstpointer k2)
-{
-	const rpc_prog_info_key* key1 = (const rpc_prog_info_key*) k1;
-	const rpc_prog_info_key* key2 = (const rpc_prog_info_key*) k2;
-
-	return ((key1->prog == key2->prog) ?
-	TRUE : FALSE);
-}
-
-
-/* calculate a hash key */
-static guint
-rpc_prog_hash(gconstpointer k)
-{
-	const rpc_prog_info_key* key = (const rpc_prog_info_key*) k;
-
-	return (key->prog);
-}
-
 static void
 rpc_prog_free_val(gpointer v)
 {
@@ -440,13 +510,12 @@ rpc_prog_free_val(gpointer v)
 }
 
 void
-rpc_init_prog(int proto, guint32 prog, int ett)
+rpc_init_prog(int proto, guint32 prog, int ett, size_t nvers,
+    const rpc_prog_vers_info *versions)
 {
-	rpc_prog_info_key *key;
 	rpc_prog_info_value *value;
-
-	key = (rpc_prog_info_key *) g_malloc(sizeof(rpc_prog_info_key));
-	key->prog = prog;
+	size_t versidx;
+	const vsff *proc;
 
 	value = (rpc_prog_info_value *) g_malloc(sizeof(rpc_prog_info_value));
 	value->proto = find_protocol_by_id(proto);
@@ -455,7 +524,53 @@ rpc_init_prog(int proto, guint32 prog, int ett)
 	value->progname = proto_get_protocol_short_name(value->proto);
 	value->procedure_hfs = g_array_new(FALSE, TRUE, sizeof (int));
 
-	g_hash_table_insert(rpc_progs,key,value);
+	g_hash_table_insert(rpc_progs,GUINT_TO_POINTER(prog),value);
+
+	/*
+	 * Now register each of the versions of the program.
+	 */
+	for (versidx = 0; versidx < nvers; versidx++) {
+		/*
+		 * Add the operation number hfinfo value for this version.
+		 */
+		value->procedure_hfs = g_array_set_size(value->procedure_hfs,
+		    versions[versidx].vers);
+		g_array_insert_val(value->procedure_hfs,
+		    versions[versidx].vers, *versions[versidx].procedure_hf);
+
+		for (proc = versions[versidx].proc_table; proc->strptr != NULL;
+		    proc++) {
+			rpc_proc_info_key key;
+
+			key.prog = prog;
+			key.vers = versions[versidx].vers;
+			key.proc = proc->value;
+
+			if (proc->dissect_call == NULL) {
+				fprintf(stderr, "OOPS: No call handler for %s version %u procedure %s\n",
+				    proto_get_protocol_long_name(value->proto),
+				    versions[versidx].vers,
+				    proc->strptr);
+				if (getenv("WIRESHARK_ABORT_ON_DISSECTOR_BUG") != NULL)
+					abort();
+				continue;
+			}
+			dissector_add_custom_table_handle("rpc.call", g_memdup(&key, sizeof(rpc_proc_info_key)),
+						new_create_dissector_handle_with_name(proc->dissect_call, value->proto_id, proc->strptr));
+
+			if (proc->dissect_reply == NULL) {
+				fprintf(stderr, "OOPS: No call handler for %s version %u procedure %s\n",
+				    proto_get_protocol_long_name(value->proto),
+				    versions[versidx].vers,
+				    proc->strptr);
+				if (getenv("WIRESHARK_ABORT_ON_DISSECTOR_BUG") != NULL)
+					abort();
+				continue;
+			}
+			dissector_add_custom_table_handle("rpc.reply", g_memdup(&key, sizeof(rpc_proc_info_key)),
+					new_create_dissector_handle_with_name(proc->dissect_reply, value->proto_id, proc->strptr));
+		}
+	}
 }
 
 
@@ -465,11 +580,9 @@ rpc_init_prog(int proto, guint32 prog, int ett)
 int
 rpc_prog_hf(guint32 prog, guint32 vers)
 {
-	rpc_prog_info_key       rpc_prog_key;
 	rpc_prog_info_value     *rpc_prog;
 
-	rpc_prog_key.prog = prog;
-	if ((rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs,&rpc_prog_key))) {
+	if ((rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs,GUINT_TO_POINTER(prog)))) {
 		return g_array_index(rpc_prog->procedure_hfs, int, vers);
 	}
 	return -1;
@@ -482,11 +595,9 @@ const char *
 rpc_prog_name(guint32 prog)
 {
 	const char *progname = NULL;
-	rpc_prog_info_key       rpc_prog_key;
 	rpc_prog_info_value     *rpc_prog;
 
-	rpc_prog_key.prog = prog;
-	if ((rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs,&rpc_prog_key)) == NULL) {
+	if ((rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs,GUINT_TO_POINTER(prog))) == NULL) {
 		progname = "Unknown";
 	}
 	else {
@@ -1177,6 +1288,25 @@ dissect_rpc_cred(tvbuff_t* tvb, proto_tree* tree, int offset,
 	return offset;
 }
 
+int
+dissect_rpc_opaque_auth(tvbuff_t* tvb, proto_tree* tree, int offset,
+			packet_info *pinfo)
+{
+	conversation_t *conv = NULL;
+	rpc_conv_info_t *conv_info = NULL;
+
+	if (pinfo->ptype == PT_TCP)
+		conv = find_conversation(pinfo->fd->num, &pinfo->src,
+				&pinfo->dst, pinfo->ptype, pinfo->srcport,
+				pinfo->destport, 0);
+
+	if (conv)
+		conv_info = (rpc_conv_info_t *)conversation_get_proto_data(conv,
+							proto_rpc);
+
+	return dissect_rpc_cred(tvb, tree, offset, pinfo, conv_info);
+}
+
 /*
  * XDR opaque object, the contents of which are interpreted as a GSS-API
  * token.
@@ -1391,12 +1521,12 @@ dissect_auth_gssapi_data(tvbuff_t *tvb, proto_tree *tree, int offset)
 
 static int
 call_dissect_function(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-	int offset, dissect_function_t* dissect_function, const char *progname,
+	int offset, dissector_handle_t dissect_function, const char *progname,
 	rpc_call_info_value *rpc_call)
 {
 	const char *saved_proto;
+	tvbuff_t *next_tvb;
 
-	tvb_ensure_captured_length_remaining(tvb, offset);
 	if (dissect_function != NULL) {
 		/* set the current protocol name */
 		saved_proto = pinfo->current_proto;
@@ -1404,7 +1534,8 @@ call_dissect_function(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			pinfo->current_proto = progname;
 
 		/* call the dissector for the next level */
-		offset = dissect_function(tvb, offset, pinfo, tree, rpc_call);
+		next_tvb = tvb_new_subset_remaining(tvb, offset);
+		offset += call_dissector_with_data(dissect_function, next_tvb, pinfo, tree, rpc_call);
 
 		/* restore the protocol name */
 		pinfo->current_proto = saved_proto;
@@ -1417,7 +1548,7 @@ call_dissect_function(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static int
 dissect_rpc_authgss_integ_data(tvbuff_t *tvb, packet_info *pinfo,
 	proto_tree *tree, int offset,
-	dissect_function_t* dissect_function,
+	dissector_handle_t dissect_function,
 	const char *progname, rpc_call_info_value *rpc_call)
 {
 	guint32 length, rounded_length, seq;
@@ -1499,17 +1630,15 @@ dissect_rpc_indir_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	conversation_t* conversation;
 	static address null_address = { AT_NONE, 0, NULL };
 	rpc_proc_info_key key;
-	rpc_proc_info_value *value;
 	rpc_call_info_value *rpc_call;
-	dissect_function_t *dissect_function = NULL;
+	dissector_handle_t dissect_function = NULL;
 	rpc_conv_info_t *rpc_conv_info=NULL;
 	guint32 xid;
 
 	key.prog = prog;
 	key.vers = vers;
 	key.proc = proc;
-	if ((value = (rpc_proc_info_value *)g_hash_table_lookup(rpc_procs,&key)) != NULL) {
-		dissect_function = value->dissect_call;
+	if ((dissect_function = dissector_get_custom_table_handle(subdissector_call_table, &key)) != NULL) {
 
 		/* Keep track of the address whence the call came, and the
 		   port to which the call is being sent, so that we can
@@ -1609,7 +1738,6 @@ dissect_rpc_indir_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			rpc_call->flavor = FLAVOR_NOT_GSSAPI;
 			rpc_call->gss_proc = 0;
 			rpc_call->gss_svc = 0;
-			rpc_call->proc_info = (rpc_proc_info_value*)wmem_memdup(wmem_file_scope(), value, sizeof(*value));
 			/* store it */
 			wmem_tree_insert32(rpc_conv_info->xids, xid, (void *)rpc_call);
 		}
@@ -1648,8 +1776,9 @@ dissect_rpc_indir_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	static address null_address = { AT_NONE, 0, NULL };
 	rpc_call_info_value *rpc_call;
 	const char *procname=NULL;
-	dissect_function_t *dissect_function = NULL;
+	dissector_handle_t dissect_function = NULL;
 	rpc_conv_info_t *rpc_conv_info=NULL;
+	rpc_proc_info_key	key;
 	guint32 xid;
 
 	/* Look for the matching call in the xid table.
@@ -1718,19 +1847,15 @@ dissect_rpc_indir_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		return offset;
 	}
 
-	if (rpc_call->proc_info != NULL) {
-		dissect_function = rpc_call->proc_info->dissect_reply;
-		if (rpc_call->proc_info->name != NULL) {
-			procname = rpc_call->proc_info->name;
-		}
-		else {
-			procname=wmem_strdup_printf(wmem_packet_scope(), "proc-%u", rpc_call->proc);
-		}
+	key.prog = rpc_call->prog;
+	key.vers = rpc_call->vers;
+	key.proc = rpc_call->proc;
+
+	dissect_function = dissector_get_custom_table_handle(subdissector_reply_table, &key);
+	if (dissect_function != NULL) {
+		procname = dissector_handle_get_dissector_name(dissect_function);
 	}
 	else {
-#if 0
-		dissect_function = NULL;
-#endif
 		procname=wmem_strdup_printf(wmem_packet_scope(), "proc-%u", rpc_call->proc);
 	}
 
@@ -1791,39 +1916,19 @@ dissect_rpc_continuation(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 }
 
 
-/**
- *  Produce a dummy RPC program entry for the given RPC program key
- *  and version values.
- */
-
-static void
-make_fake_rpc_prog_if_needed (rpc_prog_info_key *prpc_prog_key, guint prog_ver)
+int
+dissect_rpc_void(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_)
 {
-	/* sanity check: no one uses versions > 10 */
-	if(prog_ver>10){
-		return;
-	}
+	return 0;
+}
 
-	if(g_hash_table_lookup(rpc_progs, prpc_prog_key) == NULL) {
-		/* ok this is not a known rpc program so we
-		 * will have to fake it.
-		 */
-		int proto_rpc_unknown_program;
-		char *NAME, *Name, *name;
-		static const vsff unknown_proc[] = {
-			{ 0,"NULL",NULL,NULL },
-			{ 0,NULL,NULL,NULL }
-		};
+int
+dissect_rpc_unknown(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_)
+{
+	guint captured_length = tvb_captured_length(tvb);
 
-		NAME = g_strdup_printf("Unknown RPC Program:%d",prpc_prog_key->prog);
-		Name = g_strdup_printf("RPC:%d",prpc_prog_key->prog);
-		name = g_strdup_printf("rpc%d",prpc_prog_key->prog);
-		proto_rpc_unknown_program = proto_register_protocol(NAME, Name, name);
-
-		rpc_init_prog(proto_rpc_unknown_program, prpc_prog_key->prog, ett_rpc_unknown_program);
-		rpc_init_proc_table(prpc_prog_key->prog, prog_ver, unknown_proc, hf_rpc_procedure);
-
-	}
+	proto_tree_add_item(tree, hf_rpc_unknown_body, tvb, 0, captured_length, ENC_NA);
+	return captured_length;
 }
 
 static gboolean
@@ -1834,7 +1939,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	guint32	msg_type;
 	rpc_call_info_value *rpc_call = NULL;
 	rpc_prog_info_value *rpc_prog = NULL;
-	rpc_prog_info_key rpc_prog_key;
+	guint32 rpc_prog_key;
 
 	unsigned int xid;
 	unsigned int rpcvers;
@@ -1870,12 +1975,11 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	int offset = (is_tcp && tvb == frag_tvb) ? 4 : 0;
 
 	rpc_proc_info_key	key;
-	rpc_proc_info_value	*value = NULL;
 	conversation_t* conversation;
 	static address null_address = { AT_NONE, 0, NULL };
 	nstime_t ns;
 
-	dissect_function_t *dissect_function = NULL;
+	dissector_handle_t dissect_function = NULL;
 	gboolean dissect_rpc_flag = TRUE;
 
 	rpc_conv_info_t *rpc_conv_info=NULL;
@@ -1921,34 +2025,49 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 		   and report it as RPC (but not dissect the payload if
 		   we don't have a subdissector) if it matches. */
-		rpc_prog_key.prog = tvb_get_ntohl(tvb, offset + 12);
+		rpc_prog_key = tvb_get_ntohl(tvb, offset + 12);
 
 		/* we only dissect version 2 */
 		if (tvb_get_ntohl(tvb, offset + 8) != 2 ){
 			return FALSE;
 		}
-		/* let the user be able to weaken the heuristics if he need
-		 * to look at proprietary protocols not known
-		 * to wireshark.
-		 */
-		if(rpc_dissect_unknown_programs){
+		/* Do we know this program? */
+		if( (rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs, GUINT_TO_POINTER(rpc_prog_key))) != NULL) {
+			/* Yes. */
+			proto = rpc_prog->proto;
+			proto_id = rpc_prog->proto_id;
+			ett = rpc_prog->ett;
+			progname = rpc_prog->progname;
+		} else {
 			guint32 version;
 
-			/* if the user has specified that he wants to try to
-			 * dissect even completely unknown RPC program numbers
+			/* No.
+			 * If the user has specified that he wants to try to
+			 * dissect even completely unknown RPC program numbers,
 			 * then let him do that.
-			 * In this case we only check that the program number
-			 * is neither 0 nor -1 which is better than nothing.
 			 */
-			if(rpc_prog_key.prog==0 || rpc_prog_key.prog==0xffffffff){
+			if(!rpc_dissect_unknown_programs){
+				/* They didn't, so just fail. */
+				return FALSE;
+			}
+			/* Yes.  Use some heuristics to keep from matching
+			 * any packet with a 2 in the appropriate location.
+			 * We check that the program number is neither
+			 * 0 nor -1, and that the version is <= 10, which
+			 * is better than nothing.
+			 */
+			if(rpc_prog_key==0 || rpc_prog_key==0xffffffff){
 				return FALSE;
 			}
 			version=tvb_get_ntohl(tvb, offset+16);
-			make_fake_rpc_prog_if_needed (&rpc_prog_key, version);
-		}
-		if( (rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs, &rpc_prog_key)) == NULL) {
-			/* They're not, so it's probably not an RPC call. */
-			return FALSE;
+			if(version>10){
+				return FALSE;
+			}
+
+			proto = NULL;
+			proto_id = 0;
+			ett = ett_rpc_unknown_program;
+			progname = wmem_strdup_printf(wmem_packet_scope(), "Unknown RPC program %u", rpc_prog_key);
 		}
 		break;
 
@@ -2029,9 +2148,6 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 			/* store it */
 			wmem_tree_insert32(rpc_conv_info->xids, xid, (void *)rpc_call);
-
-			/* and fake up a matching program */
-			rpc_prog_key.prog = rpc_call->prog;
 		}
 
 		/* pass rpc_info to subdissectors */
@@ -2090,13 +2206,6 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	switch (msg_type) {
 
 	case RPC_CALL:
-		/* we know already the proto-entry, the ETT-const,
-		   and "rpc_prog" */
-		proto = rpc_prog->proto;
-		proto_id = rpc_prog->proto_id;
-		ett = rpc_prog->ett;
-		progname = rpc_prog->progname;
-
 		rpcvers = tvb_get_ntohl(tvb, offset);
 		if (rpc_tree) {
 			proto_tree_add_uint(rpc_tree,
@@ -2127,16 +2236,14 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		key.vers = vers;
 		key.proc = proc;
 
-		if ((value = (rpc_proc_info_value *)g_hash_table_lookup(rpc_procs,&key)) != NULL) {
-			dissect_function = value->dissect_call;
-			procname = value->name;
+		if ((dissect_function = dissector_get_custom_table_handle(subdissector_call_table, &key)) != NULL) {
+			procname = dissector_handle_get_dissector_name(dissect_function);
 		}
 		else {
-			/* happens only with strange program versions or
-			   non-existing dissectors */
-#if 0
-			dissect_function = NULL;
-#endif
+			/* happens only with unknown program or version
+			 * numbers
+			 */
+			dissect_function = data_handle;
 			procname=wmem_strdup_printf(wmem_packet_scope(), "proc-%u", proc);
 		}
 
@@ -2315,7 +2422,6 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			rpc_call->flavor = flavor;
 			rpc_call->gss_proc = gss_proc;
 			rpc_call->gss_svc = gss_svc;
-			rpc_call->proc_info = value ? (rpc_proc_info_value*)wmem_memdup(wmem_file_scope(), value, sizeof(*value)) : NULL;
 			rpc_call->req_time = pinfo->fd->abs_ts;
 
 			/* store it */
@@ -2352,27 +2458,23 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	case RPC_REPLY:
 		/* we know already the type from the calling routine,
 		   and we already have "rpc_call" set above. */
-		prog = rpc_call->prog;
-		vers = rpc_call->vers;
-		proc = rpc_call->proc;
+		key.prog = prog = rpc_call->prog;
+		key.vers = vers = rpc_call->vers;
+		key.proc = proc = rpc_call->proc;
 		flavor = rpc_call->flavor;
 		gss_proc = rpc_call->gss_proc;
 		gss_svc = rpc_call->gss_svc;
 
-		if (rpc_call->proc_info != NULL) {
-			dissect_function = rpc_call->proc_info->dissect_reply;
-			if (rpc_call->proc_info->name != NULL) {
-				procname = rpc_call->proc_info->name;
-			}
-			else {
-				procname=wmem_strdup_printf(wmem_packet_scope(), "proc-%u", proc);
-			}
+		dissect_function = dissector_get_custom_table_handle(subdissector_reply_table, &key);
+		if (dissect_function != NULL) {
+			procname = dissector_handle_get_dissector_name(dissect_function);
 		}
 		else {
-#if 0
-			dissect_function = NULL;
-#endif
-			procname=wmem_strdup_printf(wmem_packet_scope(), "proc-%u", proc);
+			/* happens only with unknown program or version
+			 * numbers
+			 */
+			dissect_function = data_handle;
+			procname=wmem_strdup_printf(wmem_packet_scope(), "proc-%u", rpc_call->proc);
 		}
 
 		/*
@@ -2386,8 +2488,8 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			procname = val_to_str_const(gss_proc, rpc_authgssapi_proc, "(null)");
 		}
 
-		rpc_prog_key.prog = prog;
-		if ((rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs,&rpc_prog_key)) == NULL) {
+		rpc_prog_key = prog;
+		if ((rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs,GUINT_TO_POINTER(rpc_prog_key))) == NULL) {
 			proto = NULL;
 			proto_id = 0;
 			ett = 0;
@@ -2670,7 +2772,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 	/* proto==0 if this is an unknown program */
 	if( (proto==0) || !proto_is_protocol_enabled(proto)){
-		dissect_function = NULL;
+		dissect_function = data_handle;
 	}
 
 	/*
@@ -3696,16 +3798,160 @@ dissect_rpc_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 static void
 rpc_init_protocol(void)
 {
-	if (rpc_reassembly_table != NULL) {
-		g_hash_table_destroy(rpc_reassembly_table);
-		rpc_reassembly_table = NULL;
-	}
-
 	rpc_reassembly_table = g_hash_table_new(rpc_fragment_hash,
 	    rpc_fragment_equal);
-
 	reassembly_table_init(&rpc_fragment_table,
 	    &addresses_ports_reassembly_table_functions);
+}
+
+static void
+rpc_cleanup_protocol(void)
+{
+	reassembly_table_destroy(&rpc_fragment_table);
+	g_hash_table_destroy(rpc_reassembly_table);
+}
+
+/* Tap statistics */
+typedef enum
+{
+	PROGRAM_NAME_COLUMN,
+	PROGRAM_NUM_COLUMN,
+	VERSION_COLUMN,
+	CALLS_COLUMN,
+	MIN_SRT_COLUMN,
+	MAX_SRT_COLUMN,
+	AVG_SRT_COLUMN
+} rpc_prog_stat_columns;
+
+static stat_tap_table_item rpc_prog_stat_fields[] = {
+	{TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Program", "%-25s"},
+	{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Program Num", "%u"},
+	{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Version", "%u"},
+	{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Calls", "%u"},
+	{TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Min SRT (s)", "%.2f"},
+	{TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Max SRT (s)", "%.2f"},
+	{TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Avg SRT (s)", "%.2f"}
+};
+
+static void rpc_prog_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+{
+	int num_fields = sizeof(rpc_prog_stat_fields)/sizeof(stat_tap_table_item);
+	new_stat_tap_table* table;
+
+	table = new_stat_tap_init_table("ONC-RPC Program Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+	new_stat_tap_add_table(new_stat, table);
+
+}
+
+static gboolean
+rpc_prog_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const void *rciv_ptr)
+{
+	new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+	const rpc_call_info_value *ri = (const rpc_call_info_value *)rciv_ptr;
+	int num_fields = sizeof(rpc_prog_stat_fields)/sizeof(stat_tap_table_item);
+	nstime_t delta;
+	double delta_s = 0.0;
+	guint call_count;
+	guint element;
+	gboolean found = FALSE;
+	new_stat_tap_table* table;
+	stat_tap_table_item_type* item_data;
+
+	table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, 0);
+
+	for (element = 0; element < table->num_elements; element++)
+	{
+		stat_tap_table_item_type *program_data, *version_data;
+		program_data = new_stat_tap_get_field_data(table, element, PROGRAM_NUM_COLUMN);
+		version_data = new_stat_tap_get_field_data(table, element, VERSION_COLUMN);
+
+		if ((ri->prog == program_data->value.uint_value) && (ri->vers == version_data->value.uint_value)) {
+			found = TRUE;
+			break;
+		}
+	}
+
+	if (!found) {
+		/* Add a new row */
+		stat_tap_table_item_type items[sizeof(rpc_prog_stat_fields)/sizeof(stat_tap_table_item)];
+		memset(items, 0, sizeof(items));
+
+		items[PROGRAM_NAME_COLUMN].type = TABLE_ITEM_STRING;
+		items[PROGRAM_NAME_COLUMN].value.string_value = g_strdup(rpc_prog_name(ri->prog));
+		items[PROGRAM_NUM_COLUMN].type = TABLE_ITEM_UINT;
+		items[PROGRAM_NUM_COLUMN].value.uint_value = ri->prog;
+		items[VERSION_COLUMN].type = TABLE_ITEM_UINT;
+		items[VERSION_COLUMN].value.uint_value = ri->vers;
+		items[CALLS_COLUMN].type = TABLE_ITEM_UINT;
+		items[MIN_SRT_COLUMN].type = TABLE_ITEM_FLOAT;
+		items[MAX_SRT_COLUMN].type = TABLE_ITEM_FLOAT;
+		items[AVG_SRT_COLUMN].type = TABLE_ITEM_FLOAT;
+
+		new_stat_tap_init_table_row(table, element, num_fields, items);
+	}
+
+	/* we are only interested in reply packets */
+	if (ri->request) {
+		return FALSE;
+	}
+
+	item_data = new_stat_tap_get_field_data(table, element, CALLS_COLUMN);
+	item_data->value.uint_value++;
+	call_count = item_data->value.uint_value;
+	new_stat_tap_set_field_data(table, element, CALLS_COLUMN, item_data);
+
+	/* calculate time delta between request and reply */
+	nstime_delta(&delta, &pinfo->fd->abs_ts, &ri->req_time);
+	delta_s = nstime_to_sec(&delta);
+
+	item_data = new_stat_tap_get_field_data(table, element, MIN_SRT_COLUMN);
+	if (item_data->value.float_value == 0.0 || delta_s < item_data->value.float_value) {
+		item_data->value.float_value = delta_s;
+		new_stat_tap_set_field_data(table, element, MIN_SRT_COLUMN, item_data);
+	}
+
+	item_data = new_stat_tap_get_field_data(table, element, MAX_SRT_COLUMN);
+	if (item_data->value.float_value == 0.0 || delta_s > item_data->value.float_value) {
+		item_data->value.float_value = delta_s;
+		new_stat_tap_set_field_data(table, element, MAX_SRT_COLUMN, item_data);
+	}
+
+	item_data = new_stat_tap_get_field_data(table, element, AVG_SRT_COLUMN);
+	item_data->user_data.float_value += delta_s;
+	item_data->value.float_value = item_data->user_data.float_value / call_count;
+	new_stat_tap_set_field_data(table, element, AVG_SRT_COLUMN, item_data);
+
+	return TRUE;
+}
+
+static void
+rpc_prog_stat_reset(new_stat_tap_table* table)
+{
+	guint element;
+	stat_tap_table_item_type* item_data;
+
+	for (element = 0; element < table->num_elements; element++)
+	{
+		item_data = new_stat_tap_get_field_data(table, element, CALLS_COLUMN);
+		item_data->value.uint_value = 0;
+		new_stat_tap_set_field_data(table, element, CALLS_COLUMN, item_data);
+		item_data = new_stat_tap_get_field_data(table, element, MIN_SRT_COLUMN);
+		item_data->value.float_value = 0.0;
+		new_stat_tap_set_field_data(table, element, MIN_SRT_COLUMN, item_data);
+		item_data = new_stat_tap_get_field_data(table, element, MAX_SRT_COLUMN);
+		item_data->value.float_value = 0.0;
+		new_stat_tap_set_field_data(table, element, MAX_SRT_COLUMN, item_data);
+		item_data = new_stat_tap_get_field_data(table, element, AVG_SRT_COLUMN);
+		item_data->value.float_value = 0.0;
+		new_stat_tap_set_field_data(table, element, AVG_SRT_COLUMN, item_data);
+	}
+}
+
+static void
+rpc_prog_stat_free_table_item(new_stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
+{
+	if (column != PROGRAM_NAME_COLUMN) return;
+	g_free((char*)field_data->value.string_value);
 }
 
 /* will be called once from register.c at startup time */
@@ -3946,6 +4192,9 @@ proto_register_rpc(void)
 		{ "Reassembled RPC length", "rpc.reassembled.length", FT_UINT32, BASE_DEC, NULL, 0x0,
 			"The total length of the reassembled payload", HFILL }},
 
+		{ &hf_rpc_unknown_body,
+		{ "Unknown RPC call/reply body", "rpc.unknown_body", FT_NONE, BASE_NONE, NULL, 0x0,
+			NULL, HFILL }},
 	};
 	static gint *ett[] = {
 		&ett_rpc,
@@ -3971,7 +4220,29 @@ proto_register_rpc(void)
 	module_t *rpc_module;
 	expert_module_t* expert_rpc;
 
+	static tap_param rpc_prog_stat_params[] = {
+		{ PARAM_FILTER, "filter", "Filter", NULL, TRUE }
+	};
+
+	static new_stat_tap_ui rpc_prog_stat_table = {
+		REGISTER_STAT_GROUP_UNSORTED,
+		"ONC-RPC Programs",
+		"rpc",
+		"rpc,programs",
+		rpc_prog_stat_init,
+		rpc_prog_stat_packet,
+		rpc_prog_stat_reset,
+		rpc_prog_stat_free_table_item,
+		NULL,
+		sizeof(rpc_prog_stat_fields)/sizeof(stat_tap_table_item), rpc_prog_stat_fields,
+		sizeof(rpc_prog_stat_params)/sizeof(tap_param), rpc_prog_stat_params,
+		NULL
+	};
+
 	proto_rpc = proto_register_protocol("Remote Procedure Call", "RPC", "rpc");
+
+	subdissector_call_table = register_custom_dissector_table("rpc.call", "RPC Call Functions", rpc_proc_hash, rpc_proc_equal);
+	subdissector_reply_table = register_custom_dissector_table("rpc.reply", "RPC Reply Functions", rpc_proc_hash, rpc_proc_equal);
 
 	/* this is a dummy dissector for all those unknown rpc programs */
 	proto_register_field_array(proto_rpc, hf, array_length(hf));
@@ -3979,6 +4250,7 @@ proto_register_rpc(void)
 	expert_rpc = expert_register_protocol(proto_rpc);
 	expert_register_field_array(expert_rpc, ei, array_length(ei));
 	register_init_routine(&rpc_init_protocol);
+	register_cleanup_routine(&rpc_cleanup_protocol);
 
 	rpc_module = prefs_register_protocol(proto_rpc, NULL);
 	prefs_register_bool_preference(rpc_module, "desegment_rpc_over_tcp",
@@ -4011,6 +4283,9 @@ proto_register_rpc(void)
 	new_register_dissector("rpc-tcp", dissect_rpc_tcp, proto_rpc);
 	rpc_tap = register_tap("rpc");
 
+	register_srt_table(proto_rpc, NULL, 1, rpcstat_packet, rpcstat_init, rpcstat_param);
+	register_new_stat_tap_ui(&rpc_prog_stat_table);
+
 	/*
 	 * Init the hash tables.  Dissectors for RPC protocols must
 	 * have a "handoff registration" routine that registers the
@@ -4022,10 +4297,8 @@ proto_register_rpc(void)
 	 * will be called before any handoff registration routines
 	 * are called.
 	 */
-	rpc_progs = g_hash_table_new_full(rpc_prog_hash, rpc_prog_equal,
-			g_free, rpc_prog_free_val);
-	rpc_procs = g_hash_table_new_full(rpc_proc_hash, rpc_proc_equal,
-			g_free, g_free);
+	rpc_progs = g_hash_table_new_full(g_direct_hash, g_direct_equal,
+			NULL, rpc_prog_free_val);
 
 	authgss_contexts=wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 }
@@ -4046,8 +4319,8 @@ proto_reg_handoff_rpc(void)
 	rpc_handle = find_dissector("rpc");
 	dissector_add_uint("udp.port", 111, rpc_handle);
 
-	heur_dissector_add("tcp", dissect_rpc_tcp_heur, proto_rpc);
-	heur_dissector_add("udp", dissect_rpc_heur, proto_rpc);
+	heur_dissector_add("tcp", dissect_rpc_tcp_heur, "RPC over TCP", "rpc_tcp", proto_rpc, HEURISTIC_ENABLE);
+	heur_dissector_add("udp", dissect_rpc_heur, "RPC over UDP", "rpc_udp", proto_rpc, HEURISTIC_ENABLE);
 	gssapi_handle = find_dissector("gssapi");
 	spnego_krb5_wrap_handle = find_dissector("spnego-krb5-wrap");
 	data_handle = find_dissector("data");
@@ -4065,4 +4338,3 @@ proto_reg_handoff_rpc(void)
  * ex: set shiftwidth=8 tabstop=8 noexpandtab:
  * :indentSize=8:tabSize=8:noTabs=false:
  */
-

@@ -26,6 +26,8 @@
 
 #include <epan/proto.h>
 
+#include "protocol_preferences_menu.h"
+
 #include <QTreeWidget>
 #include <QMenu>
 
@@ -36,9 +38,11 @@ class ProtoTree : public QTreeWidget
     Q_OBJECT
 public:
     explicit ProtoTree(QWidget *parent = 0);
+    QMenu *colorizeMenu() { return &colorize_menu_; }
     void fillProtocolTree(proto_tree *protocol_tree);
     void emitRelatedFrame(int related_frame, ft_framenum_type_t framenum_type = FT_FRAMENUM_NONE);
     void goToField(int hf_id);
+    void closeContextMenu();
     void clear();
 
 protected:
@@ -47,7 +51,10 @@ protected:
 private:
     QMenu ctx_menu_;
     QMenu conv_menu_;
+    QMenu colorize_menu_;
+    ProtocolPreferencesMenu proto_prefs_menu_;
     QAction *decode_as_;
+    QList<QAction *> copy_actions_;
     QFont mono_font_;
 
 signals:
@@ -56,6 +63,8 @@ signals:
     void openPacketInNewWindow(bool);
     void goToPacket(int);
     void relatedFrame(int, ft_framenum_type_t);
+    void showProtocolPreferences(const QString module_name);
+    void editProtocolPreference(struct preference *pref, struct pref_module *module);
 
 public slots:
     void setMonospaceFont(const QFont &mono_font);

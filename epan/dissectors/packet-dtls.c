@@ -129,6 +129,7 @@ static gint ett_dtls_fragment          = -1;
 static gint ett_dtls_fragments         = -1;
 
 static expert_field ei_dtls_handshake_fragment_length_too_long = EI_INIT;
+static expert_field ei_dtls_handshake_fragment_length_zero = EI_INIT;
 static expert_field ei_dtls_handshake_fragment_past_end_msg = EI_INIT;
 static expert_field ei_dtls_msg_len_diff_fragment = EI_INIT;
 static expert_field ei_dtls_heartbeat_payload_length = EI_INIT;
@@ -184,7 +185,7 @@ dtls_init(void)
   module_t *dtls_module = prefs_find_module("dtls");
   pref_t   *keys_list_pref;
 
-  ssl_common_init(&dtls_master_key_map, &dtls_keylog_file,
+  ssl_common_init(&dtls_master_key_map,
                   &dtls_decrypted_data, &dtls_compressed_data);
   reassembly_table_init (&dtls_reassembly_table, &addresses_ports_reassembly_table_functions);
 
@@ -195,6 +196,14 @@ dtls_init(void)
       prefs_set_preference_obsolete(keys_list_pref);
     }
   }
+}
+
+static void
+dtls_cleanup(void)
+{
+  reassembly_table_destroy(&dtls_reassembly_table);
+  ssl_common_cleanup(&dtls_master_key_map, &dtls_keylog_file,
+                     &dtls_decrypted_data, &dtls_compressed_data);
 }
 
 /* parse dtls related preferences (private keys and ports association strings) */
@@ -249,8 +258,10 @@ dtls_parse_old_keys(void)
     for (i = 0; old_keys[i] != NULL; i++) {
       parts = wmem_strsplit(NULL, old_keys[i], ",", 4);
       if (parts[0] && parts[1] && parts[2] && parts[3]) {
+        gchar *path = uat_esc(parts[3], (guint)strlen(parts[3]));
         uat_entry = wmem_strdup_printf(NULL, "\"%s\",\"%s\",\"%s\",\"%s\",\"\"",
-                        parts[0], parts[1], parts[2], parts[3]);
+                        parts[0], parts[1], parts[2], path);
+        g_free(path);
         if (!uat_load_str(dtlsdecrypt_uat, uat_entry, &err)) {
           ssl_debug_printf("dtls_parse: Can't load UAT string %s: %s\n",
                            uat_entry, err);
@@ -335,7 +346,9 @@ dissect_dtls(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   SslSession        *session;
   gint               is_from_server;
   gboolean           conv_first_seen;
+#if defined(HAVE_LIBGNUTLS) && defined(HAVE_LIBGCRYPT)
   Ssl_private_key_t *private_key;
+#endif
 
   ti                    = NULL;
   dtls_tree             = NULL;
@@ -375,6 +388,7 @@ dissect_dtls(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     ssl_debug_printf("dissect_dtls server %s:%d\n",
                      address_to_str(wmem_packet_scope(), &dummy.addr),dummy.port);
 
+#if defined(HAVE_LIBGNUTLS) && defined(HAVE_LIBGCRYPT)
     /* try to retrieve private key for this service. Do it now 'cause pinfo
      * is not always available
      * Note that with HAVE_LIBGNUTLS undefined private_key is always 0
@@ -386,6 +400,7 @@ dissect_dtls(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     else {
       ssl_session->private_key = private_key->sexp_pkey;
     }
+#endif
   }
   session = &ssl_session->session;
   is_from_server = ssl_packet_from_server(session, dtls_associations, pinfo);
@@ -636,8 +651,21 @@ decrypt_dtls_record(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
   return ret;
 }
 
+static void
+export_pdu_packet(tvbuff_t *tvb, packet_info *pinfo, guint tag, const gchar *name)
+{
+  exp_pdu_data_t *exp_pdu_data;
+  guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
+                EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
 
+  exp_pdu_data = load_export_pdu_tags(pinfo, tag, name, &tags, 1);
 
+  exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
+  exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
+  exp_pdu_data->pdu_tvb = tvb;
+
+  tap_queue_packet(exported_pdu_tap, pinfo, exp_pdu_data);
+}
 
 
 /*********************************************************************
@@ -931,18 +959,8 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
           ssl_print_data("decrypted app data",appl_data->plain_data.data, appl_data->plain_data.data_len);
 
           if (have_tap_listener(exported_pdu_tap)) {
-            exp_pdu_data_t *exp_pdu_data;
-            guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
-                          EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
-
-            exp_pdu_data = load_export_pdu_tags(pinfo, dissector_handle_get_dissector_name(session->app_handle), -1,
-                                                &tags, 1);
-
-            exp_pdu_data->tvb_captured_length = tvb_captured_length(next_tvb);
-            exp_pdu_data->tvb_reported_length = tvb_reported_length(next_tvb);
-            exp_pdu_data->pdu_tvb = next_tvb;
-
-            tap_queue_packet(exported_pdu_tap, pinfo, exp_pdu_data);
+            export_pdu_packet(next_tvb, pinfo, EXP_PDU_TAG_PROTO_NAME,
+                              dissector_handle_get_dissector_name(session->app_handle));
           }
 
           dissected = call_dissector_only(session->app_handle, next_tvb, pinfo, top_tree, NULL);
@@ -950,6 +968,9 @@ dissect_dtls_record(tvbuff_t *tvb, packet_info *pinfo,
         else {
           /* try heuristic subdissectors */
           dissected = dissector_try_heuristic(heur_subdissector_list, next_tvb, pinfo, top_tree, &hdtbl_entry, NULL);
+          if (dissected && have_tap_listener(exported_pdu_tap)) {
+            export_pdu_packet(next_tvb, pinfo, EXP_PDU_TAG_HEUR_PROTO_NAME, hdtbl_entry->short_name);
+          }
         }
         pinfo->match_uint = saved_match_port;
         if (dissected)
@@ -1222,6 +1243,14 @@ dissect_dtls_handshake(tvbuff_t *tvb, packet_info *pinfo,
               fragmented = TRUE;
               expert_add_info(pinfo, fragment_length_item, &ei_dtls_handshake_fragment_past_end_msg);
             }
+        }
+      else if (fragment_offset > 0 && fragment_length == 0)
+        {
+          /* Fragmented message, but no actual fragment... Note that if a
+           * fragment was previously completed (reassembled_length == length),
+           * it is already dissected. */
+          expert_add_info(pinfo, fragment_length_item, &ei_dtls_handshake_fragment_length_zero);
+          continue;
         }
       else if (fragment_length < length)
         {
@@ -1851,6 +1880,7 @@ proto_register_dtls(void)
   };
 
   static ei_register_info ei[] = {
+     { &ei_dtls_handshake_fragment_length_zero, { "dtls.handshake.fragment_length.zero", PI_PROTOCOL, PI_WARN, "Zero-length fragment length for fragmented message", EXPFILL }},
      { &ei_dtls_handshake_fragment_length_too_long, { "dtls.handshake.fragment_length.too_long", PI_PROTOCOL, PI_ERROR, "Fragment length is larger than message length", EXPFILL }},
      { &ei_dtls_handshake_fragment_past_end_msg, { "dtls.handshake.fragment_past_end_msg", PI_PROTOCOL, PI_ERROR, "Fragment runs past the end of the message", EXPFILL }},
      { &ei_dtls_msg_len_diff_fragment, { "dtls.msg_len_diff_fragment", PI_PROTOCOL, PI_ERROR, "Message length differs from value in earlier fragment", EXPFILL }},
@@ -1923,6 +1953,7 @@ proto_register_dtls(void)
   dtls_associations = g_tree_new(ssl_association_cmp);
 
   register_init_routine(dtls_init);
+  register_cleanup_routine(dtls_cleanup);
   ssl_lib_init();
   dtls_tap = register_tap("dtls");
   ssl_debug_printf("proto_register_dtls: registered tap %s:%d\n",
@@ -1947,7 +1978,7 @@ proto_reg_handoff_dtls(void)
   exported_pdu_tap = find_tap_id(EXPORT_PDU_TAP_NAME_LAYER_7);
 
   if (initialized == FALSE) {
-    heur_dissector_add("udp", dissect_dtls_heur, proto_dtls);
+    heur_dissector_add("udp", dissect_dtls_heur, "DTLS over UDP", "dtls_udp", proto_dtls, HEURISTIC_ENABLE);
     dissector_add_uint("sctp.ppi", DIAMETER_DTLS_PROTOCOL_ID, find_dissector("dtls"));
   }
 

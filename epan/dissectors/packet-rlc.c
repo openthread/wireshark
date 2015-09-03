@@ -43,10 +43,6 @@
  * - use sub_num in fragment identification?
  */
 
-#define DEBUG_FRAME(number, msg) {if (pinfo->fd->num == number) printf("%u: %s\n", number, msg);}
-
-#define ROL16(a,b) (guint16)((a<<b)|(a>>(16-b)))
-
 void proto_register_rlc(void);
 void proto_reg_handoff_rlc(void);
 
@@ -59,10 +55,6 @@ static gboolean global_rlc_perform_reassemby = TRUE;
 
 /* Preference to expect RLC headers without payloads */
 static gboolean global_rlc_headers_expected = FALSE;
-
-
-/* Heuristic dissection */
-static gboolean global_rlc_heur = FALSE;
 
 /* Preference to expect ciphered data */
 static gboolean global_rlc_ciphered = FALSE;
@@ -123,6 +115,9 @@ static int hf_rlc_channel = -1;
 static int hf_rlc_channel_rbid = -1;
 static int hf_rlc_channel_dir = -1;
 static int hf_rlc_channel_ueid = -1;
+static int hf_rlc_sequence_number = -1;
+static int hf_rlc_length = -1;
+static int hf_rlc_bitmap_string = -1;
 
 /* subtrees */
 static int ett_rlc = -1;
@@ -150,6 +145,9 @@ static expert_field ei_rlc_ctrl_type = EI_INIT;
 static expert_field ei_rlc_li_incorrect_warn = EI_INIT;
 static expert_field ei_rlc_li_too_many = EI_INIT;
 static expert_field ei_rlc_header_only = EI_INIT;
+static expert_field ei_rlc_ciphered_data = EI_INIT;
+static expert_field ei_rlc_no_per_frame_data = EI_INIT;
+static expert_field ei_rlc_incomplete_sequence = EI_INIT;
 
 static dissector_handle_t ip_handle;
 static dissector_handle_t rrc_handle;
@@ -557,24 +555,6 @@ static void
 fragment_table_init(void)
 {
     int i;
-    if (fragment_table) {
-        g_hash_table_destroy(fragment_table);
-    }
-    if (endpoints) {
-        g_hash_table_destroy(endpoints);
-    }
-    if (reassembled_table) {
-        g_hash_table_destroy(reassembled_table);
-    }
-    if (sequence_table) {
-        g_hash_table_destroy(sequence_table);
-    }
-    if (duplicate_table) {
-        g_hash_table_destroy(duplicate_table);
-    }
-    if(counter_map){
-        g_tree_destroy(counter_map);
-    }
     fragment_table = g_hash_table_new_full(rlc_channel_hash, rlc_channel_equal, rlc_channel_delete, NULL);
     endpoints = g_hash_table_new_full(rlc_channel_hash, rlc_channel_equal, rlc_channel_delete, NULL);
     reassembled_table = g_hash_table_new_full(rlc_frag_hash, rlc_frag_equal,
@@ -592,6 +572,17 @@ fragment_table_init(void)
         counter_init[i][1] = 0;
     }
     max_counter = 0;
+}
+
+static void
+fragment_table_cleanup(void)
+{
+    g_tree_destroy(counter_map);
+    g_hash_table_destroy(fragment_table);
+    g_hash_table_destroy(endpoints);
+    g_hash_table_destroy(reassembled_table);
+    g_hash_table_destroy(sequence_table);
+    g_hash_table_destroy(duplicate_table);
 }
 
 /* add the list of fragments for this sdu to 'tree' */
@@ -770,7 +761,7 @@ tree_add_li(enum rlc_mode mode, struct rlc_li *li, guint8 li_idx, guint8 hdr_off
     }
 
     if (li->len > 0) {
-        if (li->li > tvb_length_remaining(tvb, hdr_offs)) return li_tree;
+        if (li->li > tvb_reported_length_remaining(tvb, hdr_offs)) return li_tree;
         if (li->len > li->li) return li_tree;
         ti = proto_tree_add_item(li_tree, hf_rlc_li_data, tvb, hdr_offs + li->li - li->len, li->len, ENC_NA);
         PROTO_ITEM_SET_HIDDEN(ti);
@@ -1220,19 +1211,16 @@ get_reassembled_data(enum rlc_mode mode, tvbuff_t *tvb, packet_info *pinfo,
     if (!rlc_frag_equal(&lookup, sdu->reassembled_in)) return NULL;
 #endif
 
-    if (tree) {
-        frag = sdu->frags;
-        while (frag->next) {
-            if (frag->next->seq - frag->seq > 1) {
-                proto_item *pi = proto_tree_add_text(tree, tvb, 0, 0,
-                    "Error: Incomplete sequence");
-                PROTO_ITEM_SET_GENERATED(pi);
-                tree_add_fragment_list_incomplete(sdu, tvb, tree);
-                return NULL;
-            }
-            frag = frag->next;
+    frag = sdu->frags;
+    while (frag->next) {
+        if (frag->next->seq - frag->seq > 1) {
+            proto_tree_add_expert(tree, pinfo, &ei_rlc_incomplete_sequence, tvb, 0, 0);
+            tree_add_fragment_list_incomplete(sdu, tvb, tree);
+            return NULL;
         }
+        frag = frag->next;
     }
+
     sdu->tvb = tvb_new_child_real_data(tvb, sdu->data, sdu->len, sdu->len);
     add_new_data_source(pinfo, sdu->tvb, "Reassembled RLC Message");
 
@@ -1427,14 +1415,14 @@ rlc_decipher_tvb(tvbuff_t *tvb, packet_info *pinfo, guint32 counter, guint8 rbid
     key_in = translate_hex_key(out);    /*Translation*/
 
     /*Location for decrypted data*/
-    out = g_malloc( tvb_length(tvb) );
+    out = g_malloc( tvb_captured_length(tvb) );
 
     /*Build data input but don't send the header*/
-    for(i = 0; i< tvb_length(tvb)-header_size; i++ ){
+    for(i = 0; i< tvb_captured_length(tvb)-header_size; i++ ){
         out[i+header_size] = tvb_get_guint8(tvb, header_size+i);
     }
     /*Call KASUMI confidentiality function, note that rbid is zero indxed*/
-    f8( key_in, counter, rbid-1, dir, &out[header_size], (tvb_length(tvb)-header_size)*8 );
+    f8( key_in, counter, rbid-1, dir, &out[header_size], (tvb_captured_length(tvb)-header_size)*8 );
 
     /*Restore header in tvb*/
     for (i = 0; i < header_size; i++) {
@@ -1442,7 +1430,7 @@ rlc_decipher_tvb(tvbuff_t *tvb, packet_info *pinfo, guint32 counter, guint8 rbid
     }
 
     /*Create new tvb.*/
-    t = tvb_new_real_data(out,tvb_length(tvb), tvb_reported_length(tvb));
+    t = tvb_new_real_data(out,tvb_captured_length(tvb), tvb_reported_length(tvb));
     /*add_new_data_source(pinfo, tvb, "Data enciphered");*/
     add_new_data_source(pinfo, t, "Deciphered data");
     return t;
@@ -1585,8 +1573,7 @@ rlc_decipher(tvbuff_t *tvb, packet_info * pinfo, proto_tree * tree, fp_info * fp
 
         /*Unable to decipher the packet*/
         if(t == NULL){
-            proto_tree_add_text(tree, tvb, 0, -1,
-                "Cannot dissect RLC frame because it is ciphered");
+            proto_tree_add_expert(tree, pinfo, &ei_rlc_ciphered_data, tvb, 0, -1);
             col_append_str(pinfo->cinfo, COL_INFO, "[Ciphered Data]");
             return;
 
@@ -1634,9 +1621,9 @@ rlc_um_reassemble(tvbuff_t *tvb, guint8 offs, packet_info *pinfo, proto_tree *tr
         if ((!li_is_on_2_bytes && (li[i].li == 0x7f)) || (li[i].li == 0x7fff)) {
             /* padding, must be last LI */
             if (tree) {
-                proto_tree_add_item(tree, hf_rlc_pad, tvb, offs, tvb_length_remaining(tvb, offs), ENC_NA);
+                proto_tree_add_item(tree, hf_rlc_pad, tvb, offs, tvb_captured_length_remaining(tvb, offs), ENC_NA);
             }
-            offs += tvb_length_remaining(tvb, offs);
+            offs += tvb_captured_length_remaining(tvb, offs);
         } else if ((!li_is_on_2_bytes && (li[i].li == 0x7c)) || (li[i].li == 0x7ffc)) {
             /* a new SDU starts here, mark this seq as the first PDU. */
             struct rlc_channel  ch_lookup;
@@ -1650,7 +1637,7 @@ rlc_um_reassemble(tvbuff_t *tvb, guint8 offs, packet_info *pinfo, proto_tree *tr
         } else if (li[i].li == 0x7ffa) {
             /* the first data octet in this RLC PDU is the first octet of an RLC SDU
                and the second last octet in this RLC PDU is the last octet of the same RLC SDU */
-            length = tvb_length_remaining(tvb, offs);
+            length = tvb_reported_length_remaining(tvb, offs);
             if (length > 1) {
                 length--;
                 if (tree && length) {
@@ -1684,13 +1671,13 @@ rlc_um_reassemble(tvbuff_t *tvb, guint8 offs, packet_info *pinfo, proto_tree *tr
     }
 
     /* is there data left? */
-    if (tvb_length_remaining(tvb, offs) > 0) {
+    if (tvb_reported_length_remaining(tvb, offs) > 0) {
         if (tree) {
             proto_tree_add_item(tree, hf_rlc_data, tvb, offs, -1, ENC_NA);
         }
         if (global_rlc_perform_reassemby) {
             /* add remaining data as fragment */
-            add_fragment(RLC_UM, tvb, pinfo, tree, offs, seq, i, tvb_length_remaining(tvb, offs), FALSE);
+            add_fragment(RLC_UM, tvb, pinfo, tree, offs, seq, i, tvb_captured_length_remaining(tvb, offs), FALSE);
             if (dissected == FALSE)
                 col_set_str(pinfo->cinfo, COL_INFO, "[RLC UM Fragment]");
         }
@@ -1732,7 +1719,7 @@ rlc_decode_li(enum rlc_mode mode, tvbuff_t *tvb, packet_info *pinfo, proto_tree 
         ext = next_bytes & 0x01;
         hdr_len += li_on_2_bytes ? 2 : 1;
     }
-    total_len = tvb_length_remaining(tvb, hdr_len);
+    total_len = tvb_captured_length_remaining(tvb, hdr_len);
 
     /* do actual evaluation of LIs */
     ext = tvb_get_guint8(tvb, offs++) & 0x01;
@@ -1864,8 +1851,7 @@ dissect_rlc_um(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
     }
 
     if (!fpinf || !rlcinf) {
-        proto_tree_add_text(tree, tvb, 0, -1,
-            "Cannot dissect RLC frame because per-frame info is missing");
+        proto_tree_add_expert(tree, pinfo, &ei_rlc_no_per_frame_data, tvb, 0, -1);
         return;
     }
 
@@ -1875,8 +1861,7 @@ dissect_rlc_um(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
         if(global_rlc_try_decipher){
             rlc_decipher(tvb, pinfo, tree, fpinf, rlcinf, seq, RLC_UM);
         }else{
-            proto_tree_add_text(tree, tvb, 0, -1,
-                    "Cannot dissect RLC frame because it is ciphered");
+            proto_tree_add_expert(tree, pinfo, &ei_rlc_ciphered_data, tvb, 0, -1);
             col_append_str(pinfo->cinfo, COL_INFO, "[Ciphered Data]");
             return;
         }
@@ -1884,7 +1869,7 @@ dissect_rlc_um(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
 
     if (global_rlc_li_size == RLC_LI_UPPERLAYER) {
         if (rlcinf->li_size[pos] == RLC_LI_VARIABLE) {
-            li_is_on_2_bytes = (tvb_length(tvb) > 125) ? TRUE : FALSE;
+            li_is_on_2_bytes = (tvb_reported_length(tvb) > 125) ? TRUE : FALSE;
         } else {
             li_is_on_2_bytes = (rlcinf->li_size[pos] == RLC_LI_15BITS) ? TRUE : FALSE;
         }
@@ -1900,7 +1885,7 @@ dissect_rlc_um(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
 
     if (global_rlc_headers_expected) {
         /* There might not be any data, if only header was logged */
-        is_truncated = (tvb_length_remaining(tvb, offs) == 0);
+        is_truncated = (tvb_captured_length_remaining(tvb, offs) == 0);
         truncated_ti = proto_tree_add_boolean(tree, hf_rlc_header_only, tvb, 0, 0,
                                               is_truncated);
         if (is_truncated) {
@@ -1943,7 +1928,7 @@ dissect_rlc_status(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guin
 
     bit_offset = offset*8 + 4; /* first SUFI type is always 4 bit shifted */
 
-    while (!seen_last && tvb_length_remaining(tvb, bit_offset/8) > 0) {
+    while (!seen_last && tvb_reported_length_remaining(tvb, bit_offset/8) > 0) {
         /* SUFI */
         sufi_type = tvb_get_bits8(tvb, bit_offset, 4);
         sufi_start_offset = bit_offset/8;
@@ -2015,7 +2000,7 @@ dissect_rlc_status(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guin
                             j += g_snprintf(&buff[j], BUFF_SIZE-j, "    ,");
                         }
                     }
-                    proto_tree_add_text(bitmap_tree, tvb, bit_offset/8, 1, "%s", buff);
+                    proto_tree_add_string_format(bitmap_tree, hf_rlc_bitmap_string, tvb, bit_offset/8, 1, buff, "%s", buff);
                     bit_offset += 8;
                 }
                 proto_item_append_text(ti, " (%u SNs)", number_of_bitmap_entries);
@@ -2041,8 +2026,7 @@ dissect_rlc_status(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guin
                     expert_add_info(pinfo, tree, &ei_rlc_sufi_cw);
                 } else {
                     rlist_tree = proto_tree_add_subtree(sufi_tree, tvb, previous_bit_offset/8, (bit_offset-previous_bit_offset)/8, ett_rlc_rlist, NULL, "Decoded list:");
-                    proto_tree_add_text(rlist_tree, tvb, (previous_bit_offset+4)/8, 12/8,
-                                        "Sequence Number = %u (AMD PDU not correctly received)",(unsigned)sn);
+                    proto_tree_add_uint_format_value(rlist_tree, hf_rlc_sequence_number, tvb, (previous_bit_offset+4)/8, 12/8, (guint32)sn, "%u (AMD PDU not correctly received)", (unsigned)sn);
                     col_append_fstr(pinfo->cinfo, COL_INFO, " RLIST=(%u", (unsigned)sn);
 
                     for (i=0, isErrorBurstInd=FALSE, j=0, previous_sn=(guint16)sn, value=0; i<len; i++) {
@@ -2054,7 +2038,7 @@ dissect_rlc_status(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guin
                             if (cw[i] & 0x01) {
                                 if (isErrorBurstInd) {
                                     previous_sn = (previous_sn + value) & 0xfff;
-                                    ti = proto_tree_add_text(rlist_tree, tvb, (previous_bit_offset+16+4*i)/8, 1, "Length: %u", value);
+                                    ti = proto_tree_add_uint(rlist_tree, hf_rlc_length, tvb, (previous_bit_offset+16+4*i)/8, 1, value);
                                     if (value) {
                                         proto_item_append_text(ti, "  (all consecutive AMD PDUs up to SN %u not correctly received)", previous_sn);
                                         col_append_fstr(pinfo->cinfo, COL_INFO, " ->%u", previous_sn);
@@ -2062,7 +2046,7 @@ dissect_rlc_status(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guin
                                     isErrorBurstInd = FALSE;
                                 } else {
                                     value = (value + previous_sn) & 0xfff;
-                                    proto_tree_add_text(rlist_tree, tvb, (previous_bit_offset+16+4*i)/8, 1, "Sequence Number = %u (AMD PDU not correctly received)",value);
+                                    proto_tree_add_uint_format_value(rlist_tree, hf_rlc_sequence_number, tvb, (previous_bit_offset+16+4*i)/8, 1, value, "%u (AMD PDU not correctly received)",value);
                                     col_append_fstr(pinfo->cinfo, COL_INFO, " %u", value);
                                     previous_sn = value;
                                 }
@@ -2176,7 +2160,7 @@ rlc_am_reassemble(tvbuff_t *tvb, guint8 offs, packet_info *pinfo,
             piggyback = TRUE;
         } else if ((!li_is_on_2_bytes && (li[i].li == 0x7f)) || (li[i].li == 0x7fff)) {
             /* padding, must be last LI */
-            if (tvb_length_remaining(tvb, offs) > 0) {
+            if (tvb_reported_length_remaining(tvb, offs) > 0) {
                 if (tree) {
                     proto_tree_add_item(tree, hf_rlc_pad, tvb, offs, -1, ENC_NA);
                 }
@@ -2185,7 +2169,7 @@ rlc_am_reassemble(tvbuff_t *tvb, guint8 offs, packet_info *pinfo,
                     add_fragment(RLC_AM, tvb, pinfo, li[i].tree, offs, seq, i, 0, TRUE);
                 }
             }
-            offs += tvb_length_remaining(tvb, offs);
+            offs += tvb_captured_length_remaining(tvb, offs);
         } else {
             if (tree) {
                 proto_tree_add_item(tree, hf_rlc_data, tvb, offs, li[i].len, ENC_NA);
@@ -2206,14 +2190,14 @@ rlc_am_reassemble(tvbuff_t *tvb, guint8 offs, packet_info *pinfo,
     if (piggyback) {
         dissect_rlc_status(tvb, pinfo, tree, offs);
     } else {
-        if (tvb_length_remaining(tvb, offs) > 0) {
+        if (tvb_reported_length_remaining(tvb, offs) > 0) {
             /* we have remaining data, which we need to mark in the tree */
             if (tree) {
                 proto_tree_add_item(tree, hf_rlc_data, tvb, offs, -1, ENC_NA);
             }
             if (global_rlc_perform_reassemby) {
                 add_fragment(RLC_AM, tvb, pinfo, tree, offs, seq, i,
-                    tvb_length_remaining(tvb,offs), final);
+                    tvb_captured_length_remaining(tvb,offs), final);
                 if (final) {
                     next_tvb = get_reassembled_data(RLC_AM, tvb, pinfo, tree, seq, i);
                 }
@@ -2287,8 +2271,7 @@ dissect_rlc_am(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
     }
 
     if (!fpinf || !rlcinf) {
-        proto_tree_add_text(tree, tvb, 0, -1,
-            "Cannot dissect RLC frame because per-frame info is missing");
+        proto_tree_add_expert(tree, pinfo, &ei_rlc_no_per_frame_data, tvb, 0, -1);
         return;
     }
 
@@ -2301,8 +2284,7 @@ dissect_rlc_am(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
         if(global_rlc_try_decipher){
             rlc_decipher(tvb, pinfo, tree, fpinf, rlcinf, seq, RLC_AM);
         }else{
-            proto_tree_add_text(tree, tvb, 0, -1,
-                    "Cannot dissect RLC frame because it is ciphered");
+            proto_tree_add_expert(tree, pinfo, &ei_rlc_ciphered_data, tvb, 0, -1);
             col_append_str(pinfo->cinfo, COL_INFO, "[Ciphered Data]");
             return;
         }
@@ -2310,7 +2292,7 @@ dissect_rlc_am(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
 
     if (global_rlc_li_size == RLC_LI_UPPERLAYER) {
         if (rlcinf->li_size[pos] == RLC_LI_VARIABLE) {
-            li_is_on_2_bytes = (tvb_length(tvb) > 126) ? TRUE : FALSE;
+            li_is_on_2_bytes = (tvb_reported_length(tvb) > 126) ? TRUE : FALSE;
         } else {
             li_is_on_2_bytes = (rlcinf->li_size[pos] == RLC_LI_15BITS) ? TRUE : FALSE;
         }
@@ -2323,7 +2305,7 @@ dissect_rlc_am(enum rlc_channel_type channel, tvbuff_t *tvb, packet_info *pinfo,
     offs += ((li_is_on_2_bytes) ? 2 : 1) * num_li;
     if (global_rlc_headers_expected) {
         /* There might not be any data, if only header was logged */
-        is_truncated = (tvb_length_remaining(tvb, offs) == 0);
+        is_truncated = (tvb_captured_length_remaining(tvb, offs) == 0);
         truncated_ti = proto_tree_add_boolean(tree, hf_rlc_header_only, tvb, 0, 0,
                                               is_truncated);
         if (is_truncated) {
@@ -2463,9 +2445,7 @@ dissect_rlc_dcch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     rlci = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
 
     if (!fpi || !rlci){
-        ti = proto_tree_add_text(tree, tvb, 0, -1,
-                     "Can't dissect RLC frame because no per-frame info was attached!");
-        PROTO_ITEM_SET_GENERATED(ti);
+        proto_tree_add_expert(tree, pinfo, &ei_rlc_no_per_frame_data, tvb, 0, -1);
         return;
     }
 
@@ -2503,9 +2483,7 @@ dissect_rlc_ps_dtch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     rlci = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
 
     if (!fpi || !rlci) {
-        ti = proto_tree_add_text(tree, tvb, 0, -1,
-                     "Can't dissect RLC frame because no per-frame info was attached!");
-        PROTO_ITEM_SET_GENERATED(ti);
+        proto_tree_add_expert(tree, pinfo, &ei_rlc_no_per_frame_data, tvb, 0, -1);
         return;
     }
 
@@ -2585,14 +2563,6 @@ dissect_rlc_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     proto_item *ti                 = NULL;
     proto_tree *subtree            = NULL;
 
-    /* This is a heuristic dissector, which means we get all the UDP
-     * traffic not sent to a known dissector and not claimed by
-     * a heuristic dissector called before us!
-     */
-    if (!global_rlc_heur) {
-        return FALSE;
-    }
-
     /* Do this again on re-dissection to re-discover offset of actual PDU */
 
     /* Needs to be at least as long as:
@@ -2600,7 +2570,7 @@ dissect_rlc_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
        - conditional header bytes
        - tag for data
        - at least one byte of RLC PDU payload */
-    if (tvb_length_remaining(tvb, offset) < (gint)(strlen(RLC_START_STRING)+2+2)) {
+    if (tvb_captured_length_remaining(tvb, offset) < (gint)(strlen(RLC_START_STRING)+2+2)) {
         return FALSE;
     }
 
@@ -2914,8 +2884,21 @@ proto_register_rlc(void)
         { &hf_rlc_channel_ueid,
           { "User Equipment ID", "rlc.channel.ueid",
             FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }
-        }
+        },
+        { &hf_rlc_sequence_number,
+          { "Sequence Number", "rlc.sequence_number",
+            FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }
+        },
+        { &hf_rlc_length,
+          { "Length", "rlc.length",
+            FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }
+        },
+        { &hf_rlc_bitmap_string,
+          { "Bitmap string", "rlc.bitmap_string",
+            FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }
+        },
     };
+
     static gint *ett[] = {
         &ett_rlc,
         &ett_rlc_frag,
@@ -2943,6 +2926,9 @@ proto_register_rlc(void)
         { &ei_rlc_reserved_bits_not_zero, { "rlc.reserved_bits_not_zero", PI_PROTOCOL, PI_WARN, "reserved bits not zero", EXPFILL }},
         { &ei_rlc_ctrl_type, { "rlc.ctrl_pdu_type.invalid", PI_PROTOCOL, PI_WARN, "Invalid RLC AM control type %u", EXPFILL }},
         { &ei_rlc_he, { "rlc.he.invalid", PI_PROTOCOL, PI_WARN, "Incorrect HE value", EXPFILL }},
+        { &ei_rlc_ciphered_data, { "rlc.ciphered_data", PI_UNDECODED, PI_WARN, "Cannot dissect RLC frame because it is ciphered", EXPFILL }},
+        { &ei_rlc_no_per_frame_data, { "rlc.no_per_frame_data", PI_PROTOCOL, PI_WARN, "Can't dissect RLC frame because no per-frame info was attached!", EXPFILL }},
+        { &ei_rlc_incomplete_sequence, { "rlc.incomplete_sequence", PI_MALFORMED, PI_ERROR, "Error: Incomplete sequence", EXPFILL }},
     };
 
     proto_rlc = proto_register_protocol("Radio Link Control", "RLC", "rlc");
@@ -2962,11 +2948,7 @@ proto_register_rlc(void)
     /* Preferences */
     rlc_module = prefs_register_protocol(proto_rlc, NULL);
 
-    prefs_register_bool_preference(rlc_module, "heuristic_rlc_over_udp",
-        "Try Heuristic RLC over UDP framing",
-        "When enabled, use heuristic dissector to find RLC frames sent with "
-        "UDP framing",
-        &global_rlc_heur);
+    prefs_register_obsolete_preference(rlc_module, "heuristic_rlc_over_udp");
 
     prefs_register_bool_preference(rlc_module, "perform_reassembly",
         "Try to reassemble SDUs",
@@ -3000,6 +2982,7 @@ proto_register_rlc(void)
 #endif /* HAVE_UMTS_KASUMI */
 
     register_init_routine(fragment_table_init);
+    register_cleanup_routine(fragment_table_cleanup);
 }
 
 void
@@ -3009,7 +2992,7 @@ proto_reg_handoff_rlc(void)
     ip_handle  = find_dissector("ip");
     bmc_handle = find_dissector("bmc");
     /* Add as a heuristic UDP dissector */
-    heur_dissector_add("udp", dissect_rlc_heur, proto_rlc);
+    heur_dissector_add("udp", dissect_rlc_heur, "RLC over UDP", "rlc_udp", proto_rlc, HEURISTIC_DISABLE);
 }
 
 /*

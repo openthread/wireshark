@@ -33,8 +33,6 @@
 void proto_register_gvsp(void);
 void proto_reg_handoff_gvsp(void);
 
-static gboolean gvsp_enable_heuristic_dissection = TRUE;
-
 #define GVSP_MIN_PACKET_SIZE         8
 #define GVSP_V2_MIN_PACKET_SIZE     20
 
@@ -691,8 +689,11 @@ static gint dissect_file_leader(proto_tree *gvsp_tree, tvbuff_t *tvb, packet_inf
     file_length = tvb_strsize(tvb, offset + 20);
     proto_tree_add_item(gvsp_tree, hf_gvsp_filename, tvb, offset + 20, file_length, ENC_ASCII|ENC_NA);
 
+    if (20 + file_length > G_MAXINT)
+        return -1;
+
     /* Return dissected byte count (for all-in dissection) */
-    return 20 + file_length;
+    return (gint)(20 + file_length);
 }
 
 
@@ -1008,6 +1009,8 @@ static void dissect_packet_payload_multizone(proto_tree *gvsp_tree, tvbuff_t *tv
 
 static void dissect_packet_all_in(proto_tree *gvsp_tree, tvbuff_t *tvb, gint offset, packet_info *pinfo, gvsp_packet_info *info)
 {
+    gint ret;
+
     switch (info->payloadtype)
     {
     case GVSP_PAYLOAD_IMAGE:
@@ -1031,7 +1034,10 @@ static void dissect_packet_all_in(proto_tree *gvsp_tree, tvbuff_t *tvb, gint off
         break;
 
     case GVSP_PAYLOAD_FILE:
-        offset += dissect_file_leader(gvsp_tree, tvb, pinfo, offset);
+        ret = dissect_file_leader(gvsp_tree, tvb, pinfo, offset);
+        if (ret < 0)
+            break;
+        offset += ret;
         offset += dissect_generic_trailer(gvsp_tree, tvb, pinfo, offset);
         if (info->chunk != 0)
         {
@@ -1980,10 +1986,7 @@ void proto_register_gvsp(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     gvsp_module = prefs_register_protocol(proto_gvsp, proto_reg_handoff_gvsp);
-    prefs_register_bool_preference(gvsp_module, "enable_heuristic",
-        "Enable GVSP heuristic dissection",
-        "Enable GVSP heuristic dissection (default is enabled)",
-        &gvsp_enable_heuristic_dissection);
+    prefs_register_obsolete_preference(gvsp_module, "enable_heuristic");
 }
 
 void proto_reg_handoff_gvsp(void)
@@ -1993,10 +1996,9 @@ void proto_reg_handoff_gvsp(void)
     if (!initialized) {
         gvsp_handle = new_create_dissector_handle((new_dissector_t)dissect_gvsp, proto_gvsp);
         dissector_add_for_decode_as("udp.port", gvsp_handle);
-        heur_dissector_add("udp", dissect_gvsp_heur, proto_gvsp);
+        heur_dissector_add("udp", dissect_gvsp_heur, "GigE Vision over UDP", "gvsp_udp", proto_gvsp, HEURISTIC_ENABLE);
         initialized = TRUE;
     }
-    heur_dissector_set_enabled("udp", dissect_gvsp_heur, proto_gvsp, gvsp_enable_heuristic_dissection);
 }
 
 /*

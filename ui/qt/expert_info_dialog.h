@@ -26,15 +26,15 @@
 
 #include <glib.h>
 
-#include "epan/epan_dissect.h"
-
 #include "filter_action.h"
 #include "wireshark_dialog.h"
 
 #include <QMenu>
 #include <QTreeWidgetItem>
 
+struct epan_dissect;
 struct expert_info_s;
+struct _packet_info;
 
 namespace Ui {
 class ExpertInfoDialog;
@@ -70,11 +70,10 @@ private:
     QMenu ctx_menu_;
 
     QHash<QString, QTreeWidgetItem*> ei_to_ti_;
+    QHash<QTreeWidgetItem*, QList<QTreeWidgetItem *> > gti_packets_;
     QList<QAction *> severity_actions_;
 
     QString display_filter_;
-
-    void retapPackets();
 
     // Called from tapPacket
     void addExpertInfo(struct expert_info_s *expert_info);
@@ -83,10 +82,12 @@ private:
 
     // Callbacks for register_tap_listener
     static void tapReset(void *eid_ptr);
-    static gboolean tapPacket(void *eid_ptr, packet_info *pinfo, epan_dissect_t *, const void *data);
+    static gboolean tapPacket(void *eid_ptr, struct _packet_info *pinfo, struct epan_dissect *, const void *data);
     static void tapDraw(void *eid_ptr);
 
 private slots:
+    void retapPackets();
+
     void updateWidgets();
 
     void actionShowToggled();

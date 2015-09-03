@@ -20,7 +20,7 @@
  */
 
 #include "packet_dialog.h"
-#include "ui_packet_dialog.h"
+#include <ui_packet_dialog.h>
 
 #include "file.h"
 
@@ -97,7 +97,7 @@ PacketDialog::PacketDialog(QWidget &parent, CaptureFile &cf, frame_data *fdata) 
         // ElidedLabel doesn't support rich text / HTML
         col_parts << QString("%1: %2")
                      .arg(get_column_title(i))
-                     .arg(cap_file_.capFile()->cinfo.col_data[i]);
+                     .arg(cap_file_.capFile()->cinfo.columns[i].col_data);
     }
     col_info_ = col_parts.join(" " UTF8_MIDDLE_DOT " ");
     setHintText();
@@ -109,8 +109,8 @@ PacketDialog::PacketDialog(QWidget &parent, CaptureFile &cf, frame_data *fdata) 
 
     connect(proto_tree_, SIGNAL(currentItemChanged(QTreeWidgetItem*,QTreeWidgetItem*)),
             byte_view_tab_, SLOT(protoTreeItemChanged(QTreeWidgetItem*)));
-    connect(byte_view_tab_, SIGNAL(byteFieldHovered(QString&)),
-            this, SLOT(setHintText(QString&)));
+    connect(byte_view_tab_, SIGNAL(byteFieldHovered(const QString&)),
+            this, SLOT(setHintText(const QString&)));
 }
 
 PacketDialog::~PacketDialog()
@@ -139,7 +139,7 @@ void PacketDialog::captureFileClosing()
     WiresharkDialog::captureFileClosing();
 }
 
-void PacketDialog::setHintText(QString &hint)
+void PacketDialog::setHintText(const QString &hint)
 {
     ui->hintLabel->setText(hint.isEmpty() ? col_info_ : hint);
 }

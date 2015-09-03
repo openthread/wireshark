@@ -20,7 +20,7 @@
  */
 
 #include "preferences_dialog.h"
-#include "ui_preferences_dialog.h"
+#include <ui_preferences_dialog.h>
 
 #include "module_preferences_scroll_area.h"
 
@@ -123,10 +123,8 @@ extern "C" {
 // Callbacks prefs routines
 
 static guint
-pref_exists(pref_t *pref, gpointer user_data)
+pref_exists(pref_t *, gpointer)
 {
-    Q_UNUSED(pref)
-    Q_UNUSED(user_data)
     return 1;
 }
 
@@ -195,9 +193,6 @@ module_prefs_show(module_t *module, gpointer ti_ptr)
     /* Scrolled window */
     ModulePreferencesScrollArea *mpsa = new ModulePreferencesScrollArea(module);
 
-//    /* Associate this module with the page's frame. */
-//    g_object_set_data(G_OBJECT(frame), E_PAGE_MODULE_KEY, module);
-
     /* Add the page to the notebook */
     stacked_widget->addWidget(mpsa);
 
@@ -234,10 +229,8 @@ module_prefs_unstash(module_t *module, gpointer data)
 }
 
 static guint
-module_prefs_clean_stash(module_t *module, gpointer unused)
+module_prefs_clean_stash(module_t *module, gpointer)
 {
-    Q_UNUSED(unused);
-
     for (GList *pref_l = module->prefs; pref_l && pref_l->data; pref_l = g_list_next(pref_l)) {
         pref_t *pref = (pref_t *) pref_l->data;
 
@@ -261,7 +254,7 @@ const int capture_item_    = 1;
 // We store the saved and current preference values in the "Advanced" tree columns
 const int pref_ptr_col_ = 0;
 
-PreferencesDialog::PreferencesDialog(QWidget *parent, PreferencesPane start_pane) :
+PreferencesDialog::PreferencesDialog(QWidget *parent) :
     QDialog(parent),
     pd_ui_(new Ui::PreferencesDialog),
     cur_line_edit_(NULL),
@@ -301,18 +294,21 @@ PreferencesDialog::PreferencesDialog(QWidget *parent, PreferencesPane start_pane
     pd_ui_->prefsTree->invisibleRootItem()->child(capture_item_)->setDisabled(disable_capture);
 
     // PreferencesPane, prefsTree, and stackedWidget must all correspond to each other.
+    // This may not be the best way to go about enforcing that.
     QTreeWidgetItem *item = pd_ui_->prefsTree->itemAt(0,0);
-    QTreeWidgetItem *start_item = pd_ui_->prefsTree->invisibleRootItem()->child(0);
     item->setSelected(true);
     pd_ui_->stackedWidget->setCurrentIndex(0);
     for (int i = 0; i < pd_ui_->stackedWidget->count() && item; i++) {
         item->setData(0, Qt::UserRole, qVariantFromValue(pd_ui_->stackedWidget->widget(i)));
-        if (i == start_pane) {
-            start_item = item;
-        }
         item = pd_ui_->prefsTree->itemBelow(item);
     }
-    pd_ui_->prefsTree->setCurrentItem(start_item);
+    item = pd_ui_->prefsTree->topLevelItem(0);
+    prefs_pane_to_item_[ppAppearance] = item;
+    prefs_pane_to_item_[ppLayout] = item->child(0);
+    prefs_pane_to_item_[ppColumn] = item->child(1);
+    prefs_pane_to_item_[ppFontAndColor] = item->child(2);
+    prefs_pane_to_item_[ppCapture] = pd_ui_->prefsTree->topLevelItem(1);
+    prefs_pane_to_item_[ppFilterExpressions] = pd_ui_->prefsTree->topLevelItem(2);
 
     // Printing prefs don't apply here.
     module_t *print_module = prefs_find_module("print");
@@ -334,9 +330,28 @@ PreferencesDialog::~PreferencesDialog()
     prefs_modules_foreach_submodules(NULL, module_prefs_clean_stash, NULL);
 }
 
-void PreferencesDialog::showEvent(QShowEvent *evt)
+void PreferencesDialog::setPane(PreferencesDialog::PreferencesPane start_pane)
 {
-    Q_UNUSED(evt);
+    if (prefs_pane_to_item_.contains(start_pane)) {
+        pd_ui_->prefsTree->setCurrentItem(prefs_pane_to_item_[start_pane]);
+    }
+}
+
+void PreferencesDialog::setPane(const QString module_name)
+{
+    QTreeWidgetItemIterator pref_it(pd_ui_->prefsTree);
+    while (*pref_it) {
+        ModulePreferencesScrollArea *mpsa = qobject_cast<ModulePreferencesScrollArea *>((*pref_it)->data(0, Qt::UserRole).value<QWidget *>());
+        if (mpsa && mpsa->name() == module_name) {
+            pd_ui_->prefsTree->setCurrentItem((*pref_it));
+            break;
+        }
+        ++pref_it;
+    }
+}
+
+void PreferencesDialog::showEvent(QShowEvent *)
+{
     QStyleOption style_opt;
     int new_prefs_tree_width =  pd_ui_->prefsTree->style()->subElementRect(QStyle::SE_TreeViewDisclosureItem, &style_opt).left();
     QList<int> sizes = pd_ui_->splitter->sizes();
@@ -491,10 +506,8 @@ void PreferencesDialog::updateItem(QTreeWidgetItem &item)
     item.setText(3, cur_value);
 }
 
-void PreferencesDialog::on_prefsTree_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous)
+void PreferencesDialog::on_prefsTree_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *)
 {
-    Q_UNUSED(previous)
-
     if (!current) return;
     QWidget *new_item = current->data(0, Qt::UserRole).value<QWidget *>();
     if (new_item) {
@@ -546,10 +559,8 @@ void PreferencesDialog::on_advancedSearchLineEdit_textEdited(const QString &sear
     }
 }
 
-void PreferencesDialog::on_advancedTree_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous)
+void PreferencesDialog::on_advancedTree_currentItemChanged(QTreeWidgetItem *, QTreeWidgetItem *previous)
 {
-    Q_UNUSED(current);
-
     if (previous && pd_ui_->advancedTree->itemWidget(previous, 3)) {
         pd_ui_->advancedTree->removeItemWidget(previous, 3);
     }
@@ -831,14 +842,11 @@ void PreferencesDialog::on_buttonBox_accepted()
 
     wsApp->setMonospaceFont(prefs.gui_qt_font_name);
 
-    /* Now destroy the "Preferences" dialog. */
-//    window_destroy(GTK_WIDGET(parent_w));
-
     if (must_redissect) {
         /* Redissect all the packets, and re-evaluate the display filter. */
-        app_signals_ << WiresharkApplication::PacketDissectionChanged;
+        wsApp->queueAppSignal(WiresharkApplication::PacketDissectionChanged);
     }
-    app_signals_ << WiresharkApplication::PreferencesChanged;
+    wsApp->queueAppSignal(WiresharkApplication::PreferencesChanged);
 }
 
 void PreferencesDialog::on_buttonBox_helpRequested()

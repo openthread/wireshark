@@ -697,7 +697,7 @@ dissect_drda(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 
     iPreviousFrameNumber = pinfo->fd->num;
     /* There may be multiple DRDA commands in one frame */
-    while ((guint) (offset + 10) <= tvb_length(tvb))
+    while ((guint) (offset + 10) <= tvb_reported_length(tvb))
     {
         iCommand = tvb_get_ntohs(tvb, offset + 8);
         iLength = tvb_get_ntohs(tvb, offset + 0);
@@ -737,11 +737,11 @@ dissect_drda(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
             /* The number of attributes is variable */
             for (offset += 10; offset < iCommandEnd; )
             {
-                if (tvb_length_remaining(tvb, offset) >= 2)
+                if (tvb_reported_length_remaining(tvb, offset) >= 2)
                 {
                     iLengthParam = tvb_get_ntohs(tvb, offset + 0);
                     if (iLengthParam == 0 || iLengthParam == 1) iLengthParam = iLength - 10;
-                    if (tvb_length_remaining(tvb, offset) >= iLengthParam)
+                    if (tvb_reported_length_remaining(tvb, offset) >= iLengthParam)
                     {
                         iParameterCP = tvb_get_ntohs(tvb, offset + 2);
                         drda_tree_sub = proto_tree_add_subtree(drdaroot_tree, tvb, offset, iLengthParam,
@@ -776,24 +776,20 @@ dissect_drda(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         }
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static guint
 get_drda_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data _U_)
 {
-    if (tvb_length_remaining(tvb, offset) >= 10)
-    {
-        return (tvb_get_ntohs(tvb, offset));
-    }
-    return 0;
+    return (tvb_get_ntohs(tvb, offset));
 }
 
 static int
 dissect_drda_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     tcp_dissect_pdus(tvb, pinfo, tree, drda_desegment, 10, get_drda_pdu_len, dissect_drda, data);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -801,7 +797,7 @@ static gboolean
 dissect_drda_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     conversation_t * conversation;
-    if (tvb_length(tvb) >= 10)
+    if (tvb_captured_length(tvb) >= 10)
     {
         /* The first header is 6 bytes long, so the length in the second header should 6 bytes less */
         guint16 cOuterLength, cInnerLength;
@@ -946,7 +942,7 @@ proto_register_drda(void)
 void
 proto_reg_handoff_drda(void)
 {
-    heur_dissector_add("tcp", dissect_drda_heur, proto_drda);
+    heur_dissector_add("tcp", dissect_drda_heur, "DRDA over TCP", "drda_tcp", proto_drda, HEURISTIC_ENABLE);
     drda_tcp_handle = new_create_dissector_handle(dissect_drda_tcp, proto_drda);
 }
 

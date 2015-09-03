@@ -816,7 +816,7 @@ dissect_pvfs_opaque_data(tvbuff_t *tvb, int offset,
 			string_length += 1;
 	}
 
-	string_length_captured = tvb_length_remaining(tvb, data_offset);
+	string_length_captured = tvb_captured_length_remaining(tvb, data_offset);
 	string_length_packet = tvb_reported_length_remaining(tvb, data_offset);
 
 	/*
@@ -850,7 +850,7 @@ dissect_pvfs_opaque_data(tvbuff_t *tvb, int offset,
 		else
 			fill_length = string_length_full - string_length - 4;
 
-		fill_length_captured = tvb_length_remaining(tvb,
+		fill_length_captured = tvb_captured_length_remaining(tvb,
 		    data_offset + string_length);
 		fill_length_packet = tvb_reported_length_remaining(tvb,
 		    data_offset + string_length);
@@ -1507,7 +1507,7 @@ dissect_pvfs2_io_request(tvbuff_t *tvb, proto_tree *tree, int offset,
 	/*offset = */dissect_pvfs_pint_request(tvb, tree, offset);
 
 	/* TODO: remove this!!! */
-	offset = tvb_length(tvb) - 16;
+	offset = tvb_reported_length(tvb) - 16;
 
 	/* offset */
 	proto_tree_add_item(tree, hf_pvfs_offset, tvb, offset, 8, ENC_LITTLE_ENDIAN);
@@ -2334,7 +2334,7 @@ dissect_pvfs2_getconfig_response(tvbuff_t *tvb, proto_tree *parent_tree,
 	ptr = tvb_get_ptr(tvb, offset, total_config_bytes);
 
 	/* Check if all data is available */
-	length_remaining = tvb_length_remaining(tvb, offset);
+	length_remaining = tvb_captured_length_remaining(tvb, offset);
 
 	if (length_remaining < total_config_bytes)
 	{
@@ -2916,11 +2916,14 @@ pvfs2_io_tracking_hash(gconstpointer k)
 static void
 pvfs2_io_tracking_init(void)
 {
-	if (pvfs2_io_tracking_value_table != NULL)
-		g_hash_table_destroy(pvfs2_io_tracking_value_table);
-
 	pvfs2_io_tracking_value_table = g_hash_table_new(pvfs2_io_tracking_hash,
 			pvfs2_io_tracking_equal);
+}
+
+static void
+pvfs2_io_tracking_cleanup(void)
+{
+	g_hash_table_destroy(pvfs2_io_tracking_value_table);
 }
 
 static pvfs2_io_tracking_value_t *
@@ -3611,6 +3614,7 @@ proto_register_pvfs(void)
 	expert_register_field_array(expert_pvfs, ei, array_length(ei));
 
 	register_init_routine(pvfs2_io_tracking_init);
+	register_cleanup_routine(pvfs2_io_tracking_cleanup);
 
 	pvfs_module = prefs_register_protocol(proto_pvfs, NULL);
 	prefs_register_bool_preference(pvfs_module, "desegment",
@@ -3628,7 +3632,7 @@ proto_reg_handoff_pvfs(void)
 	pvfs_handle = new_create_dissector_handle(dissect_pvfs_heur, proto_pvfs);
 	dissector_add_uint("tcp.port", TCP_PORT_PVFS2, pvfs_handle);
 
-	heur_dissector_add("tcp", dissect_pvfs_heur, proto_pvfs);
+	heur_dissector_add("tcp", dissect_pvfs_heur, "PVFS over TCP", "pvfs_tcp", proto_pvfs, HEURISTIC_ENABLE);
 }
 
 /*

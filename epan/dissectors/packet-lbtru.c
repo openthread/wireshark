@@ -2005,7 +2005,7 @@ void proto_reg_handoff_lbtru(void)
     {
         lbtru_dissector_handle = new_create_dissector_handle(dissect_lbtru, proto_lbtru);
         dissector_add_for_decode_as("udp.port", lbtru_dissector_handle);
-        heur_dissector_add("udp", test_lbtru_packet, proto_lbtru);
+        heur_dissector_add("udp", test_lbtru_packet, "LBT Reliable Unicast over UDP", "lbtru_udp", proto_lbtru, HEURISTIC_ENABLE);
         lbtru_tap_handle = register_tap("lbm_lbtru");
     }
 
@@ -2038,10 +2038,10 @@ void proto_reg_handoff_lbtru(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

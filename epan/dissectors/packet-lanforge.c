@@ -75,7 +75,7 @@ static gboolean dissect_lanforge(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     guint32 pld_len, magic;
 
     /* check for min size */
-    if(tvb_length(tvb) < 28) {  /* Not a LANforge packet. */
+    if(tvb_captured_length(tvb) < 28) {  /* Not a LANforge packet. */
         return FALSE;
     }
 
@@ -280,8 +280,8 @@ void proto_register_lanforge(void)
 void proto_reg_handoff_lanforge(void)
 {
     /* Register as a heuristic UDP dissector */
-    heur_dissector_add("udp", dissect_lanforge, proto_lanforge);
-    heur_dissector_add("tcp", dissect_lanforge, proto_lanforge);
+    heur_dissector_add("udp", dissect_lanforge, "LANforge over UDP", "lanforge_udp", proto_lanforge, HEURISTIC_ENABLE);
+    heur_dissector_add("tcp", dissect_lanforge, "LANforge over TCP", "lanforge_tcp", proto_lanforge, HEURISTIC_ENABLE);
 
     /* Find data dissector handle */
     data_handle = find_dissector("data");

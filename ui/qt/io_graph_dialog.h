@@ -78,6 +78,7 @@ public:
     unsigned int movingAveragePeriod() { return moving_avg_period_; }
     void setInterval(int interval);
     bool addToLegend();
+    bool removeFromLegend();
     QCPGraph *graph() { return graph_; }
     QCPBars *bars() { return bars_; }
     double startOffset();
@@ -94,6 +95,7 @@ public:
 public slots:
     void recalcGraphData(capture_file *cap_file);
     void captureFileClosing();
+    void reloadValueUnitField();
 
 signals:
     void requestReplot();
@@ -149,6 +151,7 @@ public slots:
     void scheduleReplot(bool now = false);
     void scheduleRecalc(bool now = false);
     void scheduleRetap(bool now = false);
+    void reloadFields();
 
 protected:
     void keyPressEvent(QKeyEvent *event);
@@ -158,6 +161,7 @@ signals:
     void goToPacket(int packet_num);
     void recalcGraphData(capture_file *);
     void intervalChanged(int interval);
+    void reloadValueUnitFields();
 
 private:
     Ui::IOGraphDialog *ui;

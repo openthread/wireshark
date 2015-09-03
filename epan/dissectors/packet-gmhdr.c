@@ -254,7 +254,7 @@ dissect_gmhdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     is_802_2 = TRUE;
 
     /* Don't throw an exception for this check (even a BoundsError) */
-    if (tvb_length_remaining(tvb, offset) >= 2) {
+    if (tvb_captured_length_remaining(tvb, offset) >= 2) {
       if (tvb_get_ntohs(tvb, offset) == 0xffff) {
         is_802_2 = FALSE;
       }
@@ -294,7 +294,7 @@ dissect_gmtimestamp_trailer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
 
   /* See if this packet has a Gigamon trailer, if yes, then decode it */
   /* (Don't throw any exceptions while checking for the trailer).     */
-  tvblen = tvb_length(tvb); /* end+1 */
+  tvblen = tvb_captured_length(tvb); /* end+1 */
   if (tvblen < trailer_len)
     return 0;
 
@@ -348,7 +348,7 @@ dissect_gmtrailer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
 
   /* See if this packet has a Gigamon trailer, if yes, then decode it */
   /* (Don't throw any exceptions while checking for the trailer).     */
-  tvblen = tvb_length(tvb); /* end+1 */
+  tvblen = tvb_captured_length(tvb); /* end+1 */
   if (tvblen < 5)
     return 0;
   extra_trailer = 0;
@@ -522,9 +522,9 @@ proto_reg_handoff_gmhdr(void)
 
   gmhdr_handle = create_dissector_handle(dissect_gmhdr, proto_gmhdr);
   dissector_add_uint("ethertype", ETHERTYPE_GIGAMON, gmhdr_handle);
-  heur_dissector_add("eth.trailer", dissect_gmtrailer, proto_gmhdr);
+  heur_dissector_add("eth.trailer", dissect_gmtrailer, "Gigamon Ethernet header", "gmhdr_eth", proto_gmhdr, HEURISTIC_ENABLE);
 
-  heur_dissector_add("eth.trailer", dissect_gmtimestamp_trailer, proto_gmtrailer);
+  heur_dissector_add("eth.trailer", dissect_gmtimestamp_trailer, "Gigamon Ethernet trailer", "gmtrailer_eth", proto_gmtrailer, HEURISTIC_ENABLE);
 }
 
 /*

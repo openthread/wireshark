@@ -109,6 +109,7 @@ my %APIs = (
                 'isupper',
                 'isxdigit',
                 'tolower',
+                'atof',
                 'strtod',
                 'strcasecmp',
                 'strncasecmp',
@@ -143,9 +144,7 @@ my %APIs = (
         # have not been entirely removed from old code. These will become errors
         # once they've been removed from all existing code.
         'soft-deprecated' => { 'count_errors' => 0, 'functions' => [
-                'tvb_length', # replaced with tvb_captured_length
                 'tvb_length_remaining', # replaced with tvb_captured_length_remaining
-                'tvb_ensure_length_remaining', # replaced with tvb_ensure_captured_length_remaining
                 'tvb_get_string', # replaced with tvb_get_string_enc
                 'tvb_get_stringz', # replaced with tvb_get_stringz_enc
                 'proto_tree_add_text', # replaced with proto_tree_add_subtree[_format], expert_add_info[_format], or proto_tree_add_expert[_format]
@@ -1440,6 +1439,30 @@ sub checkAPIsCalledWithTvbGetPtr($$$)
         }
 }
 
+# List of possible shadow variable (Majority coming from Mac OS X..)
+my @ShadowVariable = (
+        'index',
+        'time',
+        'strlen',
+);
+
+sub checkShadowVariable($$$)
+{
+        my ($groupHashRef, $fileContentsRef, $foundAPIsRef) = @_;
+
+        for my $api ( @{$groupHashRef} )
+        {
+                my $cnt = 0;
+                while (${$fileContentsRef} =~ m/ \s $api \s* [^\(\w] /gx)
+                {
+                        $cnt += 1;
+                }
+                if ($cnt > 0) {
+                        push @{$foundAPIsRef}, $api;
+                }
+        }
+}
+
 sub check_snprintf_plus_strlen($$)
 {
         my ($fileContentsRef, $filename) = @_;
@@ -1546,25 +1569,46 @@ sub check_value_string_arrays($$$)
         return $cnt;
 }
 
+
 sub check_included_files($$)
 {
         my ($fileContentsRef, $filename) = @_;
         my @incFiles;
 
-        # wsutils/wsgcrypt.h is our wrapper around gcrypt.h, it must be excluded from the tests
-        if ($filename =~ /wsgcrypt\.h/) {
-                return;
+        @incFiles = (${$fileContentsRef} =~ m/\#include \s* ([<"].+[>"])/gox);
+
+        # only our wrapper file wsutils/wsgcrypt.h may include gcrypt.h
+        # all other files should include the wrapper
+        if ($filename !~ /wsgcrypt\.h/) {
+                foreach (@incFiles) {
+                        if ( m#([<"]|/+)gcrypt\.h[>"]$# ) {
+                                print STDERR "Warning: ".$filename.
+                                        " includes gcrypt.h directly. ".
+                                        "Include wsutil/wsgrypt.h instead.\n";
+                                last;
+                        }
+                }
         }
 
-        @incFiles = (${$fileContentsRef} =~ m/\#include \s* [<"](.+)[>"]/gox);
-        foreach (@incFiles) {
-                if ( m#(^|/+)gcrypt\.h$# ) {
-                        print STDERR "Warning: ".$filename." includes gcrypt.h directly. ".
-                                "Include wsutil/wsgrypt.h instead.\n";
-                        last;
+        # files in the ui/qt directory should include the ui class includes
+        # by using #include <>
+        # this ensures that Visual Studio picks up these files from the
+        # build directory if we're compiling with cmake
+        if ($filename =~ m#ui/qt/# ) {
+                foreach (@incFiles) {
+                        if ( m#"ui_.*\.h"$# ) {
+                                # strip the quotes to get the base name
+                                # for the error message
+                                s/\"//g;
+
+                                print STDERR "$filename: ".
+                                        "Please use #include <$_> ".
+                                        "instead of #include \"$_\".\n";
+                        }
                 }
         }
 }
+
 
 sub check_proto_tree_add_XXX_encoding($$)
 {
@@ -1587,7 +1631,7 @@ sub check_proto_tree_add_XXX_encoding($$)
                 $args =~ s/\(.*\)//sg;
 
                 if ($args =~ /,\s*ENC_/xos) {
-                        if (!($func =~ /proto_tree_add_(time|item|bitmask|bits_item|bits_ret_val|item_ret_int|item_ret_uint)/xos)
+                        if (!($func =~ /proto_tree_add_(time|item|bitmask|bits_item|bits_ret_val|item_ret_int|item_ret_uint|bytes_item)/xos)
                            ) {
                                 print STDERR "Error: ".$filename." uses $func with ENC_*.\n";
                                 $errorCount++;
@@ -1905,7 +1949,7 @@ my $debug = 0;
             (defined $_[1]) && print "  >$_[1]<\n";
         }
 
-        # #if/#if 0/#else/#ndif processing
+        # #if/#if 0/#else/#endif processing
         if (defined $_[1]) {
             my ($if) = $_[1];
             if ($if eq 'if') {
@@ -2132,6 +2176,12 @@ while ($_ = $ARGV[0])
         #if (@foundAPIs) {
         #       print STDERR "Found APIs with embedded tvb_get_ptr() calls in ".$filename." : ".join(',', @foundAPIs)."\n"
         #}
+
+        checkShadowVariable(\@ShadowVariable, \$fileContents, \@foundAPIs);
+        if (@foundAPIs) {
+               print STDERR "Warning: Found shadow variable(s) in ".$filename." : ".join(',', @foundAPIs)."\n"
+        }
+
 
         check_snprintf_plus_strlen(\$fileContents, $filename);
 

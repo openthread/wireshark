@@ -36,6 +36,7 @@
 #include <QKeyEvent>
 #include <QScrollBar>
 #include <QStringListModel>
+#include <limits>
 
 const int max_completion_items_ = 20;
 
@@ -45,6 +46,7 @@ SyntaxLineEdit::SyntaxLineEdit(QWidget *parent) :
     completion_model_(NULL)
 {
     setSyntaxState();
+    setMaxLength(std::numeric_limits<quint32>::max());
 }
 
 // Override setCompleter so that we don't clobber the filter text on activate.
@@ -92,7 +94,7 @@ void SyntaxLineEdit::setSyntaxState(SyntaxState state) {
             .arg("palette(text)")   // Foreground
             .arg(ColorUtils::fromColorT(&prefs.gui_text_valid).name())        // Valid
             .arg(ColorUtils::fromColorT(&prefs.gui_text_invalid).name())      // Invalid
-            .arg(ColorUtils::fromColorT(&prefs.gui_text_deprecated).name())   // VDeprecated
+            .arg(ColorUtils::fromColorT(&prefs.gui_text_deprecated).name())   // Deprecated
             ;
     setStyleSheet(style_sheet_);
 }
@@ -217,8 +219,10 @@ void SyntaxLineEdit::completionKeyPressEvent(QKeyEvent *event)
         switch (event->key()) {
         case Qt::Key_Enter:
         case Qt::Key_Return:
-        case Qt::Key_Escape:
         case Qt::Key_Tab:
+            focusNextChild();
+            break;
+        case Qt::Key_Escape:
         case Qt::Key_Backtab:
             event->ignore();
             return;

@@ -26,6 +26,10 @@
 #
 CMAKE=1
 #
+# To install autotools
+#
+AUTOTOOLS=1
+#
 # To build all libraries as 32-bit libraries uncomment the following three lines.
 #
 # export CFLAGS="$CFLAGS -arch i386"
@@ -66,13 +70,17 @@ PKG_CONFIG_VERSION=0.28
 # One or more of the following libraries are required to build Wireshark.
 #
 # If you don't want to build with Qt, comment out the QT_VERSION= line.
+# Note that Qt 5, prior to 5.5.0, mishandles context menus in ways that,
+# for example, cause them not to work reliably in the packet detail or
+# packet data pane; see, for example, Qt bugs QTBUG-31937, QTBUG-41017,
+# and QTBUG-43464, all of which seem to be the same bug.
 #
 # If you want to build with GTK+ 2, comment out the GTK_VERSION=3.* line
 # and un-comment the GTK_VERSION=2.* line.
 #
 # If you don't want to build with GTK+ at all, comment out both lines.
 #
-QT_VERSION=5.3.2
+QT_VERSION=5.5.0
 GTK_VERSION=2.24.17
 #GTK_VERSION=3.5.2
 if [ "$GTK_VERSION" ]; then
@@ -85,7 +93,7 @@ if [ "$GTK_VERSION" ]; then
 
     ATK_VERSION=2.8.0
     PANGO_VERSION=1.30.1
-    PNG_VERSION=1.5.17
+    PNG_VERSION=1.6.17
     PIXMAN_VERSION=0.26.0
     CAIRO_VERSION=1.12.2
     GDK_PIXBUF_VERSION=2.28.0
@@ -138,7 +146,7 @@ DARWIN_MAJOR_VERSION=`uname -r | sed 's/\([0-9]*\).*/\1/'`
 # GNU autotools; they're provided with releases up to Snow Leopard, but
 # not in later releases.
 #
-if [[ $DARWIN_MAJOR_VERSION -gt 10 ]]; then
+if [ -n "$AUTOTOOLS" -a $DARWIN_MAJOR_VERSION -gt 10 ]; then
     AUTOCONF_VERSION=2.69
     AUTOMAKE_VERSION=1.13.3
     LIBTOOL_VERSION=2.4.2
@@ -302,15 +310,72 @@ uninstall_libtool() {
 install_cmake() {
     if [ -n "$CMAKE" -a ! -f cmake-$CMAKE_VERSION-done ]; then
         echo "Downloading and installing CMake:"
-        cmake_dir=`expr $CMAKE_VERSION : '\([0-9][0-9]*\.[0-9][0-9]*\).*'`
+        CMAKE_MAJOR_VERSION="`expr $CMAKE_VERSION : '\([0-9][0-9]*\).*'`"
+        CMAKE_MINOR_VERSION="`expr $CMAKE_VERSION : '[0-9][0-9]*\.\([0-9][0-9]*\).*'`"
+        CMAKE_DOTDOT_VERSION="`expr $CMAKE_VERSION : '[0-9][0-9]*\.[0-9][0-9]*\.\([0-9][0-9]*\).*'`"
+        CMAKE_MAJOR_MINOR_VERSION=$CMAKE_MAJOR_VERSION.$CMAKE_MINOR_VERSION
+
         #
         # NOTE: the "64" in "Darwin64" doesn't mean "64-bit-only"; the
         # package in question supports both 32-bit and 64-bit x86.
         #
-        [ -f cmake-$CMAKE_VERSION-Darwin64-universal.dmg ] || curl -O http://www.cmake.org/files/v$cmake_dir/cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
-        sudo hdiutil attach cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
-        sudo installer -target / -pkg /Volumes/cmake-$CMAKE_VERSION-Darwin64-universal/cmake-$CMAKE_VERSION-Darwin64-universal.pkg || exit 1
-        sudo hdiutil detach /Volumes/cmake-$CMAKE_VERSION-Darwin64-universal
+        case "$CMAKE_MAJOR_VERSION" in
+
+        0|1)
+            echo "CMake $CMAKE_VERSION" is too old 1>&2
+            ;;
+
+        2)
+            #
+            # Download the DMG, run the installer.
+            #
+            [ -f cmake-$CMAKE_VERSION-Darwin64-universal.dmg ] || curl -O http://www.cmake.org/files/v$CMAKE_MAJOR_MINOR_VERSION/cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
+            sudo hdiutil attach cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
+            sudo installer -target / -pkg /Volumes/cmake-$CMAKE_VERSION-Darwin64-universal/cmake-$CMAKE_VERSION-Darwin64-universal.pkg || exit 1
+            sudo hdiutil detach /Volumes/cmake-$CMAKE_VERSION-Darwin64-universal
+            ;;
+
+        3)
+            #
+            # Download the DMG and do a drag install, where "drag" means
+            # "mv".
+            #
+            # 3.0.* and 3.1.0 have a Darwin64-universal DMG.
+            # 3.1.1 and later have a Darwin-x86_64 DMG.
+            # Probably not many people are still developing on 32-bit
+            # Macs, so we don't worry about them.
+            #
+            if [ "$CMAKE_MINOR_VERSION" = 0 -o \
+                 "$CMAKE_VERSION" = 3.1.0 ]; then
+                type="Darwin64-universal"
+            else
+                type="Darwin-x86_64"
+            fi
+            [ -f cmake-$CMAKE_VERSION-$type.dmg ] || curl -O http://www.cmake.org/files/v$CMAKE_MAJOR_MINOR_VERSION/cmake-$CMAKE_VERSION-$type.dmg || exit 1
+            sudo hdiutil attach cmake-$CMAKE_VERSION-$type.dmg || exit 1
+            sudo ditto /Volumes/cmake-$CMAKE_VERSION-$type/CMake.app /Applications/CMake.app || exit 1
+
+            #
+            # Plant the appropriate symbolic links in /usr/local/bin.
+            # It's a drag-install, so there's no installer to make them,
+            # and the CMake code to put them in place is lame, as
+            #
+            #    1) it defaults to /usr/bin, not /usr/local/bin;
+            #    2) it doesn't request the necessary root privileges;
+            #    3) it can't be run from the command line;
+            #
+            # so we do it ourselves.
+	    #
+            for i in ccmake cmake cmake-gui cmakexbuild cpack ctest
+            do
+                sudo ln -s /Applications/CMake.app/Contents/bin/$i /usr/local/bin/$i
+            done
+            sudo hdiutil detach /Volumes/cmake-$CMAKE_VERSION-$type
+            ;;
+
+        *)
+            ;;
+        esac
         touch cmake-$CMAKE_VERSION-done
     fi
 }
@@ -318,21 +383,40 @@ install_cmake() {
 uninstall_cmake() {
     if [ ! -z "$installed_cmake_version" ]; then
         echo "Uninstalling CMake:"
-        sudo rm -rf "/Applications/CMake "`echo "$installed_cmake_version" | sed 's/\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1.\2-\3/'`.app
-        sudo rm /usr/bin/ccmake
-        sudo rm /usr/bin/cmake
-        sudo rm /usr/bin/cmake-gui
-        sudo rm /usr/bin/cmakexbuild
-        sudo rm /usr/bin/cpack
-        sudo rm /usr/bin/ctest
-        sudo pkgutil --forget com.Kitware.CMake
-        rm cmake-$installed_cmake_version-done
+        installed_cmake_major_version="`expr $installed_cmake_version : '\([0-9][0-9]*\).*'`"
+        case "$installed_cmake_major_version" in
+
+        0|1)
+            echo "CMake $installed_cmake_version" is too old 1>&2
+            ;;
+
+        2)
+            sudo rm -rf "/Applications/CMake "`echo "$installed_cmake_version" | sed 's/\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1.\2-\3/'`.app
+            for i in ccmake cmake cmake-gui cmakexbuild cpack ctest
+            do
+                sudo rm -f /usr/bin/$i /usr/local/bin/$i
+            done
+            sudo pkgutil --forget com.Kitware.CMake
+            rm cmake-$installed_cmake_version-done
+            ;;
+
+        3)
+            sudo rm -rf /Applications/CMake.app
+            for i in ccmake cmake cmake-gui cmakexbuild cpack ctest
+            do
+                sudo rm -f /usr/local/bin/$i
+            done
+            rm cmake-$installed_cmake_version-done
+            ;;
+        esac
 
         if [ "$#" -eq 1 -a "$1" = "-r" ] ; then
             #
-            # Get rid of the previously downloaded and unpacked version.
+            # Get rid of the previously downloaded and unpacked version,
+            # whatever it might happen to be called.
             #
             rm -f cmake-$installed_cmake_version-Darwin64-universal.dmg
+            rm -f cmake-$installed_cmake_version-Darwin-x86_64.dmg
         fi
 
         installed_cmake_version=""
@@ -534,8 +618,10 @@ install_qt() {
         sudo hdiutil detach /Volumes/qt-opensource-mac-x64-clang-$QT_VERSION
 
         #
-        # The 5.3.x versions, at least, have bogus .pc files.
-        # Fix them.
+        # Versions 5.3.x through 5.5.0, at least, have bogus .pc files.
+        # See bugs QTBUG-35256 and QTBUG-47162.
+        #
+        # Fix the files.
         #
         for i in $HOME/Qt$QT_VERSION/$QT_MAJOR_MINOR_VERSION/clang_64/lib/pkgconfig/*.pc
         do
@@ -543,6 +629,7 @@ install_qt() {
 H
 g/Cflags: /s;;Cflags: -F\${libdir} ;
 g/Cflags: /s;-I\${includedir}/Qt\([a-zA-Z0-9_]*\);-I\${libdir}/Qt\1.framework/Versions/5/Headers;
+g/Libs: /s;';;g
 w
 q
 EOF
@@ -2211,36 +2298,45 @@ install_all
 echo ""
 
 #
-# Indicate what path to use for pkg-config.
+# Indicate what paths to use for pkg-config and cmake.
 #
 pkg_config_path=/usr/local/lib/pkgconfig
 if [ "$QT_VERSION" ]; then
-    pkg_config_path="$pkg_config_path":"$HOME/Qt$QT_VERSION/$QT_MAJOR_MINOR_VERSION/clang_64/lib/pkgconfig"
+    qt_base_path=$HOME/Qt$QT_VERSION/$QT_MAJOR_MINOR_VERSION/clang_64
+    pkg_config_path="$pkg_config_path":"$qt_base_path/clang_64/lib/pkgconfig"
+    CMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH":"$qt_base_path/lib/cmake"
 fi
 pkg_config_path="$pkg_config_path":/usr/X11/lib/pkgconfig
 
-echo "You are now prepared to build Wireshark. To do so do:"
-echo "export PKG_CONFIG_PATH=$pkg_config_path"
-echo ""
-if [ -n "$CMAKE" ]; then
+echo "You are now prepared to build Wireshark."
+echo
+if [[ $CMAKE ]]; then
+    echo "To build with CMAKE:"
+    echo
+    echo "export PKG_CONFIG_PATH=$pkg_config_path"
+    echo "export CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"
+    echo "export PATH=$PATH:$qt_base_path/bin"
+    echo
     echo "mkdir build; cd build"
     echo "cmake .."
-    echo
-    echo "or"
+    echo "make $MAKE_BUILD_OPTS app_bundle"
+    echo "make install/strip"
     echo
 fi
-echo "./autogen.sh"
-echo "mkdir build; cd build"
-echo "../configure"
-echo ""
-echo "make $MAKE_BUILD_OPTS"
-echo "make install"
-
-echo ""
-
+if [[ $AUTOTOOLS ]]; then
+    echo "To build with AUTOTOOLS:"
+    echo
+    echo "export PKG_CONFIG_PATH=$pkg_config_path"
+    echo
+    echo "./autogen.sh"
+    echo "mkdir build; cd build"
+    echo "../configure"
+    echo "make $MAKE_BUILD_OPTS"
+    echo "make install"
+    echo
+fi
 echo "Make sure you are allowed capture access to the network devices"
 echo "See: https://wiki.wireshark.org/CaptureSetup/CapturePrivileges"
-
-echo ""
+echo
 
 exit 0

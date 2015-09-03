@@ -35,6 +35,7 @@
 #include <epan/prefs.h>
 #include <epan/reassemble.h>
 #include "packet-tcp.h"
+#include "packet-udp.h"
 #include <epan/expert.h>
 #include <epan/to_str.h>
 #include <epan/crc16-tvb.h>
@@ -729,6 +730,20 @@ static int hf_dnp3_al_da_length = -1;
 static int hf_dnp3_al_da_int8 = -1;
 static int hf_dnp3_al_da_int32 = -1;
 
+/* Generated from convert_proto_tree_add_text.pl */
+static int hf_dnp3_al_point_index = -1;
+static int hf_dnp3_al_da_value = -1;
+static int hf_dnp3_al_count = -1;
+static int hf_dnp3_al_on_time = -1;
+static int hf_dnp3_al_off_time = -1;
+static int hf_dnp3_al_time_delay = -1;
+static int hf_dnp3_al_file_string_offset = -1;
+static int hf_dnp3_al_file_string_length = -1;
+static int hf_dnp3_al_file_name = -1;
+static int hf_dnp3_al_octet_string = -1;
+static int hf_dnp3_unknown_data_chunk = -1;
+static int hf_dnp3_application_chunk = -1;
+
 /***************************************************************************/
 /* Value String Look-Ups */
 /***************************************************************************/
@@ -1272,6 +1287,9 @@ static gint ett_dnp3_al_obj_point_perms = -1;
 static expert_field ei_dnp_num_items_neg = EI_INIT;
 static expert_field ei_dnp_invalid_length = EI_INIT;
 static expert_field ei_dnp_iin_abnormal = EI_INIT;
+/* Generated from convert_proto_tree_add_text.pl */
+static expert_field ei_dnp3_crc_failed = EI_INIT;
+static expert_field ei_dnp3_buffering_user_data_until_final_frame_is_received = EI_INIT;
 
 /* Tables for reassembly of fragments. */
 static reassembly_table al_reassembly_table;
@@ -1360,8 +1378,6 @@ typedef struct {
 /* The conversation sequence number */
 static guint seq_number = 0;
 
-/* Heuristically detect DNP3 over TCP/UDP */
-static gboolean dnp3_heuristics = FALSE;
 /* desegmentation of DNP3 over TCP */
 static gboolean dnp3_desegment = TRUE;
 
@@ -1470,7 +1486,7 @@ dnp3_al_obj_procindex(tvbuff_t *tvb, int offset, guint8 al_objq_index, guint32 *
   {
     case AL_OBJQL_IDX_NI:        /* No Index */
       indexbytes = 0;
-      index_item = proto_tree_add_text(item_tree, tvb, offset, 0, "Point Index: %u", *al_ptaddr);
+      index_item = proto_tree_add_uint(item_tree, hf_dnp3_al_point_index, tvb, offset, 0, *al_ptaddr);
       PROTO_ITEM_SET_GENERATED(index_item);
       break;
     case AL_OBJQL_IDX_1O:
@@ -1785,7 +1801,7 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
   if (num_items < 0) {
     proto_item_append_text(range_item, " (bogus)");
     expert_add_info(pinfo, range_item, &ei_dnp_num_items_neg);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
   }
 
 
@@ -1820,12 +1836,12 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
       data_pos += indexbytes;
 
       if (!header_only || (AL_OBJQL_IDX_1OS <= al_objq_index && al_objq_index <= AL_OBJQL_IDX_4OS)) {
-        guint8       al_2bit, al_ptflags, al_ctlobj_count, al_bi_val, al_tcc_code, da_len;
+        guint8       al_2bit, al_ptflags, al_bi_val, al_tcc_code, da_len;
         gint16       al_val_int16;
         guint16      al_val_uint16, al_ctlobj_stat;
-        guint16      al_relms, al_filename_offs, al_filename_len, al_file_ctrl_mode;
+        guint16      al_relms, al_filename_len, al_file_ctrl_mode;
         gint32       al_val_int32;
-        guint32      al_val_uint32, al_ctlobj_on, al_ctlobj_off, file_data_size;
+        guint32      al_val_uint32, file_data_size;
         nstime_t     al_reltime, al_abstime;
         gboolean     al_bit;
         gfloat       al_valflt;
@@ -1919,7 +1935,7 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
             da_len = tvb_get_guint8(tvb, offset+1);
             proto_tree_add_item(point_tree, hf_dnp3_al_da_length, tvb, offset+1, 1, ENC_LITTLE_ENDIAN);
 
-            proto_tree_add_text(point_tree, tvb, offset+2, da_len, "Value: %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, da_len, ENC_ASCII));
+            proto_tree_add_item(point_tree, hf_dnp3_al_da_value, tvb, offset+2, da_len, ENC_ASCII|ENC_NA);
             proto_item_append_text(object_item, ", Value: %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, da_len, ENC_ASCII));
 
             offset += 2 + da_len;
@@ -2144,21 +2160,16 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
             data_pos += 1;
 
             /* Get "Count" Field */
-            al_ctlobj_count = tvb_get_guint8(tvb, data_pos);
+            proto_tree_add_item(point_tree, hf_dnp3_al_count, tvb, data_pos, 1, ENC_LITTLE_ENDIAN);
             data_pos += 1;
 
             /* Get "On Time" Field */
-            al_ctlobj_on = tvb_get_letohl(tvb, data_pos);
+            proto_tree_add_item(point_tree, hf_dnp3_al_on_time, tvb, data_pos, 4, ENC_LITTLE_ENDIAN);
             data_pos += 4;
 
             /* Get "Off Time" Field */
-            al_ctlobj_off = tvb_get_letohl(tvb, data_pos);
+            proto_tree_add_item(point_tree, hf_dnp3_al_off_time, tvb, data_pos, 4, ENC_LITTLE_ENDIAN);
             data_pos += 4;
-
-            /* Print "Count", "On Time" and "Off Time" to tree */
-            proto_tree_add_text(point_tree, tvb, data_pos - 9, 9,
-               "[Count: %u] [On-Time: %u] [Off-Time: %u]",
-                   al_ctlobj_count, al_ctlobj_on, al_ctlobj_off);
 
             /* Get "Control Status" Field */
             proto_tree_add_item(point_tree, hf_dnp3_al_ctrlstatus, tvb, data_pos, 1, ENC_LITTLE_ENDIAN);
@@ -2641,7 +2652,7 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
           case AL_OBJ_TDELAYF: /* Time Delay - Fine (Obj:52, Var:02) */
 
             al_val_uint16 = tvb_get_letohs(tvb, data_pos);
-            proto_tree_add_text(object_tree, tvb, data_pos, 2, "Time Delay: %u ms", al_val_uint16);
+            proto_tree_add_uint_format_value(object_tree, hf_dnp3_al_time_delay, tvb, data_pos, 2, al_val_uint16, "%u ms", al_val_uint16);
             data_pos += 2;
             proto_item_set_len(point_item, data_pos - offset);
 
@@ -2659,11 +2670,10 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
 
           case AL_OBJ_FILE_CMD: /* File Control - File Command (Obj:70, Var:03) */
             /* File name offset and length */
-            al_filename_offs = tvb_get_letohs(tvb, data_pos);
-            proto_tree_add_text(point_tree, tvb, data_pos, 2, "File String Offset: %u", al_filename_offs);
+            proto_tree_add_item(point_tree, hf_dnp3_al_file_string_offset, tvb, data_pos, 2, ENC_LITTLE_ENDIAN);
             data_pos += 2;
             al_filename_len = tvb_get_letohs(tvb, data_pos);
-            proto_tree_add_text(point_tree, tvb, data_pos, 2, "File String Length: %u", al_filename_len);
+            proto_tree_add_item(point_tree, hf_dnp3_al_file_string_length, tvb, data_pos, 2, ENC_LITTLE_ENDIAN);
             data_pos += 2;
 
             /* Grab the mode as it determines if some of the following fields are relevant */
@@ -2720,10 +2730,7 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
 
             /* Filename */
             if (al_filename_len > 0) {
-              const gchar *al_filename;
-
-              al_filename = tvb_get_string_enc(wmem_packet_scope(), tvb, data_pos, al_filename_len, ENC_ASCII);
-              proto_tree_add_text(point_tree, tvb, data_pos, al_filename_len, "File Name: %s", al_filename);
+              proto_tree_add_item(point_tree, hf_dnp3_al_file_name, tvb, data_pos, al_filename_len, ENC_ASCII|ENC_NA);
             }
             data_pos += al_filename_len;
             proto_item_set_len(point_item, data_pos - offset);
@@ -2820,7 +2827,7 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
 
             /* read the number of bytes defined by the variation */
             if (al_oct_len > 0) {
-              proto_tree_add_text(object_tree, tvb, data_pos, al_oct_len, "Octet String (%u bytes)", al_oct_len);
+              proto_tree_add_item(object_tree, hf_dnp3_al_octet_string, tvb, data_pos, al_oct_len, ENC_NA);
               data_pos += al_oct_len;
               proto_item_set_len(point_item, data_pos - offset);
             }
@@ -2830,9 +2837,8 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
 
           default:             /* In case of unknown object */
 
-            proto_tree_add_text(object_tree, tvb, offset, -1,
-              "Unknown Data Chunk, %u Bytes", tvb_reported_length_remaining(tvb, offset));
-            offset = tvb_length(tvb); /* Finish decoding if unknown object is encountered... */
+            proto_tree_add_item(object_tree, hf_dnp3_unknown_data_chunk, tvb, offset, -1, ENC_NA);
+            offset = tvb_captured_length(tvb); /* Finish decoding if unknown object is encountered... */
             break;
         }
 
@@ -2841,7 +2847,7 @@ dnp3_al_process_object(tvbuff_t *tvb, packet_info *pinfo, int offset,
       }
       if (start_offset > offset) {
         expert_add_info(pinfo, point_item, &ei_dnp_invalid_length);
-        offset = tvb_length(tvb); /* Finish decoding if unknown object is encountered... */
+        offset = tvb_captured_length(tvb); /* Finish decoding if unknown object is encountered... */
       }
     }
   }
@@ -2874,7 +2880,7 @@ dissect_dnp3_al(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
   nstime_set_zero (&al_cto);
 
-  data_len = tvb_length(tvb);
+  data_len = tvb_captured_length(tvb);
 
   /* Handle the control byte and function code */
   al_ctl = tvb_get_guint8(tvb, offset);
@@ -2909,7 +2915,7 @@ dissect_dnp3_al(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   /* If this packet is NOT the final Application Layer Message, exit and continue
      processing the remaining data in the fragment. */
   if (!(al_ctl & DNP3_AL_FIN)) {
-    t_robj = proto_tree_add_text(al_tree, tvb, offset, -1, "Buffering User Data Until Final Frame is Received..");
+    t_robj = proto_tree_add_expert(al_tree, pinfo, &ei_dnp3_buffering_user_data_until_final_frame_is_received, tvb, offset, -1);
     return 1;
   }
 #endif
@@ -3299,15 +3305,15 @@ dissect_dnp3_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
       crc_OK   = calc_crc == act_crc;
       if (crc_OK)
       {
-        proto_tree_add_text(al_tree, tvb, offset - (chk_size + 2), chk_size + 2,
-                            "Application Chunk %u Len: %u CRC 0x%04x",
+        proto_tree_add_bytes_format(al_tree, hf_dnp3_application_chunk, tvb, offset - (chk_size + 2), chk_size + 2,
+                            NULL, "Application Chunk %u Len: %u CRC 0x%04x",
                             i, chk_size, act_crc);
         data_len -= chk_size;
       }
       else
       {
-        proto_tree_add_text(al_tree, tvb, offset - (chk_size + 2), chk_size + 2,
-                            "Application Chunk %u Len: %u Bad CRC got 0x%04x expected 0x%04x",
+        proto_tree_add_bytes_format(al_tree, hf_dnp3_application_chunk, tvb, offset - (chk_size + 2), chk_size + 2,
+                            NULL, "Application Chunk %u Len: %u Bad CRC got 0x%04x expected 0x%04x",
                             i, chk_size, act_crc, calc_crc);
         break;
       }
@@ -3407,7 +3413,7 @@ dissect_dnp3_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
     {
       /* CRC error - throw away the data. */
       next_tvb = NULL;
-      proto_tree_add_text(dnp3_tree, tvb, 11, -1, "CRC failed, %u chunks", i);
+      proto_tree_add_expert_format(dnp3_tree, pinfo, &ei_dnp3_crc_failed, tvb, 11, -1, "CRC failed, %u chunks", i);
     }
 
     /* Dissect any completed Application Layer message */
@@ -3426,11 +3432,13 @@ dissect_dnp3_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
     }
   }
 
-  return tvb_length(tvb);
+  /* Set the length of the message */
+  proto_item_set_len(ti, offset);
+  return offset;
 }
 
 static gboolean
-check_dnp3_header(tvbuff_t *tvb)
+check_dnp3_header(tvbuff_t *tvb, gboolean dnp3_heuristics)
 {
   /* Assume the CRC will be bad */
   gboolean goodCRC = FALSE;
@@ -3487,10 +3495,23 @@ get_dnp3_message_len(packet_info *pinfo _U_, tvbuff_t *tvb,
   return message_len;
 }
 
-static gboolean
+static int
 dissect_dnp3_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-  if (!check_dnp3_header(tvb)) {
+  if (!check_dnp3_header(tvb, FALSE)) {
+    return 0;
+  }
+
+  tcp_dissect_pdus(tvb, pinfo, tree, TRUE, DNP_HDR_LEN,
+                   get_dnp3_message_len, dissect_dnp3_message, data);
+
+  return tvb_captured_length(tvb);
+}
+
+static gboolean
+dissect_dnp3_tcp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+  if (!check_dnp3_header(tvb, TRUE)) {
     return FALSE;
   }
 
@@ -3500,28 +3521,45 @@ dissect_dnp3_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
   return TRUE;
 }
 
-static gboolean
+static int
 dissect_dnp3_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-  if (!check_dnp3_header(tvb)) {
+  if (!check_dnp3_header(tvb, FALSE)) {
+    return 0;
+  }
+
+  udp_dissect_pdus(tvb, pinfo, tree, DNP_HDR_LEN,
+                   get_dnp3_message_len, dissect_dnp3_message, data);
+
+  return tvb_captured_length(tvb);
+}
+
+static gboolean
+dissect_dnp3_udp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+  if (!check_dnp3_header(tvb, FALSE)) {
     return FALSE;
   }
 
-  dissect_dnp3_message(tvb, pinfo, tree, data);
+  udp_dissect_pdus(tvb, pinfo, tree, DNP_HDR_LEN,
+                   get_dnp3_message_len, dissect_dnp3_message, data);
+
   return TRUE;
 }
 
 static void
 dnp3_init(void)
 {
-  if (dl_conversation_table)
-  {
-    g_hash_table_destroy(dl_conversation_table);
-  }
   dl_conversation_table = g_hash_table_new(dl_conversation_hash, dl_conversation_equal);
-
   reassembly_table_init(&al_reassembly_table,
                         &addresses_reassembly_table_functions);
+}
+
+static void
+dnp3_cleanup(void)
+{
+  reassembly_table_destroy(&al_reassembly_table);
+  g_hash_table_destroy(dl_conversation_table);
 }
 
 /* Register the protocol with Wireshark */
@@ -4468,7 +4506,21 @@ proto_register_dnp3(void)
       { "Reassembled DNP length", "dnp3.al.fragment.reassembled.length",
         FT_UINT32, BASE_DEC, NULL, 0x0,
         "The total length of the reassembled payload", HFILL }
-    }
+    },
+    /* Generated from convert_proto_tree_add_text.pl */
+    { &hf_dnp3_al_point_index, { "Point Index", "dnp3.al.point_index", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_da_value, { "Value", "dnp3.al.da.value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_count, { "Count", "dnp3.al.count", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_on_time, { "On Time", "dnp3.al.on_time", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_off_time, { "Off Time", "dnp3.al.off_time", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_time_delay, { "Time Delay", "dnp3.al.time_delay", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_file_string_offset, { "File String Offset", "dnp3.al.file_string_offset", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_file_string_length, { "File String Length", "dnp3.al.file_string_length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_file_name, { "File Name", "dnp3.al.file_name", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_al_octet_string, { "Octet String", "dnp3.al.octet_string", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_unknown_data_chunk, { "Unknown Data Chunk", "dnp3.al.unknown_data_chunk", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { &hf_dnp3_application_chunk, { "Application Chunk", "dnp.application_chunk", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+
   };
 
 /* Setup protocol subtree array */
@@ -4496,12 +4548,16 @@ proto_register_dnp3(void)
      { &ei_dnp_num_items_neg, { "dnp3.num_items_neg", PI_MALFORMED, PI_ERROR, "Negative number of items", EXPFILL }},
      { &ei_dnp_invalid_length, { "dnp3.invalid_length", PI_MALFORMED, PI_ERROR, "Invalid length", EXPFILL }},
      { &ei_dnp_iin_abnormal, { "dnp3.iin_abnormal", PI_PROTOCOL, PI_WARN, "IIN Abnormality", EXPFILL }},
+      /* Generated from convert_proto_tree_add_text.pl */
+      { &ei_dnp3_buffering_user_data_until_final_frame_is_received, { "dnp3.buffering_user_data_until_final_frame_is_received", PI_PROTOCOL, PI_WARN, "Buffering User Data Until Final Frame is Received..", EXPFILL }},
+      { &ei_dnp3_crc_failed, { "dnp.crc_failed", PI_PROTOCOL, PI_WARN, "CRC failed", EXPFILL }},
   };
   module_t *dnp3_module;
   expert_module_t* expert_dnp3;
 
 /* Register protocol init routine */
   register_init_routine(&dnp3_init);
+  register_cleanup_routine(&dnp3_cleanup);
 
 /* Register the protocol name and description */
   proto_dnp3 = proto_register_protocol("Distributed Network Protocol 3.0",
@@ -4517,10 +4573,7 @@ proto_register_dnp3(void)
   expert_register_field_array(expert_dnp3, ei, array_length(ei));
 
   dnp3_module = prefs_register_protocol(proto_dnp3, NULL);
-  prefs_register_bool_preference(dnp3_module, "heuristics",
-    "Try to detect DNP 3 heuristically",
-    "Whether the DNP3 dissector should try to find DNP 3 packets heuristically.",
-    &dnp3_heuristics);
+  prefs_register_obsolete_preference(dnp3_module, "heuristics");
   prefs_register_bool_preference(dnp3_module, "desegment",
     "Reassemble DNP3 messages spanning multiple TCP segments",
     "Whether the DNP3 dissector should reassemble messages spanning multiple TCP segments."
@@ -4536,13 +4589,8 @@ proto_reg_handoff_dnp3(void)
   dissector_handle_t dnp3_udp_handle;
 
   /* register as heuristic dissector for both TCP and UDP */
-  if (dnp3_heuristics) {
-    heur_dissector_add("tcp", dissect_dnp3_tcp, proto_dnp3);
-    heur_dissector_add("udp", dissect_dnp3_udp, proto_dnp3);
-  } else {
-    heur_dissector_delete("tcp", dissect_dnp3_tcp, proto_dnp3);
-    heur_dissector_delete("udp", dissect_dnp3_udp, proto_dnp3);
-  }
+  heur_dissector_add("tcp", dissect_dnp3_tcp_heur, "DNP 3.0 over TCP", "dnp3_tcp", proto_dnp3, HEURISTIC_DISABLE);
+  heur_dissector_add("udp", dissect_dnp3_udp_heur, "DNP 3.0 over UDP", "dnp3_udp", proto_dnp3, HEURISTIC_DISABLE);
 
   dnp3_tcp_handle = new_create_dissector_handle(dissect_dnp3_tcp, proto_dnp3);
   dnp3_udp_handle = new_create_dissector_handle(dissect_dnp3_udp, proto_dnp3);

@@ -67,8 +67,7 @@ extern void capture_start_confirmed(void) {
 /** Open a new file coming from drag and drop.
  * @param cf_names_freeme the selection data reported from GTK
  */
-extern void dnd_open_file_cmd(gchar *cf_names_freeme) {
-    Q_UNUSED(cf_names_freeme);
+extern void dnd_open_file_cmd(gchar *) {
 }
 
 // From gtk/menus.h & main_menubar.c
@@ -76,8 +75,7 @@ extern void dnd_open_file_cmd(gchar *cf_names_freeme) {
  *
  * @param widget parent widget
  */
-extern void menu_open_recent_file_cmd(gpointer action){
-    Q_UNUSED(action)
+extern void menu_open_recent_file_cmd(gpointer){
 }
 
 /** One of the name resolution menu items changed. */

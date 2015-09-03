@@ -510,10 +510,8 @@ spx_hash_func(gconstpointer v)
 static void
 spx_init_protocol(void)
 {
-
-	if (spx_hash)
-		g_hash_table_destroy(spx_hash);
-
+	/* no need for register_cleanup_routine that destroys spx_hash,
+	 * spx_postseq_cleanup should clear this. */
 	spx_hash = g_hash_table_new(spx_hash_func, spx_equal);
 }
 
@@ -824,7 +822,7 @@ dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			    tvb, 0, 0, spx_rexmit_info_p->num,
 			    "This is a retransmission of frame %u",
 			    spx_rexmit_info_p->num);
-			if (tvb_length_remaining(tvb, hdr_len) > 0) {
+			if (tvb_reported_length_remaining(tvb, hdr_len) > 0) {
 				proto_tree_add_item(spx_tree, hf_spx_rexmt_data, tvb, hdr_len, -1, ENC_NA);
 			}
 		}

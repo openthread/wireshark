@@ -179,6 +179,12 @@ stt_segment_init(void)
                           &addresses_reassembly_table_functions);
 }
 
+static void
+stt_segment_cleanup(void)
+{
+    reassembly_table_destroy(&stt_reassembly_table);
+}
+
 static tvbuff_t *
 handle_segment(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                guint32 pkt_id, guint16 pkt_len, guint16 seg_off)
@@ -975,6 +981,7 @@ proto_register_stt(void)
                                    &pref_check_checksum);
 
     register_init_routine(stt_segment_init);
+    register_cleanup_routine(stt_segment_cleanup);
 }
 
 void
@@ -983,7 +990,7 @@ proto_reg_handoff_stt(void)
     eth_handle = find_dissector("eth");
     data_handle = find_dissector("data");
 
-    heur_dissector_add("ip", dissect_stt_heur, proto_stt);
+    heur_dissector_add("ip", dissect_stt_heur, "Stateless Transport Tunneling over IP", "stt_ip", proto_stt, HEURISTIC_ENABLE);
 }
 
 /*

@@ -615,7 +615,7 @@ write_psml_preamble(column_info *cinfo, FILE *fh)
 
     for (i = 0; i < cinfo->num_cols; i++) {
         fprintf(fh, "<section>");
-        print_escaped_xml(fh, cinfo->col_title[i]);
+        print_escaped_xml(fh, cinfo->columns[i].col_title);
         fprintf(fh, "</section>\n");
     }
 
@@ -631,7 +631,7 @@ write_psml_columns(epan_dissect_t *edt, FILE *fh)
 
     for (i = 0; i < edt->pi.cinfo->num_cols; i++) {
         fprintf(fh, "<section>");
-        print_escaped_xml(fh, edt->pi.cinfo->col_data[i]);
+        print_escaped_xml(fh, edt->pi.cinfo->columns[i].col_data);
         fprintf(fh, "</section>\n");
     }
 
@@ -682,8 +682,8 @@ write_csv_column_titles(column_info *cinfo, FILE *fh)
     gint i;
 
     for (i = 0; i < cinfo->num_cols - 1; i++)
-        csv_write_str(cinfo->col_title[i], ',', fh);
-    csv_write_str(cinfo->col_title[i], '\n', fh);
+        csv_write_str(cinfo->columns[i].col_title, ',', fh);
+    csv_write_str(cinfo->columns[i].col_title, '\n', fh);
 }
 
 void
@@ -692,8 +692,8 @@ write_csv_columns(epan_dissect_t *edt, FILE *fh)
     gint i;
 
     for (i = 0; i < edt->pi.cinfo->num_cols - 1; i++)
-        csv_write_str(edt->pi.cinfo->col_data[i], ',', fh);
-    csv_write_str(edt->pi.cinfo->col_data[i], '\n', fh);
+        csv_write_str(edt->pi.cinfo->columns[i].col_data, ',', fh);
+    csv_write_str(edt->pi.cinfo->columns[i].col_data, '\n', fh);
 }
 
 void
@@ -712,7 +712,7 @@ write_carrays_hex_data(guint32 num, FILE *fh, epan_dissect_t *edt)
         memset(ascii, 0, sizeof(ascii));
         src = (struct data_source *)src_le->data;
         tvb = get_data_source_tvb(src);
-        length = tvb_length(tvb);
+        length = tvb_captured_length(tvb);
         if (length == 0)
             continue;
 
@@ -791,7 +791,7 @@ get_field_data(GSList *src_list, field_info *fi)
                  * that could be expensive.  Until we fix that,
                  * we'll do the check here.
                  */
-                tvbuff_length = tvb_length_remaining(src_tvb,
+                tvbuff_length = tvb_captured_length_remaining(src_tvb,
                                                      fi->start);
                 if (tvbuff_length < 0) {
                     return NULL;
@@ -800,6 +800,7 @@ get_field_data(GSList *src_list, field_info *fi)
                 if (length > tvbuff_length)
                     length = tvbuff_length;
                 return tvb_get_ptr(src_tvb, fi->start, length);
+            
             }
         }
     }
@@ -852,7 +853,7 @@ pdml_write_field_hex_value(write_pdml_data *pdata, field_info *fi)
     if (!fi->ds_tvb)
         return;
 
-    if (fi->length > tvb_length_remaining(fi->ds_tvb, fi->start)) {
+    if (fi->length > tvb_captured_length_remaining(fi->ds_tvb, fi->start)) {
         fprintf(pdata->fh, "field length invalid!");
         return;
     }
@@ -898,7 +899,7 @@ print_hex_data(print_stream_t *stream, epan_dissect_t *edt)
             print_line(stream, 0, line);
             g_free(line);
         }
-        length = tvb_length(tvb);
+        length = tvb_captured_length(tvb);
         if (length == 0)
             return TRUE;
         cp = tvb_get_ptr(tvb, 0, length);
@@ -1249,7 +1250,7 @@ static void format_field_values(output_fields_t* fields, gpointer field_index, c
     guint      indx;
     GPtrArray* fv_p;
 
-    if ((NULL == value) || ('\0' == *value))
+    if (NULL == value)
         return;
 
     /* Unwrap change made to disambiguiate zero / null */
@@ -1362,12 +1363,12 @@ void write_fields_proto_tree(output_fields_t *fields, epan_dissect_t *edt, colum
     if (fields->includes_col_fields) {
         for (col = 0; col < cinfo->num_cols; col++) {
             /* Prepend COLUMN_FIELD_FILTER as the field name */
-            col_name = g_strdup_printf("%s%s", COLUMN_FIELD_FILTER, cinfo->col_title[col]);
+            col_name = g_strdup_printf("%s%s", COLUMN_FIELD_FILTER, cinfo->columns[col].col_title);
             field_index = g_hash_table_lookup(fields->field_indicies, col_name);
             g_free(col_name);
 
             if (NULL != field_index) {
-                format_field_values(fields, field_index, g_strdup(cinfo->col_data[col]));
+                format_field_values(fields, field_index, g_strdup(cinfo->columns[col].col_data));
             }
         }
     }
@@ -1460,7 +1461,7 @@ get_field_hex_value(GSList *src_list, field_info *fi)
     if (!fi->ds_tvb)
         return NULL;
 
-    if (fi->length > tvb_length_remaining(fi->ds_tvb, fi->start)) {
+    if (fi->length > tvb_captured_length_remaining(fi->ds_tvb, fi->start)) {
         return g_strdup("field length invalid!");
     }
 

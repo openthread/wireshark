@@ -183,7 +183,7 @@ call_rtse_external_type_callback(gboolean implicit_tag _U_, tvbuff_t *tvb, int o
     }
 
     if (oid)
-   	offset = call_rtse_oid_callback(oid, tvb, offset, actx->pinfo, top_tree ? top_tree : tree, actx->private_data);
+        offset = call_rtse_oid_callback(oid, tvb, offset, actx->pinfo, top_tree ? top_tree : tree, actx->private_data);
 
     return offset;
 }
@@ -311,6 +311,11 @@ static void rtse_reassemble_init (void)
                    &addresses_reassembly_table_functions);
 }
 
+static void rtse_reassemble_cleanup(void)
+{
+    reassembly_table_destroy(&rtse_reassembly_table);
+}
+
 /*--- proto_register_rtse -------------------------------------------*/
 void proto_register_rtse(void) {
 
@@ -384,6 +389,7 @@ void proto_register_rtse(void) {
   expert_rtse = expert_register_protocol(proto_rtse);
   expert_register_field_array(expert_rtse, ei, array_length(ei));
   register_init_routine (&rtse_reassemble_init);
+  register_cleanup_routine (&rtse_reassemble_cleanup);
   rtse_module = prefs_register_protocol_subtree("OSI", proto_rtse, NULL);
 
   prefs_register_bool_preference(rtse_module, "reassemble",

@@ -30,18 +30,17 @@
  *
  *   a 4-byte magic number, with 'c', 'p', 's', 'e';
  *
- *   a 1-byte or 2-byte "format indicator" (version number?) - if it's
- *   1-byte, it's followed by 0x00;
+ *   either a 2-byte little-endian "format indicator" (version number?),
+ *   or a 1-byte major version number followed by a 1-byte minor version
+ *   number, or a 1-byte "format indicator" followed by something else
+ *   that's always been 0;
  *
  *   a 2-byte 0xe8 0x03 (1000 - a data rate?  megabits/second?)
  *
- *   a 2-byte 0x01 0x00;
+ *   4 bytes of 0x01 0x00 0x01 0x00;
  *
- *   a 2-byte 0x01 0x00;
- *
- *   a 4-byte little-endian file size;
- *
- *   a 4-byte 0x00 0x00 0x00 0x00;
+ *   either a 4-byte little-endian file size followed by 0x00 0x00 0x00 0x00
+ *   or an 8-byte little-endian file size;
  *
  *   a 4-byte little-endian packet count (in dns_error_of_udp, it exceeds?)
  *
@@ -84,8 +83,8 @@ static const char capsa_magic[] = {
 struct capsarec_hdr {
 	guint32 unknown1;	/* low-order 32 bits of a number? */
 	guint32 unknown2;	/* 0x00 0x00 0x00 0x00 */
-	guint32 timestamplo;	/* low-order 32 bits of a time stamp, in microseconds */
-	guint32 timestamphi;	/* high-order 32 bits of a time stamp, in microseconds */
+	guint32 timestamplo;	/* low-order 32 bits of the time stamp, in microseconds since January 1, 1970, 00:00:00 UTC */
+	guint32 timestamphi;	/* high-order 32 bits of the time stamp, in microseconds since January 1, 1970, 00:00:00 UTC */
 	guint16	rec_len;	/* length of record */
 	guint16	incl_len;	/* number of octets captured in file */
 	guint16	orig_len;	/* actual length of packet */
@@ -105,8 +104,8 @@ struct pbrec_hdr {
 	guint16 unknown2;
 	guint16 unknown3;
 	guint32 unknown4;
-	guint32 timestamplo;	/* low-order 32 bits of a time stamp, in microseconds */
-	guint32 timestamphi;	/* high-order 32 bits of a time stamp, in microseconds */
+	guint32 timestamplo;	/* low-order 32 bits of the time stamp, in microseconds since January 1, 1970, 00:00:00 UTC */
+	guint32 timestamphi;	/* high-order 32 bits of the time stamp, in microseconds since January 1, 1970, 00:00:00 UTC */
 	guint32 unknown5;
 	guint32 unknown6;
 };
@@ -178,19 +177,21 @@ wtap_open_return_val capsa_open(wtap *wth, int *err, gchar **err_info)
 		return WTAP_OPEN_ERROR;
 
 	/*
-	 * Flags of some sort?
+	 * Flags of some sort?  Four 1-byte numbers, two of which are 1
+	 * and two of which are zero?  Two 2-byte numbers or flag fields,
+	 * both of which are 1?
 	 */
 	if (!file_skip(wth->fh, 4, err))
 		return WTAP_OPEN_ERROR;
 
 	/*
-	 * File size.
+	 * File size, in bytes.
 	 */
 	if (!file_skip(wth->fh, 4, err))
 		return WTAP_OPEN_ERROR;
 
 	/*
-	 * Zeroes?
+	 * Zeroes?  Or upper 4 bytes of file size?
 	 */
 	if (!file_skip(wth->fh, 4, err))
 		return WTAP_OPEN_ERROR;
@@ -317,9 +318,7 @@ capsa_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 	guint32	packet_size;
 	guint32 orig_size;
 	guint32 header_size;
-#if 0
 	guint64 timestamp;
-#endif
 
 	/* Read record header. */
 	switch (capsa->format_indicator) {
@@ -332,13 +331,7 @@ capsa_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 		orig_size = GUINT16_FROM_LE(capsarec_hdr.orig_len);
 		packet_size = GUINT16_FROM_LE(capsarec_hdr.incl_len);
 		header_size = sizeof capsarec_hdr;
-#if 0
 		timestamp = (((guint64)GUINT32_FROM_LE(capsarec_hdr.timestamphi))<<32) + GUINT32_FROM_LE(capsarec_hdr.timestamplo);
-		/*
-		 * XXX - this is not the correct time origin.
-		 */
-		timestamp -= G_GUINT64_CONSTANT(11644473600);
-#endif
 
 		/*
 		 * OK, the rest of this is variable-length.
@@ -360,7 +353,6 @@ capsa_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 		orig_size = GUINT16_FROM_LE(pbrec_hdr.orig_len);
 		packet_size = GUINT16_FROM_LE(pbrec_hdr.incl_len);
 		header_size = sizeof pbrec_hdr;
-#if 0
 		timestamp = (((guint64)GUINT32_FROM_LE(pbrec_hdr.timestamphi))<<32) + GUINT32_FROM_LE(pbrec_hdr.timestamplo);
 		/*
 		 * XXX - from the results of some conversions between
@@ -371,8 +363,6 @@ capsa_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 		 * time stamps on the day after the conversion was
 		 * done, which seems like more than just coincidence).
 		 */
-		timestamp -= G_GUINT64_CONSTANT(485946753291483);
-#endif
 		break;
 
 	default:
@@ -428,13 +418,9 @@ capsa_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 	phdr->rec_type = REC_TYPE_PACKET;
 	phdr->caplen = packet_size;
 	phdr->len = orig_size;
-#if 0
 	phdr->presence_flags = WTAP_HAS_CAP_LEN|WTAP_HAS_TS;
 	phdr->ts.secs = (time_t)(timestamp / 1000000);
 	phdr->ts.nsecs = ((int)(timestamp % 1000000))*1000;
-#else
-	phdr->presence_flags = WTAP_HAS_CAP_LEN;
-#endif
 
 	/*
 	 * Read the packet data.

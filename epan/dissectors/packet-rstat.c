@@ -44,14 +44,13 @@ static gint ett_rstat = -1;
 #define RSTATPROC_HAVEDISK	2
 
 /* proc number, "proc name", dissect_request, dissect_reply */
-/* NULL as function pointer means: type of arguments is "void". */
 static const vsff rstat1_proc[] = {
 	{ RSTATPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ RSTATPROC_STATS,	"STATS",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ RSTATPROC_HAVEDISK,	"HAVEDISK",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string rstat1_proc_vals[] = {
@@ -63,11 +62,11 @@ static const value_string rstat1_proc_vals[] = {
 
 static const vsff rstat2_proc[] = {
 	{ RSTATPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ RSTATPROC_STATS,	"STATS",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ RSTATPROC_HAVEDISK,	"HAVEDISK",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string rstat2_proc_vals[] = {
@@ -79,11 +78,11 @@ static const value_string rstat2_proc_vals[] = {
 
 static const vsff rstat3_proc[] = {
 	{ RSTATPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ RSTATPROC_STATS,	"STATS",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ RSTATPROC_HAVEDISK,	"HAVEDISK",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string rstat3_proc_vals[] = {
@@ -95,11 +94,11 @@ static const value_string rstat3_proc_vals[] = {
 
 static const vsff rstat4_proc[] = {
 	{ RSTATPROC_NULL,	"NULL",
-		NULL,	NULL },
+		dissect_rpc_void,	dissect_rpc_void },
 	{ RSTATPROC_STATS,	"STATS",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ RSTATPROC_HAVEDISK,	"HAVEDISK",
-		NULL,	NULL },
+		dissect_rpc_unknown,	dissect_rpc_unknown },
 	{ 0,	NULL,	NULL,	NULL }
 };
 static const value_string rstat4_proc_vals[] = {
@@ -107,6 +106,13 @@ static const value_string rstat4_proc_vals[] = {
 	{ RSTATPROC_STATS,	"STATS" },
 	{ RSTATPROC_HAVEDISK,	"HAVEDISK" },
 	{ 0,	NULL }
+};
+
+static const rpc_prog_vers_info rstat_vers_info[] = {
+	{ 1, rstat1_proc, &hf_rstat_procedure_v1 },
+	{ 2, rstat2_proc, &hf_rstat_procedure_v2 },
+	{ 3, rstat3_proc, &hf_rstat_procedure_v3 },
+	{ 4, rstat4_proc, &hf_rstat_procedure_v4 },
 };
 
 void
@@ -140,12 +146,8 @@ void
 proto_reg_handoff_rstat(void)
 {
 	/* Register the protocol as RPC */
-	rpc_init_prog(proto_rstat, RSTAT_PROGRAM, ett_rstat);
-	/* Register the procedure tables */
-	rpc_init_proc_table(RSTAT_PROGRAM, 1, rstat1_proc, hf_rstat_procedure_v1);
-	rpc_init_proc_table(RSTAT_PROGRAM, 2, rstat2_proc, hf_rstat_procedure_v2);
-	rpc_init_proc_table(RSTAT_PROGRAM, 3, rstat3_proc, hf_rstat_procedure_v3);
-	rpc_init_proc_table(RSTAT_PROGRAM, 4, rstat4_proc, hf_rstat_procedure_v4);
+	rpc_init_prog(proto_rstat, RSTAT_PROGRAM, ett_rstat,
+	    G_N_ELEMENTS(rstat_vers_info), rstat_vers_info);
 }
 
 /*

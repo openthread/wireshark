@@ -887,6 +887,10 @@ static gboolean
 dissect_smcr_tcp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	void *data)
 {
+	if (tvb_captured_length(tvb) < 4) {
+		return FALSE;
+	}
+
 	if (tvb_get_ntohl(tvb, CLC_MSG_BYTE_0) != SMCR_CLC_ID) return FALSE;
 	dissect_smcr_tcp(tvb, pinfo, tree, data);
 	return TRUE;
@@ -1425,8 +1429,8 @@ proto_register_smcr(void)
 void
 proto_reg_handoff_smcr(void)
 {
-	heur_dissector_add("tcp", dissect_smcr_tcp_heur, proto_smcr);
-	heur_dissector_add("infiniband.payload", dissect_smcr_infiniband_heur, proto_smcr);
+	heur_dissector_add("tcp", dissect_smcr_tcp_heur, "Shared Memory Communications over TCP", "smcr_tcp", proto_smcr, HEURISTIC_ENABLE);
+	heur_dissector_add("infiniband.payload", dissect_smcr_infiniband_heur, "Shared Memory Communications Infiniband", "smcr_infiniband", proto_smcr, HEURISTIC_ENABLE);
 }
 
 /*

@@ -1010,7 +1010,7 @@ dissect_sprt_data(tvbuff_t *tvb,
                     break;
                 }
                 offset += 2;
-            } while (tvb_length_remaining(tvb, offset) >= 2);
+            } while (tvb_reported_length_remaining(tvb, offset) >= 2);
             break;
         case SPRT_MODEM_RELAY_MSG_ID_START_JM:
             /* No additional content */
@@ -1464,13 +1464,13 @@ dissect_sprt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
         col_append_fstr(pinfo->cinfo, COL_INFO, ", Seq=%u", seqnum);
 
     /* dissect the payload, if any */
-    payload_length = tvb_length(tvb) - (6 + noa * 2); /* total sprt length - header stuff */
+    payload_length = tvb_captured_length(tvb) - (6 + noa * 2); /* total sprt length - header stuff */
     dissect_sprt_data(tvb, pinfo, p_conv_data, sprt_tree, offset, payload_length);
 
     if (noa)
         col_append_str(pinfo->cinfo, COL_INFO, " (ACK fields present)");
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* heuristic dissector */
@@ -1486,7 +1486,7 @@ dissect_sprt_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
      * a heuristic dissector called before us!
      */
 
-    if (tvb_length(tvb) < 6)
+    if (tvb_captured_length(tvb) < 6)
         return FALSE; /* packet is waay to short */
 
     /* Get the fields in the first two octets */
@@ -3431,7 +3431,7 @@ proto_reg_handoff_sprt(void)
     sprt_handle = find_dissector("sprt");
     dissector_add_for_decode_as("udp.port", sprt_handle);
 
-    heur_dissector_add( "udp", dissect_sprt_heur, proto_sprt);
+    heur_dissector_add( "udp", dissect_sprt_heur, "SPRT over UDP", "sprt_udp", proto_sprt, HEURISTIC_ENABLE);
 }
 
 /*

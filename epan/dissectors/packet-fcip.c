@@ -142,7 +142,7 @@ static dissector_handle_t fc_handle;
 static guint
 get_next_fcip_header_offset (tvbuff_t *tvb, packet_info *pinfo, gint offset)
 {
-    gint       bytes_remaining = tvb_length_remaining (tvb, offset);
+    gint       bytes_remaining = tvb_reported_length_remaining (tvb, offset);
     gint       frame_len;
     guint16    flen, flen1;
     fcip_eof_t eof, eofc;
@@ -369,7 +369,7 @@ dissect_fcip (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     gint offset = 0,
          start  = 0,
          frame_len = 0;
-    gint bytes_remaining = tvb_length (tvb);
+    gint bytes_remaining = tvb_captured_length (tvb);
     guint8 pflags, sof = 0, eof = 0;
    /* Set up structures needed to add the protocol subtree and manage it */
     proto_item *ti;
@@ -648,7 +648,7 @@ proto_reg_handoff_fcip (void)
 {
     dissector_handle_t fcip_handle;
 
-    heur_dissector_add("tcp", dissect_fcip_heur, proto_fcip);
+    heur_dissector_add("tcp", dissect_fcip_heur, "FCIP over TCP", "fcip_tcp", proto_fcip, HEURISTIC_ENABLE);
 
     fcip_handle = create_dissector_handle(dissect_fcip_handle, proto_fcip);
     dissector_add_for_decode_as("tcp.port", fcip_handle);

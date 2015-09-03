@@ -119,6 +119,25 @@ decryption_step_ssl() {
 	test_step_ok
 }
 
+# SSL, using the server's private key with p < q
+# (test whether libgcrypt is correctly called)
+decryption_step_ssl_rsa_pq() {
+	TEST_KEYS_FILE="$TESTS_DIR/keys/rsa-p-lt-q.key"
+	if [ "$WS_SYSTEM" == "Windows" ] ; then
+		TEST_KEYS_FILE="`cygpath -w $TEST_KEYS_FILE`"
+	fi
+	$TESTS_DIR/run_and_catch_crashes env $TS_DC_ENV $TSHARK $TS_DC_ARGS -Tfields -e http.request.uri \
+		-o ssl.keys_list:"0.0.0.0,443,http,$TEST_KEYS_FILE" \
+		-r "$CAPTURE_DIR/rsa-p-lt-q.pcap" -Y http \
+		| grep / > /dev/null 2>&1
+	RETURNVALUE=$?
+	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
+		test_step_failed "Failed to decrypt SSL using the server's RSA private key"
+		return
+	fi
+	test_step_ok
+}
+
 # SSL, using the server's private key with password
 decryption_step_ssl_with_password() {
 	$TESTS_DIR/run_and_catch_crashes env $TS_DC_ENV $TSHARK $TS_DC_ARGS -Tfields -e http.request.uri \
@@ -134,8 +153,12 @@ decryption_step_ssl_with_password() {
 
 # SSL, using the master secret
 decryption_step_ssl_master_secret() {
+	TEST_KEYS_FILE="$TESTS_DIR/keys/dhe1_keylog.dat"
+	if [ "$WS_SYSTEM" == "Windows" ] ; then
+		TEST_KEYS_FILE="`cygpath -w $TEST_KEYS_FILE`"
+	fi
 	$TESTS_DIR/run_and_catch_crashes env $TS_DC_ENV $TSHARK $TS_DC_ARGS -Tfields -e http.request.uri \
-		-o "ssl.keylog_file: $TEST_KEYS_DIR/dhe1_keylog.dat" \
+		-o "ssl.keylog_file: $TEST_KEYS_FILE" \
 		-o "ssl.desegment_ssl_application_data: FALSE" \
 		-o "http.ssl.port: 443" \
 		-r "$CAPTURE_DIR/dhe1.pcapng.gz" -Y http \
@@ -246,6 +269,7 @@ tshark_decryption_suite() {
 	test_step_add "IEEE 802.11 WPA EAP Decryption" decryption_step_80211_wpa_eap
 	test_step_add "DTLS Decryption" decryption_step_dtls
 	test_step_add "SSL Decryption (private key)" decryption_step_ssl
+	test_step_add "SSL Decryption (RSA private key with p smaller than q)" decryption_step_ssl_rsa_pq
 	test_step_add "SSL Decryption (private key with password)" decryption_step_ssl_with_password
 	test_step_add "SSL Decryption (master secret)" decryption_step_ssl_master_secret
 	test_step_add "ZigBee Decryption" decryption_step_zigbee

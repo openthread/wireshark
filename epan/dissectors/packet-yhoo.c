@@ -184,7 +184,7 @@ dissect_yhoo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 	}
 
 	/* get at least a full packet structure */
-	if ( tvb_length(tvb) < YAHOO_RAWPACKET_LEN ) {
+	if ( tvb_captured_length(tvb) < YAHOO_RAWPACKET_LEN ) {
 		/* Not enough data captured; maybe it is a Yahoo
 		   Messenger packet, but it contains too little data to
 		   tell. */
@@ -309,7 +309,7 @@ proto_reg_handoff_yhoo(void)
 	 * Just register as a heuristic TCP dissector, and reject stuff
 	 * not to or from that port.
 	 */
-	heur_dissector_add("tcp", dissect_yhoo, proto_yhoo);
+	heur_dissector_add("tcp", dissect_yhoo, "Yahoo Messenger over TCP", "yhoo_tcp", proto_yhoo, HEURISTIC_ENABLE);
 }
 
 /*

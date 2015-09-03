@@ -342,21 +342,18 @@ static void
 pnio_defragment_init(void)
 {
     guint32 i;
-
-    if ( reasembled_frag_table != NULL ) {
-        g_hash_table_destroy( reasembled_frag_table );
-        reasembled_frag_table = NULL;
-    }
-
     for (i=0; i < 16; i++)    /* init  the reasemble help array */
         start_frag_OR_ID[i] = 0;
-
     reassembly_table_init(&pdu_reassembly_table,
                           &addresses_reassembly_table_functions);
-    if (reasembled_frag_table == NULL)
-    {
-        reasembled_frag_table =  g_hash_table_new(NULL, NULL);
-    }
+    reasembled_frag_table = g_hash_table_new(NULL, NULL);
+}
+
+static void
+pnio_defragment_cleanup(void)
+{
+    g_hash_table_destroy(reasembled_frag_table);
+    reassembly_table_destroy(&pdu_reassembly_table);
 }
 
 /* possibly dissect a FRAG_PDU related PN-RT packet */
@@ -988,6 +985,7 @@ proto_register_pn_rt(void)
 
     init_pn (proto_pn_rt);
     register_init_routine(pnio_defragment_init);
+    register_cleanup_routine(pnio_defragment_cleanup);
 }
 
 
@@ -1002,8 +1000,8 @@ proto_reg_handoff_pn_rt(void)
     dissector_add_uint("ethertype", ETHERTYPE_PROFINET, pn_rt_handle);
     dissector_add_uint("udp.port", 0x8892, pn_rt_handle);
 
-    heur_dissector_add("pn_rt", dissect_CSF_SDU_heur, proto_pn_rt);
-    heur_dissector_add("pn_rt", dissect_FRAG_PDU_heur, proto_pn_rt);
+    heur_dissector_add("pn_rt", dissect_CSF_SDU_heur, "PROFINET CSF_SDU IO", "pn_csf_sdu_pn_rt", proto_pn_rt, HEURISTIC_ENABLE);
+    heur_dissector_add("pn_rt", dissect_FRAG_PDU_heur, "PROFINET Frag PDU IO", "pn_frag_pn_rt", proto_pn_rt, HEURISTIC_ENABLE);
     data_handle = find_dissector("data");
 
     ethertype_subdissector_table = find_dissector_table("ethertype");

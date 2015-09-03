@@ -80,6 +80,7 @@ h245_packet_info *h245_pi=NULL;
 
 static gboolean h245_reassembly = TRUE;
 static gboolean h245_shorttypes = FALSE;
+static gboolean info_col_fmt_prepend = FALSE;
 
 #include "packet-h245-val.h"
 
@@ -307,11 +308,14 @@ static void h223_lc_init( void )
 
 static void h245_init(void)
 {
-	if ( h245_pending_olc_reqs)
-		g_hash_table_destroy(h245_pending_olc_reqs);
 	h245_pending_olc_reqs = g_hash_table_new(g_str_hash, g_str_equal);
 
 	h223_lc_init();
+}
+
+static void h245_cleanup(void)
+{
+	g_hash_table_destroy(h245_pending_olc_reqs);
 }
 
 void h245_set_h223_add_lc_handle( h223_add_lc_handle_t handle )
@@ -375,6 +379,26 @@ static void h245_setup_channels(packet_info *pinfo, channel_info_t *upcoming_cha
 						upcoming_channel_lcl->media_control_addr.port, 0,
 						"H245", pinfo->fd->num, dummy_srtp_info);
 	}
+}
+
+/* Prints formated information column of h245 messages. Note that global variables
+ * "h245_shorttypes" and "info_col_fmt_prepend" are used to decide formating preferences */
+static void print_info_column(column_info *cinfo, const gint32 *value,
+    const value_string *msg_vals, const value_string *short_msg_vals)
+{
+  const value_string *vals;
+
+  if (h245_shorttypes == FALSE || short_msg_vals == NULL) {
+    vals = msg_vals;
+  } else {
+    vals = short_msg_vals;
+  }
+
+  if (info_col_fmt_prepend == FALSE) {
+    col_append_fstr(cinfo, COL_INFO, "%s ", val_to_str(*value, vals, "<unknown>"));
+  } else {
+    col_prepend_fstr(cinfo, COL_INFO, "%s ", val_to_str(*value, vals, "<unknown>"));
+  }
 }
 
 /* Initialize the protocol and registered fields */
@@ -491,6 +515,7 @@ void proto_register_h245(void) {
   /* Register protocol */
   proto_h245 = proto_register_protocol(PNAME, PSNAME, PFNAME);
   register_init_routine(h245_init);
+  register_cleanup_routine(h245_cleanup);
   /* Register fields and subtrees */
   proto_register_field_array(proto_h245, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -507,6 +532,10 @@ void proto_register_h245(void) {
 		"Show short message types",
 		"Whether the dissector should show short names or the long names from the standard",
 		&h245_shorttypes);
+  prefs_register_bool_preference(h245_module, "prepand",
+    "Show h245 info in reversed order",
+    "Whether the dissector should print items of h245 Info column in reversed order",
+    &info_col_fmt_prepend);
   register_dissector("h245dg", dissect_h245_h245, proto_h245);
   register_dissector("h245", dissect_h245, proto_h245);
 

@@ -38,7 +38,6 @@
 
 static int proto_btle = -1;
 static int proto_btle_rf = -1;
-static int proto_ubertooth = -1;
 
 static int hf_access_address = -1;
 static int hf_crc = -1;
@@ -345,8 +344,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             bluetooth_data = (bluetooth_data_t *) data;
         }
 
-        list_data = wmem_list_frame_prev(list_data);
-        if (bluetooth_data && list_data && proto_ubertooth == GPOINTER_TO_INT(wmem_list_frame_data(list_data))) {
+        if (bluetooth_data && bluetooth_data->previous_protocol_data_type == BT_PD_UBERTOOTH_DATA) {
             ubertooth_data = bluetooth_data->previous_protocol_data.ubertooth_data;
         }
     }
@@ -444,7 +442,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         case 0x00: /* ADV_IND */
         case 0x02: /* ADV_NONCONN_IND */
         case 0x06: /* ADV_SCAN_IND */
-            offset = dissect_bd_addr(hf_advertising_address, btle_tree, tvb, offset, src_bd_addr);
+            offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
 
             SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
             COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
@@ -467,16 +465,19 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             }
 
             if (tvb_reported_length_remaining(tvb, offset) > 3) {
+                bluetooth_data_t *bt_data = wmem_new0(wmem_packet_scope(), bluetooth_data_t);
+                bt_data->interface_id = interface_id;
+                bt_data->adapter_id = adapter_id;
                 next_tvb = tvb_new_subset_length(tvb, offset, tvb_reported_length_remaining(tvb, offset) - 3);
-                call_dissector(btcommon_ad_handle, next_tvb, pinfo, btle_tree);
+                call_dissector_with_data(btcommon_ad_handle, next_tvb, pinfo, btle_tree, bt_data);
             }
 
             offset += tvb_reported_length_remaining(tvb, offset) - 3;
 
             break;
         case 0x01: /* ADV_DIRECT_IND */
-            offset = dissect_bd_addr(hf_advertising_address, btle_tree, tvb, offset, src_bd_addr);
-            offset = dissect_bd_addr(hf_initiator_addresss, btle_tree, tvb, offset, dst_bd_addr);
+            offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
+            offset = dissect_bd_addr(hf_initiator_addresss, pinfo, btle_tree, tvb, offset, FALSE, interface_id, adapter_id, dst_bd_addr);
 
             SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
             COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
@@ -500,8 +501,8 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
             break;
         case 0x03: /* SCAN_REQ */
-            offset = dissect_bd_addr(hf_scanning_address, btle_tree, tvb, offset, src_bd_addr);
-            offset = dissect_bd_addr(hf_advertising_address, btle_tree, tvb, offset, dst_bd_addr);
+            offset = dissect_bd_addr(hf_scanning_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
+            offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, FALSE, interface_id, adapter_id, dst_bd_addr);
 
             SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
             COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
@@ -525,7 +526,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
             break;
         case 0x04: /* SCAN_RSP */
-            offset = dissect_bd_addr(hf_advertising_address, btle_tree, tvb, offset, src_bd_addr);
+            offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
 
             SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
             COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
@@ -551,16 +552,19 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             sub_tree = proto_item_add_subtree(sub_item, ett_scan_response_data);
 
             if (tvb_reported_length_remaining(tvb, offset) > 3) {
+                bluetooth_data_t *bt_data = wmem_new0(wmem_packet_scope(), bluetooth_data_t);
+                bt_data->interface_id = interface_id;
+                bt_data->adapter_id = adapter_id;
                 next_tvb = tvb_new_subset_length(tvb, offset, tvb_reported_length_remaining(tvb, offset) - 3);
-                call_dissector(btcommon_ad_handle, next_tvb, pinfo, sub_tree);
+                call_dissector_with_data(btcommon_ad_handle, next_tvb, pinfo, sub_tree, bt_data);
             }
 
             offset += tvb_reported_length_remaining(tvb, offset) - 3;
 
             break;
         case 0x05: /* CONNECT_REQ */
-            offset = dissect_bd_addr(hf_initiator_addresss, btle_tree, tvb, offset, src_bd_addr);
-            offset = dissect_bd_addr(hf_advertising_address, btle_tree, tvb, offset, dst_bd_addr);
+            offset = dissect_bd_addr(hf_initiator_addresss, pinfo, btle_tree, tvb, offset, FALSE, interface_id, adapter_id, src_bd_addr);
+            offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, dst_bd_addr);
 
             SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
             COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
@@ -1396,7 +1400,6 @@ proto_reg_handoff_btle(void)
     btl2cap_handle = find_dissector("btl2cap");
 
     proto_btle_rf = proto_get_id_by_filter_name("btle_rf");
-    proto_ubertooth = proto_get_id_by_filter_name("ubertooth");
 
     dissector_add_uint("bluetooth.encap", WTAP_ENCAP_BLUETOOTH_LE_LL, btle_handle);
 }

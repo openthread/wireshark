@@ -159,7 +159,7 @@ static PaStream *pa_stream;
 typedef struct _rtp_channel_info {
 	nstime_t start_time_abs;
 	nstime_t stop_time_abs;
-	GArray *samples;			/* the array with decoded audio */
+	GArray *samples;			/* Array of sample_t (decoded audio) */
 	guint16 call_num;
 	gboolean selected;
 	unsigned long frame_index;
@@ -896,7 +896,7 @@ draw_channel_cursor(rtp_channel_info_t *rci, guint32 start_index)
 	GtkAllocation widget_alloc;
 	cairo_t *cr;
 
-	if (!rci) return;
+	if (!rci || !pa_stream) return;
 
 #if PORTAUDIO_API_1
 	idx = Pa_StreamTime( pa_stream ) - rtp_channels->pause_duration - rtp_channels->out_diff_time - start_index;
@@ -2209,7 +2209,7 @@ decode_streams(void)
 	progbar_count = 0;
 
 	/* Mark the RTP streams to be played using the selected VoipCalls. If voip_calls is NULL
-	   then this was called from "RTP Analysis" so mark all strams */
+	   then this was called from "RTP Analysis" so mark all streams */
 	if (rtp_streams_hash) {
 		if (voip_calls)
 			g_hash_table_foreach( rtp_streams_hash, (GHFunc)mark_rtp_stream_to_play, NULL);

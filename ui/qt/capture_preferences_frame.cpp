@@ -28,7 +28,7 @@
 #endif
 
 #include "capture_preferences_frame.h"
-#include "ui_capture_preferences_frame.h"
+#include <ui_capture_preferences_frame.h>
 #include "wireshark_application.h"
 
 #include <QSpacerItem>
@@ -65,9 +65,8 @@ CapturePreferencesFrame::~CapturePreferencesFrame()
     delete ui;
 }
 
-void CapturePreferencesFrame::showEvent(QShowEvent *evt)
+void CapturePreferencesFrame::showEvent(QShowEvent *)
 {
-    Q_UNUSED(evt);
     updateWidgets();
 }
 
@@ -75,7 +74,11 @@ void CapturePreferencesFrame::updateWidgets()
 {
 #ifdef HAVE_LIBPCAP
     interface_t device;
+    QString default_device_string;
 
+    if (pref_device_->stashed_val.string) {
+        default_device_string = pref_device_->stashed_val.string;
+    }
     ui->defaultInterfaceComboBox->clear();
     if (global_capture_opts.all_ifaces->len == 0) {
         /*
@@ -95,8 +98,8 @@ void CapturePreferencesFrame::updateWidgets()
         ui->defaultInterfaceComboBox->addItem(QString((const char *)device.display_name));
     }
 
-    if (pref_device_->stashed_val.string) {
-        ui->defaultInterfaceComboBox->setEditText(pref_device_->stashed_val.string);
+    if (!default_device_string.isEmpty()) {
+        ui->defaultInterfaceComboBox->setEditText(default_device_string);
     } else {
         ui->defaultInterfaceComboBox->clearEditText();
     }

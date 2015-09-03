@@ -487,7 +487,7 @@ static const value_string ulsch_lcid_vals[] =
     { 8,                                    "8"},
     { 9,                                    "9"},
     { 10,                                   "10"},
-    { 11,                                   "CCCH"},
+    { 11,                                   "CCCH (Category 0)"},
     { DUAL_CONN_POWER_HEADROOM_REPORT_LCID, "Dual Connectivity Power Headroom Report"},
     { EXTENDED_POWER_HEADROOM_REPORT_LCID,  "Extended Power Headroom Report"},
     { POWER_HEADROOM_REPORT_LCID,           "Power Headroom Report"},
@@ -2015,9 +2015,6 @@ static guint8 get_mac_lte_channel_priority(guint16 ueid _U_, guint8 lcid,
                                            guint8 direction);
 
 
-/* Heuristic dissection */
-static gboolean global_mac_lte_heur = FALSE;
-
 static void call_with_catch_all(dissector_handle_t handle, tvbuff_t* tvb, packet_info *pinfo, proto_tree *tree)
 {
     /* Call it (catch exceptions so that stats will be updated) */
@@ -2218,15 +2215,6 @@ static gboolean dissect_mac_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
     struct mac_lte_info  *p_mac_lte_info;
     tvbuff_t             *mac_tvb;
     gboolean             infoAlreadySet = FALSE;
-
-    /* This is a heuristic dissector, which means we get all the UDP
-     * traffic not sent to a known dissector and not claimed by
-     * a heuristic dissector called before us!
-     */
-
-    if (!global_mac_lte_heur) {
-        return FALSE;
-    }
 
     /* Do this again on re-dissection to re-discover offset of actual PDU */
 
@@ -2867,6 +2855,7 @@ static int is_fixed_sized_control_element(guint8 lcid, guint8 direction)
             case UE_CONTENTION_RESOLUTION_IDENTITY_LCID:
             case TIMING_ADVANCE_LCID:
             case DRX_COMMAND_LCID:
+            case LONG_DRX_COMMAND_LCID:
                 return TRUE;
 
             default:
@@ -3769,7 +3758,7 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     /************************************************************************/
     /* Dissect each sub-header.                                             */
     do {
-        guint8 reserved;
+        guint8 reserved, initial_lcid;
         guint64 length = 0;
         proto_item *pdu_subheader_ti;
         proto_tree *pdu_subheader_tree;
@@ -3805,6 +3794,7 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
         /* LCID.  Has different meaning depending upon direction. */
         lcids[number_of_headers] = first_byte & 0x1f;
+        initial_lcid = lcids[number_of_headers];
         if (direction == DIRECTION_UPLINK) {
 
             lcid_ti = proto_tree_add_item(pdu_subheader_tree, hf_mac_lte_ulsch_lcid,
@@ -3813,6 +3803,11 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                                      "(%s",
                                      val_to_str_const(lcids[number_of_headers],
                                                       ulsch_lcid_vals, "(Unknown LCID)"));
+            if (lcids[number_of_headers] == 11) {
+                /* This LCID is used for CCCH by Category 0 devices
+                   Let's remap it to LCID 0 for statistics and other checks */
+                lcids[number_of_headers] = 0;
+            }
         }
         else {
             /* Downlink */
@@ -3823,9 +3818,11 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                                      val_to_str_const(lcids[number_of_headers],
                                                       dlsch_lcid_vals, "(Unknown LCID)"));
 
-            if (lcids[number_of_headers] == DRX_COMMAND_LCID) {
+            if ((lcids[number_of_headers] == DRX_COMMAND_LCID) ||
+                (lcids[number_of_headers] == LONG_DRX_COMMAND_LCID)) {
                 expert_add_info_format(pinfo, lcid_ti, &ei_mac_lte_dlsch_lcid,
-                                       "DRX command received for UE %u (RNTI %u)",
+                                       "%sDRX command received for UE %u (RNTI %u)",
+                                       (lcids[number_of_headers] == LONG_DRX_COMMAND_LCID) ? "Long " :"",
                                        p_mac_lte_info->ueid, p_mac_lte_info->rnti);
             }
         }
@@ -3948,7 +3945,7 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
         /* Append summary to subheader root */
         proto_item_append_text(pdu_subheader_ti, " (lcid=%s",
-                               val_to_str_const(lcids[number_of_headers],
+                               val_to_str_const(initial_lcid,
                                                 (direction == DIRECTION_UPLINK) ?
                                                     ulsch_lcid_vals :
                                                         dlsch_lcid_vals,
@@ -3958,14 +3955,14 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
             case -1:
                 proto_item_append_text(pdu_subheader_ti, ", length is remainder)");
                 proto_item_append_text(pdu_header_ti, " (%s:remainder)",
-                                       val_to_str_const(lcids[number_of_headers],
+                                       val_to_str_const(initial_lcid,
                                                         (direction == DIRECTION_UPLINK) ? ulsch_lcid_vals : dlsch_lcid_vals,
                                                         "Unknown"));
                 break;
             case 0:
                 proto_item_append_text(pdu_subheader_ti, ")");
                 proto_item_append_text(pdu_header_ti, " (%s)",
-                                       val_to_str_const(lcids[number_of_headers],
+                                       val_to_str_const(initial_lcid,
                                                         (direction == DIRECTION_UPLINK) ? ulsch_lcid_vals : dlsch_lcid_vals,
                                                         "Unknown"));
                 break;
@@ -3973,7 +3970,7 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                 proto_item_append_text(pdu_subheader_ti, ", length=%u)",
                                        pdu_lengths[number_of_headers]);
                 proto_item_append_text(pdu_header_ti, " (%s:%u)",
-                                       val_to_str_const(lcids[number_of_headers],
+                                       val_to_str_const(initial_lcid,
                                                         (direction == DIRECTION_UPLINK) ? ulsch_lcid_vals : dlsch_lcid_vals,
                                                         "Unknown"),
                                        pdu_lengths[number_of_headers]);
@@ -4031,8 +4028,6 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     for (n=0; n < number_of_headers; n++) {
         /* Get out of loop once see any data SDU subheaders */
         if (lcids[n] <= 10) {
-            /* Update tap sdu count for this channel */
-            tap_info->sdus_for_lcid[lcids[n]]++;
             break;
         }
 
@@ -4221,6 +4216,7 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                     }
                     break;
                 case DRX_COMMAND_LCID:
+                case LONG_DRX_COMMAND_LCID:
                     /* No payload */
                     mac_lte_drx_control_element_received(p_mac_lte_info->ueid);
                     break;
@@ -4843,12 +4839,30 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     }
 
     /* There might not be any data, if only headers (plus control data) were logged */
-    is_truncated = ((tvb_reported_length_remaining(tvb, offset) == 0) && expecting_body_data);
+    is_truncated = ((tvb_captured_length_remaining(tvb, offset) == 0) && expecting_body_data);
     truncated_ti = proto_tree_add_uint(tree, hf_mac_lte_sch_header_only, tvb, 0, 0,
                                        is_truncated);
     if (is_truncated) {
         PROTO_ITEM_SET_GENERATED(truncated_ti);
         expert_add_info(pinfo, truncated_ti, &ei_mac_lte_sch_header_only_truncated);
+        /* Update sdu and byte count in stats */
+        for (; n < number_of_headers; n++) {
+            guint16 data_length;
+            /* Break out if meet padding */
+            if (lcids[n] == PADDING_LCID) {
+                break;
+            }
+            data_length = (pdu_lengths[n] == -1) ?
+                            tvb_reported_length_remaining(tvb, offset) :
+                            pdu_lengths[n];
+            tap_info->sdus_for_lcid[lcids[n]]++;
+            tap_info->bytes_for_lcid[lcids[n]] += data_length;
+            offset += data_length;
+        }
+        if (lcids[number_of_headers-1] == PADDING_LCID) {
+            /* Update padding bytes in stats */
+            tap_info->padding_bytes += (p_mac_lte_info->length - offset);
+        }
         return;
     }
     else {
@@ -4906,8 +4920,7 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
         }
 
         /* CCCH frames can be dissected directly by LTE RRC... */
-        if (((lcids[n] == 0) || ((direction == DIRECTION_UPLINK) && (lcids[n] == 11)))
-            && global_mac_lte_attempt_rrc_decode) {
+        if ((lcids[n] == 0) && global_mac_lte_attempt_rrc_decode) {
             tvbuff_t *rrc_tvb = tvb_new_subset_length(tvb, offset, data_length);
 
             /* Get appropriate dissector handle */
@@ -5007,13 +5020,14 @@ static void dissect_ulsch_or_dlsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
             }
             else
             {
-                proto_item_append_text(sdu_ti, "%s", tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, pdu_lengths[n]));
+                proto_item_append_text(sdu_ti, "%s", tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, data_length));
             }
         }
 
         offset += data_length;
 
-        /* Update tap byte count for this channel */
+        /* Update tap sdu and byte count for this channel */
+        tap_info->sdus_for_lcid[lcids[n]]++;
         tap_info->bytes_for_lcid[lcids[n]] += data_length;
     }
 
@@ -5379,7 +5393,7 @@ static void dissect_mch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, pro
 
 
     /* There might not be any data, if only headers (plus control data) were logged */
-    is_truncated = ((tvb_reported_length_remaining(tvb, offset) == 0) && expecting_body_data);
+    is_truncated = ((tvb_captured_length_remaining(tvb, offset) == 0) && expecting_body_data);
     truncated_ti = proto_tree_add_uint(tree, hf_mac_lte_mch_header_only, tvb, 0, 0,
                                        is_truncated);
     if (is_truncated) {
@@ -5431,7 +5445,7 @@ static void dissect_mch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, pro
             }
             else
             {
-                proto_item_append_text(sdu_ti, "%s", tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, pdu_lengths[n]));
+                proto_item_append_text(sdu_ti, "%s", tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, data_length));
             }
         }
 
@@ -5965,74 +5979,43 @@ int dissect_mac_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
  * file is loaded or re-loaded in wireshark */
 static void mac_lte_init_protocol(void)
 {
-    /* Destroy any existing tables. */
-    if (mac_lte_msg3_hash) {
-        g_hash_table_destroy(mac_lte_msg3_hash);
-    }
-    if (mac_lte_cr_result_hash) {
-        g_hash_table_destroy(mac_lte_cr_result_hash);
-    }
-
-    if (mac_lte_dl_harq_hash) {
-        g_hash_table_destroy(mac_lte_dl_harq_hash);
-    }
-    if (mac_lte_dl_harq_result_hash) {
-        g_hash_table_destroy(mac_lte_dl_harq_result_hash);
-    }
-    if (mac_lte_ul_harq_hash) {
-        g_hash_table_destroy(mac_lte_ul_harq_hash);
-    }
-    if (mac_lte_ul_harq_result_hash) {
-        g_hash_table_destroy(mac_lte_ul_harq_result_hash);
-    }
-    if (mac_lte_ue_sr_state) {
-        g_hash_table_destroy(mac_lte_ue_sr_state);
-    }
-    if (mac_lte_sr_request_hash) {
-        g_hash_table_destroy(mac_lte_sr_request_hash);
-    }
-    if (mac_lte_tti_info_result_hash) {
-        g_hash_table_destroy(mac_lte_tti_info_result_hash);
-    }
-    if (mac_lte_ue_channels_hash) {
-        g_hash_table_destroy(mac_lte_ue_channels_hash);
-    }
-    if (mac_lte_ue_parameters) {
-        g_hash_table_destroy(mac_lte_ue_parameters);
-    }
-    if (mac_lte_drx_frame_result) {
-        g_hash_table_destroy(mac_lte_drx_frame_result);
-    }
-
     /* Reset structs */
     memset(&UL_tti_info, 0, sizeof(UL_tti_info));
     UL_tti_info.subframe = 0xff;  /* Invalid value */
     memset(&DL_tti_info, 0, sizeof(DL_tti_info));
     DL_tti_info.subframe = 0xff;  /* Invalid value */
 
-    /* Now create them over */
     mac_lte_msg3_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
     mac_lte_cr_result_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_dl_harq_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
     mac_lte_dl_harq_result_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_ul_harq_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
     mac_lte_ul_harq_result_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_ue_sr_state = g_hash_table_new(g_direct_hash, g_direct_equal);
     mac_lte_sr_request_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_tti_info_result_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_ue_channels_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_ue_parameters = g_hash_table_new(g_direct_hash, g_direct_equal);
-
     mac_lte_drx_frame_result = g_hash_table_new(mac_lte_framenum_instance_hash_func, mac_lte_framenum_instance_hash_equal);
 
     /* Forget this setting */
     s_rapid_ranges_configured = FALSE;
+}
+
+static void mac_lte_cleanup_protocol(void)
+{
+    g_hash_table_destroy(mac_lte_msg3_hash);
+    g_hash_table_destroy(mac_lte_cr_result_hash);
+    g_hash_table_destroy(mac_lte_dl_harq_hash);
+    g_hash_table_destroy(mac_lte_dl_harq_result_hash);
+    g_hash_table_destroy(mac_lte_ul_harq_hash);
+    g_hash_table_destroy(mac_lte_ul_harq_result_hash);
+    g_hash_table_destroy(mac_lte_ue_sr_state);
+    g_hash_table_destroy(mac_lte_sr_request_hash);
+    g_hash_table_destroy(mac_lte_tti_info_result_hash);
+    g_hash_table_destroy(mac_lte_ue_channels_hash);
+    g_hash_table_destroy(mac_lte_ue_parameters);
+    g_hash_table_destroy(mac_lte_drx_frame_result);
 }
 
 /* Callback used as part of configuring a channel mapping using UAT */
@@ -7558,11 +7541,7 @@ void proto_register_mac_lte(void)
         "Attempt to dissect frames that have failed CRC check",
         &global_mac_lte_dissect_crc_failures);
 
-    prefs_register_bool_preference(mac_lte_module, "heuristic_mac_lte_over_udp",
-        "Try Heuristic LTE-MAC over UDP framing",
-        "When enabled, use heuristic dissector to find MAC-LTE frames sent with "
-        "UDP framing",
-        &global_mac_lte_heur);
+    prefs_register_obsolete_preference(mac_lte_module, "heuristic_mac_lte_over_udp");
 
     prefs_register_bool_preference(mac_lte_module, "attempt_to_dissect_srb_sdus",
         "Attempt to dissect LCID 1&2 as srb1&2",
@@ -7636,12 +7615,13 @@ void proto_register_mac_lte(void)
         &global_mac_lte_show_BSR_median);
 
     register_init_routine(&mac_lte_init_protocol);
+    register_cleanup_routine(&mac_lte_cleanup_protocol);
 }
 
 void proto_reg_handoff_mac_lte(void)
 {
     /* Add as a heuristic UDP dissector */
-    heur_dissector_add("udp", dissect_mac_lte_heur, proto_mac_lte);
+    heur_dissector_add("udp", dissect_mac_lte_heur, "MAC-LTE over UDP", "mac_lte_udp", proto_mac_lte, HEURISTIC_DISABLE);
 
     /* Look up RLC dissector handle once and for all */
     rlc_lte_handle = find_dissector("rlc-lte");

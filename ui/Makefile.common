@@ -66,10 +66,10 @@ WIRESHARK_UI_SRC = \
 	proto_hier_stats.c	\
 	recent.c		\
 	rtp_stream.c		\
+	service_response_time.c	\
 	software_update.c	\
 	ssl_key_export.c	\
 	tap_export_pdu.c	\
-	tap-megaco-common.c	\
 	tap-rtp-common.c	\
 	tap-sctp-analysis.c \
 	tap-sequence-analysis.c	\
@@ -108,11 +108,11 @@ noinst_HEADERS = \
 	recent_utils.h		\
 	rtp_analysis.h		\
 	rtp_stream.h		\
+	service_response_time.h	\
 	simple_dialog.h		\
 	software_update.h	\
 	ssl_key_export.h	\
 	tap_export_pdu.h	\
-	tap-megaco-common.h	\
 	tap-rtp-common.h	\
 	tap-sctp-analysis.h  \
 	tap-sequence-analysis.h	\

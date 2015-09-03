@@ -112,7 +112,7 @@ dissect_credssp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
               tags_bit_field = EXP_PDU_TAG_IP_SRC_BIT + EXP_PDU_TAG_IP_DST_BIT + EXP_PDU_TAG_SRC_PORT_BIT+
                   EXP_PDU_TAG_DST_PORT_BIT + EXP_PDU_TAG_ORIG_FNO_BIT;
 
-              exp_pdu_data = load_export_pdu_tags(pinfo, "credssp", -1, &tags_bit_field, 1);
+              exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, "credssp", &tags_bit_field, 1);
 
               exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
               exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
@@ -176,7 +176,7 @@ void proto_register_credssp(void) {
 /*--- proto_reg_handoff_credssp --- */
 void proto_reg_handoff_credssp(void) {
 
-  heur_dissector_add("ssl", dissect_credssp_heur, proto_credssp);
+  heur_dissector_add("ssl", dissect_credssp_heur, "CredSSP over SSL", "credssp_ssl", proto_credssp, HEURISTIC_ENABLE);
   exported_pdu_tap = find_tap_id(EXPORT_PDU_TAP_NAME_LAYER_7);
 }
 

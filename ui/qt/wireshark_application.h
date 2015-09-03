@@ -39,6 +39,7 @@
 
 struct _e_prefs;
 
+class QAction;
 class QSocketNotifier;
 
 // Recent items:
@@ -71,7 +72,24 @@ public:
 
     void registerUpdate(register_action_e action, const char *message);
     void emitAppSignal(AppSignal signal);
+    // Emitting app signals (PacketDissectionChanged in particular) from
+    // dialogs on OS X can be problematic. Dialogs should call queueAppSignal
+    // instead.
+    void queueAppSignal(AppSignal signal) { app_signals_ << signal; }
+    // Flush queued app signals. Should be called from the main window after
+    // each dialog that calls queueAppSignal closes.
+    void flushAppSignals();
     void emitStatCommandSignal(const QString &menu_path, const char *arg, void *userdata);
+    void emitTapParameterSignal(const QString cfg_abbr, const QString arg, void *userdata);
+    void addDynamicMenuGroupItem(int group, QAction *sg_action);
+    void appendDynamicMenuGroupItem(int group, QAction *sg_action);
+    void removeDynamicMenuGroupItem(int group, QAction *sg_action);
+    QList<QAction *> dynamicMenuGroupItems(int group);
+    QList<QAction *> addedMenuGroupItems(int group);
+    QList<QAction *> removedMenuGroupItems(int group);
+    void clearAddedMenuGroupItems();
+    void clearRemovedMenuGroupItems();
+
     void allSystemsGo();
     void refreshLocalInterfaces();
     struct _e_prefs * readConfigurationFiles(char **gdp_path, char **dp_path);
@@ -86,6 +104,8 @@ public:
     int monospaceTextSize(const char *str);
     void setConfigurationProfile(const gchar *profile_name);
     bool isInitialized() { return initialized_; }
+    void setReloadingLua(bool is_reloading) { is_reloading_lua_ = is_reloading; }
+    bool isReloadingLua() { return is_reloading_lua_; }
     const QIcon &normalIcon() const { return normal_icon_; }
     const QIcon &captureIcon() const { return capture_icon_; }
     const QString &windowTitleSeparator() const { return window_title_separator_; }
@@ -98,6 +118,7 @@ public:
 
 private:
     bool initialized_;
+    bool is_reloading_lua_;
     QFont mono_font_;
     QTimer recent_timer_;
     QTimer addr_resolv_timer_;
@@ -107,6 +128,7 @@ private:
     QIcon normal_icon_;
     QIcon capture_icon_;
     static QString window_title_separator_;
+    QList<AppSignal> app_signals_;
 
 protected:
     bool event(QEvent *event);
@@ -129,6 +151,7 @@ signals:
     void fieldsChanged();
 
     void openStatCommandDialog(const QString &menu_path, const char *arg, void *userdata);
+    void openTapParameterDialog(const QString cfg_str, const QString arg, void *userdata);
 
 public slots:
     void clearRecentItems();

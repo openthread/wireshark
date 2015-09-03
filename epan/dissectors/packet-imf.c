@@ -696,7 +696,7 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   item = proto_tree_add_item(tree, proto_imf, tvb, 0, -1, ENC_NA);
   tree = proto_item_add_subtree(item, ett_imf);
 
-  max_length = tvb_length(tvb);
+  max_length = tvb_captured_length(tvb);
   /* first go through the tvb until we find a blank line and extract the content type if
      we find one */
 
@@ -872,9 +872,9 @@ header_fields_initialize_cb (void)
 
   if (custom_field_table && hf) {
     guint hf_size = g_hash_table_size (custom_field_table);
-    /* Unregister all fields */
+    /* Deregister all fields */
     for (i = 0; i < hf_size; i++) {
-      proto_unregister_field (proto_imf, *(hf[i].p_id));
+      proto_deregister_field (proto_imf, *(hf[i].p_id));
       g_free (hf[i].p_id);
     }
     g_hash_table_destroy (custom_field_table);

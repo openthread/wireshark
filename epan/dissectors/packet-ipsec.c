@@ -440,7 +440,7 @@ void esp_sa_record_add_from_dissector(guint8 protocol, const gchar *srcIP, const
    }
    else {
       /* No room left!! */
-      fprintf(stderr, "<IPsec/ESP Dissector> Failed to add UE as already have max (%u) configured\n",
+      fprintf(stderr, "<IPsec/ESP Dissector> Failed to add UE as already have max (%d) configured\n",
               MAX_EXTRA_SA_RECORDS);
       return;
    }
@@ -1108,7 +1108,8 @@ export_ipsec_pdu(dissector_handle_t dissector_handle, packet_info *pinfo, tvbuff
     guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
                   EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
 
-    exp_pdu_data = load_export_pdu_tags(pinfo, dissector_handle_get_dissector_name(dissector_handle), -1,
+    exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME,
+                                        dissector_handle_get_dissector_name(dissector_handle),
                                         &tags, 1);
 
     exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
@@ -1275,7 +1276,7 @@ dissect_esp_authentication(proto_tree *tree, tvbuff_t *tvb, gint len, gint esp_a
   else
   {
     /* Truncated so just display what we have */
-    icv_tree = proto_tree_add_subtree(tree, tvb, len - esp_auth_len, esp_auth_len - (len - tvb_length(tvb)),
+    icv_tree = proto_tree_add_subtree(tree, tvb, len - esp_auth_len, esp_auth_len - (len - tvb_captured_length(tvb)),
                                ett_esp_icv, NULL, "Authentication Data (truncated)");
     bad = TRUE;
   }
@@ -1429,7 +1430,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     ip_dst = address_to_str(wmem_packet_scope(), &pinfo->dst);
 
     /* Get the SPI */
-    if (tvb_length(tvb) >= 4)
+    if (tvb_captured_length(tvb) >= 4)
     {
       spi = tvb_get_ntohl(tvb, 0);
     }
@@ -1690,7 +1691,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
             if (esp_crypt_key_len != gcry_cipher_get_algo_keylen (crypt_algo_libgcrypt))
             {
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm 3DES-CBC : Bad Keylen (got %i Bits, need %lu)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm 3DES-CBC : Bad Keylen (got %u Bits, need %lu)\n",
                        esp_crypt_key_len * 8,
                        (unsigned long) gcry_cipher_get_algo_keylen (crypt_algo_libgcrypt) * 8);
               decrypt_ok = FALSE;
@@ -1741,7 +1742,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
               break;
 
             default:
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm AES-CBC : Bad Keylen (%i Bits)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm AES-CBC : Bad Keylen (%u Bits)\n",
                        esp_crypt_key_len * 8);
               decrypt_ok = FALSE;
             }
@@ -1778,7 +1779,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
               decrypt_using_libgcrypt = TRUE;
               break;
             default:
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm CAST5-CBC : Bad Keylen (%i Bits)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm CAST5-CBC : Bad Keylen (%u Bits)\n",
                        esp_crypt_key_len * 8);
               decrypt_ok = FALSE;
             }
@@ -1810,7 +1811,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
             if (esp_crypt_key_len != gcry_cipher_get_algo_keylen (crypt_algo_libgcrypt))
             {
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm DES-CBC : Bad Keylen (%i Bits, need %lu)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm DES-CBC : Bad Keylen (%u Bits, need %lu)\n",
                        esp_crypt_key_len * 8, (unsigned long) gcry_cipher_get_algo_keylen (crypt_algo_libgcrypt) * 8);
               decrypt_ok = FALSE;
             }
@@ -1862,7 +1863,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
               break;
 
             default:
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm AES-CTR / AES-GCM : Bad Keylen (%i Bits)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm AES-CTR / AES-GCM : Bad Keylen (%u Bits)\n",
                        esp_crypt_key_len * 8);
               decrypt_ok = FALSE;
             }
@@ -1904,7 +1905,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
               break;
 
             default:
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm TWOFISH-CBC : Bad Keylen (%i Bits)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm TWOFISH-CBC : Bad Keylen (%u Bits)\n",
                        esp_crypt_key_len * 8);
               decrypt_ok = FALSE;
             }
@@ -1939,7 +1940,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
             if (esp_crypt_key_len != gcry_cipher_get_algo_keylen (crypt_algo_libgcrypt))
             {
-              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm BLOWFISH-CBC : Bad Keylen (%i Bits, need %lu)\n",
+              fprintf (stderr, "<ESP Preferences> Error in Encryption Algorithm BLOWFISH-CBC : Bad Keylen (%u Bits, need %lu)\n",
                        esp_crypt_key_len * 8, (unsigned long) gcry_cipher_get_algo_keylen (crypt_algo_libgcrypt) * 8);
               decrypt_ok = FALSE;
             }
@@ -1999,7 +2000,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
                 if (err)
                 {
-                  fprintf(stderr, "<IPsec/ESP Dissector> Error in Algorithm %s Mode %d, gcry_cipher_setkey(key_len=%d) failed: %s\n",
+                  fprintf(stderr, "<IPsec/ESP Dissector> Error in Algorithm %s Mode %d, gcry_cipher_setkey(key_len=%u) failed: %s\n",
                           gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, esp_crypt_key_len, gpg_strerror (err));
                   gcry_cipher_close(*cipher_hd);
                   g_free(decrypted_data);
@@ -2220,7 +2221,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         else
         {
           /* Truncated so just display what we have */
-          proto_tree_add_bytes_format(esp_tree, hf_esp_authentication_data, tvb, len - 12, 12 - (len - tvb_length(tvb)),
+          proto_tree_add_bytes_format(esp_tree, hf_esp_authentication_data, tvb, len - 12, 12 - (len - tvb_captured_length(tvb)),
                               NULL, "Authentication Data (truncated)");
         }
       }
@@ -2287,7 +2288,7 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
      * CPIs, we don't know the algorithm beforehand; if we get it
      * wrong, tvb_uncompress() returns NULL and nothing is displayed.
      */
-    decomp = tvb_child_uncompress(data, data, 0, tvb_length(data));
+    decomp = tvb_child_uncompress(data, data, 0, tvb_captured_length(data));
     if (decomp) {
         add_new_data_source(pinfo, decomp, "IPcomp inflated data");
         saved_match_uint  = pinfo->match_uint;
@@ -2306,6 +2307,12 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 static void ipsec_init_protocol(void)
 {
+  esp_sequence_analysis_hash = g_hash_table_new(word_hash_func, word_equal);
+  esp_sequence_analysis_report_hash = g_hash_table_new(word_hash_func, word_equal);
+}
+
+static void ipsec_cleanup_protocol(void)
+{
 #ifdef HAVE_LIBGCRYPT
   /* Free any SA records added by other dissectors */
   guint n;
@@ -2314,25 +2321,13 @@ static void ipsec_init_protocol(void)
   }
 
   /* Free overall block of records */
-  if (extra_esp_sa_records.num_records > 0) {
-    g_free(extra_esp_sa_records.records);
-    extra_esp_sa_records.records = NULL;
-  }
+  g_free(extra_esp_sa_records.records);
+  extra_esp_sa_records.records = NULL;
   extra_esp_sa_records.num_records = 0;
-
-  /* Destroy any existing hashes. */
-  if (esp_sequence_analysis_hash) {
-      g_hash_table_destroy(esp_sequence_analysis_hash);
-  }
-  if (esp_sequence_analysis_report_hash) {
-      g_hash_table_destroy(esp_sequence_analysis_report_hash);
-  }
 #endif
 
-  /* Now create them over */
-  esp_sequence_analysis_hash = g_hash_table_new(word_hash_func, word_equal);
-  esp_sequence_analysis_report_hash = g_hash_table_new(word_hash_func, word_equal);
-
+  g_hash_table_destroy(esp_sequence_analysis_hash);
+  g_hash_table_destroy(esp_sequence_analysis_report_hash);
 }
 
 void
@@ -2542,6 +2537,7 @@ proto_register_ipsec(void)
 #endif
 
   register_init_routine(&ipsec_init_protocol);
+  register_cleanup_routine(&ipsec_cleanup_protocol);
 
   register_dissector("esp", dissect_esp, proto_esp);
   register_dissector("ah", dissect_ah, proto_ah);

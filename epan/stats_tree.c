@@ -137,6 +137,8 @@ stats_tree_free(stats_tree *st)
     stat_node *child;
     stat_node *next;
 
+    if (!st) return;
+
     g_free(st->filter);
     g_hash_table_destroy(st->names);
     g_ptr_array_free(st->parents,TRUE);
@@ -364,13 +366,27 @@ stats_tree_packet(void *p, packet_info *pinfo, epan_dissect_t *edt, const void *
 extern stats_tree_cfg*
 stats_tree_get_cfg_by_abbr(const char *abbr)
 {
+    if (!abbr) return NULL;
     return (stats_tree_cfg *)g_hash_table_lookup(registry,abbr);
+}
+
+static gint
+compare_stat_menu_item(gconstpointer stat_a, gconstpointer stat_b)
+{
+    stats_tree_cfg* stat_cfg_a = (stats_tree_cfg*)stat_a;
+    stats_tree_cfg* stat_cfg_b = (stats_tree_cfg*)stat_b;
+
+    return strcmp(stat_cfg_a->name, stat_cfg_b->name);
 }
 
 extern GList*
 stats_tree_get_cfg_list(void)
 {
-    return g_hash_table_get_values(registry);
+    GList* registry_list = g_hash_table_get_values(registry);
+    /* Now sort the list so they can show up in the
+       menu alphabetically */
+    return g_list_sort(registry_list, compare_stat_menu_item);
+
 }
 
 struct _stats_tree_pres_cbs {
@@ -1106,7 +1122,7 @@ stats_tree_format_as_str(const stats_tree* st, st_format_type format_type,
         s = g_string_new("---\n");
         break;
     case ST_FORMAT_XML:
-        s = g_string_new("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n");
+        s = g_string_new("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         break;
     case ST_FORMAT_CSV:
         s = g_string_new("\"level\",\"parent\",");

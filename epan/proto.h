@@ -1998,6 +1998,12 @@ proto_item_fill_label(field_info *fi, gchar *label_str);
 WS_DLL_PUBLIC int
 proto_register_protocol(const char *name, const char *short_name, const char *filter_name);
 
+/** Deregister a protocol.
+ @param short_name abbreviated name of the protocol
+ @return TRUE if protocol is removed */
+WS_DLL_PUBLIC gboolean
+proto_deregister_protocol(const char *short_name);
+
 /** Mark protocol as private
  @param proto_id the handle of the protocol */
 WS_DLL_PUBLIC
@@ -2035,18 +2041,18 @@ WS_DLL_PUBLIC void proto_register_fields_section(const int parent, header_field_
 WS_DLL_PUBLIC void
 proto_register_field_array(const int parent, hf_register_info *hf, const int num_records);
 
-/** Unregister an already registered field.
+/** Deregister an already registered field.
  @param parent the protocol handle from proto_register_protocol()
  @param hf_id the field to deregister */
 WS_DLL_PUBLIC void
-proto_unregister_field (const int parent, gint hf_id);
+proto_deregister_field (const int parent, gint hf_id);
 
 /** Add data to be freed when deregistered fields are freed.
  @param data a pointer to data to free */
 WS_DLL_PUBLIC void
 proto_add_deregistered_data (void *data);
 
-/** Free fields deregistered in proto_unregister_field(). */
+/** Free fields deregistered in proto_deregister_field(). */
 WS_DLL_PUBLIC void
 proto_free_deregistered_fields (void);
 
@@ -2156,6 +2162,21 @@ WS_DLL_PUBLIC gboolean proto_is_protocol_enabled(const protocol_t *protocol);
  @return its filter name. */
 WS_DLL_PUBLIC const char *proto_get_protocol_filter_name(const int proto_id);
 
+/** Associate a heuristic dissector with a protocol
+ * INTERNAL USE ONLY!!!
+ * @param protocol to associate the heuristic with
+ * @param short_name heuristic dissector's short name
+ */
+extern void proto_add_heuristic_dissector(protocol_t *protocol, const char *short_name);
+
+/** Apply func to all heuristic dissectors of a protocol
+ * @param protocol to iterate over heuristics
+ * @param func function to execute on heuristics
+ * @param user_data user-specific data for function
+ */
+WS_DLL_PUBLIC void proto_heuristic_dissector_foreach(const protocol_t *protocol, GFunc func, gpointer user_data);
+
+
 /** Find commonly-used protocols in a layer list.
  * @param layers Protocol layer list
  * @param is_ip Set to TRUE if the layer list contains IPv4 or IPv6, otherwise
@@ -2170,7 +2191,8 @@ WS_DLL_PUBLIC const char *proto_get_protocol_filter_name(const int proto_id);
  * unchanged. May be NULL.
  */
 WS_DLL_PUBLIC void proto_get_frame_protocols(const wmem_list_t *layers,
-      gboolean *is_ip, gboolean *is_tcp, gboolean *is_udp, gboolean *is_sctp, gboolean *is_ssl);
+      gboolean *is_ip, gboolean *is_tcp, gboolean *is_udp, gboolean *is_sctp,
+      gboolean *is_ssl, gboolean *is_rtp);
 
 /** Find a protocol by name in a layer list.
  * @param layers Protocol layer list

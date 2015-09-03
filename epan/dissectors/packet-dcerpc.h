@@ -108,6 +108,14 @@ typedef struct _dcerpc_auth_info {
   tvbuff_t *auth_data;
 } dcerpc_auth_info;
 
+typedef struct dcerpcstat_tap_data
+{
+	const char *prog;
+	e_guid_t uuid;
+	guint16 ver;
+	int num_procedures;
+} dcerpcstat_tap_data_t;
+
 /* Private data passed to subdissectors from the main DCERPC dissector.
  * One unique instance of this structure is created for each
  * DCERPC request/response transaction when we see the initial request
@@ -398,6 +406,9 @@ WS_DLL_PUBLIC void decode_dcerpc_add_show_list(decode_add_show_list_func func, g
 
 /* the registered subdissectors. With MSVC and a
  * libwireshark.dll, we need a special declaration.
+ */
+/* Key: dcerpc_uuid_key *
+ * Value: dcerpc_uuid_value *
  */
 WS_DLL_PUBLIC GHashTable *dcerpc_uuids;
 

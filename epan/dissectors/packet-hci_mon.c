@@ -63,7 +63,7 @@ static const value_string opcode_vals[] = {
     { 0x07,  "SCO Rx Packet" },
     { 0x00, NULL }
 };
-static value_string_ext(opcode_vals_ext) = VALUE_STRING_EXT_INIT(opcode_vals);
+value_string_ext(hci_mon_opcode_vals_ext) = VALUE_STRING_EXT_INIT(opcode_vals);
 
 static const value_string type_vals[] = {
     { 0x00,  "Virtual" },
@@ -105,10 +105,11 @@ dissect_hci_mon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     guint32          k_adapter_id;
     guint32          k_frame_number;
 
-    adapter_id = pinfo->pseudo_header->btmon.adapter_id;
-    opcode = pinfo->pseudo_header->btmon.opcode;
-
     bluetooth_data = (bluetooth_data_t *) data;
+
+    DISSECTOR_ASSERT(bluetooth_data->previous_protocol_data_type == BT_PD_BTMON);
+    adapter_id = bluetooth_data->previous_protocol_data.btmon->adapter_id;
+    opcode = bluetooth_data->previous_protocol_data.btmon->opcode;
 
     if (opcode == 0x00 || opcode == 0x01)
         pinfo->p2p_dir = P2P_DIR_RECV;
@@ -146,7 +147,7 @@ dissect_hci_mon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     PROTO_ITEM_SET_GENERATED(sub_item);
 
     col_append_fstr(pinfo->cinfo, COL_INFO, "Adapter Id: %u, Opcode: %s",
-            adapter_id, val_to_str_ext_const(opcode, &opcode_vals_ext, "Unknown"));
+            adapter_id, val_to_str_ext_const(opcode, &hci_mon_opcode_vals_ext, "Unknown"));
 
     bluetooth_data->adapter_id = adapter_id;
 
@@ -199,7 +200,7 @@ dissect_hci_mon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         proto_tree_add_item(hci_mon_tree, hf_type, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
-        offset = dissect_bd_addr(hf_bd_addr, hci_mon_tree, tvb, offset, NULL);
+        offset = dissect_bd_addr(hf_bd_addr, pinfo, hci_mon_tree, tvb, offset, TRUE, bluetooth_data->interface_id, bluetooth_data->adapter_id, NULL);
 
         proto_tree_add_item(hci_mon_tree, hf_name, tvb, offset, 8, ENC_NA | ENC_ASCII);
         offset += 8;
@@ -260,7 +261,7 @@ proto_register_hci_mon(void)
         },
         {  &hf_opcode,
             { "Opcode",                          "hci_mon.opcode",
-            FT_UINT16, BASE_HEX | BASE_EXT_STRING, &opcode_vals_ext, 0x00,
+            FT_UINT16, BASE_HEX | BASE_EXT_STRING, &hci_mon_opcode_vals_ext, 0x00,
             NULL, HFILL }
         },
         {  &hf_type,

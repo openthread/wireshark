@@ -7,7 +7,7 @@
 #
 m4_define([version_major], [1])
 m4_define([version_minor], [99])
-m4_define([version_micro], [7])
+m4_define([version_micro], [10])
 m4_define([version_micro_extra], version_micro)
 m4_append([version_micro_extra], [])
 
@@ -244,7 +244,11 @@ AM_CONDITIONAL(HAVE_DOXYGEN, test x$HAVE_DOXYGEN = xyes)
 # "if" statement, it's safer to call PKG_PROG_PKG_CONFIG directly, see
 # the comments in acolocal.m4
 #
-PKG_PROG_PKG_CONFIG
+# We want version 0.7 or better.  (XXX - explain why. Is that just
+# because our Qt tests were originally based on AM_PATH_GTK, and *it*
+# requires 0.7 or better?)
+#
+PKG_PROG_PKG_CONFIG(0.7)
 if test -z "$PKG_CONFIG"; then
 	AC_MSG_ERROR(I couldn't find pkg-config; make sure it's installed and in your path)
 fi
@@ -1334,15 +1338,8 @@ darwin*)
 	# with a static version installed in /usr/local/lib rather than
 	# the system version in /usr/lib).
 	#
-	# Also add -Wl,-rpath,@executable_path/../lib and
-	# -Wl,-rpath,/usr/local/lib, so that, if we build an app
-	# bundle, we can tweak all the executable images, shared
-	# libraries, and plugins in the bundle to look for non-system
-	# libraries in the rpath, rather than having a script tweak
-	# DYLD_LIBRARY_PATH.
-	#
-	LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-search_paths_first -Wl,-rpath,@executable_path/../lib -Wl,-rpath,@executable_path/../Frameworks -Wl,-rpath,/usr/local/lib $LDFLAGS"
-	AC_MSG_RESULT([Apple linker - added -Wl,-single_module to shared library linker flags and -Wl,-headerpad_max_install_names -Wl,-search_paths_first and rpaths to all linker flags])
+	LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-search_paths_first $LDFLAGS"
+	AC_MSG_RESULT([Apple linker - added -Wl,-single_module to shared library linker flags and -Wl,-headerpad_max_install_names -Wl,-search_paths_first and -Wl,-headerpad_max_install_names to all linker flags])
 	;;
 cygwin*)
 	#
@@ -1575,7 +1572,7 @@ AC_SUBST(QT_MIN_VERSION)
 # force all programs to be built with GTK+ or Qt.
 #
 # Release dates for GTK+ versions:
-# http://en.wikipedia.org/wiki/GTK+#Releases
+# https://en.wikipedia.org/wiki/GTK+#Releases
 # 2.12.0: 14 Sep 2007
 # 2.14.0: 04 Sep 2008
 # 2.16.0: 13 Mar 2009
@@ -1590,9 +1587,11 @@ AC_SUBST(QT_MIN_VERSION)
 # 3.8.0:  25 Mar 2013
 # 3.10.0: 23 Sep 2013
 # 3.12.0: 25 Mar 2014
+# 3.14.0: 30 Sep 2014
+# 3.16.0: 22 Mar 2015
 #
 # Release dates for Qt versions:
-# http://en.wikipedia.org/wiki/List_of_Qt_releases
+# https://en.wikipedia.org/wiki/List_of_Qt_releases
 # 4.6.0:  01 Dec 2009
 # 4.7.0:  21 Sep 2010
 # 4.8.0:  15 Dec 2011
@@ -1600,6 +1599,8 @@ AC_SUBST(QT_MIN_VERSION)
 # 5.1.0:  03 Jul 2013
 # 5.2.0:  12 Dec 2013
 # 5.3.0:  20 May 2014
+# 5.4.0:  10 Dec 2015
+# 5.5.0:  01 Jul 2015
 
 have_qt=no
 have_gtk=no
@@ -1624,7 +1625,7 @@ if test "x$enable_wireshark" = "xyes"; then
 	fi
 	if test "x$with_qt" != "xno"; then
 		#
-		# Qt was specified; Make sure we have a C++ compiler.
+		# Qt was specified; make sure we have a C++ compiler.
 		#
 		if test -z "$CXX"; then
 			AC_MSG_ERROR(Need a working C++ compiler to build Wireshark with Qt)
@@ -1646,6 +1647,42 @@ if test "x$enable_wireshark" = "xyes"; then
 			# compile.
 			#
 			CPPFLAGS="-DQT_GUI_LIB"
+
+			#
+			# We're building with Qt, so we need the Qt build
+			# tools in order to build the Wireshark GUI.
+			# We've found a particular major version of Qt,
+			# and we want that version's build tools; for
+			# example, the Qt 4 version of uic produces files
+			# that include Qt headers with paths that work
+			# with Qt 4 but not Qt 5, so we can't use the
+			# Qt 4 version of uic if we're building with Qt 5.
+			AC_WIRESHARK_QT_TOOL_CHECK(UIC, uic, "$qt_version")
+			AC_SUBST(UIC)
+			AC_WIRESHARK_QT_TOOL_CHECK(MOC, moc, "$qt_version")
+			AC_SUBST(MOC)
+			AC_WIRESHARK_QT_TOOL_CHECK(RCC, rcc, "$qt_version")
+			AC_SUBST(RCC)
+
+			#
+			# On Darwin, find where the Qt frameworks are
+			# located, and add that to the rpath, just in
+			# case this is Qt 5.5 or later and the frameworks
+			# have an install name that begins with @rpath
+			# and aren't installed in a frameworks directory
+			# that's searched by default.
+			#
+			case "$host_os" in
+			darwin*)
+				if test $qt_version -le 4
+				then
+					Qt_LDFLAGS="-Wl,-rpath,"`$PKG_CONFIG --libs QtCore | sed -e 's/-F//' -e 's/ -framework.*//'`
+				else
+					Qt_LDFLAGS="-Wl,-rpath,"`$PKG_CONFIG --libs Qt${qt_version}Core | sed -e 's/-F//' -e 's/ -framework.*//'`
+				fi
+				;;
+			esac
+			AC_SUBST(Qt_LDFLAGS)
 		],
 		[
 			case "$with_qt" in
@@ -1740,6 +1777,8 @@ AC_SUBST(GLIB_MIN_VERSION)
 # 2.36.0: 25 Mar 2013
 # 2.38.0: 23 Sep 2013
 # 2.40.0: 24 Mar 2014
+# 2.42.0: 22 Sep 2014
+# 2.44.0: 23 Mar 2014
 
 use_glib_cflags="true"
 if test "$have_gtk" = "yes" -a "$have_qt" = "yes" ; then
@@ -1818,78 +1857,6 @@ else
 	# Don't use GLIB_CFLAGS
 	AM_PATH_GLIB_2_0($GLIB_MIN_VERSION, , AC_MSG_ERROR(GLib $GLIB_MIN_VERSION or later distribution not found.), gthread gmodule)
 fi
-
-#
-# "make dist" requires that we have the Qt build tools.
-#
-# Annoyingly, on some Linux distros (e.g. Debian) the Qt 5 tools have no
-# suffix and the Qt 4 tools have suffix -qt4. On other distros (e.g. openSUSE)
-# the Qt 5 tools have suffix -qt5 and the Qt 4 tools have no suffix. Hence
-# check for Qt tools in the following suffix order: "-qt5", "", "-qt4".
-#
-AC_PATH_PROGS(UIC, [uic-qt5 uic uic-qt4])
-if test "x$UIC" = x; then
-	if test "x$have_qt" != "xno"; then
-		#
-		# If you want to build with Qt, you'd better
-		# have uic.
-		#
-		AC_MSG_ERROR(I couldn't find uic or uic-qt5 or uic-qt4; make sure it's installed and in your path)
-	else
-		#
-		# We shouldn't fail here, as the user's not
-		# building with Qt, and we shouldn't force them
-		# to have Qt installed if they're not doing so.
-		# "make dist" will fail if they do that, but
-		# we don't know whether they'll be doing that,
-		# so this is the best we can do.
-		#
-		UIC=uic
-	fi
-fi
-AC_SUBST(UIC)
-AC_PATH_PROGS(MOC, [moc-qt5 moc moc-qt4])
-if test "x$MOC" = x; then
-	if test "x$have_qt" != "xno"; then
-		#
-		# If you want to build with Qt, you'd better
-		# have moc.
-		#
-		AC_MSG_ERROR(I couldn't find moc or moc-qt5 or moc-qt4; make sure it's installed and in your path)
-	else
-		#
-		# We shouldn't fail here, as the user's not
-		# building with Qt, and we shouldn't force them
-		# to have Qt installed if they're not doing so.
-		# "make dist" will fail if they do that, but
-		# we don't know whether they'll be doing that,
-		# so this is the best we can do.
-		#
-		MOC=moc
-	fi
-fi
-AC_SUBST(MOC)
-AC_PATH_PROGS(RCC, [rcc-qt5 rcc rcc-qt4])
-if test "x$RCC" = x; then
-	if test "x$have_qt" != "xno"; then
-		#
-		# If you want to build with Qt, you'd better
-		# have moc.
-		#
-		AC_MSG_ERROR(I couldn't find rcc or rcc-qt5; make sure it's installed and in your path)
-	else
-		#
-		# We shouldn't fail here, as the user's not
-		# building with Qt, and we shouldn't force them
-		# to have Qt installed if they're not doing so.
-		# "make dist" will fail if they do that, but
-		# we don't know whether they'll be doing that,
-		# so this is the best we can do.
-		#
-		RCC=rcc
-	fi
-fi
-AC_SUBST(RCC)
 
 # Error out if a glib header other than a "top level" header
 #  (glib.h, glib-object.h, gio.h) or certain other headers( e.g.,gmodule.h)
@@ -2235,11 +2202,13 @@ fi
 
 
 dnl Check for airpcap
+dnl We might want to remove this entirely unless we want to support
+dnl AutoTools on Windows.
 AC_MSG_CHECKING(whether to include airpcap support)
 AC_ARG_ENABLE(airpcap,
   AC_HELP_STRING( [--enable-airpcap],
-		  [use AirPcap in Wireshark @<:@default=yes@:>@]),
-  enable_airpcap=$enableval, enable_airpcap=yes)
+		  [use AirPcap in Wireshark @<:@default=no@:>@]),
+  enable_airpcap=$enableval, enable_airpcap=no)
 
 if test x$enable_airpcap = xyes; then
 	if test "x$want_pcap" = "xno" ; then
@@ -3297,6 +3266,7 @@ fi
 
 if test "x$have_qt" = "xyes" ; then
 	enable_wireshark_qt="yes"
+	qt_lib_message=" (with Qt $qt_version)"
 else
 	enable_wireshark_qt="no"
 fi
@@ -3379,7 +3349,7 @@ fi
 
 echo ""
 echo "The Wireshark package has been configured with the following options."
-echo "                    Build wireshark : $enable_wireshark_qt"
+echo "                    Build wireshark : $enable_wireshark_qt$qt_lib_message"
 echo "                Build wireshark-gtk : $have_gtk""$gtk_lib_message"
 echo "                       Build tshark : $enable_tshark"
 echo "                      Build tfshark : $enable_tfshark"

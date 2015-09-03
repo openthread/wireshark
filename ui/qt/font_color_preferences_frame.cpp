@@ -22,7 +22,7 @@
 #include "qt_ui_utils.h"
 
 #include "font_color_preferences_frame.h"
-#include "ui_font_color_preferences_frame.h"
+#include <ui_font_color_preferences_frame.h>
 #include "color_utils.h"
 #include "wireshark_application.h"
 
@@ -65,10 +65,8 @@ FontColorPreferencesFrame::~FontColorPreferencesFrame()
     delete ui;
 }
 
-void FontColorPreferencesFrame::showEvent(QShowEvent *evt)
+void FontColorPreferencesFrame::showEvent(QShowEvent *)
 {
-    Q_UNUSED(evt)
-
     GRand *rand_state = g_rand_new();
     QString pangram = QString(font_pangrams_[g_rand_int_range(rand_state, 0, num_font_pangrams_)]) + " 0123456789";
     ui->fontSampleLineEdit->setText(pangram);

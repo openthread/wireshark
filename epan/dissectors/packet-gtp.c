@@ -59,6 +59,7 @@
 #include <epan/sminmpec.h>
 #include <epan/asn1.h>
 #include <epan/tap.h>
+#include <epan/srt_table.h>
 #include <epan/to_str.h>
 #include "packet-ppp.h"
 #include "packet-radius.h"
@@ -1766,6 +1767,61 @@ static const value_string tft_code_type[] = {
     {7, "Reserved"},
     {0, NULL}
 };
+
+static void
+gtpstat_init(struct register_srt* srt _U_, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+{
+    srt_stat_table *gtp_srt_table;
+
+    gtp_srt_table = init_srt_table("GTP Requests", NULL, srt_array, 4, NULL, NULL, gui_callback, gui_data, NULL);
+    init_srt_table_row(gtp_srt_table, 0, "Echo");
+    init_srt_table_row(gtp_srt_table, 1, "Create PDP context");
+    init_srt_table_row(gtp_srt_table, 2, "Update PDP context");
+    init_srt_table_row(gtp_srt_table, 3, "Delete PDP context");
+}
+
+static int
+gtpstat_packet(void *pss, packet_info *pinfo, epan_dissect_t *edt _U_, const void *prv)
+{
+    guint i = 0;
+    srt_stat_table *gtp_srt_table;
+    srt_data_t *data = (srt_data_t *)pss;
+    const gtp_msg_hash_t *gtp=(const gtp_msg_hash_t *)prv;
+    int idx=0;
+
+    /* we are only interested in reply packets */
+    if(gtp->is_request){
+        return 0;
+    }
+    /* if we have not seen the request, just ignore it */
+    if(!gtp->req_frame){
+        return 0;
+    }
+
+    /* Only use the commands we know how to handle, this is not a comprehensive list */
+    /* Redoing the message indexing is bit reduntant,                    */
+    /*  but using message type as such would yield a long gtp_srt_table. */
+    /*  Only a fraction of the messages are matchable req/resp pairs,    */
+    /*  it just doesn't feel feasible.                                   */
+
+    switch(gtp->msgtype){
+    case GTP_MSG_ECHO_REQ: idx=0;
+        break;
+    case GTP_MSG_CREATE_PDP_REQ: idx=1;
+        break;
+    case GTP_MSG_UPDATE_PDP_REQ: idx=2;
+        break;
+    case GTP_MSG_DELETE_PDP_REQ: idx=3;
+        break;
+    default:
+        return 0;
+    }
+
+    gtp_srt_table = g_array_index(data->srt_array, srt_stat_table*, i);
+    add_srt_table_data(gtp_srt_table, idx, &gtp->req_time, pinfo);
+
+    return 1;
+}
 
 
 static dissector_handle_t ip_handle;
@@ -5436,10 +5492,10 @@ decode_gtp_rab_setup(tvbuff_t * tvb, int offset, packet_info * pinfo _U_, proto_
         proto_tree_add_uint(ext_tree_rab_setup, hf_gtp_teid_data, tvb, offset + 4, 4, teid);
 
         switch (length) {
-        case 12:
+        case 9:
             proto_tree_add_item(ext_tree_rab_setup, hf_gtp_rnc_ipv4, tvb, offset + 8, 4, ENC_BIG_ENDIAN);
             break;
-        case 24:
+        case 21:
             proto_tree_add_item(ext_tree_rab_setup, hf_gtp_rnc_ipv6, tvb, offset + 8, 16, ENC_NA);
             break;
         default:
@@ -5602,6 +5658,10 @@ decode_gtp_pdp_cont_prio(tvbuff_t * tvb, int offset, packet_info * pinfo, proto_
     length = tvb_get_ntohs(tvb, offset + 1);
     ext_tree = proto_tree_add_subtree_format(tree, tvb, offset, 3 + length, ett_gtp_ies[GTP_EXT_PDP_CONT_PRIO], NULL,
                         "%s : ", val_to_str_ext_const(GTP_EXT_PDP_CONT_PRIO, &gtp_val_ext, "Unknown"));
+
+    if (length == 0) {
+        return 3;
+    }
 
     offset++;
     proto_tree_add_item(ext_tree, hf_gtp_ext_length, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -6857,12 +6917,14 @@ decode_gtp_direct_tnl_flg(tvbuff_t * tvb, int offset, packet_info * pinfo _U_, p
     proto_tree_add_item(ext_tree, hf_gtp_ext_length, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
-    /* TODO add decoding of data */
     proto_tree_add_item(ext_tree, hf_gtp_ext_ei,   tvb, offset, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(ext_tree, hf_gtp_ext_gcsi, tvb, offset, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(ext_tree, hf_gtp_ext_dti,  tvb, offset, 1, ENC_BIG_ENDIAN);
     offset++;
 
+    if (length == 1) {
+        return 3 + length;
+    }
     proto_tree_add_expert(ext_tree, pinfo, &ei_gtp_undecoded, tvb, offset, length);
 
     return 3 + length;
@@ -8463,7 +8525,7 @@ dissect_gtp_common(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
 
     if ((gtp_hdr->message == GTP_MSG_TPDU) && dissect_tpdu_as == GTP_TPDU_AS_TPDU) {
         if(tvb_reported_length_remaining(tvb, offset) > 0){
-            proto_tree_add_item(tree, hf_gtp_tpdu_data, tvb, offset, -1, ENC_NA);
+            proto_tree_add_item(gtp_tree, hf_gtp_tpdu_data, tvb, offset, -1, ENC_NA);
 
             sub_proto = tvb_get_guint8(tvb, offset);
 
@@ -8553,7 +8615,7 @@ dissect_gtp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
 }
 
 static void
-gtp_reinit(void)
+gtp_cleanup(void)
 {
     gtp_conv_info_t *gtp_info;
 
@@ -9731,9 +9793,11 @@ proto_register_gtp(void)
     gtp_priv_ext_dissector_table = register_dissector_table("gtp.priv_ext", "GTP PRIVATE EXT", FT_UINT16, BASE_DEC);
     gtp_cdr_fmt_dissector_table = register_dissector_table("gtp.cdr_fmt", "GTP DATA RECORD TYPE", FT_UINT16, BASE_DEC);
 
-    register_init_routine(gtp_reinit);
+    register_cleanup_routine(gtp_cleanup);
     gtp_tap = register_tap("gtp");
     gtpv1_tap = register_tap("gtpv1");
+
+    register_srt_table(proto_gtp, NULL, 1, gtpstat_packet, gtpstat_init, NULL);
 }
 /* TS 132 295 V9.0.0 (2010-02)
  * 5.1.3 Port usage

@@ -908,7 +908,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
   /* Checksum */
   en = proto_tree_add_item (p_mul_tree, hf_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
   checksum_tree = proto_item_add_subtree (en, ett_checksum);
-  len = tvb_length (tvb);
+  len = tvb_captured_length (tvb);
   value = (guint8 *)tvb_memdup (wmem_packet_scope(), tvb, 0, len);
   if (len >= offset+2) {
     value[offset] = 0;
@@ -1066,7 +1066,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 
   case Data_PDU:
     /* Fragment of Data (variable length) */
-    data_len = tvb_length_remaining (tvb, offset);
+    data_len = tvb_captured_length_remaining (tvb, offset);
     proto_tree_add_none_format (p_mul_tree, hf_data_fragment, tvb, offset,
                                 data_len, "Fragment %d of Data (%d byte%s)",
                                 seq_no, data_len,
@@ -1180,7 +1180,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
     }
     proto_item_append_text (ti, ", Count of Ack: %u", count);
 
-    if (tvb_length_remaining (tvb, offset) >= 8) {
+    if (tvb_reported_length_remaining (tvb, offset) >= 8) {
       /* Timestamp Option (in units of 100ms) */
       guint64 timestamp;
 
@@ -1309,7 +1309,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
     proto_item_append_text (len_en, " (incorrect, should be: %d)",
                             offset + data_len);
     expert_add_info(pinfo, len_en, &ei_length);
-  } else if ((len = tvb_length_remaining (tvb, pdu_length)) > 0) {
+  } else if ((len = tvb_reported_length_remaining (tvb, pdu_length)) > 0) {
     proto_item_append_text (len_en, " (more data in packet: %d)", len);
     expert_add_info(pinfo, len_en, &ei_more_data);
   }
@@ -1322,18 +1322,16 @@ static void p_mul_init_routine (void)
   reassembly_table_init (&p_mul_reassembly_table,
                          &addresses_reassembly_table_functions);
   message_id_offset = 0;
-
-  if (p_mul_id_hash_table) {
-    g_hash_table_destroy (p_mul_id_hash_table);
-  }
-
-  if (p_mul_package_data_list) {
-    g_list_foreach (p_mul_package_data_list, (GFunc)p_mul_package_data_destroy, NULL);
-    g_list_free (p_mul_package_data_list);
-  }
-
   p_mul_id_hash_table = g_hash_table_new_full (p_mul_id_hash, p_mul_id_hash_equal, NULL, (GDestroyNotify)p_mul_id_value_destroy);
   p_mul_package_data_list = NULL;
+}
+
+static void p_mul_cleanup_routine (void)
+{
+  reassembly_table_destroy(&p_mul_reassembly_table);
+  g_hash_table_destroy(p_mul_id_hash_table);
+  g_list_foreach(p_mul_package_data_list, (GFunc)p_mul_package_data_destroy, NULL);
+  g_list_free(p_mul_package_data_list);
 }
 
 void proto_register_p_mul (void)
@@ -1583,6 +1581,7 @@ void proto_register_p_mul (void)
   expert_p_mul = expert_register_protocol(proto_p_mul);
   expert_register_field_array(expert_p_mul, ei, array_length(ei));
   register_init_routine (&p_mul_init_routine);
+  register_cleanup_routine (&p_mul_cleanup_routine);
 
   /* Set default UDP ports */
   range_convert_str (&global_p_mul_port_range, DEFAULT_P_MUL_PORT_RANGE,

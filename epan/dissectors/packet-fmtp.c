@@ -125,7 +125,7 @@ dissect_fmtp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
         call_dissector(data_handle, next_tvb, pinfo, fmtp_tree);
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 static guint
@@ -203,7 +203,7 @@ void
 proto_reg_handoff_fmtp(void)
 {
     /* Register as heuristic dissector for TCP */
-    heur_dissector_add("tcp", dissect_fmtp, proto_fmtp);
+    heur_dissector_add("tcp", dissect_fmtp, "FMTP over TCP", "fmtp_tcp", proto_fmtp, HEURISTIC_ENABLE);
     data_handle = find_dissector("data");
 }
 

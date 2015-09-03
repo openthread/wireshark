@@ -115,10 +115,12 @@
 #include <epan/addr_resolv.h>
 #include <epan/prefs.h>
 #include <epan/tap.h>
+#include <epan/stat_tap_ui.h>
 #include <epan/arptypes.h>
 #include <epan/sminmpec.h>
 #include <epan/expert.h>
 #include <epan/uat.h>
+#include <epan/oui.h>
 void proto_register_bootp(void);
 void proto_reg_handoff_bootp(void);
 
@@ -513,6 +515,7 @@ static expert_field ei_bootp_option_classless_static_route = EI_INIT;
 static expert_field ei_bootp_option125_enterprise_malformed = EI_INIT;
 static expert_field ei_bootp_option_6RD_malformed = EI_INIT;
 static expert_field ei_bootp_option82_vi_cl_tag_unknown = EI_INIT;
+static expert_field ei_bootp_option_parse_err = EI_INIT;
 static expert_field ei_bootp_suboption_invalid = EI_INIT;
 static expert_field ei_bootp_secs_le = EI_INIT;
 static expert_field ei_bootp_end_option_missing = EI_INIT;
@@ -779,7 +782,8 @@ enum field_type {
 	time_in_s_secs,		/* Signed */
 	time_in_u_secs,		/* Unsigned (not micro) */
 	fqdn,
-	ipv4_or_fqdn
+	ipv4_or_fqdn,
+	oui
 };
 
 struct opt_info {
@@ -822,6 +826,7 @@ static int dissect_vendor_pxeclient_suboption(packet_info *pinfo, proto_item *v_
 					      tvbuff_t *tvb, int optoff, int optend);
 static int dissect_vendor_cablelabs_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
 					      tvbuff_t *tvb, int optoff, int optend);
+static gboolean test_encapsulated_vendor_options(tvbuff_t *tvb, int optoff, int optend);
 static int dissect_vendor_alcatel_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
 					    tvbuff_t *tvb, int optoff, int optend);
 static int dissect_netware_ip_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
@@ -1726,8 +1731,9 @@ bootp_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *bp_tree, proto_item 
 			ampiplen = tvb_find_guint8(tvb, optoff+nameorglen+1, optlen-nameorglen-1, ',') - (optoff+nameorglen+1);
 			proto_tree_add_item(v_tree, hf_bootp_option43_arubaiap_ampip, tvb, optoff+nameorglen+1, ampiplen, ENC_ASCII|ENC_NA);
 			proto_tree_add_item(v_tree, hf_bootp_option43_arubaiap_password, tvb, optoff+nameorglen+1+ampiplen+1, optlen-(nameorglen+1+ampiplen+1), ENC_ASCII|ENC_NA);
-		} else if (s_option==58 || s_option==64 || s_option==65
-			|| s_option==66 || s_option==67) {
+		} else if ((s_option==58 || s_option==64 || s_option==65
+			|| s_option==66 || s_option==67)
+			&& test_encapsulated_vendor_options(tvb, optoff, optoff+optlen)) {
 			/* Note that this is a rather weak (permissive) heuristic, */
 			/* but since it comes last, I guess this is OK. */
 			/* Add any stronger (less permissive) heuristics before this! */
@@ -2511,7 +2517,7 @@ bootp_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *bp_tree, proto_item 
 
 			if (i != RFC3825_NOERROR) {
 				ti = proto_tree_add_uint(v_tree, hf_bootp_option_rfc3825_error, tvb, optoff, 1, i);
-                proto_item_set_len(ti, optlen);
+			proto_item_set_len(ti, optlen);
 			} else {
 				proto_tree_add_double_format_value(v_tree, hf_bootp_option_rfc3825_latitude, tvb, optoff, 5, location.latitude, "%15.10f", location.latitude);
 				proto_tree_add_double_format_value(v_tree, hf_bootp_option_rfc3825_longitude, tvb, optoff+5, 5, location.longitude, "%15.10f", location.longitude);
@@ -3393,6 +3399,38 @@ static const value_string option43_alcatel_app_type_vals[] = {
 	{ 0, NULL}
 };
 
+/* Look for 'encapsulated vendor-specific options' */
+static gboolean
+test_encapsulated_vendor_options(tvbuff_t *tvb, int optoff, int optend)
+{
+	guint8	subopt;
+	guint8	subopt_len;
+
+	while (optoff < optend) {
+		subopt = tvb_get_guint8(tvb, optoff);
+		optoff++;
+
+		/* Skip padding */
+		if (subopt == 0)
+			continue;
+		/* We are done, skip any remaining bytes */
+		if (subopt == 255)
+			break;
+
+		/* We expect a length byte next */
+		if (optoff >= optend)
+			return FALSE;
+		subopt_len = tvb_get_guint8(tvb, optoff);
+		optoff++;
+
+		/* Check remaining room for suboption in option */
+		if (optoff + subopt_len > optend)
+			return FALSE;
+		optoff += subopt_len;
+	}
+	return TRUE;
+}
+
 static int
 dissect_vendor_alcatel_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
 				 tvbuff_t *tvb, int optoff, int optend)
@@ -3615,12 +3653,12 @@ dissect_vendor_tr111_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree 
 
 	static struct opt_info o125_tr111_opt[]= {
 		/* 0 */ {"nop", special, NULL},	/* dummy */
-		/* 1 */ {"DeviceManufacturerOUI", string, &hf_bootp_option125_tr111_device_manufacturer_oui},
-		/* 2 */ {"DeviceSerialNumber", string, &hf_bootp_option125_tr111_device_serial_number},
-		/* 3 */ {"DeviceProductClass", string, &hf_bootp_option125_tr111_device_product_class},
+		/* 1 */ {"DeviceManufacturerOUI",  oui,    &hf_bootp_option125_tr111_device_manufacturer_oui},
+		/* 2 */ {"DeviceSerialNumber",     string, &hf_bootp_option125_tr111_device_serial_number},
+		/* 3 */ {"DeviceProductClass",     string, &hf_bootp_option125_tr111_device_product_class},
 		/* 4 */ {"GatewayManufacturerOUI", string, &hf_bootp_option125_tr111_gateway_manufacturer_oui},
-		/* 5 */ {"GatewaySerialNumber", string, &hf_bootp_option125_tr111_gateway_serial_number},
-		/* 6 */ {"GatewayProductClass", string, &hf_bootp_option125_tr111_gateway_product_class},
+		/* 5 */ {"GatewaySerialNumber",    string, &hf_bootp_option125_tr111_gateway_serial_number},
+		/* 6 */ {"GatewayProductClass",    string, &hf_bootp_option125_tr111_gateway_product_class},
 	};
 
 	subopt = tvb_get_guint8(tvb, optoff);
@@ -3628,7 +3666,7 @@ dissect_vendor_tr111_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree 
 
 	if (suboptoff >= optend) {
 		expert_add_info_format(pinfo, v_ti, &ei_bootp_missing_subopt_length,
-									"Suboption %d: no room left in option for suboption length", subopt);
+				       "Suboption %d: no room left in option for suboption length", subopt);
 		return (optend);
 	}
 
@@ -3651,13 +3689,20 @@ dissect_vendor_tr111_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree 
 	PROTO_ITEM_SET_HIDDEN(ti);
 
 	if (subopt < array_length(o125_tr111_opt)) {
-		if (bootp_handle_basic_types(pinfo, o125_v_tree, vti, tvb, o125_tr111_opt[subopt].ftype,
-							suboptoff, subopt_len, o125_tr111_opt[subopt].phf, &default_hfs) == 0) {
+		if (bootp_handle_basic_types(pinfo, o125_v_tree, vti, tvb, o125_tr111_opt[subopt].ftype, suboptoff, subopt_len, o125_tr111_opt[subopt].phf, &default_hfs) == 0) {
 			if (o125_tr111_opt[subopt].ftype == special) {
 				if (o125_tr111_opt[subopt].phf != NULL)
 				   proto_tree_add_item(v_tree, *o125_tr111_opt[subopt].phf, tvb, suboptoff, subopt_len, ENC_BIG_ENDIAN);
 				else
 				   proto_tree_add_item(v_tree, hf_bootp_option125_value, tvb, suboptoff, subopt_len, ENC_NA);
+			}
+			else if (o125_tr111_opt[subopt].ftype == oui) {
+				/* Get hex string.  Expecting 6 characters. */
+				gchar   *oui_string =  tvb_get_string_enc(wmem_packet_scope(), tvb, suboptoff, subopt_len, ENC_ASCII);
+				/* Convert to OUI number.  Only 3 bytes so no data lost in downcast. */
+				guint32 oui_number = (guint32)strtol(oui_string, NULL, 16);
+				/* Add item using oui_vals */
+				proto_tree_add_uint(v_tree, *o125_tr111_opt[subopt].phf, tvb, suboptoff, subopt_len, oui_number);
 			} else if (o125_tr111_opt[subopt].phf == NULL)
 				proto_tree_add_item(v_tree, hf_bootp_option125_value, tvb, suboptoff, subopt_len, ENC_NA);
 		}
@@ -3981,7 +4026,7 @@ dissect_packetcable_mta_cap(proto_tree *v_tree, packet_info *pinfo, tvbuff_t *tv
 				    tvb, off, 2, raw_val, "0x%s: %s = ",
 				    tvb_format_text(tvb, off, 2),
 				    val_to_str_const(raw_val, pkt_mdc_type_vals, "unknown"));
-                proto_item_set_len(ti, (tlv_len * 2) + 4);
+				proto_item_set_len(ti, (tlv_len * 2) + 4);
 				switch (raw_val) {
 
 				case PKT_MDC_VERSION:
@@ -5170,6 +5215,9 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	}
 	eoff = tvb_reported_length(tvb);
 
+	bp_ti = proto_tree_add_item(tree, proto_bootp, tvb, 0, -1, ENC_NA);
+	bp_tree = proto_item_add_subtree(bp_ti, ett_bootp);
+
 	/*
 	 * In the first pass, we just look for the DHCP message type
 	 * and Vendor class identifier options.
@@ -5182,7 +5230,9 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		offset_delta = bootp_option(tvb, pinfo, NULL, NULL, tmpvoff, eoff, TRUE, &at_end,
 		    &dhcp_type, &vendor_class_id, &overload);
 		if (offset_delta <= 0) {
-			THROW(ReportedBoundsError);
+			proto_tree_add_expert(bp_tree, pinfo, &ei_bootp_option_parse_err,
+					tvb, tmpvoff, eoff);
+			return;
 		}
 		tmpvoff += offset_delta;
 	}
@@ -5204,11 +5254,8 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	}
 
 	/*
-	 * OK, now build the protocol tree.
+	 * OK, now populate the protocol tree.
 	 */
-
-	bp_ti = proto_tree_add_item(tree, proto_bootp, tvb, 0, -1, ENC_NA);
-	bp_tree = proto_item_add_subtree(bp_ti, ett_bootp);
 
 	proto_tree_add_uint(bp_tree, hf_bootp_type, tvb,
 				   0, 1,
@@ -5324,7 +5371,9 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		offset_delta = bootp_option(tvb, pinfo, bp_tree, bp_ti, voff, eoff, FALSE, &at_end,
 		    &dhcp_type, &vendor_class_id, &overload);
 		if (offset_delta <= 0) {
-			THROW(ReportedBoundsError);
+			proto_tree_add_expert(bp_tree, pinfo, &ei_bootp_option_parse_err,
+					tvb, voff, eoff);
+			return;
 		}
 		voff += offset_delta;
 	}
@@ -5354,6 +5403,73 @@ bootp_init_protocol(void)
 		bootp_opt[uat_bootp_records[i].opt].text = wmem_strdup(wmem_file_scope(), uat_bootp_records[i].text);
 		bootp_opt[uat_bootp_records[i].opt].ftype = uat_bootp_records[i].ftype;
 		bootp_opt[uat_bootp_records[i].opt].phf = NULL;
+	}
+}
+
+/* TAP STAT INFO */
+typedef enum
+{
+	MESSAGE_TYPE_COLUMN = 0,
+	PACKET_COLUMN
+} bootp_stat_columns;
+
+static stat_tap_table_item bootp_stat_fields[] = {{TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "DHCP Message Type", "%-25s"}, {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Packets", "%d"}};
+
+static void bootp_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+{
+	int num_fields = sizeof(bootp_stat_fields)/sizeof(stat_tap_table_item);
+	new_stat_tap_table* table = new_stat_tap_init_table("DHCP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+	int i = 0;
+	stat_tap_table_item_type items[sizeof(bootp_stat_fields)/sizeof(stat_tap_table_item)];
+
+	new_stat_tap_add_table(new_stat, table);
+
+	/* Add a row for each value type */
+	while (opt53_text[i].strptr)
+	{
+		items[MESSAGE_TYPE_COLUMN].type = TABLE_ITEM_STRING;
+		items[MESSAGE_TYPE_COLUMN].value.string_value = opt53_text[i].strptr;
+		items[PACKET_COLUMN].type = TABLE_ITEM_UINT;
+		items[PACKET_COLUMN].value.uint_value = 0;
+
+		new_stat_tap_init_table_row(table, i, num_fields, items);
+		i++;
+	}
+}
+
+static gboolean
+bootp_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const void *data)
+{
+	new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+	const char* value = (const char*)data;
+	new_stat_tap_table* table;
+	stat_tap_table_item_type* msg_data;
+	guint i = 0;
+	gint idx;
+
+	idx = str_to_val_idx(value, opt53_text);
+	if (idx < 0)
+		return FALSE;
+
+	table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+	msg_data = new_stat_tap_get_field_data(table, idx, PACKET_COLUMN);
+	msg_data->value.uint_value++;
+	new_stat_tap_set_field_data(table, idx, PACKET_COLUMN, msg_data);
+
+	return TRUE;
+}
+
+static void
+bootp_stat_reset(new_stat_tap_table* table)
+{
+	guint element;
+	stat_tap_table_item_type* item_data;
+
+	for (element = 0; element < table->num_elements; element++)
+	{
+		item_data = new_stat_tap_get_field_data(table, element, PACKET_COLUMN);
+		item_data->value.uint_value = 0;
+		new_stat_tap_set_field_data(table, element, PACKET_COLUMN, item_data);
 	}
 }
 
@@ -7185,7 +7301,7 @@ proto_register_bootp(void)
 
 		{ &hf_bootp_option125_tr111_device_manufacturer_oui,
 		  { "DeviceManufacturerOUI", "bootp.option.vi.tr111.device_manufacturer_oui",
-		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    FT_UINT24, BASE_HEX, VALS(oui_vals), 0x0,
 		    "Option 125:TR 111 1 DeviceManufacturerOUI", HFILL }},
 
 		{ &hf_bootp_option125_tr111_device_serial_number,
@@ -7401,12 +7517,32 @@ proto_register_bootp(void)
 		{ &ei_bootp_option125_enterprise_malformed, { "bootp.option.enterprise.malformed", PI_PROTOCOL, PI_ERROR, "no room left in option for enterprise data", EXPFILL }},
 		{ &ei_bootp_option_6RD_malformed, { "bootp.option.6RD.malformed", PI_PROTOCOL, PI_ERROR, "6RD: malformed option", EXPFILL }},
 		{ &ei_bootp_option82_vi_cl_tag_unknown, { "bootp.option.option.vi.cl.tag_unknown", PI_PROTOCOL, PI_ERROR, "Unknown tag", EXPFILL }},
+		{ &ei_bootp_option_parse_err, { "bootp.option.parse_err", PI_PROTOCOL, PI_ERROR, "Parse error", EXPFILL }},
 		{ &ei_bootp_suboption_invalid, { "bootp.suboption_invalid", PI_PROTOCOL, PI_ERROR, "Invalid suboption", EXPFILL }},
 		{ &ei_bootp_secs_le, { "bootp.secs_le", PI_PROTOCOL, PI_NOTE, "Seconds elapsed appears to be encoded as little-endian", EXPFILL }},
 		{ &ei_bootp_end_option_missing, { "bootp.end_option_missing", PI_PROTOCOL, PI_ERROR, "End option missing", EXPFILL }},
 		{ &ei_bootp_client_address_not_given, { "bootp.client_address_not_given", PI_PROTOCOL, PI_NOTE, "Client address not given", EXPFILL }},
 		{ &ei_bootp_server_name_overloaded_by_dhcp, { "bootp.server_name_overloaded_by_dhcp", PI_PROTOCOL, PI_NOTE, "Server name option overloaded by DHCP", EXPFILL }},
 		{ &ei_bootp_boot_filename_overloaded_by_dhcp, { "bootp.boot_filename_overloaded_by_dhcp", PI_PROTOCOL, PI_NOTE, "Boot file name option overloaded by DHCP", EXPFILL }},
+	};
+
+	static tap_param bootp_stat_params[] = {
+		{ PARAM_FILTER, "filter", "Filter", NULL, TRUE }
+	};
+
+	static new_stat_tap_ui bootp_stat_table = {
+		REGISTER_STAT_GROUP_UNSORTED,
+		"DHCP (BOOTP) Statistics",
+		"bootp",
+		"bootp,stat",
+		bootp_stat_init,
+		bootp_stat_packet,
+		bootp_stat_reset,
+		NULL,
+		NULL,
+		sizeof(bootp_stat_fields)/sizeof(stat_tap_table_item), bootp_stat_fields,
+		sizeof(bootp_stat_params)/sizeof(tap_param), bootp_stat_params,
+		NULL
 	};
 
 	module_t *bootp_module;
@@ -7468,6 +7604,8 @@ proto_register_bootp(void)
 				      "Custom BootP/DHCP Options (Excl. suboptions)",
 				      "Custom BootP/DHCP Options (Excl. suboptions)",
 				      bootp_uat);
+
+	register_new_stat_tap_ui(&bootp_stat_table);
 }
 
 void

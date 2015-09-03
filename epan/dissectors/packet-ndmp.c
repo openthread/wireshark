@@ -357,7 +357,7 @@ get_ndmp_protocol_version(void)
 
 struct ndmp_header {
 	guint32	seq;
-	guint32 time;
+	guint32 timestamp;
 	guint32 type;
 	guint32 msg;
 	guint32 rep_seq;
@@ -579,7 +579,7 @@ check_ndmp_rm(tvbuff_t *tvb, packet_info *pinfo)
 	}
 
 	/* check that the header looks sane */
-	len=tvb_length(tvb);
+	len=tvb_captured_length(tvb);
 	/* check the record marker that it looks sane.
 	 * It has to be >=0 bytes or (arbitrary limit) <1Mbyte
 	 */
@@ -599,7 +599,7 @@ check_ndmp_hdr(tvbuff_t *tvb )
 	guint len;
 	guint32 tmp;
 
-	len=tvb_length(tvb);
+	len=tvb_captured_length(tvb);
 
 	/* If the length is less than 24, it isn't a valid
 	   header */
@@ -1357,7 +1357,7 @@ dissect_execute_cdb_cdb(tvbuff_t *tvb, int offset, packet_info *pinfo,
 		tvbuff_t *cdb_tvb;
 		int tvb_len, tvb_rlen;
 
-		tvb_len=tvb_length_remaining(tvb, offset);
+		tvb_len=tvb_captured_length_remaining(tvb, offset);
 		if(tvb_len>16)
 			tvb_len=16;
 		tvb_rlen=tvb_reported_length_remaining(tvb, offset);
@@ -1410,7 +1410,7 @@ dissect_execute_cdb_payload(tvbuff_t *tvb, int offset, packet_info *pinfo, proto
 		tvbuff_t *data_tvb;
 		int tvb_len, tvb_rlen;
 
-		tvb_len=tvb_length_remaining(tvb, offset);
+		tvb_len=tvb_captured_length_remaining(tvb, offset);
 		if(tvb_len>(int)payload_len)
 			tvb_len=payload_len;
 		tvb_rlen=tvb_reported_length_remaining(tvb, offset);
@@ -2900,7 +2900,7 @@ dissect_ndmp_header(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *p
 	offset += 4;
 
 	/* timestamp */
-	ns.secs=nh->time;
+	ns.secs=nh->timestamp;
 	ns.nsecs=0;
 	proto_tree_add_time(tree, hf_ndmp_timestamp, tvb, offset, 4, &ns);
 	offset += 4;
@@ -2948,7 +2948,7 @@ dissect_ndmp_cmd(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree
 	if(ndmp_commands[i].cmd==0){
 		/* we do not know this message */
 		expert_add_info(pinfo, msg_item, &ei_ndmp_msg);
-		offset+=tvb_length_remaining(tvb, offset);
+		offset+=tvb_captured_length_remaining(tvb, offset);
 		return offset;
 	}
 
@@ -3136,7 +3136,7 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 			frag_msg = fragment_add_seq_check(&ndmp_reassembly_table,
 				tvb, 4, pinfo, seq, NULL,
 				frag_num,
-				tvb_length_remaining(tvb, offset)-4,
+				tvb_captured_length_remaining(tvb, offset)-4,
 				!(ndmp_rm & RPC_RM_LASTFRAG));
 
 			new_tvb = process_reassembled_data(tvb, 4, pinfo, "Reassembled NDMP", frag_msg, &ndmp_frag_items, NULL, tree);
@@ -3173,7 +3173,7 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 			proto_tree_add_item(ndmp_tree, hf_ndmp_fragment_data, tvb, 4, -1, ENC_NA);
 
 			pinfo->fragmented = save_fragmented;
-			return tvb_length(tvb);
+			return tvb_captured_length(tvb);
 		}
 	}
 	else
@@ -3183,11 +3183,11 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 
 
 	/* size of this NDMP PDU */
-	size = tvb_length_remaining(new_tvb, offset);
+	size = tvb_captured_length_remaining(new_tvb, offset);
 	if (size < 24) {
 		/* too short to be NDMP */
 		pinfo->fragmented = save_fragmented;
-		return tvb_length(tvb);
+		return tvb_captured_length(tvb);
 	}
 
 	/*
@@ -3197,11 +3197,11 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	if (!check_ndmp_hdr(new_tvb))
 	{
 		pinfo->fragmented = save_fragmented;
-		return tvb_length(tvb);
+		return tvb_captured_length(tvb);
 	}
 
 	nh.seq = tvb_get_ntohl(new_tvb, offset);
-	nh.time = tvb_get_ntohl(new_tvb, offset+4);
+	nh.timestamp = tvb_get_ntohl(new_tvb, offset+4);
 	nh.type = tvb_get_ntohl(new_tvb, offset+8);
 	nh.msg = tvb_get_ntohl(new_tvb, offset+12);
 	nh.rep_seq = tvb_get_ntohl(new_tvb, offset+16);
@@ -3293,7 +3293,7 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	pinfo->fragmented = save_fragmented;
 	col_set_writable(pinfo->cinfo, save_writable);
 
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 static guint
@@ -3320,7 +3320,7 @@ check_if_ndmp(tvbuff_t *tvb, packet_info *pinfo)
 	}
 
 	/* check that the header looks sane */
-	len=tvb_length(tvb);
+	len=tvb_captured_length(tvb);
 	/* check the record marker that it looks sane.
 	 * It has to be >=24 bytes or (arbitrary limit) <1Mbyte
 	 */
@@ -3390,7 +3390,7 @@ dissect_ndmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
 	tcp_dissect_pdus(tvb, pinfo, tree, ndmp_desegment, 4,
 			 get_ndmp_pdu_len, dissect_ndmp_message, data);
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 /* Called when doing a heuristic check;
@@ -3402,14 +3402,14 @@ dissect_ndmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 static int
 dissect_ndmp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	if (tvb_length(tvb) < 28)
+	if (tvb_captured_length(tvb) < 28)
 		return 0;
 	if (!check_if_ndmp(tvb, pinfo))
 		return 0;
 
 	tcp_dissect_pdus(tvb, pinfo, tree, ndmp_desegment, 28,
 			 get_ndmp_pdu_len, dissect_ndmp_message, data);
-	return tvb_length(tvb);
+	return tvb_captured_length(tvb);
 }
 
 static void
@@ -3417,6 +3417,12 @@ ndmp_init(void)
 {
 	reassembly_table_init(&ndmp_reassembly_table,
 	    &addresses_reassembly_table_functions);
+}
+
+static void
+ndmp_cleanup(void)
+{
+	reassembly_table_destroy(&ndmp_reassembly_table);
 }
 
 
@@ -4250,6 +4256,7 @@ proto_register_ndmp(void)
 	"Whether the dissector should defragment NDMP messages spanning multiple packets.",
 	&ndmp_defragment);
 	register_init_routine(ndmp_init);
+	register_cleanup_routine(ndmp_cleanup);
 }
 
 void
@@ -4257,7 +4264,7 @@ proto_reg_handoff_ndmp(void)
 {
 	ndmp_handle = new_create_dissector_handle(dissect_ndmp, proto_ndmp);
 	dissector_add_uint("tcp.port",TCP_PORT_NDMP, ndmp_handle);
-	heur_dissector_add("tcp", dissect_ndmp_heur, proto_ndmp);
+	heur_dissector_add("tcp", dissect_ndmp_heur, "NDMP over TCP", "ndmp_tcp", proto_ndmp, HEURISTIC_ENABLE);
 }
 
 /*

@@ -80,9 +80,6 @@ static gboolean global_rlc_lte_call_ip_for_mtch = FALSE;
 /* Preference to expect RLC headers without payloads */
 static gboolean global_rlc_lte_headers_expected = FALSE;
 
-/* Heuristic dissection */
-static gboolean global_rlc_lte_heur = FALSE;
-
 /* Re-assembly of segments */
 static gboolean global_rlc_lte_reassembly = TRUE;
 
@@ -2163,7 +2160,7 @@ static void dissect_rlc_lte_um(tvbuff_t *tvb, packet_info *pinfo,
 
     if (global_rlc_lte_headers_expected) {
         /* There might not be any data, if only headers (plus control data) were logged */
-        is_truncated = (tvb_reported_length_remaining(tvb, offset) == 0);
+        is_truncated = (tvb_captured_length_remaining(tvb, offset) == 0);
         truncated_ti = proto_tree_add_uint(tree, hf_rlc_lte_header_only, tvb, 0, 0,
                                            is_truncated);
         if (is_truncated) {
@@ -2577,7 +2574,7 @@ static void dissect_rlc_lte_am(tvbuff_t *tvb, packet_info *pinfo,
 
     /* There might not be any data, if only headers (plus control data) were logged */
     if (global_rlc_lte_headers_expected) {
-        is_truncated = (tvb_reported_length_remaining(tvb, offset) == 0);
+        is_truncated = (tvb_captured_length_remaining(tvb, offset) == 0);
         truncated_ti = proto_tree_add_uint(tree, hf_rlc_lte_header_only, tvb, 0, 0,
                                            is_truncated);
         if (is_truncated) {
@@ -2699,15 +2696,6 @@ static gboolean dissect_rlc_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
     guint8               tag = 0;
     gboolean             infoAlreadySet = FALSE;
     gboolean             umSeqNumLengthTagPresent = FALSE;
-
-    /* This is a heuristic dissector, which means we get all the UDP
-     * traffic not sent to a known dissector and not claimed by
-     * a heuristic dissector called before us!
-     */
-
-    if (!global_rlc_lte_heur) {
-        return FALSE;
-    }
 
     /* Do this again on re-dissection to re-discover offset of actual PDU */
 
@@ -2983,30 +2971,20 @@ static void dissect_rlc_lte_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree
  * file is loaded or re-loaded in wireshark */
 static void rlc_lte_init_protocol(void)
 {
-    /* Destroy any existing hashes. */
-    if (sequence_analysis_channel_hash) {
-        g_hash_table_destroy(sequence_analysis_channel_hash);
-    }
-    if (sequence_analysis_report_hash) {
-        g_hash_table_destroy(sequence_analysis_report_hash);
-    }
-    if (repeated_nack_channel_hash) {
-        g_hash_table_destroy(repeated_nack_channel_hash);
-    }
-    if (repeated_nack_report_hash) {
-        g_hash_table_destroy(repeated_nack_report_hash);
-    }
-    if (reassembly_report_hash) {
-        g_hash_table_destroy(reassembly_report_hash);
-    }
-
-    /* Now create them over */
     sequence_analysis_channel_hash = g_hash_table_new(rlc_channel_hash_func, rlc_channel_equal);
     sequence_analysis_report_hash = g_hash_table_new(rlc_result_hash_func, rlc_result_hash_equal);
-
     repeated_nack_channel_hash = g_hash_table_new(rlc_channel_hash_func, rlc_channel_equal);
     repeated_nack_report_hash = g_hash_table_new(rlc_result_hash_func, rlc_result_hash_equal);
     reassembly_report_hash = g_hash_table_new(rlc_result_hash_func, rlc_result_hash_equal);
+}
+
+static void rlc_lte_cleanup_protocol(void)
+{
+    g_hash_table_destroy(sequence_analysis_channel_hash);
+    g_hash_table_destroy(sequence_analysis_report_hash);
+    g_hash_table_destroy(repeated_nack_channel_hash);
+    g_hash_table_destroy(repeated_nack_report_hash);
+    g_hash_table_destroy(reassembly_report_hash);
 }
 
 /* Configure number of PDCP SN bits to use for DRB channels */
@@ -3587,11 +3565,7 @@ void proto_register_rlc_lte(void)
         "only be called for complete PDUs (i.e. not segmented over RLC)",
         &global_rlc_lte_call_ip_for_mtch);
 
-    prefs_register_bool_preference(rlc_lte_module, "heuristic_rlc_lte_over_udp",
-        "Try Heuristic LTE-RLC over UDP framing",
-        "When enabled, use heuristic dissector to find RLC-LTE frames sent with "
-        "UDP framing",
-        &global_rlc_lte_heur);
+    prefs_register_obsolete_preference(rlc_lte_module, "heuristic_rlc_lte_over_udp");
 
     prefs_register_bool_preference(rlc_lte_module, "header_only_mode",
         "May see RLC headers only",
@@ -3610,12 +3584,13 @@ void proto_register_rlc_lte(void)
     ue_parameters_tree = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
     register_init_routine(&rlc_lte_init_protocol);
+    register_cleanup_routine(&rlc_lte_cleanup_protocol);
 }
 
 void proto_reg_handoff_rlc_lte(void)
 {
     /* Add as a heuristic UDP dissector */
-    heur_dissector_add("udp", dissect_rlc_lte_heur, proto_rlc_lte);
+    heur_dissector_add("udp", dissect_rlc_lte_heur, "RLC-LTE over UDP", "rlc_lte_udp", proto_rlc_lte, HEURISTIC_DISABLE);
 
     pdcp_lte_handle = find_dissector("pdcp-lte");
     ip_handle       = find_dissector("ip");

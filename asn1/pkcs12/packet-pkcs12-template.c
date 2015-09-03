@@ -58,6 +58,7 @@ void proto_reg_handoff_pkcs12(void);
 static int proto_pkcs12 = -1;
 
 static int hf_pkcs12_X509Certificate_PDU = -1;
+static int hf_pkcs12_AuthenticatedSafe_PDU = -1;  /* AuthenticatedSafe */
 static gint ett_decrypted_pbe = -1;
 
 static expert_field ei_pkcs12_octet_string_expected = EI_INIT;
@@ -112,7 +113,7 @@ generate_key_or_iv(unsigned int id, tvbuff_t *salt_tvb, unsigned int iter,
   if (pw == NULL)
     pwlen = 0;
   else
-    pwlen = strlen (pw);
+    pwlen = strlen(pw);
 
   if (pwlen > 63 / 2)
     {
@@ -218,7 +219,7 @@ void PBE_reset_parameters(void)
 	salt = NULL;
 }
 
-int PBE_decrypt_data(const char *object_identifier_id_param, tvbuff_t *encrypted_tvb, asn1_ctx_t *actx, proto_item *item)
+int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encrypted_tvb _U_, asn1_ctx_t *actx _U_, proto_item *item _U_)
 {
 #ifdef HAVE_LIBGCRYPT
 	const char	*encryption_algorithm;
@@ -451,6 +452,11 @@ void proto_register_pkcs12(void) {
       { "X509Certificate", "pkcs12.X509Certificate",
         FT_NONE, BASE_NONE, NULL, 0,
         "pkcs12.X509Certificate", HFILL }},
+    { &hf_pkcs12_AuthenticatedSafe_PDU,
+      { "AuthenticatedSafe", "pkcs12.AuthenticatedSafe",
+        FT_UINT32, BASE_DEC, NULL, 0,
+        NULL, HFILL }},
+
 #include "packet-pkcs12-hfarr.c"
   };
 

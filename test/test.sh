@@ -108,6 +108,7 @@ source $TESTS_DIR/suite-fileformats.sh
 source $TESTS_DIR/suite-decryption.sh
 source $TESTS_DIR/suite-nameres.sh
 source $TESTS_DIR/suite-wslua.sh
+source $TESTS_DIR/suite-mergecap.sh
 
 test_cleanup() {
 	if [ $TEST_OUTDIR_CLEAN = 1 ]; then
@@ -126,7 +127,7 @@ trap test_cleanup EXIT
 test_step_prerequisites() {
 
 	NOTFOUND=0
-	for i in "$WIRESHARK" "$WIRESHARK_GTK" "$TSHARK" "$CAPINFOS" "$DUMPCAP" ; do
+	for i in "$WIRESHARK" "$WIRESHARK_GTK" "$TSHARK" "$CAPINFOS" "$MERGECAP" "$DUMPCAP" ; do
 		if [ ! -x $i ]; then
 			echo "Couldn't find $i"
 			NOTFOUND=1
@@ -143,7 +144,7 @@ test_step_prerequisites() {
 # Dump version information
 test_step_tshark_version() {
 	test_remark_add "Printing TShark version"
-	$TSHARK -v
+	$TESTS_DIR/run_and_catch_crashes $TSHARK -v
 	RETURNVALUE=$?
 	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
 		test_step_failed "Failed to print version information"
@@ -164,10 +165,11 @@ test_suite() {
 	test_suite_add "File I/O" io_suite
 	test_suite_add "Capture" capture_suite
 	test_suite_add "Unit tests" unittests_suite
-	test_suite_add "File formats" fileformats_suite
 	test_suite_add "Decryption" decryption_suite
 	test_suite_add "Name Resolution" name_resolution_suite
 	test_suite_add "Lua API" wslua_suite
+	test_suite_add "Mergecap" mergecap_suite
+	test_suite_add "File formats" fileformats_suite
 }
 
 

@@ -60,6 +60,7 @@
 #include <epan/prefs.h>
 #include <epan/conversation.h>
 #include <epan/expert.h>
+#include <epan/decode_as.h>
 #include <wsutil/md5.h>
 #include <wsutil/sha1.h>
 
@@ -201,8 +202,13 @@ static int hf_l2tp_avp_framing_errors = -1;
 static int hf_l2tp_cisco_remote_end_id = -1;
 static int hf_l2tp_avp_tx_connect_speed_v3 = -1;
 static int hf_l2tp_avp_rx_connect_speed_v3 = -1;
+static int hf_l2tp_lapd_info = -1;
+static int hf_l2tp_session_id = -1;
+static int hf_l2tp_zero_length_bit_message = -1;
+static int hf_l2tp_offset_padding = -1;
 
 static dissector_table_t l2tp_vendor_avp_dissector_table;
+static dissector_table_t pw_type_table;
 
 #define UDP_PORT_L2TP   1701
 
@@ -234,6 +240,9 @@ static gint ett_l2tp_lcp = -1;
 static gint ett_l2tp_l2_spec = -1;
 
 static expert_field ei_l2tp_incorrect_digest = EI_INIT;
+/* Generated from convert_proto_tree_add_text.pl */
+static expert_field ei_l2tp_vendor_specific_avp_data = EI_INIT;
+static expert_field ei_l2tp_avp_length = EI_INIT;
 
 static const enum_val_t l2tpv3_cookies[] = {
     {"detect",  "Detect",              -1},
@@ -244,35 +253,7 @@ static const enum_val_t l2tpv3_cookies[] = {
 };
 
 #define L2TPv3_COOKIE_DEFAULT       0
-
-#define L2TPv3_PROTOCOL_ETH         0
-#define L2TPv3_PROTOCOL_CHDLC       1
-#define L2TPv3_PROTOCOL_FR          2
-#define L2TPv3_PROTOCOL_PPP         3
-#define L2TPv3_PROTOCOL_IP          4
-#define L2TPv3_PROTOCOL_MPLS        5
-#define L2TPv3_PROTOCOL_AAL5        6
-#define L2TPv3_PROTOCOL_LAPD        7
-#define L2TPv3_PROTOCOL_DOCSIS_DMPT 8
-#define L2TPv3_PROTOCOL_ERICSSON    9
-#define L2TPv3_PROTOCOL_MAX         (L2TPv3_PROTOCOL_ERICSSON + 1)
-
 #define L2TPv3_PROTOCOL_DEFAULT     L2TPv3_PROTOCOL_CHDLC
-
-static const enum_val_t l2tpv3_protocols[] = {
-    {"detect",      "Detect",        -1},
-    {"eth",         "Ethernet",      L2TPv3_PROTOCOL_ETH},
-    {"chdlc",       "Cisco HDLC",    L2TPv3_PROTOCOL_CHDLC},
-    {"fr",          "Frame Relay",   L2TPv3_PROTOCOL_FR},
-    {"ppp",         "PPP",           L2TPv3_PROTOCOL_PPP},
-    {"ip",          "IP",            L2TPv3_PROTOCOL_IP},
-    {"mpls",        "MPLS",          L2TPv3_PROTOCOL_MPLS},
-    {"aal5",        "AAL5",          L2TPv3_PROTOCOL_AAL5},
-    {"lapd",        "LAPD",          L2TPv3_PROTOCOL_LAPD},
-    {"docsis-dmpt", "DOCSIS-DMPT",   L2TPv3_PROTOCOL_DOCSIS_DMPT},
-    {"ehdlc",       "Ericsson HDLC", L2TPv3_PROTOCOL_ERICSSON},
-    {NULL, NULL, 0}
-};
 
 #define L2TPv3_L2_SPECIFIC_NONE         0
 #define L2TPv3_L2_SPECIFIC_DEFAULT      1
@@ -292,7 +273,6 @@ static const enum_val_t l2tpv3_l2_specifics[] = {
 };
 
 static gint l2tpv3_cookie = -1;
-static gint l2tpv3_protocol = -1;
 static gint l2tpv3_l2_specific = -1;
 
 #define MESSAGE_TYPE_SCCRQ         1
@@ -763,16 +743,8 @@ static const true_false_string tfs_new_existing = { "New", "Existing" };
 static dissector_handle_t ppp_hdlc_handle;
 static dissector_handle_t ppp_lcp_options_handle;
 
-static dissector_handle_t eth_withoutfcs_handle;
-static dissector_handle_t chdlc_handle;
-static dissector_handle_t fr_handle;
-static dissector_handle_t ip_handle;
-static dissector_handle_t mpls_handle;
 static dissector_handle_t atm_oam_handle;
 static dissector_handle_t llc_handle;
-static dissector_handle_t lapd_handle;
-static dissector_handle_t mp2t_handle;
-static dissector_handle_t ehdlc_handle;
 static dissector_handle_t data_handle;
 
 static dissector_handle_t l2tp_udp_handle;
@@ -1152,7 +1124,7 @@ static l2tpv3_session_t *store_pw_type(l2tpv3_session_t *_session,
                                      int msg_type)
 {
     l2tpv3_session_t *session = _session;
-    gint result = l2tpv3_protocol;
+    gint result = -1;
     guint16 pw_type;
 
     switch (msg_type) {
@@ -1285,6 +1257,16 @@ static void update_session(l2tpv3_tunnel_t *tunnel, l2tpv3_session_t *session)
     }
 }
 
+static void l2tp_prompt(packet_info *pinfo _U_, gchar* result)
+{
+    g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Decode L2TPv3 packet type 0x%04x as",
+        GPOINTER_TO_UINT(p_get_proto_data(pinfo->pool, pinfo, proto_l2tp, 0)));
+}
+
+static gpointer l2tp_value(packet_info *pinfo _U_)
+{
+    return p_get_proto_data(pinfo->pool, pinfo, proto_l2tp, 0);
+}
 
 /*
  * Dissect CISCO AVP:s
@@ -1380,8 +1362,7 @@ static int dissect_l2tp_cisco_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
         break;
 
     default:
-        proto_tree_add_text(l2tp_avp_tree, tvb, offset,
-                            avp_len-6, "Vendor-Specific AVP data");
+        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len-6);
         break;
     }
     offset += avp_len;
@@ -1464,8 +1445,7 @@ dissect_l2tp_vnd_cablelabs_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
         }
         break;
     default:
-        proto_tree_add_text(l2tp_avp_tree, tvb, offset,
-                            avp_len, "Vendor-Specific AVP(not dissected yet)");
+        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len);
         break;
     }
     offset += avp_len;
@@ -1511,8 +1491,7 @@ static void process_control_avps(tvbuff_t *tvb,
         avp_type        = tvb_get_ntohs(tvb, idx + 4);
 
         if (avp_len < 6) {
-            proto_tree_add_text(l2tp_avp_tree ? l2tp_avp_tree : l2tp_tree, tvb, idx, 2,
-                                "AVP length must be >= 6, got %u", avp_len);
+            proto_tree_add_expert_format(l2tp_avp_tree ? l2tp_avp_tree : l2tp_tree, pinfo, &ei_l2tp_avp_length, tvb, idx, 2, "AVP length must be >= 6, got %u", avp_len);
             return;
         }
 
@@ -1546,9 +1525,9 @@ static void process_control_avps(tvbuff_t *tvb,
                     proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_vendor_id, tvb, idx, 2, ENC_BIG_ENDIAN);
                     idx += 2;
 
-                    proto_tree_add_text(l2tp_avp_tree, tvb, idx, 2, "Type: %u", avp_type);
+                    proto_tree_add_uint(l2tp_avp_tree, hf_l2tp_avp_type, tvb, idx, 2, avp_type);
                     idx += 2;
-                    proto_tree_add_text(l2tp_avp_tree, tvb, idx, avp_len-6, "Vendor-Specific AVP data");
+                    proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, idx, avp_len-6);
                     avp_len-=6;
                 }
                 idx += avp_len;
@@ -1998,8 +1977,7 @@ static void process_control_avps(tvbuff_t *tvb,
         }
         default:
             if(avp_len>0)
-                proto_tree_add_text(l2tp_avp_tree, tvb, idx, avp_len,
-                                    "AVP data not dissected yet");
+                proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, idx, avp_len);
             break;
         }
 
@@ -2027,13 +2005,13 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 {
     int         idx         = *pIdx;
     int         sid;
-    guint8      oam_cell    = 0;
+    guint32      oam_cell   = 0;
     proto_tree *l2_specific = NULL;
     proto_item *ti          = NULL;
     tvbuff_t   *next_tvb;
     gint        cookie_len  = l2tpv3_cookie;
     gint        l2_spec     = l2tpv3_l2_specific;
-    gint        pw_type     = l2tpv3_protocol;
+    gint        pw_type     = -1;
 
     lcce_settings_t  *lcce      = NULL;
     l2tpv3_session_t *session   = NULL;
@@ -2150,7 +2128,7 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         break;
     case L2TPv3_L2_SPECIFIC_LAPD:
         if (tree)
-            proto_tree_add_text(tree, tvb, idx + cookie_len + 4, 3,"LAPD info");
+            proto_tree_add_item(tree, hf_l2tp_lapd_info, tvb, idx + cookie_len + 4, 3, ENC_NA);
         next_tvb = tvb_new_subset_remaining(tvb, idx + cookie_len+4+3);
         break;
     case L2TPv3_L2_SPECIFIC_NONE:
@@ -2159,49 +2137,11 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         break;
     }
 
-    switch(pw_type){
-    case L2TPv3_PROTOCOL_ETH:
-        call_dissector(eth_withoutfcs_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_CHDLC:
-        call_dissector(chdlc_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_FR:
-        call_dissector(fr_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_PPP:
-        /*
-         * PPP is transported without Address and Control
-         * fields, ppp_hdlc_handle can handle that as if if
-         * was ACFC (NULL Address and Control)
-         */
-        call_dissector(ppp_hdlc_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_IP:
-        call_dissector(ip_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_MPLS:
-        call_dissector(mpls_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_DOCSIS_DMPT:
-        call_dissector(mp2t_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_AAL5:
-        if (oam_cell) {
-            call_dissector(atm_oam_handle, next_tvb, pinfo, tree);
-        } else {
-            call_dissector(llc_handle, next_tvb, pinfo, tree);
-        }
-        break;
-    case L2TPv3_PROTOCOL_LAPD:
-        call_dissector(lapd_handle, next_tvb, pinfo, tree);
-        break;
-    case L2TPv3_PROTOCOL_ERICSSON:
-        call_dissector(ehdlc_handle, next_tvb, pinfo, tree);
-        break;
-    default:
+    p_add_proto_data(pinfo->pool, pinfo, proto_l2tp, 0, GUINT_TO_POINTER((guint)pw_type));
+
+    if (!dissector_try_uint_new(pw_type_table, pw_type, next_tvb, pinfo, tree, FALSE, GUINT_TO_POINTER(oam_cell)))
+    {
         call_dissector(data_handle, next_tvb, pinfo, tree);
-        break;
     }
 }
 
@@ -2255,23 +2195,19 @@ static void
 process_l2tpv3_data_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                        l2tpv3_conversation_t *l2tp_conv)
 {
-    proto_tree *l2tp_tree = NULL;
-    proto_item *l2tp_item = NULL;
+    proto_tree *l2tp_tree;
+    proto_item *l2tp_item;
 
     int idx = 0;
     int sid;
 
     sid = tvb_get_ntohl(tvb, idx);
 
-    if (tree) {
-        l2tp_item = proto_tree_add_item(tree, proto_l2tp, tvb, 0, -1, ENC_NA);
-        l2tp_tree = proto_item_add_subtree(l2tp_item, ett_l2tp);
-        proto_item_append_text(l2tp_item, " version 3");
+    l2tp_item = proto_tree_add_item(tree, proto_l2tp, tvb, 0, -1, ENC_NA);
+    l2tp_tree = proto_item_add_subtree(l2tp_item, ett_l2tp);
+    proto_item_append_text(l2tp_item, " version 3");
 
-        proto_tree_add_text(l2tp_tree, tvb, 0, 4,
-                            "Packet Type: %s Session Id=%u",
-                            data_msg, sid);
-    }
+    proto_tree_add_uint_format(l2tp_tree, hf_l2tp_session_id, tvb, 0, 4, sid, "Packet Type: %s Session Id=%u", data_msg, sid);
 
     /* Call process_l2tpv3_data from Session ID (offset in idx of 0) */
     process_l2tpv3_data(tvb, pinfo, tree, l2tp_tree, l2tp_item, &idx, l2tp_conv->tunnel);
@@ -2397,7 +2333,7 @@ process_l2tpv3_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int 
     }
 
     if (tree && (LENGTH_BIT(control))&&(length==12)) {
-        proto_tree_add_text(l2tp_tree, tvb, 0, 0, "Zero Length Bit message");
+        proto_tree_add_item(l2tp_tree, hf_l2tp_zero_length_bit_message, tvb, 0, 0, ENC_NA);
     } else {
         avp_type = tvb_get_ntohs(tvb, idx + 4);
         if (avp_type == CONTROL_MESSAGE) {
@@ -2639,14 +2575,14 @@ dissect_l2tp_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
         idx += 2;
         if (offset_size != 0) {
             if (tree) {
-                proto_tree_add_text(l2tp_tree, tvb, idx, offset_size, "Offset Padding");
+                proto_tree_add_item(l2tp_tree, hf_l2tp_offset_padding, tvb, idx, offset_size, ENC_NA);
             }
             idx += offset_size;
         }
     }
 
     if (tree && (LENGTH_BIT(control))&&(length==12)) {
-        proto_tree_add_text(l2tp_tree, tvb, 0, 0, "Zero Length Bit message");
+        proto_tree_add_item(l2tp_tree, hf_l2tp_zero_length_bit_message, tvb, 0, 0, ENC_NA);
     }
 
     if (!CONTROL_BIT(control)) {  /* Data Messages so we are done */
@@ -2710,7 +2646,20 @@ dissect_l2tp_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     return;
 }
 
-static void init_l2tp_dissection(void)
+static int dissect_atm_oam_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
+{
+    guint32      oam_cell   = GPOINTER_TO_UINT(data);
+
+    if (oam_cell) {
+        call_dissector(atm_oam_handle, tvb, pinfo, tree);
+    } else {
+        call_dissector(llc_handle, tvb, pinfo, tree);
+    }
+
+    return tvb_captured_length(tvb);
+}
+
+static void l2tp_cleanup(void)
 {
     GSList *iterator = list_heads;
 
@@ -3015,6 +2964,10 @@ proto_register_l2tp(void)
       { &hf_l2tp_avp_nonce, { "Nonce", "l2tp.avp.nonce", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_avp_tx_connect_speed_v3, { "Tx Connect Speed v3", "l2tp.avp.tx_connect_speed_v3", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_avp_rx_connect_speed_v3, { "Rx Connect Speed v3", "l2tp.avp.rx_connect_speed_v3", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_l2tp_lapd_info, { "LAPD info", "l2tp.lapd_info", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_l2tp_session_id, { "Packet Type", "l2tp.session_id", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_l2tp_zero_length_bit_message, { "Zero Length Bit message", "l2tp.zero_length_bit_message", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_l2tp_offset_padding, { "Offset Padding", "l2tp.offset_padding", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
     };
 
     static gint *ett[] = {
@@ -3028,10 +2981,19 @@ proto_register_l2tp(void)
 
     static ei_register_info ei[] = {
         { &ei_l2tp_incorrect_digest, { "l2tp.incorrect_digest", PI_CHECKSUM, PI_WARN, "Incorrect Digest", EXPFILL }},
+        /* Generated from convert_proto_tree_add_text.pl */
+        { &ei_l2tp_vendor_specific_avp_data, { "l2tp.vendor_specific_avp_data", PI_UNDECODED, PI_WARN, "Vendor-Specific AVP data", EXPFILL }},
+        { &ei_l2tp_avp_length, { "l2tp.avp_length.bad", PI_MALFORMED, PI_ERROR, "Bad AVP length", EXPFILL }},
     };
 
     module_t *l2tp_module;
     expert_module_t* expert_l2tp;
+
+    /* Decode As handling */
+    static build_valid_func l2tp_da_build_value[1] = {l2tp_value};
+    static decode_as_value_t l2tp_da_values = {l2tp_prompt, 1, l2tp_da_build_value};
+    static decode_as_t l2tp_da = {"l2tp", "L2TPv3 payload", "l2tp.pw_type", 1, 0, &l2tp_da_values, NULL, NULL,
+                                    decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
 
     proto_l2tp = proto_register_protocol(
         "Layer 2 Tunneling Protocol", "L2TP", "l2tp");
@@ -3041,6 +3003,7 @@ proto_register_l2tp(void)
     expert_register_field_array(expert_l2tp, ei, array_length(ei));
 
     l2tp_vendor_avp_dissector_table = register_dissector_table("l2tp.vendor_avp", "L2TP vendor AVP dissector table", FT_UINT32, BASE_DEC);
+    pw_type_table = register_dissector_table("l2tp.pw_type", "L2TPv3 payload type", FT_UINT32, BASE_DEC);
 
     l2tp_module = prefs_register_protocol(proto_l2tp, NULL);
 
@@ -3060,24 +3023,21 @@ proto_register_l2tp(void)
                                    l2tpv3_l2_specifics,
                                    FALSE);
 
-    prefs_register_enum_preference(l2tp_module,
-                                   "protocol",
-                                   "Decode L2TPv3 packet contents as this protocol",
-                                   "Decode L2TPv3 packet contents as this protocol",
-                                   &l2tpv3_protocol,
-                                   l2tpv3_protocols,
-                                   FALSE);
+    prefs_register_obsolete_preference(l2tp_module, "protocol");
 
     prefs_register_string_preference(l2tp_module,"shared_secret","Shared Secret",
                                    "Shared secret used for control message digest authentication",
                                    &shared_secret);
 
-    register_init_routine(init_l2tp_dissection);
+    register_cleanup_routine(l2tp_cleanup);
+    register_decode_as(&l2tp_da);
 }
 
 void
 proto_reg_handoff_l2tp(void)
 {
+    dissector_handle_t atm_oam_llc_handle;
+
     l2tp_udp_handle = new_create_dissector_handle(dissect_l2tp_udp, proto_l2tp);
     dissector_add_uint("udp.port", UDP_PORT_L2TP, l2tp_udp_handle);
 
@@ -3097,17 +3057,12 @@ proto_reg_handoff_l2tp(void)
     /*
      * Get a handle for the dissectors used in v3.
      */
-    eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
-    chdlc_handle          = find_dissector("chdlc");
-    fr_handle             = find_dissector("fr");
-    ip_handle             = find_dissector("ip");
-    mpls_handle           = find_dissector("mpls");
     atm_oam_handle        = find_dissector("atm_oam_cell");
     llc_handle            = find_dissector("llc");
-    lapd_handle           = find_dissector("lapd");
-    mp2t_handle           = find_dissector("mp2t");
-    ehdlc_handle          = find_dissector("ehdlc");
     data_handle           = find_dissector("data");
+
+    atm_oam_llc_handle = new_create_dissector_handle( dissect_atm_oam_llc, proto_l2tp );
+    dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_AAL5, atm_oam_llc_handle);
 }
 
 /*

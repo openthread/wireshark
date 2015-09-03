@@ -130,10 +130,13 @@ fcfcs_hash (gconstpointer v)
 static void
 fcfcs_init_protocol(void)
 {
-    if (fcfcs_req_hash)
-        g_hash_table_destroy (fcfcs_req_hash);
-
     fcfcs_req_hash = g_hash_table_new(fcfcs_hash, fcfcs_equal);
+}
+
+static void
+fcfcs_cleanup_protocol(void)
+{
+    g_hash_table_destroy(fcfcs_req_hash);
 }
 
 /* Code to actually dissect the packets */
@@ -256,38 +259,36 @@ static void
 dissect_fcfcs_gieil (tvbuff_t *tvb, proto_tree *tree, gboolean isreq)
 {
     int offset = 16; /* past the fcct header */
-    int len;
+    guint len;
     guint32 tot_len, prevlen;
 
-    if (tree) {
-        if (isreq) {
-            proto_tree_add_item (tree, hf_fcs_iename, tvb, offset, 8, ENC_NA);
-        }
-        else {
-            proto_tree_add_item_ret_uint(tree, hf_fcfcs_list_length, tvb, offset+3, 1, ENC_NA, &tot_len);
+    if (isreq) {
+        proto_tree_add_item (tree, hf_fcs_iename, tvb, offset, 8, ENC_NA);
+    }
+    else {
+        proto_tree_add_item_ret_uint(tree, hf_fcfcs_list_length, tvb, offset+3, 1, ENC_NA, &tot_len);
 
-            prevlen = 0;
-            len = tvb_strsize(tvb, offset+4);
-            proto_tree_add_item (tree, hf_fcs_vendorname, tvb, offset+4,
-                                 len, ENC_ASCII|ENC_NA);
-            prevlen += len;
+        prevlen = 0;
+        len = tvb_strsize(tvb, offset+4);
+        proto_tree_add_item (tree, hf_fcs_vendorname, tvb, offset+4,
+                len, ENC_ASCII|ENC_NA);
+        prevlen += len;
 
-            len = tvb_strsize(tvb, offset+4+prevlen);
-            proto_tree_add_item (tree, hf_fcs_modelname, tvb, offset+4+prevlen,
-                                 len, ENC_ASCII|ENC_NA);
-            prevlen += len;
+        len = tvb_strsize(tvb, offset+4+prevlen);
+        proto_tree_add_item (tree, hf_fcs_modelname, tvb, offset+4+prevlen,
+                len, ENC_ASCII|ENC_NA);
+        prevlen += len;
 
-            len = tvb_strsize(tvb, offset+4+prevlen);
-            proto_tree_add_item (tree, hf_fcs_releasecode, tvb,
-                                 offset+4+prevlen, len, ENC_ASCII|ENC_NA);
+        len = tvb_strsize(tvb, offset+4+prevlen);
+        proto_tree_add_item (tree, hf_fcs_releasecode, tvb,
+                offset+4+prevlen, len, ENC_ASCII|ENC_NA);
+        prevlen += len;
+        offset += (4+prevlen);
+        while (tot_len > prevlen) {
+            len = tvb_strsize(tvb, offset);
+            proto_tree_add_item(tree, hf_fcfcs_vendor_specific_information, tvb, offset, len, ENC_NA|ENC_ASCII);
             prevlen += len;
-            offset += (4+prevlen);
-            while (tot_len > prevlen) {
-                len = tvb_strsize(tvb, offset);
-                proto_tree_add_item(tree, hf_fcfcs_vendor_specific_information, tvb, offset, len, ENC_NA|ENC_ASCII);
-                prevlen += len;
-                offset += len;
-            }
+            offset += len;
         }
     }
 }
@@ -906,7 +907,7 @@ dissect_fcfcs (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         break;
     }
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -1044,6 +1045,7 @@ proto_register_fcfcs (void)
     expert_register_field_array(expert_fcfcs, ei, array_length(ei));
 
     register_init_routine (&fcfcs_init_protocol);
+    register_cleanup_routine (&fcfcs_cleanup_protocol);
 }
 
 void

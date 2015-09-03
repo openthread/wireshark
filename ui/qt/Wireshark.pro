@@ -155,19 +155,22 @@ win32 {
         CONFIG -= embed_manifest_dll
         CONFIG -= embed_manifest_exe
     }
+
+    # Use xcopy instead of copy so as to ensure that newer version of files are copied
+    QMAKE_COPY_FILE = xcopy /d /y
 }
 
 SOURCES_TAP = \
-    "$$PWD/stats_tree_dialog.cpp"
+    "stats_tree_dialog.cpp"
 
 tap_register.name = Generate wireshark-tap-register.c
 tap_register.input = SOURCES_TAP
 tap_register.output = wireshark-tap-register.c
 tap_register.variable_out = SOURCES
 win32 {
-    tap_register.commands = $${PYTHON} "../../tools/make-tap-reg.py" . taps $$SOURCES_TAP
+    tap_register.commands = $${PYTHON} "../../tools/make-tap-reg.py" "\"""$$PWD""\"" taps $$SOURCES_TAP
 } else {
-    tap_register.commands = python ../../tools/make-tap-reg.py . taps $$SOURCES_TAP
+    tap_register.commands = python ../../tools/make-tap-reg.py "\"""$$PWD""\"" taps $$SOURCES_TAP
 }
 #tap_register.CONFIG += no_link
 QMAKE_EXTRA_COMPILERS += tap_register
@@ -206,7 +209,10 @@ HEADERS_WS_C  = \
 
 FORMS += \
     about_dialog.ui \
+    address_editor_frame.ui \
     bluetooth_att_server_attributes_dialog.ui \
+    bluetooth_devices_dialog.ui \
+    bluetooth_hci_summary_dialog.ui \
     capture_file_properties_dialog.ui \
     capture_interfaces_dialog.ui \
     capture_preferences_frame.ui \
@@ -216,6 +222,7 @@ FORMS += \
     compiled_filter_output.ui \
     decode_as_dialog.ui \
     display_filter_expression_dialog.ui \
+    enabled_protocols_dialog.ui \
     expert_info_dialog.ui \
     export_object_dialog.ui \
     export_pdu_dialog.ui \
@@ -225,6 +232,9 @@ FORMS += \
     filter_expressions_preferences_frame.ui \
     follow_stream_dialog.ui \
     font_color_preferences_frame.ui \
+    funnel_string_dialog.ui \
+    funnel_text_dialog.ui \
+    gsm_map_summary_dialog.ui \
     import_text_dialog.ui \
     io_graph_dialog.ui \
     layout_preferences_frame.ui \
@@ -237,16 +247,21 @@ FORMS += \
     main_window_preferences_frame.ui \
     manage_interfaces_dialog.ui \
     module_preferences_scroll_area.ui \
+    mtp3_summary_dialog.ui \
     packet_comment_dialog.ui \
     packet_dialog.ui \
     packet_format_group_box.ui \
     packet_range_group_box.ui \
+    preference_editor_frame.ui \
     preferences_dialog.ui \
     print_dialog.ui \
     profile_dialog.ui \
+    progress_frame.ui \
     protocol_hierarchy_dialog.ui \
     remote_capture_dialog.ui  \
     remote_settings_dialog.ui  \
+    resolved_addresses_dialog.ui \
+    rtp_analysis_dialog.ui   \
     rtp_stream_dialog.ui   \
     sctp_all_assocs_dialog.ui   \
     sctp_assoc_analyse_dialog.ui \
@@ -262,13 +277,16 @@ FORMS += \
     time_shift_dialog.ui \
     traffic_table_dialog.ui \
     uat_dialog.ui \
-    voip_calls_dialog.ui
-
+    voip_calls_dialog.ui \
+    wireless_frame.ui
 
 HEADERS += $$HEADERS_WS_C \
     about_dialog.h \
     accordion_frame.h \
+    address_editor_frame.h \
     bluetooth_att_server_attributes_dialog.h \
+    bluetooth_devices_dialog.h \
+    bluetooth_hci_summary_dialog.h \
     capture_file_properties_dialog.h \
     capture_interfaces_dialog.h \
     capture_preferences_frame.h \
@@ -280,6 +298,7 @@ HEADERS += $$HEADERS_WS_C \
     decode_as_dialog.h \
     display_filter_expression_dialog.h \
     elided_label.h \
+    enabled_protocols_dialog.h \
     endpoint_dialog.h \
     expert_info_dialog.h \
     export_dissection_dialog.h \
@@ -293,6 +312,10 @@ HEADERS += $$HEADERS_WS_C \
     follow_stream_dialog.h \
     follow_stream_text.h \
     font_color_preferences_frame.h \
+    funnel_string_dialog.h \
+    funnel_text_dialog.h \
+    funnel_statistics.h \
+    gsm_map_summary_dialog.h \
     layout_preferences_frame.h \
     lbm_lbtrm_transport_dialog.h \
     lbm_lbtru_transport_dialog.h \
@@ -301,15 +324,24 @@ HEADERS += $$HEADERS_WS_C \
     main_window_preferences_frame.h \
     manage_interfaces_dialog.h \
     module_preferences_scroll_area.h \
+    mtp3_summary_dialog.h \
+    multicast_statistics_dialog.h \
+    overlay_scroll_bar.h \
     packet_comment_dialog.h \
     packet_dialog.h \
     packet_format_group_box.h \
+    percent_bar_delegate.h \
+    preference_editor_frame.h \
     preferences_dialog.h \
     print_dialog.h \
     profile_dialog.h \
+    progress_frame.h \
     protocol_hierarchy_dialog.h \
+    protocol_preferences_menu.h \
     remote_capture_dialog.h  \
     remote_settings_dialog.h    \
+    resolved_addresses_dialog.h \
+    rtp_analysis_dialog.h  \
     rtp_stream_dialog.h  \
     sctp_all_assocs_dialog.h  \
     sctp_assoc_analyse_dialog.h \
@@ -318,6 +350,8 @@ HEADERS += $$HEADERS_WS_C \
     sctp_graph_arwnd_dialog.h  \
     sctp_graph_byte_dialog.h  \
     search_frame.h \
+    service_response_time_dialog.h \
+    simple_statistics_dialog.h \
     splash_overlay.h \
     stats_tree_dialog.h \
     tango_colors.h \
@@ -325,7 +359,9 @@ HEADERS += $$HEADERS_WS_C \
     tcp_stream_dialog.h \
     traffic_table_dialog.h \
     uat_dialog.h \
-    voip_calls_dialog.h
+    voip_calls_dialog.h \
+    wireless_frame.h \
+    wlan_statistics_dialog.h
 
 win32 {
     OBJECTS_WS_C = $$SOURCES_WS_C
@@ -429,9 +465,9 @@ win32 {
     LIBS += \
         $${guilibsdll} $${HHC_LIBS} \
         -L../../epan -llibwireshark -L../../wsutil -llibwsutil \
-	-L../../wiretap -lwiretap-$${WTAP_VERSION} \
+        -L../../wiretap -lwiretap-$${WTAP_VERSION} \
         -L../../capchild -llibcapchild -L../../caputils -llibcaputils \
-	-L.. -llibui -L../../codecs -lcodecs \
+        -L.. -llibui -L../../codecs -lcodecs \
         -L$${GLIB_DIR}/lib -lglib-2.0 -lgmodule-2.0 \
         -L$${ZLIB_DIR}/lib -lzdll \
         -L$${WINSPARKLE_DIR} -lWinSparkle
@@ -565,7 +601,7 @@ RC_FILE = ../../image/wireshark.rc
     message(No translation files in project)
 }
 
-win32: QMAKE_CLEAN += *.pdb
+win32: QMAKE_CLEAN += *.pdb *.pri
 
 HEADERS += \
     byte_view_tab.h \
@@ -592,27 +628,32 @@ HEADERS += \
     packet_list_model.h \
     packet_list_record.h \
     packet_range_group_box.h \
-    progress_bar.h \
     proto_tree.h \
     qt_ui_utils.h \
     qt_ui_utils.h \
     qcustomplot.h \
     recent_file_status.h \
     related_packet_delegate.h \
+    response_time_delay_dialog.h \
+    rpc_service_response_time_dialog.h \
     sequence_diagram.h \
     sequence_dialog.h \
     simple_dialog.h \
     sparkline_delegate.h \
     syntax_line_edit.h \
+    tap_parameter_dialog.h \
     time_shift_dialog.h \
     wireshark_application.h \
     wireshark_dialog.h \
-
+    wlan_statistics_dialog.h
 
 SOURCES += \
     about_dialog.cpp \
     accordion_frame.cpp \
+    address_editor_frame.cpp \
     bluetooth_att_server_attributes_dialog.cpp \
+    bluetooth_devices_dialog.cpp \
+    bluetooth_hci_summary_dialog.cpp \
     byte_view_tab.cpp \
     byte_view_text.cpp \
     capture_file.cpp \
@@ -635,6 +676,7 @@ SOURCES += \
     display_filter_edit.cpp \
     display_filter_expression_dialog.cpp \
     elided_label.cpp \
+    enabled_protocols_dialog.cpp \
     endpoint_dialog.cpp \
     expert_info_dialog.cpp \
     export_dissection_dialog.cpp \
@@ -650,6 +692,10 @@ SOURCES += \
     follow_stream_dialog.cpp \
     follow_stream_text.cpp \
     font_color_preferences_frame.cpp \
+    funnel_string_dialog.cpp \
+    funnel_text_dialog.cpp \
+    funnel_statistics.cpp \
+    gsm_map_summary_dialog.cpp \
     import_text_dialog.cpp \
     interface_tree.cpp \
     io_graph_dialog.cpp \
@@ -666,6 +712,9 @@ SOURCES += \
     main_window_slots.cpp \
     manage_interfaces_dialog.cpp \
     module_preferences_scroll_area.cpp \
+    mtp3_summary_dialog.cpp \
+    multicast_statistics_dialog.cpp \
+    overlay_scroll_bar.cpp \
     packet_comment_dialog.cpp \
     packet_dialog.cpp \
     packet_format_group_box.cpp \
@@ -673,18 +722,25 @@ SOURCES += \
     packet_list_model.cpp \
     packet_list_record.cpp \
     packet_range_group_box.cpp \
+    percent_bar_delegate.cpp \
+    preference_editor_frame.cpp \
     preferences_dialog.cpp \
     print_dialog.cpp \
     profile_dialog.cpp \
-    progress_bar.cpp \
+    progress_frame.cpp \
     proto_tree.cpp \
     protocol_hierarchy_dialog.cpp \
+    protocol_preferences_menu.cpp \
     qcustomplot.cpp \
     qt_ui_utils.cpp \
     recent_file_status.cpp \
     related_packet_delegate.cpp \
     remote_capture_dialog.cpp  \
     remote_settings_dialog.cpp \
+    response_time_delay_dialog.cpp \
+    resolved_addresses_dialog.cpp \
+    rpc_service_response_time_dialog.cpp \
+    rtp_analysis_dialog.cpp  \
     rtp_stream_dialog.cpp  \
     sctp_all_assocs_dialog.cpp  \
     sctp_assoc_analyse_dialog.cpp \
@@ -695,7 +751,9 @@ SOURCES += \
     search_frame.cpp \
     sequence_diagram.cpp \
     sequence_dialog.cpp \
+    service_response_time_dialog.cpp \
     simple_dialog.cpp \
+    simple_statistics_dialog.cpp \
     sparkline_delegate.cpp \
     splash_overlay.cpp \
     stats_tree_dialog.cpp \
@@ -707,6 +765,8 @@ SOURCES += \
     traffic_table_dialog.cpp \
     uat_dialog.cpp \
     voip_calls_dialog.cpp \
+    wireless_frame.cpp \
     wireshark_application.cpp \
     wireshark_dialog.cpp \
+    wlan_statistics_dialog.cpp \
     ../../wireshark-qt.cpp

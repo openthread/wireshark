@@ -121,6 +121,11 @@ typedef int (*new_dissector_t)(tvbuff_t *, packet_info *, proto_tree *, void *);
 typedef gboolean (*heur_dissector_t)(tvbuff_t *tvb, packet_info *pinfo,
 	proto_tree *tree, void *);
 
+typedef enum {
+    HEURISTIC_DISABLE,
+    HEURISTIC_ENABLE
+} heuristic_enable_e;
+
 typedef void (*DATFunc) (const gchar *table_name, ftenum_t selector_type,
     gpointer key, gpointer value, gpointer user_data);
 typedef void (*DATFunc_handle) (const gchar *table_name, gpointer value,
@@ -200,6 +205,16 @@ WS_DLL_PUBLIC void dissector_all_tables_foreach_table (DATFunc_table func,
  */
 WS_DLL_PUBLIC dissector_table_t register_dissector_table(const char *name,
     const char *ui_name, const ftenum_t type, const int param);
+
+/*
+ * Similar to register_dissector_table, but with a "custom" hash function
+ * to store subdissectors.
+ */
+WS_DLL_PUBLIC dissector_table_t register_custom_dissector_table(const char *name,
+    const char *ui_name, GHashFunc hash_func, GEqualFunc key_equal_func);
+
+/** Deregister the dissector table by table name. */
+WS_DLL_PUBLIC void deregister_dissector_table(const char *name);
 
 /* Find a dissector table by table name. */
 WS_DLL_PUBLIC dissector_table_t find_dissector_table(const char *name);
@@ -322,6 +337,21 @@ WS_DLL_PUBLIC dissector_handle_t dissector_get_string_handle(
 WS_DLL_PUBLIC dissector_handle_t dissector_get_default_string_handle(
     const char *name, const gchar *string);
 
+/* Add an entry to a "custom" dissector table. */
+WS_DLL_PUBLIC void dissector_add_custom_table_handle(const char *name, void *pattern,
+    dissector_handle_t handle);
+
+/** Look for a given key in a given "custom" dissector table and, if found,
+ * return the current dissector handle for that key.
+ *
+ * @param[in] sub_dissectors Dissector table to search.
+ * @param[in] key Value to match, e.g. RPC key for its subdissectors
+ * @return The matching dissector handle on success, NULL if no match is found.
+ */
+WS_DLL_PUBLIC dissector_handle_t dissector_get_custom_table_handle(
+    dissector_table_t sub_dissectors, void *key);
+
+
 /* Add a handle to the list of handles that *could* be used with this
    table.  That list is used by the "Decode As"/"-d" code in the UI. */
 WS_DLL_PUBLIC void dissector_add_for_decode_as(const char *name,
@@ -352,6 +382,8 @@ typedef struct {
 	heur_dissector_t dissector;
 	protocol_t *protocol; /* this entry's protocol */
 	gchar *list_name;     /* the list name this entry is in the list of */
+	const gchar *display_name;     /* the string used to present heuristic to user */
+	const gchar *short_name;     /* string used for "internal" use to uniquely identify heuristic */
 	gboolean enabled;
 } heur_dtbl_entry_t;
 
@@ -415,15 +447,25 @@ WS_DLL_PUBLIC gboolean dissector_try_heuristic(heur_dissector_list_t sub_dissect
  */
 WS_DLL_PUBLIC heur_dissector_list_t find_heur_dissector_list(const char *name);
 
+/** Find a heuristic dissector by the unique short protocol name provided during registration.
+ *
+ * @param short_name short name of the protocol to look at
+ * @return pointer to the heuristic dissector entry, NULL if not such dissector exists
+ */
+WS_DLL_PUBLIC heur_dtbl_entry_t* find_heur_dissector_by_unique_short_name(const char *short_name);
+
 /** Add a sub-dissector to a heuristic dissector list.
  *  Call this in the proto_handoff function of the sub-dissector.
  *
  * @param name the name of the "parent" protocol, e.g. "tcp"
  * @param dissector the sub-dissector to be registered
+ * @param display_name the string used to present heuristic to user, e.g. "HTTP over TCP"
+ * @param short_name the string used for "internal" use to identify heuristic, e.g. "http_tcp"
  * @param proto the protocol id of the sub-dissector
+ * @param enable initially enabled or not
  */
 WS_DLL_PUBLIC void heur_dissector_add(const char *name, heur_dissector_t dissector,
-    const int proto);
+    const char *display_name, const char *short_name, const int proto, heuristic_enable_e enable);
 
 /** Remove a sub-dissector from a heuristic dissector list.
  *  Call this in the prefs_reinit function of the sub-dissector.
@@ -445,10 +487,13 @@ WS_DLL_PUBLIC void heur_dissector_delete(const char *name, heur_dissector_t diss
 extern void heur_dissector_set_enabled(const char *name, heur_dissector_t dissector, const int proto, const gboolean enabled);
 
 /** Register a dissector. */
-WS_DLL_PUBLIC dissector_handle_t register_dissector(const char *name, dissector_t dissector,
-    const int proto);
-WS_DLL_PUBLIC dissector_handle_t new_register_dissector(const char *name, new_dissector_t dissector,
-    const int proto);
+WS_DLL_PUBLIC dissector_handle_t register_dissector(const char *name, dissector_t dissector, const int proto);
+
+/** Register a new dissector. */
+WS_DLL_PUBLIC dissector_handle_t new_register_dissector(const char *name, new_dissector_t dissector, const int proto);
+
+/** Deregister a dissector. */
+WS_DLL_PUBLIC void deregister_dissector(const char *name);
 
 /** Get the long name of the protocol for a dissector handle. */
 extern const char *dissector_handle_get_long_name(const dissector_handle_t handle);
@@ -473,6 +518,11 @@ WS_DLL_PUBLIC dissector_handle_t create_dissector_handle(dissector_t dissector,
     const int proto);
 WS_DLL_PUBLIC dissector_handle_t new_create_dissector_handle(new_dissector_t dissector,
     const int proto);
+WS_DLL_PUBLIC dissector_handle_t new_create_dissector_handle_with_name(new_dissector_t dissector,
+    const int proto, const char* name);
+
+/** Destroy an anonymous handle for a dissector. */
+WS_DLL_PUBLIC void destroy_dissector_handle(dissector_handle_t handle);
 
 /** Call a dissector through a handle and if no dissector was found
  * pass it over to the "data" dissector instead.
@@ -530,11 +580,23 @@ extern void dissect_cleanup(void);
  */
 WS_DLL_PUBLIC void set_actual_length(tvbuff_t *tvb, const guint specified_len);
 
-/* Allow protocols to register "init" routines, which are called before
-   we make a pass through a capture file and dissect all its packets
-   (e.g., when we read in a new capture file, or run a "filter packets"
-   or "colorize packets" pass over the current capture file). */
+/**
+ * Allow protocols to register "init" routines, which are called before
+ * we make a pass through a capture file and dissect all its packets
+ * (e.g., when we read in a new capture file, or run a "filter packets"
+ * or "colorize packets" pass over the current capture file or when the
+ * preferences are changed).
+ */
 WS_DLL_PUBLIC void register_init_routine(void (*func)(void));
+
+/**
+ * Allows protocols to register "cleanup" routines which are called
+ * after closing a capture file (or when preferences are changed, in
+ * that case these routines are called before the init routines are
+ * executed). It can be used to release resources that are allocated in
+ * register_init_routine.
+ */
+WS_DLL_PUBLIC void register_cleanup_routine(void (*func)(void));
 
 /* Initialize all data structures used for dissection. */
 void init_dissection(void);
@@ -646,6 +708,8 @@ WS_DLL_PUBLIC void dissector_dump_heur_decodes(void);
  * dissector has been called.
  */
 WS_DLL_PUBLIC void register_postdissector(dissector_handle_t);
+WS_DLL_PUBLIC void deregister_postdissector(dissector_handle_t handle);
+
 extern gboolean have_postdissector(void);
 extern void call_all_postdissectors(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 

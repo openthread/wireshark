@@ -332,7 +332,7 @@ static expert_field ei_unknown_data = EI_INIT;
 static expert_field ei_unexpected_data = EI_INIT;
 
 static dissector_handle_t ubertooth_handle;
-static dissector_handle_t bluetooth_handle;
+static dissector_handle_t bluetooth_ubertooth_handle;
 
 static wmem_tree_t *command_info = NULL;
 
@@ -1318,12 +1318,12 @@ dissect_usb_rx_packet(proto_tree *main_tree, proto_tree *tree, packet_info *pinf
         ubertooth_data->channel = channel;
 
         next_tvb = tvb_new_subset_length(tvb, offset, length);
-        call_dissector_with_data(bluetooth_handle, next_tvb, pinfo, main_tree, ubertooth_data);
+        call_dissector_with_data(bluetooth_ubertooth_handle, next_tvb, pinfo, main_tree, ubertooth_data);
         offset += length;
 
-        if (tvb_length_remaining(tvb, offset) > 0) {
+        if (tvb_reported_length_remaining(tvb, offset) > 0) {
             proto_tree_add_item(data_tree, hf_reserved, tvb, offset, -1, ENC_NA);
-            offset += tvb_length_remaining(tvb, offset);
+            offset += tvb_captured_length_remaining(tvb, offset);
         }
 
         break;
@@ -1649,9 +1649,9 @@ dissect_ubertooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 break;
         }
 
-        if (tvb_length_remaining(tvb, offset) > 0) {
-            proto_tree_add_expert(main_tree, pinfo, &ei_unexpected_data, tvb, offset, tvb_length_remaining(tvb, offset));
-            offset = tvb_length(tvb);
+        if (tvb_reported_length_remaining(tvb, offset) > 0) {
+            proto_tree_add_expert(main_tree, pinfo, &ei_unexpected_data, tvb, offset, tvb_captured_length_remaining(tvb, offset));
+            offset = tvb_captured_length(tvb);
         }
 
         /* Save request info (command_data) */
@@ -1693,11 +1693,11 @@ dissect_ubertooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     if (!command_data) {
         col_append_str(pinfo->cinfo, COL_INFO, "Response: Unknown");
 
-        proto_tree_add_expert(main_tree, pinfo, &ei_unknown_data, tvb, offset, tvb_length_remaining(tvb, offset));
+        proto_tree_add_expert(main_tree, pinfo, &ei_unknown_data, tvb, offset, tvb_captured_length_remaining(tvb, offset));
 
         pinfo->p2p_dir = p2p_dir_save;
 
-        return tvb_length(tvb);
+        return tvb_captured_length(tvb);
     }
 
     col_append_fstr(pinfo->cinfo, COL_INFO, "Response: %s",
@@ -1712,7 +1712,7 @@ dissect_ubertooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     case 27: /* Spectrum Analyzer */
         if (usb_conv_info->transfer_type == URB_BULK) {
 
-            while (tvb_length_remaining(tvb, offset) > 0) {
+            while (tvb_reported_length_remaining(tvb, offset) > 0) {
                 offset = dissect_usb_rx_packet(tree, main_tree, pinfo, tvb, offset, command_response, usb_conv_info);
             }
             break;
@@ -1752,9 +1752,9 @@ dissect_ubertooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     case 56: /* BTLE Set Target */
     case 58: /* Write Register */
         proto_tree_add_expert(command_tree, pinfo, &ei_unexpected_response, tvb, offset, 0);
-        if (tvb_length_remaining(tvb, offset) > 0) {
+        if (tvb_reported_length_remaining(tvb, offset) > 0) {
             proto_tree_add_expert(main_tree, pinfo, &ei_unknown_data, tvb, offset, -1);
-            offset = tvb_length(tvb);
+            offset = tvb_captured_length(tvb);
         }
         break;
     case 3: /* Get User LED */
@@ -1910,7 +1910,7 @@ dissect_ubertooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
         break;
     case 49: /* Poll */
-        if (tvb_length_remaining(tvb, offset) == 1) {
+        if (tvb_reported_length_remaining(tvb, offset) == 1) {
             proto_tree_add_item(main_tree, hf_reserved, tvb, offset, 1, ENC_NA);
             offset += 1;
             break;
@@ -1948,9 +1948,9 @@ dissect_ubertooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         break;
     }
 
-    if (tvb_length_remaining(tvb, offset) > 0) {
+    if (tvb_reported_length_remaining(tvb, offset) > 0) {
         proto_tree_add_expert(main_tree, pinfo, &ei_unknown_data, tvb, offset, -1);
-        offset = tvb_length(tvb);
+        offset = tvb_captured_length(tvb);
     }
 
     pinfo->p2p_dir = p2p_dir_save;
@@ -3424,7 +3424,7 @@ proto_register_ubertooth(void)
 void
 proto_reg_handoff_ubertooth(void)
 {
-    bluetooth_handle = find_dissector("bluetooth");
+    bluetooth_ubertooth_handle = find_dissector("bluetooth_ubertooth");
 
     dissector_add_uint("usb.product", (0x1d50 << 16) | 0x6000, ubertooth_handle); /* Ubertooth Zero */
     dissector_add_uint("usb.product", (0x1d50 << 16) | 0x6002, ubertooth_handle); /* Ubertooth One */

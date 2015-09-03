@@ -2653,7 +2653,7 @@ static gint dissect_dmp_ack (tvbuff_t *tvb, packet_info *pinfo,
 
   if (dmp.ack_rec_present) {
     /* Recipient List */
-    rec_len = tvb_length (tvb);
+    rec_len = tvb_reported_length (tvb);
     if (dmp.checksum) {
       rec_len -= 2;
     }
@@ -2687,8 +2687,8 @@ static gint dissect_mts_identifier (tvbuff_t *tvb, packet_info *pinfo _U_, proto
   } else {
     mts_id = tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, dmp.mts_id_length);
   }
-  proto_item_append_text (dmp.mts_id_item, " (%zu bytes decompressed)", strlen (mts_id));
-  mts_id = format_text (mts_id, strlen (mts_id));
+  proto_item_append_text (dmp.mts_id_item, " (%zu bytes decompressed)", strlen(mts_id));
+  mts_id = format_text (mts_id, strlen(mts_id));
   if (subject) {
     proto_tree_add_string (tree, hf_message_subj_mts_id, tvb, offset, dmp.mts_id_length, mts_id);
     hidden_item = proto_tree_add_string (tree, hf_mts_id, tvb, offset, dmp.mts_id_length, mts_id);
@@ -2738,8 +2738,8 @@ static gint dissect_ipm_identifier (tvbuff_t *tvb, packet_info *pinfo _U_, proto
   } else {
     ipm_id = tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, ipm_id_length);
   }
-  proto_item_append_text (tf, " (%zu bytes decompressed)", strlen (ipm_id));
-  ipm_id = format_text (ipm_id, strlen (ipm_id));
+  proto_item_append_text (tf, " (%zu bytes decompressed)", strlen(ipm_id));
+  ipm_id = format_text (ipm_id, strlen(ipm_id));
   if (subject) {
     proto_tree_add_string (tree, hf_message_subj_ipm_id, tvb, offset, ipm_id_length, ipm_id);
     hidden_item = proto_tree_add_string (tree, hf_ipm_id, tvb, offset, ipm_id_length, ipm_id);
@@ -3157,7 +3157,7 @@ static gint dissect_dmp_message (tvbuff_t *tvb, packet_info *pinfo,
     offset += 1;
   }
 
-  len = tvb_length_remaining (tvb, offset);
+  len = tvb_reported_length_remaining (tvb, offset);
   if (dmp.checksum) {
     len -= 2;
   }
@@ -3181,7 +3181,7 @@ static gint dissect_dmp_message (tvbuff_t *tvb, packet_info *pinfo,
                          dmp.body_format == FREE_TEXT_SUBJECT)) {
     if (compr_alg == ALGORITHM_ZLIB) {
       if ((body_tvb = tvb_child_uncompress (tvb, tvb, offset, len)) != NULL) {
-        body_len = tvb_length (body_tvb);
+        body_len = tvb_captured_length (body_tvb);
         add_new_data_source (pinfo, body_tvb, "Uncompressed User data");
         tf = proto_tree_add_item (message_tree, hf_message_body_data,
                                   body_tvb, 0, body_len, ENC_NA);
@@ -3205,7 +3205,7 @@ static gint dissect_dmp_message (tvbuff_t *tvb, packet_info *pinfo,
   offset += len;
 
   if (dmp.struct_id) {
-    proto_item_append_text (en, ", Id: %s", format_text (dmp.struct_id, strlen (dmp.struct_id)));
+    proto_item_append_text (en, ", Id: %s", format_text (dmp.struct_id, strlen(dmp.struct_id)));
   }
 
   proto_item_set_len (en, offset - boffset);
@@ -3889,7 +3889,7 @@ static gint dissect_dmp_content (tvbuff_t *tvb, packet_info *pinfo,
     offset = dissect_dmp_message (tvb, pinfo, dmp_tree, offset);
   } else if (dmp.msg_type == REPORT) {
     /* One or more Delivery Report or Non-Delivery Report Data */
-    rep_len = tvb_length (tvb);
+    rep_len = tvb_reported_length (tvb);
     if (dmp.checksum) {
       rep_len -= 2;
     }
@@ -3984,7 +3984,7 @@ static int dissect_dmp (tvbuff_t *tvb, packet_info *pinfo,
   }
 
   if (dmp.checksum) {
-    length = tvb_length (tvb);
+    length = tvb_captured_length (tvb);
     checksum1 = crc16_x25_ccitt_tvb (tvb, length - 2);
     checksum2 = tvb_get_ntohs (tvb, offset);
 
@@ -4068,10 +4068,10 @@ static int dissect_dmp (tvbuff_t *tvb, packet_info *pinfo,
   } else if (dmp.struct_id) {
     if (dmp_align && !retrans_or_dup_ack) {
       col_append_fstr (pinfo->cinfo, COL_INFO, "  Body Id: %s",
-                       format_text (dmp.struct_id, strlen (dmp.struct_id)));
+                       format_text (dmp.struct_id, strlen(dmp.struct_id)));
     } else {
       col_append_fstr (pinfo->cinfo, COL_INFO, ", Body Id: %s",
-                       format_text (dmp.struct_id, strlen (dmp.struct_id)));
+                       format_text (dmp.struct_id, strlen(dmp.struct_id)));
     }
   }
   if (dmp.checksum && (checksum1 != checksum2)) {
@@ -4087,15 +4087,14 @@ static int dissect_dmp (tvbuff_t *tvb, packet_info *pinfo,
 
 static void dmp_init_routine (void)
 {
-  if (dmp_id_hash_table) {
-    g_hash_table_destroy (dmp_id_hash_table);
-  }
-  if (dmp_long_id_hash_table) {
-    g_hash_table_destroy (dmp_long_id_hash_table);
-  }
-
   dmp_id_hash_table = g_hash_table_new (dmp_id_hash, dmp_id_hash_equal);
   dmp_long_id_hash_table = g_hash_table_new (g_str_hash, g_str_equal);
+}
+
+static void dmp_cleanup_routine (void)
+{
+  g_hash_table_destroy(dmp_id_hash_table);
+  g_hash_table_destroy(dmp_long_id_hash_table);
 }
 
 void proto_register_dmp (void)
@@ -4989,6 +4988,7 @@ void proto_register_dmp (void)
   expert_dmp = expert_register_protocol(proto_dmp);
   expert_register_field_array(expert_dmp, ei, array_length(ei));
   register_init_routine (&dmp_init_routine);
+  register_cleanup_routine (&dmp_cleanup_routine);
 
   /* Set default UDP ports */
   range_convert_str (&global_dmp_port_range, DEFAULT_DMP_PORT_RANGE,

@@ -1593,58 +1593,21 @@ static void read_IOR_strings_from_file(const gchar *name, int max_iorlen) {
  */
 
 static void giop_init(void) {
-
-
-  /*
-   * Create objkey/repoid  hash, use my "equal" and "hash" functions.
-   *  Note: keys and values are wmem_file_scoped so they don't need to be freed.
-   *
-   */
-
-  if (giop_objkey_hash)
-    g_hash_table_destroy(giop_objkey_hash);
-
-  /*
-   * Create hash, use my "equal" and "hash" functions.
-   *
-   */
-
   giop_objkey_hash = g_hash_table_new(giop_hash_objkey_hash, giop_hash_objkey_equal);
-
-
-  /*
-   * Create complete_reply_hash, use my "equal" and "hash" functions.
-   *  Note: keys and values are wmem_file_scoped so they don't need to be freed.
-   *
-   */
-
-  if (giop_complete_reply_hash)
-    g_hash_table_destroy(giop_complete_reply_hash);
-
-  /*
-   * Create hash, use my "equal" and "hash" functions.
-   *
-   */
-
   giop_complete_reply_hash = g_hash_table_new(complete_reply_hash_fn, complete_reply_equal_fn);
 
-
-  /*
-   * Free giop_complete_request_list (if necessary)
-   * Note: The data elements are wmem_file_scoped so only the
-   *       actual list elements need to be freed.
-   */
-
-  if (giop_complete_request_list) {
-    g_list_free(giop_complete_request_list);
-    giop_complete_request_list = NULL;
-  }
-
+  giop_complete_request_list = NULL;
   read_IOR_strings_from_file(giop_ior_file, 600);
 
   reassembly_table_init(&giop_reassembly_table,
                         &addresses_reassembly_table_functions);
+}
 
+static void giop_cleanup(void) {
+  reassembly_table_destroy(&giop_reassembly_table);
+  g_hash_table_destroy(giop_objkey_hash);
+  g_hash_table_destroy(giop_complete_reply_hash);
+  g_list_free(giop_complete_request_list);
 }
 
 
@@ -4772,7 +4735,7 @@ static int dissect_giop_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree 
 
     payload_tvb = tvb_new_subset_remaining (tvb, GIOP_HEADER_SIZE);
     call_dissector(data_handle, payload_tvb, pinfo, tree);
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
   }
 
   switch (header.GIOP_version.minor)
@@ -4814,11 +4777,15 @@ static int dissect_giop_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree 
       return 8;
   }
 
+  if (message_size == 0) {
+      return 8;
+  }
+
   if (header.flags & GIOP_MESSAGE_FLAGS_ZIOP_ENABLED)
   {
     gint rem_len;
 
-    rem_len = tvb_length_remaining(tvb, GIOP_HEADER_SIZE);
+    rem_len = tvb_captured_length_remaining(tvb, GIOP_HEADER_SIZE);
     if (rem_len <= 0)
       return 8;
 
@@ -4936,7 +4903,7 @@ static int dissect_giop_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree 
 
   }                               /* switch message_type */
 
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 static guint
@@ -4986,12 +4953,12 @@ dissect_giop_tcp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* 
       if (!dissect_ziop_heur(tvb, pinfo, tree, NULL))
         return 0;
 
-    return tvb_length(tvb);
+    return tvb_captured_length(tvb);
   }
 
   tcp_dissect_pdus(tvb, pinfo, tree, giop_desegment, GIOP_HEADER_SIZE,
                    get_giop_pdu_len, dissect_giop_common, data);
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 static gboolean
@@ -5004,7 +4971,7 @@ dissect_giop_heur (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void 
 
   /*define END_OF_GIOP_MESSAGE (offset - first_offset - GIOP_HEADER_SIZE) */
 
-  tot_len = tvb_length(tvb);
+  tot_len = tvb_captured_length(tvb);
 
   if (tot_len < GIOP_HEADER_SIZE) /* tot_len < 12 */
   {
@@ -5560,6 +5527,7 @@ proto_register_giop (void)
   /* register init routine */
 
   register_init_routine( &giop_init); /* any init stuff */
+  register_cleanup_routine( &giop_cleanup);
 
   /* Register for tapping */
   giop_tap = register_tap(GIOP_TAP_NAME); /* GIOP statistics tap */
@@ -5594,9 +5562,9 @@ proto_register_giop (void)
 
 void proto_reg_handoff_giop (void) {
   data_handle = find_dissector("data");
-  heur_dissector_add("tcp", dissect_giop_heur, proto_giop);
+  heur_dissector_add("tcp", dissect_giop_heur, "GIOP over TCP", "giop_tcp", proto_giop, HEURISTIC_ENABLE);
   /* Support DIOP (GIOP/UDP) */
-  heur_dissector_add("udp", dissect_giop_heur, proto_giop);
+  heur_dissector_add("udp", dissect_giop_heur, "DIOP (GIOP/UDP)", "giop_udp", proto_giop, HEURISTIC_ENABLE);
   dissector_add_for_decode_as("tcp.port", giop_tcp_handle);
 }
 

@@ -20,7 +20,7 @@
  */
 
 #include "tcp_stream_dialog.h"
-#include "ui_tcp_stream_dialog.h"
+#include <ui_tcp_stream_dialog.h>
 
 #include "epan/to_str.h"
 
@@ -30,6 +30,7 @@
 
 #include "tango_colors.h"
 #include "qt_ui_utils.h"
+#include "progress_frame.h"
 #include "wireshark_application.h"
 
 #include <QCursor>
@@ -81,7 +82,7 @@ const QString time_s_label_ = QObject::tr("Time (s)");
 const QString window_size_label_ = QObject::tr("Window Size (B)");
 
 TCPStreamDialog::TCPStreamDialog(QWidget *parent, capture_file *cf, tcp_graph_type graph_type) :
-    QDialog(parent),
+    QDialog(NULL, Qt::Window),
     ui(new Ui::TCPStreamDialog),
     cap_file_(cf),
     ts_origin_conn_(true),
@@ -208,7 +209,9 @@ TCPStreamDialog::TCPStreamDialog(QWidget *parent, capture_file *cf, tcp_graph_ty
     toggleTracerStyle(true);
 
     QPushButton *save_bt = ui->buttonBox->button(QDialogButtonBox::Save);
-    save_bt->setText(tr("Save As..."));
+    save_bt->setText(tr("Save As" UTF8_HORIZONTAL_ELLIPSIS));
+
+    ProgressFrame::addToButtonBox(ui->buttonBox, parent);
 
     connect(sp, SIGNAL(mousePress(QMouseEvent*)), this, SLOT(graphClicked(QMouseEvent*)));
     connect(sp, SIGNAL(mouseMove(QMouseEvent*)), this, SLOT(mouseMoved(QMouseEvent*)));
@@ -224,9 +227,8 @@ TCPStreamDialog::~TCPStreamDialog()
     delete ui;
 }
 
-void TCPStreamDialog::showEvent(QShowEvent *event)
+void TCPStreamDialog::showEvent(QShowEvent *)
 {
-    Q_UNUSED(event);
     resetAxes();
 }
 
@@ -326,8 +328,14 @@ void TCPStreamDialog::mouseReleaseEvent(QMouseEvent *event)
 
 void TCPStreamDialog::findStream()
 {
+    QCustomPlot *sp = ui->streamPlot;
+
+    disconnect(sp, SIGNAL(mouseMove(QMouseEvent*)), this, SLOT(mouseMoved(QMouseEvent*)));
+    ui->streamNumberSpinBox->setEnabled(false);
     graph_segment_list_free(&graph_);
     graph_segment_list_get(cap_file_, &graph_, TRUE);
+    ui->streamNumberSpinBox->setEnabled(true);
+    connect(sp, SIGNAL(mouseMove(QMouseEvent*)), this, SLOT(mouseMoved(QMouseEvent*)));
 }
 
 void TCPStreamDialog::fillGraph()
@@ -815,10 +823,8 @@ void TCPStreamDialog::graphClicked(QMouseEvent *event)
     }
 }
 
-void TCPStreamDialog::axisClicked(QCPAxis *axis, QCPAxis::SelectablePart part, QMouseEvent *event)
+void TCPStreamDialog::axisClicked(QCPAxis *axis, QCPAxis::SelectablePart, QMouseEvent *)
 {
-    Q_UNUSED(part)
-    Q_UNUSED(event)
     QCustomPlot *sp = ui->streamPlot;
 
     if (axis == sp->xAxis) {

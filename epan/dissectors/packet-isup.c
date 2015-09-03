@@ -2816,6 +2816,7 @@ static int hf_ansi_isup_cause_indicator = -1;
 static int hf_isup_suspend_resume_indicator = -1;
 
 static int hf_isup_range_indicator = -1;
+static int hf_isup_bitbucket = -1;
 static int hf_isup_cgs_message_type = -1;
 
 static int hf_isup_mtc_blocking_state1 = -1;
@@ -2944,6 +2945,7 @@ static int hf_late_cut_trough_cap_ind           = -1;
 static int hf_bat_ase_signal                    = -1;
 static int hf_bat_ase_duration                  = -1;
 static int hf_bat_ase_bearer_redir_ind          = -1;
+static int hf_bat_ase_default                   = -1;
 static int hf_BAT_ASE_Comp_Report_Reason        = -1;
 static int hf_BAT_ASE_Comp_Report_ident         = -1;
 static int hf_BAT_ASE_Comp_Report_diagnostic    = -1;
@@ -3169,6 +3171,12 @@ isup_apm_defragment_init(void)
 {
   reassembly_table_init (&isup_apm_msg_reassembly_table,
                          &addresses_reassembly_table_functions);
+}
+
+static void
+isup_apm_defragment_cleanup(void)
+{
+  reassembly_table_destroy(&isup_apm_msg_reassembly_table);
 }
 
 /* Info for the tap that must be passed between procedures */
@@ -3924,9 +3932,8 @@ dissect_isup_range_and_status_parameter(tvbuff_t *parameter_tvb, packet_info *pi
   if (actual_status_length > 0) {
     range_tree = proto_tree_add_subtree(parameter_tree, parameter_tvb, offset, -1, ett_isup_range, NULL, "Status subfield");
     if (range<9) {
-      proto_tree_add_text(range_tree, parameter_tvb , offset, 1, "Bit %u %s bit 1",
-                          range,
-                          decode_bits_in_field(8-range, range, tvb_get_guint8(parameter_tvb, offset)));
+      proto_tree_add_uint_bits_format_value(range_tree, hf_isup_bitbucket, parameter_tvb, (offset*8)+(8-range), range,
+                          tvb_get_guint8(parameter_tvb, offset), "%u bit 1", range);
     }
   } else {
     expert_add_info(pinfo, parameter_item, &ei_isup_status_subfield_not_present);
@@ -4174,7 +4181,7 @@ dissect_nsap(tvbuff_t *parameter_tvb, gint offset, gint len, proto_tree *paramet
       proto_tree_add_item(parameter_tree, hf_isup_idi, parameter_tvb, offset + 1, 8, ENC_NA);
       offset = offset +1;
       /* Dissect country code */
-      dissect_e164_cc(parameter_tvb, parameter_tree, 3, E164_ENC_BCD);
+      dissect_e164_cc(parameter_tvb, parameter_tree, offset, E164_ENC_BCD);
 
       proto_tree_add_uint_format_value(parameter_tree, hf_bicc_nsap_dsp_length, parameter_tvb, offset, 0,
           (len-9), "%u (len %u -9)", (len-9), len);
@@ -4663,7 +4670,7 @@ dissect_codec(tvbuff_t *parameter_tvb, proto_tree *bat_ase_element_tree, gint le
 static void
 dissect_bat_ase_Encapsulated_Application_Information(tvbuff_t *parameter_tvb, packet_info *pinfo, proto_tree *parameter_tree, gint offset)
 {
-  gint        length = tvb_reported_length_remaining(parameter_tvb, offset), list_end;
+  gint        list_end;
   tvbuff_t   *next_tvb;
   proto_tree *bat_ase_tree, *bat_ase_element_tree, *bat_ase_iwfa_tree;
   proto_item *bat_ase_element_item, *bat_ase_iwfa_item;
@@ -4683,7 +4690,6 @@ dissect_bat_ase_Encapsulated_Application_Information(tvbuff_t *parameter_tvb, pa
   bat_ase_tree = proto_tree_add_subtree(parameter_tree, parameter_tvb, offset, -1, ett_bat_ase, NULL,
                                      "Bearer Association Transport (BAT) Application Service Element (ASE) Encapsulated Application Information:");
 
-  proto_tree_add_text(bat_ase_tree, parameter_tvb, offset, -1, "BAT ASE Encapsulated Application Information, (%u byte%s length)", length, plurality(length, "", "s"));
   while (tvb_reported_length_remaining(parameter_tvb, offset) > 0) {
     element_no = element_no + 1;
     identifier = tvb_get_guint8(parameter_tvb, offset);
@@ -4930,7 +4936,7 @@ dissect_bat_ase_Encapsulated_Application_Information(tvbuff_t *parameter_tvb, pa
         offset = offset + content_len;
         break;
       default :
-        proto_tree_add_text(bat_ase_element_tree, parameter_tvb, offset, content_len , "Default ?, (%u byte%s length)", (content_len), plurality(content_len, "", "s"));
+        proto_tree_add_item(bat_ase_element_tree, hf_bat_ase_default, parameter_tvb, offset, content_len, ENC_NA);
         offset = offset + content_len;
     }
   }
@@ -6466,7 +6472,6 @@ dissect_isup_call_transfer_reference_parameter(tvbuff_t *parameter_tvb, proto_tr
 /* ------------------------------------------------------------------
   Dissector Parameter Loop prevention
  */
-static const true_false_string tfs_response_request = { "Response", "Request"};
 
 static void
 dissect_isup_loop_prevention_indicators_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item)
@@ -11313,6 +11318,11 @@ proto_register_isup(void)
         FT_UINT8, BASE_DEC, NULL , 0x0,
         NULL, HFILL }},
 
+    { &hf_isup_bitbucket,
+      { "Bit",  "isup.bitbucket",
+        FT_UINT8, BASE_DEC, NULL , 0x0,
+        NULL, HFILL }},
+
     { &hf_isup_cgs_message_type,
       { "Circuit group supervision message type",  "isup.cgs_message_type",
         FT_UINT8, BASE_DEC, VALS(isup_cgs_message_type_value), BA_8BIT_MASK,
@@ -11836,6 +11846,11 @@ proto_register_isup(void)
     { &hf_bat_ase_duration,
       { "Duration in ms",  "bat_ase.signal_type",
         FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }},
+
+    { &hf_bat_ase_default,
+      { "Default",  "bat_ase.default",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL, HFILL }},
 
     { &hf_bat_ase_bearer_redir_ind,
@@ -12450,6 +12465,7 @@ proto_register_bicc(void)
   proto_register_subtree_array(ett, array_length(ett));
 
   register_init_routine(isup_apm_defragment_init);
+  register_cleanup_routine(isup_apm_defragment_cleanup);
 }
 
 /* Register isup with the sub-laying MTP L3 dissector */

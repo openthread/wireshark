@@ -322,10 +322,11 @@ MAX_VAL = asn1_param_get_integer(%(ACTX)s,"upperBound")
 		/* IPv6 */
 		 proto_tree_add_item(subtree, hf_ranap_transportLayerAddress_ipv6, parameter_tvb, 0, tvb_len, ENC_NA);
 	}
-	if (tvb_len==20){
-		item = proto_tree_add_item(subtree, hf_ranap_transportLayerAddress_nsap, parameter_tvb, 0, tvb_len, ENC_NA);
+	/* Length will be 25 if optional bearerId is present */
+	if ((tvb_len==20) || (tvb_len==25)) {
+		item = proto_tree_add_item(subtree, hf_ranap_transportLayerAddress_nsap, parameter_tvb, 0, 20, ENC_NA);
 		nsap_tree = proto_item_add_subtree(item, ett_ranap_TransportLayerAddress_nsap);
-		dissect_nsap(parameter_tvb, 0, 20, nsap_tree);
+		dissect_nsap(parameter_tvb, 0, tvb_len, nsap_tree);
 	}
 
 #.FN_BODY GTP-TEI VAL_PTR = &parameter_tvb
@@ -367,6 +368,18 @@ dissect_ranap_SourceRNC_ToTargetRNC_TransparentContainer(tvb , offset, actx ,tre
 # Application Protocol (S1AP)".
 
 dissect_ranap_TargetRNC_ToSourceRNC_TransparentContainer(tvb , offset, actx ,tree , hf_ranap_ranap_TargetRNC_ToSourceRNC_TransparentContainer_PDU );
+
+
+#.FN_BODY BindingID VAL_PTR=&value_tvb
+  tvbuff_t *value_tvb = NULL;
+%(DEFAULT_BODY)s
+  /* N.B. value_tvb is 4 bytes of OCTET STRING */
+  if (tvb_get_ntohs(value_tvb, 2) == 0) {
+    /* Will show first 2 bytes as an integer, as very likely to be a UDP port number */
+    guint16 port_number = tvb_get_ntohs(value_tvb, 0);
+    proto_item_append_text(actx->created_item, " (%%u)", port_number);
+  }
+
 
 #.TYPE_ATTR
 ProtocolExtensionID TYPE = FT_UINT8  DISPLAY = BASE_DEC|BASE_EXT_STRING STRINGS = &ranap_ProtocolIE_ID_vals_ext

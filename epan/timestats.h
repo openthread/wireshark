@@ -21,12 +21,16 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef _time_stat
-#define _time_stat
+#ifndef __TIMESTATS_H__
+#define __TIMESTATS_H__
 
 #include <glib.h>
 #include "epan/packet_info.h"
 #include "wsutil/nstime.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
 
  /* Summary of time statistics*/
 typedef struct _timestat_t {
@@ -49,4 +53,8 @@ WS_DLL_PUBLIC void time_stat_update(timestat_t *stats, const nstime_t *delta, pa
 
 WS_DLL_PUBLIC gdouble get_average(const nstime_t *sum, guint32 num);
 
-#endif
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+#endif /* __TIMESTATS_H__ */

@@ -290,6 +290,7 @@ struct _protocol {
 	gboolean    is_enabled;   /* TRUE if protocol is enabled */
 	gboolean    can_toggle;   /* TRUE if is_enabled can be changed */
 	gboolean    is_private;   /* TRUE is protocol is private */
+	GList      *heur_list;    /* Heuristic dissectors associated with this protocol */
 };
 
 /* List of all protocols */
@@ -323,6 +324,7 @@ static GPtrArray *deregistered_data = NULL;
 	if((guint)hfindex >= gpa_hfinfo.len && getenv("WIRESHARK_ABORT_ON_DISSECTOR_BUG"))	\
 		g_error("Unregistered hf! index=%d", hfindex);					\
 	DISSECTOR_ASSERT_HINT((guint)hfindex < gpa_hfinfo.len, "Unregistered hf!");	\
+	DISSECTOR_ASSERT_HINT(gpa_hfinfo.hfi[hfindex] != NULL, "Unregistered hf!");	\
 	hfinfo = gpa_hfinfo.hfi[hfindex];
 
 /* List which stores protocols and fields that have been registered */
@@ -337,6 +339,12 @@ static gpa_hfinfo_t gpa_hfinfo;
 /* Hash table of abbreviations and IDs */
 static GHashTable *gpa_name_map = NULL;
 static header_field_info *same_name_hfinfo;
+/*
+ * We're called repeatedly with the same field name when sorting a column.
+ * Cache our last gpa_name_map hit for faster lookups.
+ */
+static char *last_field_name = NULL;
+static header_field_info *last_hfinfo;
 
 static void save_same_name_hfinfo(gpointer data)
 {
@@ -526,6 +534,8 @@ proto_cleanup(void)
 		g_hash_table_destroy(gpa_name_map);
 		gpa_name_map = NULL;
 	}
+	g_free(last_field_name);
+	last_field_name = NULL;
 
 	while (protocols) {
 		protocol_t        *protocol = (protocol_t *)protocols->data;
@@ -535,6 +545,7 @@ proto_cleanup(void)
 
 		g_slice_free(header_field_info, hfinfo);
 		g_ptr_array_free(protocol->fields, TRUE);
+		g_list_free(protocol->heur_list);
 		protocols = g_list_remove(protocols, protocol);
 		g_free(protocol);
 	}
@@ -867,6 +878,7 @@ proto_initialize_all_prefixes(void) {
  * it tries to find and call an initializer in the prefixes
  * table and if so it looks again.
  */
+
 header_field_info *
 proto_registrar_get_byname(const char *field_name)
 {
@@ -876,10 +888,18 @@ proto_registrar_get_byname(const char *field_name)
 	if (!field_name)
 		return NULL;
 
+	if (g_strcmp0(field_name, last_field_name) == 0) {
+		return last_hfinfo;
+	}
+
 	hfinfo = (header_field_info *)g_hash_table_lookup(gpa_name_map, field_name);
 
-	if (hfinfo)
+	if (hfinfo) {
+		g_free(last_field_name);
+		last_field_name = g_strdup(field_name);
+		last_hfinfo = hfinfo;
 		return hfinfo;
+	}
 
 	if (!prefixes)
 		return NULL;
@@ -891,7 +911,14 @@ proto_registrar_get_byname(const char *field_name)
 		return NULL;
 	}
 
-	return (header_field_info *)g_hash_table_lookup(gpa_name_map, field_name);
+	hfinfo = (header_field_info *)g_hash_table_lookup(gpa_name_map, field_name);
+
+	if (hfinfo) {
+		g_free(last_field_name);
+		last_field_name = g_strdup(field_name);
+		last_hfinfo = hfinfo;
+	}
+	return hfinfo;
 }
 
 int
@@ -2080,6 +2107,8 @@ gint32 *retval)
 	field_info	  *new_fi;
 	gint32		   value;
 
+	DISSECTOR_ASSERT_HINT(hfinfo != NULL, "Not passed hfi!");
+
 	switch (hfinfo->type){
 	case FT_INT8:
 	case FT_INT16:
@@ -2090,7 +2119,6 @@ gint32 *retval)
 		DISSECTOR_ASSERT_NOT_REACHED();
 	}
 
-	DISSECTOR_ASSERT_HINT(hfinfo != NULL, "Not passed hfi!");
 	/* length validation for native number encoding caught by get_uint_value() */
 	/* length has to be -1 or > 0 regardless of encoding */
 	if (length < -1 || length == 0)
@@ -2131,6 +2159,8 @@ guint32 *retval)
 	field_info	  *new_fi;
 	guint32		   value;
 
+	DISSECTOR_ASSERT_HINT(hfinfo != NULL, "Not passed hfi!");
+
 	switch (hfinfo->type){
 	case FT_UINT8:
 	case FT_UINT16:
@@ -2141,7 +2171,6 @@ guint32 *retval)
 		DISSECTOR_ASSERT_NOT_REACHED();
 	}
 
-	DISSECTOR_ASSERT_HINT(hfinfo != NULL, "Not passed hfi!");
 	/* length validation for native number encoding caught by get_uint_value() */
 	/* length has to be -1 or > 0 regardless of encoding */
 	if (length < -1 || length == 0)
@@ -2173,6 +2202,31 @@ guint32 *retval)
 	return proto_tree_add_node(tree, new_fi);
 }
 
+
+/*
+ * Validates that field length bytes are available starting from
+ * start (pos/neg). Throws an exception if they aren't.
+ */
+static void
+test_length(header_field_info *hfinfo, tvbuff_t *tvb,
+	    gint start, gint length)
+{
+	gint size = length;
+
+	if (!tvb)
+		return;
+
+	if (hfinfo->type == FT_STRINGZ) {
+		/* If we're fetching until the end of the TVB, only validate
+		 * that the offset is within range.
+		 */
+		if (length == -1)
+			size = 0;
+	}
+
+	tvb_ensure_bytes_exist(tvb, start, size);
+}
+
 /* Gets data from tvbuff, adds it to proto_tree, increments offset,
    and returns proto_item* */
 proto_item *
@@ -2201,6 +2255,8 @@ ptvcursor_add(ptvcursor_t *ptvc, int hfindex, gint length,
 		ptvc->offset += n;
 	}
 
+	test_length(hfinfo, ptvc->tvb, offset, item_length);
+
 	/* Coast clear. Try and fake it */
 	TRY_TO_FAKE_THIS_ITEM(ptvc->tree, hfindex, hfinfo);
 
@@ -2208,30 +2264,6 @@ ptvcursor_add(ptvcursor_t *ptvc, int hfindex, gint length,
 
 	return proto_tree_new_item(new_fi, ptvc->tree, ptvc->tvb,
 		offset, length, encoding);
-}
-
-/*
- * Validates that field length bytes are available starting from
- * start (pos/neg). Throws an exception if they aren't.
- */
-static void
-test_length(header_field_info *hfinfo, tvbuff_t *tvb,
-	    gint start, gint length)
-{
-	gint size = length;
-
-	if (!tvb)
-		return;
-
-	if (hfinfo->type == FT_STRINGZ) {
-		/* If we're fetching until the end of the TVB, only validate
-		 * that the offset is within range.
-		 */
-		if (length == -1)
-			size = 0;
-	}
-
-	tvb_ensure_bytes_exist(tvb, start, size);
 }
 
 /* Add an item to a proto_tree, using the text label registered to that item;
@@ -2381,6 +2413,8 @@ proto_tree_add_bytes_item(proto_tree *tree, int hfindex, tvbuff_t *tvb,
 
 		if (bytes)
 		    proto_tree_set_bytes_gbytearray(new_fi, bytes);
+		else
+		    proto_tree_set_bytes(new_fi, NULL, 0);
 
 		if (created_bytes)
 		    g_byte_array_free(created_bytes, TRUE);
@@ -4352,6 +4386,32 @@ hfinfo_same_name_get_prev(const header_field_info *hfinfo)
 	return dup_hfinfo;
 }
 
+static void
+hfinfo_remove_from_gpa_name_map(const header_field_info *hfinfo)
+{
+    g_free(last_field_name);
+    last_field_name = NULL;
+
+    if (!hfinfo->same_name_next && hfinfo->same_name_prev_id == -1) {
+        /* No hfinfo with the same name */
+        g_hash_table_steal(gpa_name_map, hfinfo->abbrev);
+        return;
+    }
+
+    if (hfinfo->same_name_next) {
+        hfinfo->same_name_next->same_name_prev_id = hfinfo->same_name_prev_id;
+    }
+
+    if (hfinfo->same_name_prev_id != -1) {
+        header_field_info *same_name_prev = hfinfo_same_name_get_prev(hfinfo);
+        same_name_prev->same_name_next = hfinfo->same_name_next;
+        if (!hfinfo->same_name_next) {
+            /* It's always the latest added hfinfo which is stored in gpa_name_map */
+            g_hash_table_insert(gpa_name_map, (gpointer) (same_name_prev->abbrev), same_name_prev);
+        }
+    }
+}
+
 /* -------------------------- */
 const gchar *
 proto_custom_set(proto_tree* tree, GSList *field_ids, gint occurrence,
@@ -4551,7 +4611,7 @@ proto_custom_set(proto_tree* tree, GSList *field_ids, gint occurrence,
 
 							offset_r += protoo_strlcpy(result+offset_r, tmp, size-offset_r);
 
-						} else if (hfinfo->strings) {
+						} else if (hfinfo->strings && hfinfo->type != FT_FRAMENUM) {
 							number_out = hf_str_val = hf_try_val_to_str(number, hfinfo);
 
 							if (!number_out)
@@ -5208,6 +5268,7 @@ proto_register_protocol(const char *name, const char *short_name,
 	protocol->is_enabled = TRUE; /* protocol is enabled by default */
 	protocol->can_toggle = TRUE;
 	protocol->is_private = FALSE;
+	protocol->heur_list = NULL;
 	/* list will be sorted later by name, when all protocols completed registering */
 	protocols = g_list_prepend(protocols, protocol);
 	g_hash_table_insert(proto_filter_names, (gpointer)filter_name, protocol);
@@ -5228,6 +5289,49 @@ proto_register_protocol(const char *name, const char *short_name,
 	proto_id = proto_register_field_init(hfinfo, hfinfo->parent);
 	protocol->proto_id = proto_id;
 	return proto_id;
+}
+
+gboolean
+proto_deregister_protocol(const char *short_name)
+{
+    protocol_t *protocol;
+    header_field_info *hfinfo;
+    int proto_id;
+    gint *key;
+    guint i;
+
+    proto_id = proto_get_id_by_short_name(short_name);
+    protocol = find_protocol_by_id(proto_id);
+    if (protocol == NULL)
+        return FALSE;
+
+    key  = (gint *)g_malloc(sizeof(gint));
+    *key = wrs_str_hash(protocol->name);
+
+    g_hash_table_remove(proto_names, key);
+    g_free(key);
+
+    g_hash_table_remove(proto_short_names, (gpointer)short_name);
+    g_hash_table_remove(proto_filter_names, (gpointer)protocol->filter_name);
+
+    for (i = 0; i < protocol->fields->len; i++) {
+        hfinfo = (header_field_info *)g_ptr_array_index(protocol->fields, i);
+        hfinfo_remove_from_gpa_name_map(hfinfo);
+        g_ptr_array_add(deregistered_fields, gpa_hfinfo.hfi[hfinfo->id]);
+    }
+    g_ptr_array_free(protocol->fields, TRUE);
+    protocol->fields = NULL;
+
+    /* Remove this protocol from the list of known protocols */
+    protocols = g_list_remove(protocols, protocol);
+
+    g_ptr_array_add(deregistered_fields, gpa_hfinfo.hfi[proto_id]);
+    g_hash_table_steal(gpa_name_map, protocol->filter_name);
+
+    g_free(last_field_name);
+    last_field_name = NULL;
+
+    return TRUE;
 }
 
 void
@@ -5410,10 +5514,33 @@ proto_get_protocol_filter_name(const int proto_id)
 	return protocol->filter_name;
 }
 
+void proto_add_heuristic_dissector(protocol_t *protocol, const char *short_name)
+{
+	heur_dtbl_entry_t* heuristic_dissector;
+
+	if (protocol == NULL)
+		return;
+
+	heuristic_dissector = find_heur_dissector_by_unique_short_name(short_name);
+	if (heuristic_dissector != NULL)
+	{
+		protocol->heur_list = g_list_append (protocol->heur_list, heuristic_dissector);
+	}
+}
+
+void proto_heuristic_dissector_foreach(const protocol_t *protocol, GFunc func, gpointer user_data)
+{
+	if (protocol == NULL)
+		return;
+
+	g_list_foreach(protocol->heur_list, func, user_data);
+}
+
 void
 proto_get_frame_protocols(const wmem_list_t *layers, gboolean *is_ip,
 			  gboolean *is_tcp, gboolean *is_udp,
-			  gboolean *is_sctp, gboolean *is_ssl)
+			  gboolean *is_sctp, gboolean *is_ssl,
+			  gboolean *is_rtp)
 {
 	wmem_list_frame_t *protos = wmem_list_head(layers);
 	int	    proto_id;
@@ -5438,6 +5565,8 @@ proto_get_frame_protocols(const wmem_list_t *layers, gboolean *is_ip,
 			*is_sctp = TRUE;
 		} else if (is_ssl && !strcmp(proto_name, "ssl")) {
 			*is_ssl = TRUE;
+		} else if (is_rtp && !strcmp(proto_name, "rtp")) {
+			*is_rtp = TRUE;
 		}
 
 		protos = wmem_list_frame_next(protos);
@@ -5467,7 +5596,7 @@ proto_is_frame_protocol(const wmem_list_t *layers, const char* proto_name)
 		protos = wmem_list_frame_next(protos);
 	}
 
-    return FALSE;
+	return FALSE;
 }
 
 
@@ -5606,13 +5735,16 @@ proto_register_fields_manual(const int parent, header_field_info **hfi, const in
 	}
 }
 
-/* unregister already registered fields */
+/* deregister already registered fields */
 void
-proto_unregister_field (const int parent, gint hf_id)
+proto_deregister_field (const int parent, gint hf_id)
 {
 	header_field_info *hfi;
 	protocol_t       *proto;
 	guint             i;
+
+	g_free(last_field_name);
+	last_field_name = NULL;
 
 	if (hf_id == -1 || hf_id == 0)
 		return;
@@ -5649,6 +5781,42 @@ free_deregistered_field (gpointer data, gpointer user_data _U_)
     g_free((char *)hfi->name);
     g_free((char *)hfi->abbrev);
     g_free((char *)hfi->blurb);
+
+    if (hfi->strings) {
+        switch (hfi->type) {
+            case FT_PROTOCOL: {
+                protocol_t *protocol = (protocol_t *)hfi->strings;
+                g_free((gchar *)protocol->short_name);
+                break;
+            }
+            case FT_BOOLEAN: {
+                true_false_string *tf = (true_false_string *)hfi->strings;
+                g_free ((gchar *)tf->true_string);
+                g_free ((gchar *)tf->false_string);
+                break;
+            }
+            case FT_UINT64:
+            case FT_INT64: {
+                val64_string *vs64 = (val64_string *)hfi->strings;
+                while (vs64->strptr) {
+                    g_free((gchar *)vs64->strptr);
+                    vs64++;
+                }
+                break;
+            }
+            default: {
+                /* Other Integer types */
+                value_string *vs = (value_string *)hfi->strings;
+                while (vs->strptr) {
+                    g_free((gchar *)vs->strptr);
+                    vs++;
+                }
+                break;
+            }
+        }
+        g_free((void *)hfi->strings);
+    }
+
     if (hfi->parent == -1)
         g_slice_free(header_field_info, hfi);
 
@@ -7172,7 +7340,7 @@ proto_registrar_is_protocol(const int n)
 	header_field_info *hfinfo;
 
 	PROTO_REGISTRAR_GET_NTH(n, hfinfo);
-	return (hfinfo->parent == -1 ? TRUE : FALSE);
+	return (((hfinfo->id != hf_text_only) && (hfinfo->parent == -1)) ? TRUE : FALSE);
 }
 
 /* Returns length of field in packet (not necessarily the length

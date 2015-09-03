@@ -1,7 +1,7 @@
 = Wireshark wireshark-version:[] Release Notes
 // AsciiDoc quick reference: http://powerman.name/doc/asciidoc
 
-This is an experimental release intended to test new features for Wireshark 2.0.
+This is a semi-experimental release intended to test new features for Wireshark 2.0.
 
 == What is Wireshark?
 
@@ -20,6 +20,60 @@ used for troubleshooting, analysis, development and education.
 //* Wireshark insists on calling you on your land line which is keeping you from abandoning it for cellular. (ws-buglink:0000[])
 
 === New and Updated Features
+
+The following features are new (or have been significantly updated)
+since version 1.99.8:
+
+* Qt port:
+** The MTP3 statistics and summary dialogs have been added.
+** The WAP-WSP statistics dialog has been added.
+** The UDP multicast statistics dialog has been added.
+** The WLAN statistics dialog has been added.
+** The display filter macros dialog has been added.
+** The capture file properties dialog now includes packet comments.
+** Many more statistics dialogs can be opened from the command line
+   via `-z ...`.
+** Most dialogs now have a cancellable progress bar.
+** Many packet list and packet detail context menus items have been added.
+** Lua plugins can be reloaded from the Analyze menu.
+** Many bug fixes and improvements.
+
+The following features are new (or have been significantly updated)
+since version 1.99.7:
+
+* Qt port:
+
+** The Enabled Protocols dialog has been added.
+** Many statistics dialogs have been added, including Service response time,
+   DHCP/BOOTP, and ANSI.
+** The RTP Analysis dialog has been added.
+** Lua dialog support has been added.
+** You can now manually resolve addresses.
+** The Resolved Addresses dialog has been added.
+** The packet list scrollbar now has a minimap.
+** The capture interfaces dialog has been updated.
+** You can now colorize conversations.
+** Welcome screen behavior has been improved.
+** Plugin support has been improved.
+** Many dialogs should now more correctly minimize and maximize.
+** The reload button has been added back to the toolbar.
+** The "Decode As" dialog no longer saves decoding behavior.
+** You can now stop loading large capture files.
+** The Bluetooth HCI Summary has been added.
+
+The following features are new (or have been significantly updated)
+since version 1.99.6:
+
+* Qt port:
+
+** The Bluetooth Devices dialog has been added.
+** The wireless toolbar has been added.
+** Opening files via drag and drop is now supported.
+** The Capture Filter and Display Filter dialogs have been added.
+** The Display Filter Expression dialog has been added.
+** Conversation Filter menu items have been added.
+** You can change protocol preferences by right clicking on the packet list
+   and details.
 
 The following features are new (or have been significantly updated)
 since version 1.99.4 and 1.99.5:
@@ -130,6 +184,13 @@ available in the Qt UI yet.
 
 //=== Removed Dissectors
 
+=== New File Format Support
+
+--sort-and-group--
+BTSNOOP
+PCAP
+PCAPNG
+--sort-and-group--
 
 === New Protocol Support
 
@@ -176,6 +237,12 @@ Thrift
 IP Detail Record (IPDR)
 Performance Co-Pilot Proxy
 Aeron
+Network File System over Remote Direct Memory Access (NFSoRDMA)
+eXpressive Internet Protocol (XIP)
+Windows Search Protocol (MS-WSP)
+Message Queuing Telemetry Transport For Sensor Networks (MQTT-SN)
+Time Division Multiplexing over Packet Network (TDMoP)
+Concise Binary Object Representation (CBOR) (RFC 7049)
 --sort-and-group--
 
 === Updated Protocol Support
@@ -189,7 +256,7 @@ Android Logcat text files
 Wireshark now supports nanosecond timestamp resolution in PCAP-NG files.
 Colasoft Capsa files
 Netscaler 3.5
-3GPP Nettrace TS 34 423
+3GPP TS 32.423 Trace
 --sort-and-group--
 
 === New and Updated Capture Interfaces support
@@ -207,6 +274,8 @@ been completely removed in favour of wmem which is now fully mature.
 * The (long-since-broken) Python bindings support has been removed.  If
 you want to write dissectors in something other than C, use Lua.
 * Plugins can now create GUI menu items.
+* Heuristic dissectors can now be globally enabled/disabled so
+heur_dissector_add() has a few more parameters to make that possible
 
 
 == Getting Wireshark

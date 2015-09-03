@@ -21,6 +21,10 @@
 
 #include "byte_view_tab.h"
 #include "byte_view_text.h"
+
+#include <QApplication>
+#include <QClipboard>
+#include <QMimeData>
 #include <QTabBar>
 #include <QTreeWidgetItem>
 
@@ -53,12 +57,167 @@ void ByteViewTab::addTab(const char *name, tvbuff_t *tvb, proto_tree *tree, QTre
 
 void ByteViewTab::clear()
 {
+    bool visible = isVisible();
     hide();
     while (currentWidget()) {
         delete currentWidget();
     }
     addTab();
-    show();
+    setVisible(visible);
+}
+
+// XXX How many hex dump routines do we have?
+const int byte_line_length_ = 16; // Print out data for 16 bytes on one line
+void ByteViewTab::copyHexTextDump(const guint8 *data_p, int data_len, bool append_text)
+{
+    QString clipboard_text;
+    /* Write hex data for a line, then ascii data, then concatenate and add to buffer */
+    QString hex_str, char_str;
+    int i;
+    bool end_of_line = true; /* Initial state is end of line */
+    int byte_line_part_length;
+
+    i = 0;
+    while (i < data_len) {
+        if(end_of_line) {
+            hex_str += QString("%1  ").arg(i, 4, 16, QChar('0')); /* Offset - note that we _append_ here */
+        }
+
+        hex_str += QString(" %1").arg(*data_p, 2, 16, QChar('0'));
+        if(append_text) {
+            char_str += QString("%1").arg(g_ascii_isprint(*data_p) ? QChar(*data_p) : '.');
+        }
+
+        ++data_p;
+
+        /* Look ahead to see if this is the end of the data */
+        byte_line_part_length = (++i) % byte_line_length_;
+        if(i >= data_len){
+            /* End of data - need to fill in spaces in hex string and then do "end of line".
+             *
+             */
+            if (append_text) {
+                int fill_len = byte_line_part_length == 0 ?
+                            0 : byte_line_length_ - byte_line_part_length;
+                /* Add three spaces for each missing byte */
+                hex_str += QString(fill_len * 3, ' ');
+            }
+            end_of_line = true;
+        } else {
+            end_of_line = (byte_line_part_length == 0);
+        }
+
+        if (end_of_line){
+            /* End of line */
+            clipboard_text += hex_str;
+            if(append_text) {
+                /* Two spaces between hex and text */
+                clipboard_text += "  ";
+                clipboard_text += char_str;
+            }
+            /* Setup ready for next line */
+            hex_str = "\n";
+            char_str.clear();
+        }
+    }
+
+    if (!clipboard_text.isEmpty()) {
+        qApp->clipboard()->setText(clipboard_text);
+    }
+}
+
+void ByteViewTab::copyPrintableText(const guint8 *data_p, int data_len)
+{
+    QString clipboard_text;
+
+    for (int i = 0; i < data_len; i++) {
+        const guint8 c = data_p[i];
+        if (g_ascii_isprint(c) || g_ascii_isspace(c)) {
+            clipboard_text += QChar(c);
+        }
+    }
+
+    if (!clipboard_text.isEmpty()) {
+        qApp->clipboard()->setText(clipboard_text);
+    }
+}
+
+void ByteViewTab::copyHexStream(const guint8 *data_p, int data_len)
+{
+    QString clipboard_text;
+
+    for (int i = 0; i < data_len; i++) {
+        clipboard_text += QString("%1").arg(data_p[i], 2, 16, QChar('0'));
+    }
+
+    if (!clipboard_text.isEmpty()) {
+        qApp->clipboard()->setText(clipboard_text);
+    }
+}
+void ByteViewTab::copyBinary(const guint8 *data_p, int data_len)
+{
+    QByteArray clipboard_bytes = QByteArray::fromRawData((const char *) data_p, data_len);
+
+    if (!clipboard_bytes.isEmpty()) {
+        QMimeData *mime_data = new QMimeData;
+        // gtk/gui_utils.c:copy_binary_to_clipboard says:
+        /* XXX - this is not understood by most applications,
+         * but can be pasted into the better hex editors - is
+         * there something better that we can do?
+         */
+        // As of 2015-07-30, pasting into Frhed works on Windows. Pasting into
+        // Hex Editor Neo and HxD does not.
+        mime_data->setData("application/octet-stream", clipboard_bytes);
+        qApp->clipboard()->setMimeData(mime_data);
+    }
+}
+
+void ByteViewTab::copyData(ByteViewTab::copyDataType copy_type, field_info *fi)
+{
+    int i = 0;
+    ByteViewText *byte_view_text = qobject_cast<ByteViewText*>(widget(i));
+
+    if (fi) {
+        while (byte_view_text) {
+            if (byte_view_text->hasDataSource(fi->ds_tvb)) break;
+            byte_view_text = qobject_cast<ByteViewText*>(widget(++i));
+        }
+    }
+
+    if (!byte_view_text) return;
+
+    guint data_len = 0;
+    const guint8 *data_p;
+
+    data_p = byte_view_text->dataAndLength(&data_len);
+    if (!data_p) return;
+
+    if (fi && fi->start >= 0 && fi->length > 0 && fi->length <= (int) data_len) {
+        data_len = fi->length;
+        data_p += fi->start;
+    }
+
+    if (!data_len) return;
+
+    switch (copy_type) {
+    case copyDataHexTextDump:
+        copyHexTextDump(data_p, data_len, true);
+        break;
+    case copyDataHexDump:
+        copyHexTextDump(data_p, data_len, false);
+        break;
+    case copyDataPrintableText:
+        copyPrintableText(data_p, data_len);
+        break;
+    case copyDataHexStream:
+        copyHexStream(data_p, data_len);
+        break;
+    case copyDataBinary:
+        copyBinary(data_p, data_len);
+        break;
+    default:
+        break;
+    }
 }
 
 void ByteViewTab::tabInserted(int index) {
@@ -93,7 +252,7 @@ void ByteViewTab::protoTreeItemChanged(QTreeWidgetItem *current) {
                 int f_start = -1, f_end = -1, f_len = -1;
                 int fa_start = -1, fa_end = -1, fa_len = -1;
                 int p_start = -1, p_end = -1, p_len = -1;
-                guint len = tvb_length(fi->ds_tvb);
+                guint len = tvb_captured_length(fi->ds_tvb);
 
                 // Find and highlight the protocol bytes
                 while (parent && parent->parent()) {

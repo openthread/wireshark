@@ -40,7 +40,6 @@ void proto_register_camel(void);
 /* Defines for the camel taps */
 #define	camel_MAX_NUM_OPR_CODES	256
 
-
 WS_DLL_PUBLIC const value_string camel_opr_code_strings[];
 /* #include "packet-camel-exp.h"*/
 
@@ -117,12 +116,6 @@ struct camelsrt_info_t {
   guint8 bool_msginfo[NB_CAMELSRT_CATEGORY]; /**< category for the received message */
   struct camelsrt_msginfo_t msginfo[NB_CAMELSRT_CATEGORY];
 };
-
-/**
- * Routine called when the TAP is initialized.
- * so hash table are (re)created
- */
-void camelsrt_init_routine(void);
 
 /**
  * Initialize the Message Info used by the main dissector

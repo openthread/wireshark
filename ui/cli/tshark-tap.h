@@ -26,5 +26,8 @@
 
 extern void init_iousers(struct register_ct* ct, const char *filter);
 extern void init_hostlists(struct register_ct* ct, const char *filter);
+extern void register_srt_tables(gpointer data, gpointer user_data);
+extern void register_rtd_tables(gpointer data, gpointer user_data);
+extern void register_simple_stat_tables(gpointer data, gpointer user_data);
 
 #endif /* __TSHARK_TAP_H__ */

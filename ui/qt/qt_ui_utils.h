@@ -35,6 +35,7 @@
 
 #include <QString>
 
+class QAction;
 class QFont;
 
 #ifdef __cplusplus
@@ -71,20 +72,32 @@ QString gchar_free_to_qstring(gchar *glib_string);
 
 /** Transfer ownership of a GLib character string to a newly constructed QByteArray
  *
- * @param glib_string A string allocated with g_malloc() or NULL. Will be
+ * @param glib_gstring A string allocated with g_malloc() or NULL. Will be
  * freed.
  *
  * @return A QByteArray instance created from the input string.
  */
 QByteArray gstring_free_to_qbytearray(GString *glib_gstring);
 
+/** Convert an integer to a formatted string representation.
+ *
+ * @param value The integer to format.
+ * @param field_width Width of the output, not including any base prefix.
+ *        Output will be zero-padded.
+ * @param base Number base between 2 and 36 (limited by QString::arg).
+ *
+ * @return A QString representation of the integer
+ */
+const QString int_to_qstring(qint64 value, int field_width = 0, int base = 10);
+
 /** Convert an address to a QString using address_to_str().
  *
  * @param address A pointer to an address.
+ * @param enclose Enclose IPv6 addresses in square brackets.
  *
  * @return A QString representation of the address. May be the null string (QString())
  */
-const QString address_to_qstring(const struct _address *address);
+const QString address_to_qstring(const struct _address *address, bool enclose = false);
 
 /** Convert an address to a QString using address_to_display().
  *
@@ -140,6 +153,14 @@ const QString bits_s_to_qstring(const double bits_s);
  */
 const QString file_size_to_qstring(const gint64 size);
 
+/** Convert a time_t value to a human-readable QString using QDateTime.
+ *
+ * @param ti_time The value to convert.
+ *
+ * @return A QString representation of the file size in SI units.
+ */
+const QString time_t_to_qstring(time_t ti_time);
+
 /**
  * Round the current size of a font up to its next "smooth" size.
  * If a smooth size can't be found the font is left unchanged.
@@ -147,6 +168,22 @@ const QString file_size_to_qstring(const gint64 size);
  * @param font The font to smooth.
  */
 void smooth_font_size(QFont &font);
+
+/**
+ * Compare the text of two QActions. Useful for passing to std::sort.
+ *
+ * @param a1 First action
+ * @param a2 Second action
+ */
+bool qActionLessThan(const QAction *a1, const QAction *a2);
+
+/**
+ * Compare two QStrings, ignoring case. Useful for passing to std::sort.
+ *
+ * @param s1 First string
+ * @param s2 Second string
+ */
+bool qStringCaseLessThan(const QString &s1, const QString &s2);
 
 #endif /* __QT_UI_UTILS__H__ */
 

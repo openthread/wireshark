@@ -343,7 +343,7 @@ void dissect_mqpcf_parm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mq_tree,
                     if (*sStr)
                         strip_trailing_blanks(sStr, uSLn);
                     if (*sStr)
-                        format_text_chr(sStr, strlen((const char *)sStr),  '.');
+                        format_text_chr(sStr, strlen((const char *)sStr), '.');
 
                     proto_tree_add_string_format(tree, hf_mq_pcf_stringlist, tvb, offset, uSLn, (const char *)sStr,
                         "%s[%*d]: %s", hfinfo->name, uDigit, u2+1, sStr);
@@ -708,7 +708,7 @@ void proto_register_mqpcf(void)
 
 void proto_reg_handoff_mqpcf(void)
 {
-    heur_dissector_add("mq", dissect_mqpcf_heur, proto_mqpcf);
+    heur_dissector_add("mq", dissect_mqpcf_heur, "WebSphere MQ PCF", "mqpcf_mq", proto_mqpcf, HEURISTIC_ENABLE);
 }
 
 /*

@@ -1088,6 +1088,11 @@ static void ses_reassemble_init (void)
 		&addresses_reassembly_table_functions);
 }
 
+static void ses_reassemble_cleanup (void)
+{
+	reassembly_table_destroy(&ses_reassembly_table);
+}
+
 static gboolean
 dissect_ses_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
@@ -1882,6 +1887,7 @@ proto_register_ses(void)
 	expert_register_field_array(expert_ses, ei, array_length(ei));
 
 	register_init_routine (&ses_reassemble_init);
+	register_cleanup_routine (&ses_reassemble_cleanup);
 
 	ses_module = prefs_register_protocol(proto_ses, NULL);
 
@@ -1910,8 +1916,8 @@ proto_reg_handoff_ses(void)
 
 	/* add our session dissector to cotp dissector list
 	 * and cotp_is dissector list*/
-	heur_dissector_add("cotp", dissect_ses_heur, proto_ses);
-	heur_dissector_add("cotp_is", dissect_ses_heur, proto_ses);
+	heur_dissector_add("cotp", dissect_ses_heur, "SES over COTP", "ses_cotp", proto_ses, HEURISTIC_ENABLE);
+	heur_dissector_add("cotp_is", dissect_ses_heur, "SES over COTP (inactive subset)", "ses_cotp_is", proto_ses, HEURISTIC_ENABLE);
 }
 
 
@@ -1925,7 +1931,7 @@ void
 proto_reg_handoff_clses(void)
 {
 	/* add our session dissector to cltp dissector list */
-	heur_dissector_add("cltp", dissect_ses_heur, proto_clses);
+	heur_dissector_add("cltp", dissect_ses_heur, "CLSP over COTP", "clses_cotp", proto_clses, HEURISTIC_ENABLE);
 }
 
 /*

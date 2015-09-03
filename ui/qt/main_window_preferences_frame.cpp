@@ -23,7 +23,7 @@
 #include "main_window_preferences_frame.h"
 #include "qt_ui_utils.h"
 
-#include "ui_main_window_preferences_frame.h"
+#include <ui_main_window_preferences_frame.h>
 #include "ui/language.h"
 
 #include <epan/prefs-int.h>
@@ -113,9 +113,8 @@ MainWindowPreferencesFrame::~MainWindowPreferencesFrame()
     delete ui;
 }
 
-void MainWindowPreferencesFrame::showEvent(QShowEvent *evt)
+void MainWindowPreferencesFrame::showEvent(QShowEvent *)
 {
-    Q_UNUSED(evt);
     updateWidgets();
 }
 

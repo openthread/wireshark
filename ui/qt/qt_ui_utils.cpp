@@ -35,7 +35,10 @@
 
 #include <wsutil/str_util.h>
 
+#include <QAction>
+#include <QDateTime>
 #include <QFontDatabase>
+#include <QUuid>
 
 /* Make the format_size_flags_e enum usable in C++ */
 format_size_flags_e operator|(format_size_flags_e lhs, format_size_flags_e rhs) {
@@ -65,13 +68,37 @@ QByteArray gstring_free_to_qbytearray(GString *glib_gstring)
     return qt_ba;
 }
 
-const QString address_to_qstring(const _address *address)
+const QString int_to_qstring(qint64 value, int field_width, int base)
+{
+    // Qt deprecated QString::sprintf in Qt 5.0, then added ::asprintf in
+    // Qt 5.5. Rather than navigate a maze of QT_VERSION_CHECKs, just use
+    // QString::arg.
+    QString int_qstr;
+
+    switch (base) {
+    case 8:
+        int_qstr = "0";
+        break;
+    case 16:
+        int_qstr = "0x";
+        break;
+    default:
+        break;
+    }
+
+    int_qstr += QString("%1").arg(value, field_width, base, QChar('0'));
+    return int_qstr;
+}
+
+const QString address_to_qstring(const _address *address, bool enclose)
 {
     QString address_qstr = QString();
     if (address) {
+        if (enclose && address->type == AT_IPv6) address_qstr += "[";
         gchar *address_gchar_p = address_to_str(NULL, address);
-        address_qstr = address_gchar_p;
+        address_qstr += address_gchar_p;
         wmem_free(NULL, address_gchar_p);
+        if (enclose && address->type == AT_IPv6) address_qstr += "]";
     }
     return address_qstr;
 }
@@ -130,6 +157,13 @@ const QString file_size_to_qstring(const gint64 size)
                 format_size(size, format_size_unit_bytes|format_size_prefix_si));
 }
 
+const QString time_t_to_qstring(time_t ti_time)
+{
+    QDateTime date_time = QDateTime::fromTime_t(ti_time);
+    QString time_str = date_time.toLocalTime().toString("yyyy-MM-dd hh:mm:ss");
+    return time_str;
+}
+
 void smooth_font_size(QFont &font) {
     QFontDatabase fdb;
 #if QT_VERSION < QT_VERSION_CHECK(4, 8, 0)
@@ -148,6 +182,15 @@ void smooth_font_size(QFont &font) {
         }
         last_size = cur_size;
     }
+}
+
+bool qActionLessThan(const QAction * a1, const QAction * a2) {
+    return a1->text().compare(a2->text()) < 0;
+}
+
+bool qStringCaseLessThan(const QString &s1, const QString &s2)
+{
+    return s1.compare(s2, Qt::CaseInsensitive) < 0;
 }
 
 /*

@@ -606,7 +606,7 @@ dissect_memcache (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
                             val_to_str_const (status, status_vals, "Unknown"), status);
   }
 
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 /* Obtain the content length by peeping into the header.
@@ -622,8 +622,7 @@ get_payload_length (tvbuff_t *tvb, const int token_number, int offset,
   gint          next_offset;
 
   /* get the header line. */
-  linelen = tvb_find_line_end (tvb, offset,
-                               tvb_ensure_length_remaining (tvb, offset), &next_offset,
+  linelen = tvb_find_line_end (tvb, offset, -1, &next_offset,
                                FALSE);
   if (linelen < 0) {
     return FALSE;
@@ -672,7 +671,7 @@ desegment_pdus (tvbuff_t *tvb, packet_info *pinfo, const int offset,
   /* data_offset has been set to start of the data block. */
   if (!tvb_bytes_exist (tvb, data_offset, content_length)) {
 
-    length_remaining = tvb_length_remaining (tvb, data_offset);
+    length_remaining = tvb_captured_length_remaining (tvb, data_offset);
     reported_length_remaining = tvb_reported_length_remaining (tvb, data_offset);
 
     if (length_remaining < reported_length_remaining) {
@@ -734,7 +733,7 @@ memcache_req_resp_hdrs_do_reassembly (
       return FALSE;
     }
 
-    length_remaining = tvb_length_remaining (tvb, next_offset);
+    length_remaining = tvb_captured_length_remaining (tvb, next_offset);
 
     /* Request one more byte if we cannot find a
      * header (i.e. a line end).
@@ -820,8 +819,7 @@ dissect_memcache_message (tvbuff_t *tvb, int offset, packet_info *pinfo, proto_t
    * is not longer than what's in the buffer, so the
    * "tvb_get_ptr ()" call won't throw an exception.
    */
-  first_linelen = tvb_find_line_end (tvb, offset,
-                                     tvb_ensure_length_remaining (tvb, offset), &next_offset,
+  first_linelen = tvb_find_line_end (tvb, offset, -1, &next_offset,
                                      FALSE);
   if (first_linelen < 0) {
     return -1;
@@ -897,7 +895,7 @@ dissect_memcache_message (tvbuff_t *tvb, int offset, packet_info *pinfo, proto_t
    * value and the amount of data remaining in the frame.
    *
    */
-  datalen = tvb_length_remaining (tvb, offset);
+  datalen = tvb_captured_length_remaining (tvb, offset);
   if (datalen > 0) {
     /*
      * We've processed "datalen" bytes worth of data
@@ -927,7 +925,7 @@ content_data_dissector (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
    */
   if (tvb_reported_length_remaining (tvb, offset) != 0) {
     /* bytes actually remaining in this tvbuff. */
-    datalen = tvb_length_remaining (tvb, offset);
+    datalen = tvb_captured_length_remaining (tvb, offset);
     if (content_length >= 0) {
       if (datalen >= (content_length + 2)) { /* also consider \r\n*/
         datalen = content_length;
@@ -1005,9 +1003,7 @@ incr_dissector (tvbuff_t *tvb, proto_tree *tree, int offset)
   /* expecting to read 'bytes' number of bytes from the buffer. */
   if (tvb_offset_exists (tvb, offset)) {
     /* Find the end of the line. */
-    linelen = tvb_find_line_end (tvb, offset,
-                                 tvb_ensure_length_remaining (tvb, offset), &next_offset,
-                                 FALSE);
+    linelen = tvb_find_line_end (tvb, offset, -1, &next_offset, FALSE);
     if (linelen < 0) {
       /* header is out of the packet limits. */
       return -1;
@@ -1056,8 +1052,7 @@ stat_dissector (tvbuff_t *tvb, proto_tree *tree, int offset)
 
   while (tvb_offset_exists (tvb, offset)) {
     /* Find the end of the line. */
-    linelen = tvb_find_line_end (tvb, offset,
-                                 tvb_ensure_length_remaining (tvb, offset), &next_offset,
+    linelen = tvb_find_line_end (tvb, offset, -1, &next_offset,
                                  FALSE);
     if (linelen < 0) {
       return -1;
@@ -1169,8 +1164,7 @@ get_response_dissector (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
   /* expecting to read 'bytes' number of bytes from the buffer. */
   while (tvb_offset_exists (tvb, offset)) {
     /* Find the end of the line. */
-    linelen = tvb_find_line_end (tvb, offset,
-                                 tvb_ensure_length_remaining (tvb, offset), &next_offset,
+    linelen = tvb_find_line_end (tvb, offset, -1, &next_offset,
                                  FALSE);
     if (linelen < 0) {
       /* header is out of the packet limits. */
@@ -1916,7 +1910,7 @@ dissect_memcache_tcp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void*
     dissect_memcache_text (tvb, pinfo, tree);
   }
 
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 /* Dissect udp packets based on the type of protocol (text/binary) */
@@ -1934,7 +1928,7 @@ dissect_memcache_udp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void*
     dissect_memcache_message (tvb, 0, pinfo, tree);
   }
 
-  return tvb_length(tvb);
+  return tvb_captured_length(tvb);
 }
 
 /* Registration functions; register memcache protocol,

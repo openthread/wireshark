@@ -549,14 +549,14 @@ dissect_ieee802154_nonask_phy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154_nonask_phy, tvb, 0, tvb_length(tvb), "IEEE 802.15.4 non-ASK PHY");
+        proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154_nonask_phy, tvb, 0, tvb_captured_length(tvb), "IEEE 802.15.4 non-ASK PHY");
         ieee802154_tree = proto_item_add_subtree(proto_root, ett_ieee802154_nonask_phy);
     }
 
     /* Add the protocol name. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "IEEE 802.15.4 non-ASK PHY");
     /* Add the packet length. */
-    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_length(tvb));
+    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_captured_length(tvb));
 
     phr=tvb_get_guint8(tvb,offset+4+1);
 
@@ -719,13 +719,13 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
     
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154, tvb, 0, tvb_length(tvb), "IEEE 802.15.4");
+        proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154, tvb, 0, tvb_captured_length(tvb), "IEEE 802.15.4");
         ieee802154_tree = proto_item_add_subtree(proto_root, ett_ieee802154);
     }
     /* Add the protocol name. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "IEEE 802.15.4");
     /* Add the packet length. */
-    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_length(tvb));
+    col_add_fstr(pinfo->cinfo, COL_PACKET_LENGTH, "%i", tvb_captured_length(tvb));
 
     /* Add the packet length to the filter field */
     hidden_item = proto_tree_add_uint(ieee802154_tree, hf_ieee802154_frame_length, NULL, 0, 0, tvb_reported_length(tvb));
@@ -1084,7 +1084,7 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
         if (!payload_tvb) {
             /* Deal with possible truncation and the FCS field at the end. */
             gint            reported_len = tvb_reported_length(tvb)-offset-IEEE802154_FCS_LEN;
-            gint            captured_len = tvb_length(tvb)-offset;
+            gint            captured_len = tvb_captured_length(tvb)-offset;
             if (reported_len < captured_len) captured_len = reported_len;
             payload_tvb = tvb_new_subset(tvb, offset, captured_len, reported_len);
         }
@@ -1139,7 +1139,7 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
     else {
         /* Deal with possible truncation and the FCS field at the end. */
         gint            reported_len = tvb_reported_length(tvb)-offset-IEEE802154_FCS_LEN;
-        gint            captured_len = tvb_length(tvb)-offset;
+        gint            captured_len = tvb_captured_length(tvb)-offset;
         if (reported_len < captured_len) captured_len = reported_len;
         payload_tvb = tvb_new_subset(tvb, offset, captured_len, reported_len);
     }
@@ -1535,7 +1535,7 @@ dissect_ieee802154_assoc_rsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     }
 
     /* Call the data dissector for any leftover bytes. */
-    if (tvb_length(tvb) > offset) {
+    if (tvb_captured_length(tvb) > offset) {
         call_dissector(data_handle, tvb_new_subset_remaining(tvb, offset), pinfo, tree);
     }
 } /* dissect_ieee802154_assoc_rsp */
@@ -1594,7 +1594,7 @@ dissect_ieee802154_disassoc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 
     /* Call the data dissector for any leftover bytes. */
-    if (tvb_length(tvb) > 1) {
+    if (tvb_captured_length(tvb) > 1) {
         call_dissector(data_handle, tvb_new_subset_remaining(tvb, 1), pinfo, tree);
     }
 } /* dissect_ieee802154_disassoc */
@@ -1674,7 +1674,7 @@ dissect_ieee802154_realign(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     }
 
     /* Call the data dissector for any leftover bytes. */
-    if (tvb_length(tvb) > offset) {
+    if (tvb_captured_length(tvb) > offset) {
         call_dissector(data_handle, tvb_new_subset_remaining(tvb, offset), pinfo, tree);
     }
 } /* dissect_ieee802154_realign */
@@ -1882,7 +1882,7 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
         captured_len = reported_len;
     }
     else {
-        captured_len = tvb_length_remaining(tvb, offset);
+        captured_len = tvb_captured_length_remaining(tvb, offset);
     }
 
     /* Check if the MIC is present in the captured data. */
@@ -2588,21 +2588,21 @@ proto_init_ieee802154(void)
 {
     guint       i;
 
-    /* Destroy hash tables, if they exist. */
-    if (ieee802154_map.short_table)
-        g_hash_table_destroy(ieee802154_map.short_table);
-    if (ieee802154_map.long_table)
-        g_hash_table_destroy(ieee802154_map.long_table);
-
-    /* Create the hash tables. */
     ieee802154_map.short_table = g_hash_table_new(ieee802154_short_addr_hash, ieee802154_short_addr_equal);
     ieee802154_map.long_table = g_hash_table_new(ieee802154_long_addr_hash, ieee802154_long_addr_equal);
-    /* Re-load the hash table from the static address UAT. */
+    /* Reload the hash table from the static address UAT. */
     for (i=0; (i<num_static_addrs) && (static_addrs); i++) {
         ieee802154_addr_update(&ieee802154_map,(guint16)static_addrs[i].addr16, (guint16)static_addrs[i].pan,
                pntoh64(static_addrs[i].eui64), ieee802154_user, IEEE802154_USER_MAPPING);
     } /* for */
 } /* proto_init_ieee802154 */
+
+static void
+proto_cleanup_ieee802154(void)
+{
+    g_hash_table_destroy(ieee802154_map.short_table);
+    g_hash_table_destroy(ieee802154_map.long_table);
+}
 
 /* Returns the prompt string for the Decode-As dialog. */
 static void ieee802154_da_prompt(packet_info *pinfo _U_, gchar* result)
@@ -2972,6 +2972,7 @@ void proto_register_ieee802154(void)
 
     /* Register the init routine. */
     register_init_routine(proto_init_ieee802154);
+    register_cleanup_routine(proto_cleanup_ieee802154);
 
     /*  Register Protocol name and description. */
     proto_ieee802154 = proto_register_protocol("IEEE 802.15.4 Low-Rate Wireless PAN", "IEEE 802.15.4",

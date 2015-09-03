@@ -78,11 +78,6 @@ static const true_false_string tfs_aflags_w = {
   "No write to device"
 };
 
-static const true_false_string tfs_response = {
-  "Response",
-  "Request"
-};
-
 static const true_false_string tfs_error = {
   "Error",
   "No error"
@@ -397,18 +392,15 @@ dissect_aoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 static void
 ata_init(void)
 {
-  if(ata_cmd_unmatched){
-    g_hash_table_destroy(ata_cmd_unmatched);
-    ata_cmd_unmatched=NULL;
-  }
   ata_cmd_unmatched=g_hash_table_new(ata_cmd_hash_unmatched, ata_cmd_equal_unmatched);
-
-  if(ata_cmd_matched){
-    g_hash_table_destroy(ata_cmd_matched);
-    ata_cmd_matched=NULL;
-  }
   ata_cmd_matched=g_hash_table_new(ata_cmd_hash_matched, ata_cmd_equal_matched);
+}
 
+static void
+ata_cleanup(void)
+{
+  g_hash_table_destroy(ata_cmd_unmatched);
+  g_hash_table_destroy(ata_cmd_matched);
 }
 
 void
@@ -432,7 +424,7 @@ proto_register_aoe(void)
       { "Sector Count", "aoe.sector_count", FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL, HFILL}},
     { &hf_aoe_flags_response,
-      { "Response flag", "aoe.response", FT_BOOLEAN, 8, TFS(&tfs_response), AOE_FLAGS_RESPONSE, "Whether this is a response PDU or not", HFILL}},
+      { "Response flag", "aoe.response", FT_BOOLEAN, 8, TFS(&tfs_response_request), AOE_FLAGS_RESPONSE, "Whether this is a response PDU or not", HFILL}},
     { &hf_aoe_flags_error,
       { "Error flag", "aoe.flags_error", FT_BOOLEAN, 8, TFS(&tfs_error), AOE_FLAGS_ERROR, "Whether this is an error PDU or not", HFILL}},
     { &hf_aoe_major,
@@ -480,6 +472,7 @@ proto_register_aoe(void)
   aoe_handle = register_dissector("aoe", dissect_aoe, proto_aoe);
 
   register_init_routine(ata_init);
+  register_cleanup_routine(ata_cleanup);
 }
 
 void

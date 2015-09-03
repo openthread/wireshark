@@ -1195,7 +1195,7 @@ capture_if_start(GtkWidget *w _U_, gpointer data _U_)
 #ifdef HAVE_AIRPCAP  /* TODO: don't let it depend on interface_opts */
     for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
         device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-        airpcap_if_active = get_airpcap_if_from_name(airpcap_if_list, device.name);
+        airpcap_if_active = get_airpcap_if_from_name(g_airpcap_if_list, device.name);
         airpcap_if_selected = airpcap_if_active;
         if (airpcap_if_selected) {
             break;
@@ -1475,6 +1475,10 @@ welcome_cf_callback(gint event, gpointer data, gpointer user_data _U_)
     case(cf_cb_file_rescan_started):
         break;
     case(cf_cb_file_rescan_finished):
+        break;
+    case(cf_cb_file_retap_started):
+        break;
+    case(cf_cb_file_retap_finished):
         break;
     case(cf_cb_file_fast_save_finished):
         break;

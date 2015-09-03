@@ -32,8 +32,8 @@ extern "C" {
  */
 
 /*
- * XXX - defines stuff usable regardless of the GUI toolkit.  Right now,
- * that's only the menu group, which is used by tap_param_dlg.h.
+ * Menu statistics group definitions. Used by ui/qt/tap_parameter_dialog.h
+ * and ui/gtk/tap_param_dlg.h.
  *
  * XXX - stats should be able to register additional menu groups, although
  * the question then would be "in what order should they appear in the menu?"
@@ -56,15 +56,17 @@ extern "C" {
 /** The group this stat should be registered in. */
 typedef enum {
     REGISTER_ANALYZE_GROUP_UNSORTED,            /* unsorted analyze stuff */
-    REGISTER_ANALYZE_GROUP_CONVERSATION_FILTER, /* conversation filters */
+    REGISTER_ANALYZE_GROUP_CONVERSATION_FILTER, /* conversation filters. Unused? */
     REGISTER_STAT_GROUP_UNSORTED,               /* unsorted statistic function */
     REGISTER_STAT_GROUP_GENERIC,                /* generic statistic function, not specific to a protocol */
     REGISTER_STAT_GROUP_CONVERSATION_LIST,      /* member of the conversation list */
     REGISTER_STAT_GROUP_ENDPOINT_LIST,          /* member of the endpoint list */
     REGISTER_STAT_GROUP_RESPONSE_TIME,          /* member of the service response time list */
     REGISTER_STAT_GROUP_TELEPHONY,              /* telephony specific */
+    REGISTER_STAT_GROUP_TELEPHONY_ANSI,         /* name says it all */
     REGISTER_STAT_GROUP_TELEPHONY_GSM,          /* GSM (and UMTS?) */
     REGISTER_STAT_GROUP_TELEPHONY_LTE,          /* name says it all */
+    REGISTER_STAT_GROUP_TELEPHONY_MTP3,         /* name says it all */
     REGISTER_STAT_GROUP_TELEPHONY_SCTP,         /* name says it all */
     REGISTER_TOOLS_GROUP_UNSORTED               /* unsorted tools */
 } register_stat_group_t;

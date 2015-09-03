@@ -51,7 +51,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/reassemble.h>
-#include <epan/frequency-utils.h>
+#include <wsutil/frequency-utils.h>
 #include <wsutil/pint.h>
 
 /* Needed for wtap_pcap_encap_to_wtap_encap(). */
@@ -115,11 +115,18 @@
 #define PPI_FLAG_ALIGN 0x01
 #define IS_PPI_FLAG_ALIGN(x) ((x) & PPI_FLAG_ALIGN)
 
-#define DOT11_FLAG_HAVE_FCS 0x0001
+#define DOT11_FLAG_HAVE_FCS     0x0001
+#define DOT11_FLAG_TSF_TIMER_MS 0x0002
+#define DOT11_FLAG_FCS_INVALID  0x0004
+#define DOT11_FLAG_PHY_ERROR    0x0008
 
-#define DOT11N_FLAG_IS_AGGREGATE 0x0010
+#define DOT11N_FLAG_GREENFIELD      0x0001
+#define DOT11N_FLAG_HT40            0x0002
+#define DOT11N_FLAG_SHORT_GI        0x0004
+#define DOT11N_FLAG_DUPLICATE_RX    0x0008
+#define DOT11N_FLAG_IS_AGGREGATE    0x0010
 #define DOT11N_FLAG_MORE_AGGREGATES 0x0020
-#define DOT11N_FLAG_AGG_CRC_ERROR 0x0040
+#define DOT11N_FLAG_AGG_CRC_ERROR   0x0040
 
 #define DOT11N_IS_AGGREGATE(flags)      (flags & DOT11N_FLAG_IS_AGGREGATE)
 #define DOT11N_MORE_AGGREGATES(flags)   ( \
@@ -139,11 +146,19 @@
 #define IEEE80211_CHAN_DYN      0x0400  /* Dynamic CCK-OFDM channel */
 #define IEEE80211_CHAN_GFSK     0x0800  /* GFSK channel (FHSS PHY) */
 
+#define	IEEE80211_CHAN_ALL \
+	(IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_5GHZ | IEEE80211_CHAN_GFSK | \
+         IEEE80211_CHAN_CCK | IEEE80211_CHAN_OFDM | IEEE80211_CHAN_DYN)
+#define	IEEE80211_CHAN_ALLTURBO \
+	(IEEE80211_CHAN_ALL | IEEE80211_CHAN_TURBO)
+
 /*
  * Useful combinations of channel characteristics.
  */
 #define IEEE80211_CHAN_FHSS \
         (IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_GFSK)
+#define	IEEE80211_CHAN_DSSS \
+	(IEEE80211_CHAN_2GHZ)
 #define IEEE80211_CHAN_A \
         (IEEE80211_CHAN_5GHZ | IEEE80211_CHAN_OFDM)
 #define IEEE80211_CHAN_B \
@@ -152,8 +167,8 @@
         (IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_OFDM)
 #define IEEE80211_CHAN_G \
         (IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_DYN)
-#define IEEE80211_CHAN_T \
-        (IEEE80211_CHAN_5GHZ | IEEE80211_CHAN_OFDM | IEEE80211_CHAN_TURBO)
+#define	IEEE80211_CHAN_108A \
+	(IEEE80211_CHAN_A | IEEE80211_CHAN_TURBO)
 #define IEEE80211_CHAN_108G \
         (IEEE80211_CHAN_G | IEEE80211_CHAN_TURBO)
 #define IEEE80211_CHAN_108PUREG \
@@ -333,7 +348,7 @@ static expert_field ei_ppi_invalid_length = EI_INIT;
 static dissector_handle_t ppi_handle;
 
 static dissector_handle_t data_handle;
-static dissector_handle_t ieee80211_ht_handle;
+static dissector_handle_t ieee80211_radio_handle;
 static dissector_handle_t ppi_gps_handle, ppi_vector_handle, ppi_sensor_handle, ppi_antenna_handle;
 static dissector_handle_t ppi_fnet_handle;
 
@@ -363,21 +378,6 @@ static const value_string vs_ppi_field_type[] = {
     {0, NULL}
 };
 
-/* XXX - Start - Copied from packet-radiotap.c */
-static const value_string vs_80211_common_phy_type[] = {
-    { 0, "Unknown" },
-    { IEEE80211_CHAN_A,         "802.11a" },
-    { IEEE80211_CHAN_B,         "802.11b" },
-    { IEEE80211_CHAN_PUREG,     "802.11g (pure-g)" },
-    { IEEE80211_CHAN_G,         "802.11g" },
-    { IEEE80211_CHAN_T,         "802.11a (turbo)" },
-    { IEEE80211_CHAN_108PUREG,  "802.11g (pure-g, turbo)" },
-    { IEEE80211_CHAN_108G,      "802.11g (turbo)" },
-    { IEEE80211_CHAN_FHSS,      "FHSS" },
-    { 0, NULL },
-};
-/* XXX - End - Copied from packet-radiotap.c */
-
 /* Table for A-MPDU reassembly */
 static reassembly_table ampdu_reassembly_table;
 
@@ -389,9 +389,7 @@ void
 capture_ppi(const guchar *pd, int len, packet_counts *ld)
 {
     guint32  dlt;
-    guint    ppi_len, data_type, data_len;
-    guint    offset = PPI_V0_HEADER_LEN;
-    gboolean is_htc = FALSE;
+    guint    ppi_len;
 
     ppi_len = pletoh16(pd+2);
     if(ppi_len < PPI_V0_HEADER_LEN || !BYTES_ARE_IN_FRAME(0, len, ppi_len)) {
@@ -401,28 +399,13 @@ capture_ppi(const guchar *pd, int len, packet_counts *ld)
 
     dlt = pletoh32(pd+4);
 
-    /* Figure out if we're +HTC */
-    while (offset < ppi_len) {
-        data_type = pletoh16(pd+offset);
-        data_len = pletoh16(pd+offset+2) + 4;
-        offset += data_len;
-
-        if (data_type == PPI_80211N_MAC || data_type == PPI_80211N_MAC_PHY) {
-            is_htc = TRUE;
-            break;
-        }
-    }
-
     /* XXX - We should probably combine this with capture_info.c:capture_info_packet() */
     switch(dlt) {
         case 1: /* DLT_EN10MB */
             capture_eth(pd, ppi_len, len, ld);
             return;
         case 105: /* DLT_DLT_IEEE802_11 */
-            if (is_htc)
-                capture_ieee80211_ht(pd, ppi_len, len, ld);
-            else
-                capture_ieee80211(pd, ppi_len, len, ld);
+            capture_ieee80211(pd, ppi_len, len, ld);
             return;
         default:
             break;
@@ -476,14 +459,18 @@ add_ppi_field_header(tvbuff_t *tvb, proto_tree *tree, int *offset)
 
 /* XXX - The main dissection function in the 802.11 dissector has the same name. */
 static void
-dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int data_len)
+dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int data_len, struct ieee_802_11_phdr *phdr)
 {
     proto_tree  *ftree;
     proto_item  *ti;
     ptvcursor_t *csr;
-    gint         rate_kbps;
+    guint64      tsft_raw;
+    guint        rate_raw;
+    guint        rate_kbps;
     guint32      common_flags;
     guint16      common_frequency;
+    guint16      chan_flags;
+    gint8        dbm_value;
     gchar       *chan_str;
 
     ftree = proto_tree_add_subtree(tree, tvb, offset, data_len, ett_dot11_common, NULL, "802.11-Common");
@@ -497,11 +484,20 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
 
     common_flags = tvb_get_letohs(tvb, offset + 8);
     if (common_flags & DOT11_FLAG_HAVE_FCS)
-        pinfo->pseudo_header->ieee_802_11.fcs_len = 4;
+        phdr->fcs_len = 4;
     else
-        pinfo->pseudo_header->ieee_802_11.fcs_len = 0;
+        phdr->fcs_len = 0;
 
     csr = ptvcursor_new(ftree, tvb, offset);
+
+    tsft_raw = tvb_get_letoh64(tvb, offset);
+    if (tsft_raw != 0) {
+        phdr->presence_flags |= PHDR_802_11_HAS_TSF_TIMESTAMP;
+        if (common_flags & DOT11_FLAG_TSF_TIMER_MS)
+            phdr->tsf_timestamp = tsft_raw * 1000;
+        else
+            phdr->tsf_timestamp = tsft_raw;
+    }
 
     ptvcursor_add_invalid_check(csr, hf_80211_common_tsft, 8, 0);
 
@@ -513,7 +509,12 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     ptvcursor_add(csr, hf_80211_common_flags_phy_err, 2, ENC_LITTLE_ENDIAN);
     ptvcursor_pop_subtree(csr);
 
-    rate_kbps = tvb_get_letohs(tvb, ptvcursor_current_offset(csr)) * 500;
+    rate_raw = tvb_get_letohs(tvb, ptvcursor_current_offset(csr));
+    if (rate_raw != 0) {
+        phdr->presence_flags |= PHDR_802_11_HAS_DATA_RATE;
+        phdr->data_rate = rate_raw;
+    }
+    rate_kbps = rate_raw * 500;
     ti = proto_tree_add_uint_format(ftree, hf_80211_common_rate, tvb,
                                     ptvcursor_current_offset(csr), 2, rate_kbps, "Rate: %.1f Mbps",
                                     rate_kbps / 1000.0);
@@ -523,6 +524,10 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     ptvcursor_advance(csr, 2);
 
     common_frequency = tvb_get_letohs(ptvcursor_tvbuff(csr), ptvcursor_current_offset(csr));
+    if (common_frequency != 0) {
+        phdr->presence_flags |= PHDR_802_11_HAS_FREQUENCY;
+        phdr->frequency = common_frequency;
+    }
     chan_str = ieee80211_mhz_to_str(common_frequency);
     proto_tree_add_uint_format_value(ptvcursor_tree(csr), hf_80211_common_chan_freq, ptvcursor_tvbuff(csr),
                                ptvcursor_current_offset(csr), 2, common_frequency, "%s", chan_str);
@@ -530,6 +535,56 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     g_free(chan_str);
     ptvcursor_advance(csr, 2);
 
+    chan_flags = tvb_get_letohs(ptvcursor_tvbuff(csr), ptvcursor_current_offset(csr));
+    switch (chan_flags & IEEE80211_CHAN_ALLTURBO) {
+
+    case IEEE80211_CHAN_FHSS:
+        phdr->phy = PHDR_802_11_PHY_11_FHSS;
+        phdr->phy_info.info_11_fhss.presence_flags =
+            PHDR_802_11_FHSS_HAS_HOP_SET |
+            PHDR_802_11_FHSS_HAS_HOP_PATTERN;
+        break;
+
+    case IEEE80211_CHAN_DSSS:
+        phdr->phy = PHDR_802_11_PHY_11_DSSS;
+        break;
+
+    case IEEE80211_CHAN_A:
+        phdr->phy = PHDR_802_11_PHY_11A;
+        phdr->phy_info.info_11a.presence_flags = PHDR_802_11A_HAS_TURBO_TYPE;
+        phdr->phy_info.info_11a.turbo_type = PHDR_802_11A_TURBO_TYPE_NORMAL;
+        break;
+
+    case IEEE80211_CHAN_B:
+        phdr->phy = PHDR_802_11_PHY_11B;
+        phdr->phy_info.info_11b.presence_flags = 0;
+        break;
+
+    case IEEE80211_CHAN_PUREG:
+        phdr->phy = PHDR_802_11_PHY_11G;
+        phdr->phy_info.info_11g.presence_flags = PHDR_802_11G_HAS_MODE;
+        phdr->phy_info.info_11g.mode = PHDR_802_11G_MODE_NORMAL;
+        break;
+
+    case IEEE80211_CHAN_G:
+        phdr->phy = PHDR_802_11_PHY_11G;
+        phdr->phy_info.info_11g.presence_flags = PHDR_802_11G_HAS_MODE;
+        phdr->phy_info.info_11g.mode = PHDR_802_11G_MODE_NORMAL;
+        break;
+
+    case IEEE80211_CHAN_108A:
+        phdr->phy = PHDR_802_11_PHY_11A;
+        phdr->phy_info.info_11a.presence_flags = PHDR_802_11A_HAS_TURBO_TYPE;
+        /* We assume non-STURBO is dynamic turbo */
+        phdr->phy_info.info_11a.turbo_type = PHDR_802_11A_TURBO_TYPE_DYNAMIC_TURBO;
+        break;
+
+    case IEEE80211_CHAN_108PUREG:
+        phdr->phy = PHDR_802_11_PHY_11G;
+        phdr->phy_info.info_11g.presence_flags = PHDR_802_11G_HAS_MODE;
+        phdr->phy_info.info_11g.mode = PHDR_802_11G_MODE_SUPER_G;
+        break;
+    }
     ptvcursor_add_with_subtree(csr, hf_80211_common_chan_flags, 2, ENC_LITTLE_ENDIAN,
                                ett_dot11_common_channel_flags);
     ptvcursor_add_no_advance(csr, hf_80211_common_chan_flags_turbo, 2, ENC_LITTLE_ENDIAN);
@@ -543,24 +598,52 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     ptvcursor_pop_subtree(csr);
 
 
+    if (phdr->phy == PHDR_802_11_PHY_11_FHSS)
+        phdr->phy_info.info_11_fhss.hop_set = tvb_get_guint8(ptvcursor_tvbuff(csr), ptvcursor_current_offset(csr));
     ptvcursor_add(csr, hf_80211_common_fhss_hopset, 1, ENC_LITTLE_ENDIAN);
+    if (phdr->phy == PHDR_802_11_PHY_11_FHSS)
+        phdr->phy_info.info_11_fhss.hop_pattern = tvb_get_guint8(ptvcursor_tvbuff(csr), ptvcursor_current_offset(csr));
     ptvcursor_add(csr, hf_80211_common_fhss_pattern, 1, ENC_LITTLE_ENDIAN);
 
-    col_add_fstr(pinfo->cinfo, COL_RSSI, "%d dBm",
-            (gint8) tvb_get_guint8(tvb, ptvcursor_current_offset(csr)));
-
+    dbm_value = (gint8) tvb_get_guint8(tvb, ptvcursor_current_offset(csr));
+    if (dbm_value != -128 && dbm_value != 0) {
+        /*
+         * XXX - the spec says -128 is invalid, presumably meaning "use
+         * -128 if you don't have the signal strength", but some captures
+         * have 0 for noise, presumably meaning it's incorrectly being
+         * used for "don't have it", so we check for it as well.
+         */
+        col_add_fstr(pinfo->cinfo, COL_RSSI, "%d dBm", dbm_value);
+        phdr->presence_flags |= PHDR_802_11_HAS_SIGNAL_DBM;
+        phdr->signal_dbm = dbm_value;
+    }
     ptvcursor_add_invalid_check(csr, hf_80211_common_dbm_antsignal, 1, 0x80); /* -128 */
+
+    dbm_value = (gint8) tvb_get_guint8(tvb, ptvcursor_current_offset(csr));
+    if (dbm_value != -128 && dbm_value != 0) {
+        /*
+         * XXX - the spec says -128 is invalid, presumably meaning "use
+         * -128 if you don't have the noise level", but some captures
+         * have 0, presumably meaning it's incorrectly being used for
+         * "don't have it", so we check for it as well.
+         */
+        phdr->presence_flags |= PHDR_802_11_HAS_NOISE_DBM;
+        phdr->noise_dbm = dbm_value;
+    }
     ptvcursor_add_invalid_check(csr, hf_80211_common_dbm_antnoise, 1, 0x80);
 
     ptvcursor_free(csr);
 }
 
 static void
-dissect_80211n_mac(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, int data_len, gboolean add_subtree, guint32 *n_mac_flags, guint32 *ampdu_id)
+dissect_80211n_mac(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, int data_len, gboolean add_subtree, guint32 *n_mac_flags, guint32 *ampdu_id, struct ieee_802_11_phdr *phdr)
 {
     proto_tree  *ftree       = tree;
     ptvcursor_t *csr;
     int          subtree_off = add_subtree ? 4 : 0;
+    guint32      flags;
+
+    phdr->phy = PHDR_802_11_PHY_11N;
 
     *n_mac_flags = tvb_get_letohl(tvb, offset + subtree_off);
     *ampdu_id = tvb_get_letohl(tvb, offset + 4 + subtree_off);
@@ -578,6 +661,10 @@ dissect_80211n_mac(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int 
 
     csr = ptvcursor_new(ftree, tvb, offset);
 
+    flags = tvb_get_letohl(tvb, ptvcursor_current_offset(csr));
+    phdr->phy_info.info_11n.presence_flags = PHDR_802_11N_HAS_SHORT_GI|PHDR_802_11N_HAS_GREENFIELD;
+    phdr->phy_info.info_11n.short_gi = ((flags & DOT11N_FLAG_SHORT_GI) != 0);
+    phdr->phy_info.info_11n.greenfield = ((flags & DOT11N_FLAG_GREENFIELD) != 0);
     ptvcursor_add_with_subtree(csr, hf_80211n_mac_flags, 4, ENC_LITTLE_ENDIAN,
                                ett_dot11n_mac_flags);
     ptvcursor_add_no_advance(csr, hf_80211n_mac_flags_greenfield, 4, ENC_LITTLE_ENDIAN);
@@ -600,11 +687,13 @@ dissect_80211n_mac(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int 
 }
 
 static void
-dissect_80211n_mac_phy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int data_len, guint32 *n_mac_flags, guint32 *ampdu_id)
+dissect_80211n_mac_phy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int data_len, guint32 *n_mac_flags, guint32 *ampdu_id, struct ieee_802_11_phdr *phdr)
 {
     proto_tree  *ftree;
     proto_item  *ti;
     ptvcursor_t *csr;
+    guint8       mcs;
+    guint8       ness;
     guint16      ext_frequency;
     gchar       *chan_str;
 
@@ -618,12 +707,21 @@ dissect_80211n_mac_phy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int 
     }
 
     dissect_80211n_mac(tvb, pinfo, ftree, offset, PPI_80211N_MAC_LEN,
-                       FALSE, n_mac_flags, ampdu_id);
+                       FALSE, n_mac_flags, ampdu_id, phdr);
     offset += PPI_80211N_MAC_PHY_OFF;
 
     csr = ptvcursor_new(ftree, tvb, offset);
 
+    mcs = tvb_get_guint8(tvb, ptvcursor_current_offset(csr));
+    if (mcs != 255) {
+        phdr->phy_info.info_11n.presence_flags |= PHDR_802_11N_HAS_MCS_INDEX;
+        phdr->phy_info.info_11n.mcs_index = mcs;
+    }
     ptvcursor_add_invalid_check(csr, hf_80211n_mac_phy_mcs, 1, 255);
+
+    ness = tvb_get_guint8(tvb, ptvcursor_current_offset(csr));
+    phdr->phy_info.info_11n.presence_flags |= PHDR_802_11N_HAS_NESS;
+    phdr->phy_info.info_11n.ness = ness;
     ti = ptvcursor_add(csr, hf_80211n_mac_phy_num_streams, 1, ENC_LITTLE_ENDIAN);
     if (tvb_get_guint8(tvb, ptvcursor_current_offset(csr) - 1) == 0)
         proto_item_append_text(ti, " (unknown)");
@@ -750,8 +848,8 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     gchar         *mpdu_str;
     gboolean       first_mpdu  = TRUE;
     guint          last_frame  = 0;
-    gboolean       is_ht       = FALSE;
     gint len_remain, /*pad_len = 0,*/ ampdu_len = 0;
+    struct ieee_802_11_phdr phdr;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "PPI");
     col_clear(pinfo->cinfo, COL_INFO);
@@ -790,47 +888,54 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tot_len -= PPI_V0_HEADER_LEN;
     offset += 8;
 
+    /* We don't have any 802.11 metadata yet. */
+    phdr.fcs_len = -1;
+    phdr.decrypted = FALSE;
+    phdr.datapad = FALSE;
+    phdr.phy = PHDR_802_11_PHY_UNKNOWN;
+    phdr.presence_flags = 0;
+
     while (tot_len > 0) {
         data_type = tvb_get_letohs(tvb, offset);
         data_len = tvb_get_letohs(tvb, offset + 2) + 4;
         tot_len -= data_len;
 
         switch (data_type) {
-            case PPI_80211_COMMON:
-                dissect_80211_common(tvb, pinfo, ppi_tree, offset, data_len);
-                break;
 
-            case PPI_80211N_MAC:
-                dissect_80211n_mac(tvb, pinfo, ppi_tree, offset, data_len,
-                    TRUE, &n_ext_flags, &ampdu_id);
-                is_ht = TRUE;
-                break;
+        case PPI_80211_COMMON:
+            dissect_80211_common(tvb, pinfo, ppi_tree, offset, data_len, &phdr);
+            break;
 
-            case PPI_80211N_MAC_PHY:
-                dissect_80211n_mac_phy(tvb, pinfo, ppi_tree, offset,
-                    data_len, &n_ext_flags, &ampdu_id);
-                is_ht = TRUE;
-                break;
+        case PPI_80211N_MAC:
+            dissect_80211n_mac(tvb, pinfo, ppi_tree, offset, data_len,
+                TRUE, &n_ext_flags, &ampdu_id, &phdr);
+            break;
 
-            case PPI_SPECTRUM_MAP:
-                ADD_BASIC_TAG(hf_spectrum_map);
-                break;
+        case PPI_80211N_MAC_PHY:
+            dissect_80211n_mac_phy(tvb, pinfo, ppi_tree, offset,
+                data_len, &n_ext_flags, &ampdu_id, &phdr);
+            break;
 
-            case PPI_PROCESS_INFO:
-                ADD_BASIC_TAG(hf_process_info);
-                break;
+        case PPI_SPECTRUM_MAP:
+            ADD_BASIC_TAG(hf_spectrum_map);
+            break;
 
-            case PPI_CAPTURE_INFO:
-                ADD_BASIC_TAG(hf_capture_info);
-                break;
+        case PPI_PROCESS_INFO:
+            ADD_BASIC_TAG(hf_process_info);
+            break;
 
-            case PPI_AGGREGATION_EXTENSION:
-                dissect_aggregation_extension(tvb, pinfo, ppi_tree, offset, data_len);
-                break;
+        case PPI_CAPTURE_INFO:
+            ADD_BASIC_TAG(hf_capture_info);
+            break;
+
+        case PPI_AGGREGATION_EXTENSION:
+            dissect_aggregation_extension(tvb, pinfo, ppi_tree, offset, data_len);
+            break;
 
         case PPI_8023_EXTENSION:
             dissect_8023_extension(tvb, pinfo, ppi_tree, offset, data_len);
             break;
+
         case PPI_GPS_INFO:
             if (ppi_gps_handle == NULL)
             {
@@ -843,6 +948,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 call_dissector(ppi_gps_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
+
         case PPI_VECTOR_INFO:
             if (ppi_vector_handle == NULL)
             {
@@ -855,6 +961,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 call_dissector(ppi_vector_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
+
         case PPI_SENSOR_INFO:
             if (ppi_sensor_handle == NULL)
             {
@@ -867,6 +974,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 call_dissector(ppi_sensor_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
+
         case PPI_ANTENNA_INFO:
             if (ppi_antenna_handle == NULL)
             {
@@ -879,6 +987,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 call_dissector(ppi_antenna_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
+
         case FNET_PRIVATE:
             if (ppi_fnet_handle == NULL)
             {
@@ -903,7 +1012,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     if (ppi_ampdu_reassemble && DOT11N_IS_AGGREGATE(n_ext_flags)) {
-        len_remain = tvb_length_remaining(tvb, offset);
+        len_remain = tvb_captured_length_remaining(tvb, offset);
 #if 0 /* XXX: pad_len never actually used ?? */
         if (DOT11N_MORE_AGGREGATES(n_ext_flags)) {
             pad_len = PADDING4(len_remain);
@@ -988,7 +1097,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     add_new_data_source(pinfo, next_tvb, mpdu_str);
 
                     ampdu_tree = proto_tree_add_subtree(agg_tree, next_tvb, 0, -1, ett_ampdu_segment, NULL, mpdu_str);
-                    call_dissector(ieee80211_ht_handle, next_tvb, pinfo, ampdu_tree);
+                    call_dissector_with_data(ieee80211_radio_handle, next_tvb, pinfo, ampdu_tree, &phdr);
                 }
                 fd_head = fd_head->next;
             }
@@ -1004,9 +1113,22 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
-    if (is_ht) { /* We didn't hit the reassembly code */
-        call_dissector(ieee80211_ht_handle, next_tvb, pinfo, tree);
+    /*
+     * You can't just call an arbitrary subdissector based on a
+     * LINKTYPE_ value, because they may expect a particular
+     * pseudo-header to be passed to them.
+     *
+     * So we look for LINKTYPE_IEEE802_11, which is 105, and, if
+     * that's what the LINKTYPE_ value is, pass it a pointer
+     * to a struct ieee_802_11_phdr; otherwise, we pass it
+     * a null pointer - if it actually matters, we need to
+     * construct the appropriate pseudo-header and pass that.
+     */
+    if (dlt == 105) {
+        /* LINKTYPE_IEEE802_11 */
+        call_dissector_with_data(ieee80211_radio_handle, next_tvb, pinfo, tree, &phdr);
     } else {
+        /* Everything else.  This will pass a NULL data argument. */
         dissector_try_uint(wtap_encap_dissector_table,
             wtap_pcap_encap_to_wtap_encap(dlt), next_tvb, pinfo, tree);
     }
@@ -1019,6 +1141,12 @@ ampdu_reassemble_init(void)
 {
     reassembly_table_init(&ampdu_reassembly_table,
                           &addresses_reassembly_table_functions);
+}
+
+static void
+ampdu_reassemble_cleanup(void)
+{
+    reassembly_table_destroy(&ampdu_reassembly_table);
 }
 
 void
@@ -1064,16 +1192,16 @@ proto_register_ppi(void)
          FT_UINT16, BASE_HEX, NULL, 0x0, "PPI 802.11-Common Flags", HFILL } },
     { &hf_80211_common_flags_fcs,
        { "FCS present flag", "ppi.80211-common.flags.fcs",
-         FT_BOOLEAN, 16, TFS(&tfs_present_absent), 0x0001, "PPI 802.11-Common Frame Check Sequence (FCS) Present Flag", HFILL } },
+         FT_BOOLEAN, 16, TFS(&tfs_present_absent), DOT11_FLAG_HAVE_FCS, "PPI 802.11-Common Frame Check Sequence (FCS) Present Flag", HFILL } },
     { &hf_80211_common_flags_tsft,
        { "TSFT flag", "ppi.80211-common.flags.tsft",
-         FT_BOOLEAN, 16, TFS(&tfs_tsft_ms), 0x0002, "PPI 802.11-Common Timing Synchronization Function Timer (TSFT) msec/usec flag", HFILL } },
+         FT_BOOLEAN, 16, TFS(&tfs_tsft_ms), DOT11_FLAG_TSF_TIMER_MS, "PPI 802.11-Common Timing Synchronization Function Timer (TSFT) msec/usec flag", HFILL } },
     { &hf_80211_common_flags_fcs_valid,
        { "FCS validity", "ppi.80211-common.flags.fcs-invalid",
-         FT_BOOLEAN, 16, TFS(&tfs_invalid_valid), 0x0004, "PPI 802.11-Common Frame Check Sequence (FCS) Validity flag", HFILL } },
+         FT_BOOLEAN, 16, TFS(&tfs_invalid_valid), DOT11_FLAG_FCS_INVALID, "PPI 802.11-Common Frame Check Sequence (FCS) Validity flag", HFILL } },
     { &hf_80211_common_flags_phy_err,
        { "PHY error flag", "ppi.80211-common.flags.phy-err",
-         FT_BOOLEAN, 16, TFS(&tfs_phy_error), 0x0008, "PPI 802.11-Common Physical level (PHY) Error", HFILL } },
+         FT_BOOLEAN, 16, TFS(&tfs_phy_error), DOT11_FLAG_PHY_ERROR, "PPI 802.11-Common Physical level (PHY) Error", HFILL } },
     { &hf_80211_common_rate,
        { "Data rate", "ppi.80211-common.rate",
          FT_UINT16, BASE_DEC, NULL, 0x0, "PPI 802.11-Common Data Rate (x 500 Kbps)", HFILL } },
@@ -1082,33 +1210,33 @@ proto_register_ppi(void)
          FT_UINT16, BASE_DEC, NULL, 0x0,
         "PPI 802.11-Common Channel Frequency", HFILL } },
     { &hf_80211_common_chan_flags,
-       { "Channel type", "ppi.80211-common.chan.type",
-         FT_UINT16, BASE_HEX, VALS(vs_80211_common_phy_type), 0x0, "PPI 802.11-Common Channel Type", HFILL } },
+       { "Channel flags", "ppi.80211-common.chan.flags",
+         FT_UINT16, BASE_HEX, NULL, 0x0, "PPI 802.11-Common Channel Flags", HFILL } },
 
     { &hf_80211_common_chan_flags_turbo,
-       { "Turbo", "ppi.80211-common.chan.type.turbo",
-         FT_BOOLEAN, 16, NULL, 0x0010, "PPI 802.11-Common Channel Type Turbo", HFILL } },
+       { "Turbo", "ppi.80211-common.chan.flags.turbo",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_TURBO, "PPI 802.11-Common Channel Flags Turbo", HFILL } },
     { &hf_80211_common_chan_flags_cck,
-       { "Complementary Code Keying (CCK)", "ppi.80211-common.chan.type.cck",
-         FT_BOOLEAN, 16, NULL, 0x0020, "PPI 802.11-Common Channel Type Complementary Code Keying (CCK) Modulation", HFILL } },
+       { "Complementary Code Keying (CCK)", "ppi.80211-common.chan.flags.cck",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_CCK, "PPI 802.11-Common Channel Flags Complementary Code Keying (CCK) Modulation", HFILL } },
     { &hf_80211_common_chan_flags_ofdm,
-       { "Orthogonal Frequency-Division Multiplexing (OFDM)", "ppi.80211-common.chan.type.ofdm",
-         FT_BOOLEAN, 16, NULL, 0x0040, "PPI 802.11-Common Channel Type Orthogonal Frequency-Division Multiplexing (OFDM)", HFILL } },
+       { "Orthogonal Frequency-Division Multiplexing (OFDM)", "ppi.80211-common.chan.flags.ofdm",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_OFDM, "PPI 802.11-Common Channel Flags Orthogonal Frequency-Division Multiplexing (OFDM)", HFILL } },
     { &hf_80211_common_chan_flags_2ghz,
-       { "2 GHz spectrum", "ppi.80211-common.chan.type.2ghz",
-         FT_BOOLEAN, 16, NULL, 0x0080, "PPI 802.11-Common Channel Type 2 GHz spectrum", HFILL } },
+       { "2 GHz spectrum", "ppi.80211-common.chan.flags.2ghz",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_2GHZ, "PPI 802.11-Common Channel Flags 2 GHz spectrum", HFILL } },
     { &hf_80211_common_chan_flags_5ghz,
-       { "5 GHz spectrum", "ppi.80211-common.chan.type.5ghz",
-         FT_BOOLEAN, 16, NULL, 0x0100, "PPI 802.11-Common Channel Type 5 GHz spectrum", HFILL } },
+       { "5 GHz spectrum", "ppi.80211-common.chan.flags.5ghz",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_5GHZ, "PPI 802.11-Common Channel Flags 5 GHz spectrum", HFILL } },
     { &hf_80211_common_chan_flags_passive,
-       { "Passive", "ppi.80211-common.chan.type.passive",
-         FT_BOOLEAN, 16, NULL, 0x0200, "PPI 802.11-Common Channel Type Passive", HFILL } },
+       { "Passive", "ppi.80211-common.chan.flags.passive",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_PASSIVE, "PPI 802.11-Common Channel Flags Passive", HFILL } },
     { &hf_80211_common_chan_flags_dynamic,
-       { "Dynamic CCK-OFDM", "ppi.80211-common.chan.type.dynamic",
-         FT_BOOLEAN, 16, NULL, 0x0400, "PPI 802.11-Common Channel Type Dynamic CCK-OFDM Channel", HFILL } },
+       { "Dynamic CCK-OFDM", "ppi.80211-common.chan.flags.dynamic",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_DYN, "PPI 802.11-Common Channel Flags Dynamic CCK-OFDM Channel", HFILL } },
     { &hf_80211_common_chan_flags_gfsk,
-       { "Gaussian Frequency Shift Keying (GFSK)", "ppi.80211-common.chan.type.gfsk",
-         FT_BOOLEAN, 16, NULL, 0x0800, "PPI 802.11-Common Channel Type Gaussian Frequency Shift Keying (GFSK) Modulation", HFILL } },
+       { "Gaussian Frequency Shift Keying (GFSK)", "ppi.80211-common.chan.flags.gfsk",
+         FT_BOOLEAN, 16, NULL, IEEE80211_CHAN_GFSK, "PPI 802.11-Common Channel Flags Gaussian Frequency Shift Keying (GFSK) Modulation", HFILL } },
 
     { &hf_80211_common_fhss_hopset,
        { "FHSS hopset", "ppi.80211-common.fhss.hopset",
@@ -1129,25 +1257,25 @@ proto_register_ppi(void)
          FT_UINT32, BASE_HEX, NULL, 0x0, "PPI 802.11n MAC flags", HFILL } },
     { &hf_80211n_mac_flags_greenfield,
        { "Greenfield flag", "ppi.80211n-mac.flags.greenfield",
-         FT_BOOLEAN, 32, TFS(&tfs_true_false), 0x0001, "PPI 802.11n MAC Greenfield Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_true_false), DOT11N_FLAG_GREENFIELD, "PPI 802.11n MAC Greenfield Flag", HFILL } },
     { &hf_80211n_mac_flags_ht20_40,
        { "HT20/HT40 flag", "ppi.80211n-mac.flags.ht20_40",
-         FT_BOOLEAN, 32, TFS(&tfs_ht20_40), 0x0002, "PPI 802.11n MAC HT20/HT40 Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_ht20_40), DOT11N_FLAG_HT40, "PPI 802.11n MAC HT20/HT40 Flag", HFILL } },
     { &hf_80211n_mac_flags_rx_guard_interval,
        { "RX Short Guard Interval (SGI) flag", "ppi.80211n-mac.flags.rx.short_guard_interval",
-         FT_BOOLEAN, 32, TFS(&tfs_true_false), 0x0004, "PPI 802.11n MAC RX Short Guard Interval (SGI) Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_true_false), DOT11N_FLAG_SHORT_GI, "PPI 802.11n MAC RX Short Guard Interval (SGI) Flag", HFILL } },
     { &hf_80211n_mac_flags_duplicate_rx,
        { "Duplicate RX flag", "ppi.80211n-mac.flags.rx.duplicate",
-         FT_BOOLEAN, 32, TFS(&tfs_true_false), 0x0008, "PPI 802.11n MAC Duplicate RX Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_true_false), DOT11N_FLAG_DUPLICATE_RX, "PPI 802.11n MAC Duplicate RX Flag", HFILL } },
     { &hf_80211n_mac_flags_aggregate,
        { "Aggregate flag", "ppi.80211n-mac.flags.agg",
-         FT_BOOLEAN, 32, TFS(&tfs_true_false), 0x0010, "PPI 802.11 MAC Aggregate Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_true_false), DOT11N_FLAG_IS_AGGREGATE, "PPI 802.11 MAC Aggregate Flag", HFILL } },
     { &hf_80211n_mac_flags_more_aggregates,
        { "More aggregates flag", "ppi.80211n-mac.flags.more_agg",
-         FT_BOOLEAN, 32, TFS(&tfs_true_false), 0x0020, "PPI 802.11n MAC More Aggregates Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_true_false), DOT11N_FLAG_MORE_AGGREGATES, "PPI 802.11n MAC More Aggregates Flag", HFILL } },
     { &hf_80211n_mac_flags_delimiter_crc_after,
        { "A-MPDU Delimiter CRC error after this frame flag", "ppi.80211n-mac.flags.delim_crc_error_after",
-         FT_BOOLEAN, 32, TFS(&tfs_true_false), 0x0040, "PPI 802.11n MAC A-MPDU Delimiter CRC Error After This Frame Flag", HFILL } },
+         FT_BOOLEAN, 32, TFS(&tfs_true_false), DOT11N_FLAG_AGG_CRC_ERROR, "PPI 802.11n MAC A-MPDU Delimiter CRC Error After This Frame Flag", HFILL } },
     { &hf_80211n_mac_ampdu_id,
        { "AMPDU-ID", "ppi.80211n-mac.ampdu_id",
          FT_UINT32, BASE_HEX, NULL, 0x0, "PPI 802.11n MAC AMPDU-ID", HFILL } },
@@ -1197,32 +1325,32 @@ proto_register_ppi(void)
        { "Extended channel frequency", "ppi.80211-mac-phy.ext-chan.freq",
          FT_UINT16, BASE_DEC, NULL, 0x0, "PPI 802.11n MAC+PHY Extended Channel Frequency", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags,
-       { "Channel type", "ppi.80211-mac-phy.ext-chan.type",
-         FT_UINT16, BASE_HEX, VALS(vs_80211_common_phy_type), 0x0, "PPI 802.11n MAC+PHY Channel Type", HFILL } },
+       { "Channel flags", "ppi.80211-mac-phy.ext-chan.flags",
+         FT_UINT16, BASE_HEX, NULL, 0x0, "PPI 802.11n MAC+PHY Channel Flags", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_turbo,
-       { "Turbo", "ppi.80211-mac-phy.ext-chan.type.turbo",
-         FT_BOOLEAN, 16, NULL, 0x0010, "PPI 802.11n MAC+PHY Channel Type Turbo", HFILL } },
+       { "Turbo", "ppi.80211-mac-phy.ext-chan.flags.turbo",
+         FT_BOOLEAN, 16, NULL, 0x0010, "PPI 802.11n MAC+PHY Channel Flags Turbo", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_cck,
-       { "Complementary Code Keying (CCK)", "ppi.80211-mac-phy.ext-chan.type.cck",
-         FT_BOOLEAN, 16, NULL, 0x0020, "PPI 802.11n MAC+PHY Channel Type Complementary Code Keying (CCK) Modulation", HFILL } },
+       { "Complementary Code Keying (CCK)", "ppi.80211-mac-phy.ext-chan.flags.cck",
+         FT_BOOLEAN, 16, NULL, 0x0020, "PPI 802.11n MAC+PHY Channel Flags Complementary Code Keying (CCK) Modulation", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_ofdm,
-       { "Orthogonal Frequency-Division Multiplexing (OFDM)", "ppi.80211-mac-phy.ext-chan.type.ofdm",
-         FT_BOOLEAN, 16, NULL, 0x0040, "PPI 802.11n MAC+PHY Channel Type Orthogonal Frequency-Division Multiplexing (OFDM)", HFILL } },
+       { "Orthogonal Frequency-Division Multiplexing (OFDM)", "ppi.80211-mac-phy.ext-chan.flags.ofdm",
+         FT_BOOLEAN, 16, NULL, 0x0040, "PPI 802.11n MAC+PHY Channel Flags Orthogonal Frequency-Division Multiplexing (OFDM)", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_2ghz,
-       { "2 GHz spectrum", "ppi.80211-mac-phy.ext-chan.type.2ghz",
-         FT_BOOLEAN, 16, NULL, 0x0080, "PPI 802.11n MAC+PHY Channel Type 2 GHz spectrum", HFILL } },
+       { "2 GHz spectrum", "ppi.80211-mac-phy.ext-chan.flags.2ghz",
+         FT_BOOLEAN, 16, NULL, 0x0080, "PPI 802.11n MAC+PHY Channel Flags 2 GHz spectrum", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_5ghz,
-       { "5 GHz spectrum", "ppi.80211-mac-phy.ext-chan.type.5ghz",
-         FT_BOOLEAN, 16, NULL, 0x0100, "PPI 802.11n MAC+PHY Channel Type 5 GHz spectrum", HFILL } },
+       { "5 GHz spectrum", "ppi.80211-mac-phy.ext-chan.flags.5ghz",
+         FT_BOOLEAN, 16, NULL, 0x0100, "PPI 802.11n MAC+PHY Channel Flags 5 GHz spectrum", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_passive,
-       { "Passive", "ppi.80211-mac-phy.ext-chan.type.passive",
-         FT_BOOLEAN, 16, NULL, 0x0200, "PPI 802.11n MAC+PHY Channel Type Passive", HFILL } },
+       { "Passive", "ppi.80211-mac-phy.ext-chan.flags.passive",
+         FT_BOOLEAN, 16, NULL, 0x0200, "PPI 802.11n MAC+PHY Channel Flags Passive", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_dynamic,
-       { "Dynamic CCK-OFDM", "ppi.80211-mac-phy.ext-chan.type.dynamic",
-         FT_BOOLEAN, 16, NULL, 0x0400, "PPI 802.11n MAC+PHY Channel Type Dynamic CCK-OFDM Channel", HFILL } },
+       { "Dynamic CCK-OFDM", "ppi.80211-mac-phy.ext-chan.flags.dynamic",
+         FT_BOOLEAN, 16, NULL, 0x0400, "PPI 802.11n MAC+PHY Channel Flags Dynamic CCK-OFDM Channel", HFILL } },
     { &hf_80211n_mac_phy_ext_chan_flags_gfsk,
-       { "Gaussian Frequency Shift Keying (GFSK)", "ppi.80211-mac-phy.ext-chan.type.gfsk",
-         FT_BOOLEAN, 16, NULL, 0x0800, "PPI 802.11n MAC+PHY Channel Type Gaussian Frequency Shift Keying (GFSK) Modulation", HFILL } },
+       { "Gaussian Frequency Shift Keying (GFSK)", "ppi.80211-mac-phy.ext-chan.flags.gfsk",
+         FT_BOOLEAN, 16, NULL, 0x0800, "PPI 802.11n MAC+PHY Channel Flags Gaussian Frequency Shift Keying (GFSK) Modulation", HFILL } },
     { &hf_80211n_mac_phy_dbm_ant0signal,
        { "dBm antenna 0 signal", "ppi.80211n-mac-phy.dbmant0.signal",
          FT_INT8, BASE_DEC, NULL, 0x0, "PPI 802.11n MAC+PHY dBm Antenna 0 Signal", HFILL } },
@@ -1363,6 +1491,7 @@ proto_register_ppi(void)
     ppi_handle = register_dissector("ppi", dissect_ppi, proto_ppi);
 
     register_init_routine(ampdu_reassemble_init);
+    register_cleanup_routine(ampdu_reassemble_cleanup);
 
     /* Configuration options */
     ppi_module = prefs_register_protocol(proto_ppi, NULL);
@@ -1376,7 +1505,7 @@ void
 proto_reg_handoff_ppi(void)
 {
     data_handle = find_dissector("data");
-    ieee80211_ht_handle = find_dissector("wlan_ht");
+    ieee80211_radio_handle = find_dissector("wlan_radio");
     ppi_gps_handle = find_dissector("ppi_gps");
     ppi_vector_handle = find_dissector("ppi_vector");
     ppi_sensor_handle = find_dissector("ppi_sensor");

@@ -1139,14 +1139,13 @@ dissect_zbee_nwk_gp_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     }
     if (offset < tvb_reported_length(tvb)) {
         /* There are leftover bytes! */
-        proto_tree *root = NULL;
+        proto_tree *root;
         tvbuff_t *leftover_tvb = tvb_new_subset_remaining(tvb, offset);
 
         /* Correct the length of the command tree. */
-        if (tree) {
-            root = proto_tree_get_root(tree);
-            proto_item_set_len(cmd_root, offset);
-        }
+        root = proto_tree_get_root(tree);
+        proto_item_set_len(cmd_root, offset);
+
         /* Dump the tail. */
         call_dissector(data_handle, leftover_tvb, pinfo, root);
     }
@@ -1249,8 +1248,8 @@ dissect_zbee_nwk_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     guint8 *dec_buffer;
     guint8 *enc_buffer;
     guint8 fcf;
-    proto_tree *nwk_tree = NULL;
-    proto_item *proto_root = NULL;
+    proto_tree *nwk_tree;
+    proto_item *proto_root;
     proto_item *ti = NULL;
     tvbuff_t *payload_tvb;
     zbee_nwk_green_power_packet packet;
@@ -1274,12 +1273,12 @@ dissect_zbee_nwk_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     /* Add ourself to the protocol column, clear the info column and create the protocol tree. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "ZigBee Green Power");
     col_clear(pinfo->cinfo, COL_INFO);
-    if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_zbee_nwk_gp, tvb, offset, tvb_length(tvb),
+
+    proto_root = proto_tree_add_protocol_format(tree, proto_zbee_nwk_gp, tvb, offset, tvb_captured_length(tvb),
             "ZGP stub NWK header");
-        nwk_tree = proto_item_add_subtree(proto_root, ett_zbee_nwk);
-    }
-    enc_buffer = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_length(tvb));
+    nwk_tree = proto_item_add_subtree(proto_root, ett_zbee_nwk);
+
+    enc_buffer = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_captured_length(tvb));
     /* Get and parse the FCF. */
     fcf = tvb_get_guint8(tvb, offset);
     packet.frame_type = zbee_get_bit_field(fcf, ZBEE_NWK_GP_FCF_FRAME_TYPE);
@@ -1360,7 +1359,7 @@ dissect_zbee_nwk_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     }
     /* Save packet private data. */
     data = (void *)&packet;
-    if ((offset < tvb_length(tvb)) && (packet.security_level != ZBEE_NWK_GP_SECURITY_LEVEL_FULLENCR)) {
+    if ((offset < tvb_captured_length(tvb)) && (packet.security_level != ZBEE_NWK_GP_SECURITY_LEVEL_FULLENCR)) {
         THROW(BoundsError);
     }
     if (packet.security_level == ZBEE_NWK_GP_SECURITY_LEVEL_FULLENCR) {
@@ -1453,16 +1452,36 @@ gp_init_zbee_security(void)
     guint i;
     key_record_t key_record;
 
-    if (zbee_gp_keyring) {
-       g_slist_free(zbee_gp_keyring);
-       zbee_gp_keyring = NULL;
-    }
     for (i = 0; gp_uat_key_records && (i < num_uat_key_records); i++) {
         key_record.frame_num = 0;
         key_record.label = g_strdup(gp_uat_key_records[i].label);
         memcpy(&key_record.key, &gp_uat_key_records[i].key, ZBEE_SEC_CONST_KEYSIZE);
         zbee_gp_keyring = g_slist_prepend(zbee_gp_keyring, g_memdup(&key_record, sizeof(key_record_t)));
     }
+}
+
+static void zbee_free_key_record(gpointer ptr, gpointer user_data _U_)
+{
+    key_record_t *k;
+
+    k = (key_record_t *)ptr;
+    if (!k)
+        return;
+
+    g_free(k->label);
+    g_free(k);
+}
+
+static void
+gp_cleanup_zbee_security(void)
+{
+    if (!zbee_gp_keyring)
+        return;
+
+    g_slist_foreach(zbee_gp_keyring, zbee_free_key_record, NULL);
+
+    g_slist_free(zbee_gp_keyring);
+    zbee_gp_keyring = NULL;
 }
 
 /*FUNCTION:------------------------------------------------------
@@ -1755,6 +1774,7 @@ proto_register_zbee_nwk_gp(void)
         "Pre-configured GP Security Keys.", zbee_gp_sec_key_table_uat);
 
     register_init_routine(gp_init_zbee_security);
+    register_cleanup_routine(gp_cleanup_zbee_security);
 
     /* Register the Wireshark protocol. */
     proto_register_field_array(proto_zbee_nwk_gp, hf, array_length(hf));
@@ -1782,7 +1802,7 @@ proto_reg_handoff_zbee_nwk_gp(void)
     data_handle = find_dissector("data");
     /* Register our dissector with IEEE 802.15.4. */
     dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, find_dissector(ZBEE_PROTOABBREV_NWK_GP));
-    heur_dissector_add(IEEE802154_PROTOABBREV_WPAN, dissect_zbee_nwk_heur_gp, proto_zbee_nwk_gp);
+    heur_dissector_add(IEEE802154_PROTOABBREV_WPAN, dissect_zbee_nwk_heur_gp, "ZigBee Green Power over IEEE 802.15.4", "zbee_nwk_gp_wlan", proto_zbee_nwk_gp, HEURISTIC_ENABLE);
 } /* proto_reg_handoff_zbee */
 
 /*

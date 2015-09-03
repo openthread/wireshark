@@ -104,6 +104,8 @@
 #include <epan/tap.h>
 #include <epan/stat_tap_ui.h>
 #include <epan/conversation_table.h>
+#include <epan/srt_table.h>
+#include <epan/rtd_table.h>
 #include <epan/ex-opt.h>
 
 #if defined(HAVE_HEIMDAL_KERBEROS) || defined(HAVE_MIT_KERBEROS)
@@ -131,6 +133,20 @@
 #ifdef HAVE_PLUGINS
 #include <wsutil/plugins.h>
 #endif
+
+
+#if 0
+#define tshark_debug0(str) g_warning(str)
+#define tshark_debug1(str,p1) g_warning(str,p1)
+#define tshark_debug2(str,p1,p2) g_warning(str,p1,p2)
+#define tshark_debug3(str,p1,p2,p3) g_warning(str,p1,p2,p3)
+#else
+#define tshark_debug0(str)
+#define tshark_debug1(str,p1)
+#define tshark_debug2(str,p1,p2)
+#define tshark_debug3(str,p1,p2,p3)
+#endif
+
 
 /*
  * This is the template for the decode as option; it is shared between the
@@ -343,12 +359,18 @@ print_usage(FILE *output)
   fprintf(output, "  -Y <display filter>      packet displaY filter in Wireshark display filter\n");
   fprintf(output, "                           syntax\n");
   fprintf(output, "  -n                       disable all name resolutions (def: all enabled)\n");
-  fprintf(output, "  -N <name resolve flags>  enable specific name resolution(s): \"mntC\"\n");
+  fprintf(output, "  -N <name resolve flags>  enable specific name resolution(s): \"mnNtCd\"\n");
   fprintf(output, "  -d %s ...\n", decode_as_arg_template);
   fprintf(output, "                           \"Decode As\", see the man page for details\n");
   fprintf(output, "                           Example: tcp.port==8888,http\n");
   fprintf(output, "  -H <hosts file>          read a list of entries from a hosts file, which will\n");
   fprintf(output, "                           then be written to a capture file. (Implies -W n)\n");
+  fprintf(output, "  --disable-protocol <proto_name>\n");
+  fprintf(output, "                           disable dissection of proto_name\n");
+  fprintf(output, "  --enable-heuristic <short_name>\n");
+  fprintf(output, "                           enable dissection of heuristic protocol\n");
+  fprintf(output, "  --disable-heuristic <short_name>\n");
+  fprintf(output, "                           disable dissection of heuristic protocol\n");
 
   /*fprintf(output, "\n");*/
   fprintf(output, "Output:\n");
@@ -1001,6 +1023,9 @@ DIAG_ON(cast-qual)
   char                 badopt;
   int                  log_flags;
   gchar               *output_only = NULL;
+  GSList              *disable_protocol_slist = NULL;
+  GSList              *enable_heur_slist = NULL;
+  GSList              *disable_heur_slist = NULL;
 
 /*
  * The leading + ensures that getopt_long() does not permute the argv[]
@@ -1024,6 +1049,8 @@ DIAG_ON(cast-qual)
 #define OPTSTRING "+2" OPTSTRING_CAPTURE_COMMON "C:d:e:E:F:gG:hH:" "K:lnN:o:O:PqQr:R:S:t:T:u:vVw:W:xX:Y:z:"
 
   static const char    optstring[] = OPTSTRING;
+
+  tshark_debug1("tshark started with %d args", argc);
 
   /* Set the C-language locale to the native environment. */
   setlocale(LC_ALL, "");
@@ -1083,6 +1110,8 @@ DIAG_ON(cast-qual)
          "\n"
          "%s",
       get_ws_vcs_version_info(), comp_info_str->str, runtime_info_str->str);
+  g_string_free(comp_info_str, TRUE);
+  g_string_free(runtime_info_str, TRUE);
 
   /*
    * In order to have the -X opts assigned before the wslua machine starts
@@ -1215,6 +1244,9 @@ DIAG_ON(cast-qual)
   register_all_tap_listeners();
   conversation_table_set_gui_info(init_iousers);
   hostlist_table_set_gui_info(init_hostlists);
+  srt_table_iterate_tables(register_srt_tables, NULL);
+  rtd_table_iterate_tables(register_rtd_tables, NULL);
+  new_stat_tap_iterate_tables(register_simple_stat_tables, NULL);
 
   /* If invoked with the "-G" flag, we dump out information based on
      the argument to the "-G" flag; if no argument is specified,
@@ -1273,6 +1305,8 @@ DIAG_ON(cast-qual)
     return 0;
   }
 
+  tshark_debug0("tshark reading preferences");
+
   prefs_p = read_prefs(&gpf_open_errno, &gpf_read_errno, &gpf_path,
                      &pf_open_errno, &pf_read_errno, &pf_path);
   if (gpf_path != NULL) {
@@ -1300,6 +1334,8 @@ DIAG_ON(cast-qual)
 
   /* Read the disabled protocols file. */
   read_disabled_protos_list(&gdp_path, &gdp_open_errno, &gdp_read_errno,
+                            &dp_path, &dp_open_errno, &dp_read_errno);
+  read_disabled_heur_dissector_list(&gdp_path, &gdp_open_errno, &gdp_read_errno,
                             &dp_path, &dp_open_errno, &dp_read_errno);
   if (gdp_path != NULL) {
     if (gdp_open_errno != 0) {
@@ -1502,10 +1538,7 @@ DIAG_ON(cast-qual)
 #endif
       break;
     case 'n':        /* No name resolution */
-      gbl_resolv_flags.mac_name = FALSE;
-      gbl_resolv_flags.network_name = FALSE;
-      gbl_resolv_flags.transport_name = FALSE;
-      gbl_resolv_flags.concurrent_dns = FALSE;
+      disable_name_resolution();
       break;
     case 'N':        /* Select what types of addresses/port #s to resolve */
       badopt = string_to_name_resolve(optarg, &gbl_resolv_flags);
@@ -1513,6 +1546,7 @@ DIAG_ON(cast-qual)
         cmdarg_err("-N specifies unknown resolving option '%c'; valid options are:",
                    badopt);
         cmdarg_err_cont("\t'C' to enable concurrent (asynchronous) DNS lookups\n"
+                        "\t'd' to enable address resolution from captured DNS packets\n"
                         "\t'm' to enable MAC address resolution\n"
                         "\t'n' to enable network address resolution\n"
                         "\t'N' to enable using external resolvers (e.g., DNS)\n"
@@ -1648,7 +1682,9 @@ DIAG_ON(cast-qual)
       }
       break;
     case 'v':         /* Show version and exit */
-    {
+      comp_info_str = get_compiled_version_info(get_tshark_compiled_version_info,
+                                                epan_get_compiled_version_info);
+      runtime_info_str = get_runtime_version_info(get_tshark_runtime_version_info);
       show_version("TShark (Wireshark)", comp_info_str, runtime_info_str);
       g_string_free(comp_info_str, TRUE);
       g_string_free(runtime_info_str, TRUE);
@@ -1659,7 +1695,6 @@ DIAG_ON(cast-qual)
        * much more useful. */
       epan_cleanup();
       return 0;
-    }
     case 'O':        /* Only output these protocols */
       /* already processed; just ignore it now */
       break;
@@ -1692,6 +1727,16 @@ DIAG_ON(cast-qual)
         return 1;
       }
       break;
+    case LONGOPT_DISABLE_PROTOCOL: /* disable dissection of protocol */
+      disable_protocol_slist = g_slist_append(disable_protocol_slist, optarg);
+      break;
+    case LONGOPT_ENABLE_HEURISTIC: /* enable heuristic dissection of protocol */
+      enable_heur_slist = g_slist_append(enable_heur_slist, optarg);
+      break;
+    case LONGOPT_DISABLE_HEURISTIC: /* disable heuristic dissection of protocol */
+      disable_heur_slist = g_slist_append(disable_heur_slist, optarg);
+      break;
+
     default:
     case '?':        /* Bad flag - print usage message */
       switch(optopt) {
@@ -2019,6 +2064,31 @@ DIAG_ON(cast-qual)
   /* disabled protocols as per configuration file */
   if (gdp_path == NULL && dp_path == NULL) {
     set_disabled_protos_list();
+    set_disabled_heur_dissector_list();
+  }
+
+  if(disable_protocol_slist) {
+      GSList *proto_disable;
+      for (proto_disable = disable_protocol_slist; proto_disable != NULL; proto_disable = g_slist_next(proto_disable))
+      {
+          proto_disable_proto_by_name((char*)proto_disable->data);
+      }
+  }
+
+  if(enable_heur_slist) {
+      GSList *heur_enable;
+      for (heur_enable = enable_heur_slist; heur_enable != NULL; heur_enable = g_slist_next(heur_enable))
+      {
+          proto_enable_heuristic_by_name((char*)heur_enable->data, TRUE);
+      }
+  }
+
+  if(disable_heur_slist) {
+      GSList *heur_disable;
+      for (heur_disable = disable_heur_slist; heur_disable != NULL; heur_disable = g_slist_next(heur_disable))
+      {
+          proto_enable_heuristic_by_name((char*)heur_disable->data, FALSE);
+      }
   }
 
   /* Build the column format array */
@@ -2030,6 +2100,7 @@ DIAG_ON(cast-qual)
 #endif
 
   if (rfilter != NULL) {
+    tshark_debug1("Compiling read filter: '%s'", rfilter);
     if (!dfilter_compile(rfilter, &rfcode, &err_msg)) {
       cmdarg_err("%s", err_msg);
       g_free(err_msg);
@@ -2055,6 +2126,7 @@ DIAG_ON(cast-qual)
   cfile.rfcode = rfcode;
 
   if (dfilter != NULL) {
+    tshark_debug1("Compiling display filter: '%s'", dfilter);
     if (!dfilter_compile(dfilter, &dfcode, &err_msg)) {
       cmdarg_err("%s", err_msg);
       g_free(err_msg);
@@ -2109,8 +2181,10 @@ DIAG_ON(cast-qual)
 
         we're using any taps that need dissection. */
   do_dissection = print_packet_info || rfcode || dfcode || tap_listeners_require_dissection();
+  tshark_debug1("tshark: do_dissection = %s", do_dissection ? "TRUE" : "FALSE");
 
   if (cf_name) {
+    tshark_debug1("tshark: Opening capture file: %s", cf_name);
     /*
      * We're reading a capture file.
      */
@@ -2120,6 +2194,7 @@ DIAG_ON(cast-qual)
     }
 
     /* Process the packets in the file */
+    tshark_debug0("tshark: invoking load_cap_file() to process the packets");
     TRY {
 #ifdef HAVE_LIBPCAP
       err = load_cap_file(&cfile, global_capture_opts.save_file, out_file_type, out_file_name_res,
@@ -2146,6 +2221,7 @@ DIAG_ON(cast-qual)
       exit_status = 2;
     }
   } else {
+    tshark_debug0("tshark: no capture file specified");
     /* No capture file specified, so we're supposed to do a live capture
        or get a list of link-layer types for a live capture device;
        do we have support for live captures? */
@@ -2164,9 +2240,16 @@ DIAG_ON(cast-qual)
         for (i = 0; i < global_capture_opts.ifaces->len; i++) {
           interface_options  interface_opts;
           if_capabilities_t *caps;
+          char *auth_str = NULL;
 
           interface_opts = g_array_index(global_capture_opts.ifaces, interface_options, i);
-          caps = capture_get_if_capabilities(interface_opts.name, interface_opts.monitor_mode, &err_str, NULL);
+#ifdef HAVE_PCAP_REMOTE
+          if (interface_opts.auth_type == CAPTURE_AUTH_PWD) {
+              auth_str = g_strdup_printf("%s:%s", interface_opts.auth_username, interface_opts.auth_password);
+          }
+#endif
+          caps = capture_get_if_capabilities(interface_opts.name, interface_opts.monitor_mode, auth_str, &err_str, NULL);
+          g_free(auth_str);
           if (caps == NULL) {
             cmdarg_err("%s", err_str);
             g_free(err_str);
@@ -2221,6 +2304,7 @@ DIAG_ON(cast-qual)
       }
     }
 
+    tshark_debug0("tshark: performing live capture");
     /*
      * XXX - this returns FALSE if an error occurred, but it also
      * returns FALSE if the capture stops because a time limit
@@ -2996,7 +3080,7 @@ process_packet_second_pass(capture_file *cf, epan_dissect_t *edt, frame_data *fd
          2) we're printing packet info but we're *not* verbose; in verbose
             mode, we print the protocol tree, not the protocol summary.
      */
-    if ((tap_flags & TL_REQUIRES_COLUMNS) || (print_packet_info && print_summary))
+    if ((tap_flags & TL_REQUIRES_COLUMNS) || (print_packet_info && print_summary) || output_fields_has_cols(output_fields))
       cinfo = &cf->cinfo;
     else
       cinfo = NULL;
@@ -3075,16 +3159,15 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
   char        *save_file_string = NULL;
   gboolean     filtering_tap_listeners;
   guint        tap_flags;
-  wtapng_section_t            *shb_hdr;
-  wtapng_iface_descriptions_t *idb_inf;
-  char         *appname = NULL;
+  wtapng_section_t            *shb_hdr = NULL;
+  wtapng_iface_descriptions_t *idb_inf = NULL;
+  wtapng_name_res_t           *nrb_hdr = NULL;
   struct wtap_pkthdr phdr;
   Buffer       buf;
   epan_dissect_t *edt = NULL;
 
   wtap_phdr_init(&phdr);
 
-  shb_hdr = wtap_file_get_shb_info(cf->wth);
   idb_inf = wtap_file_get_idb_info(cf->wth);
 #ifdef PCAP_NG_DEFAULT
   if (idb_inf->interface_data->len > 1) {
@@ -3105,19 +3188,28 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
       /* Snapshot length of input file not known. */
       snapshot_length = WTAP_MAX_PACKET_SIZE;
     }
+    tshark_debug1("tshark: snapshot_length = %d", snapshot_length);
+
+    shb_hdr = wtap_file_get_shb_for_new_file(cf->wth);
+    nrb_hdr = wtap_file_get_nrb_for_new_file(cf->wth);
+
     /* If we don't have an application name add Tshark */
     if (shb_hdr->shb_user_appl == NULL) {
-        appname = g_strdup_printf("TShark (Wireshark) %s", get_ws_vcs_version_info());
-        shb_hdr->shb_user_appl = appname;
+        /* this is free'd by wtap_free_shb() later */
+        shb_hdr->shb_user_appl = g_strdup_printf("TShark (Wireshark) %s", get_ws_vcs_version_info());
     }
 
     if (linktype != WTAP_ENCAP_PER_PACKET &&
-        out_file_type == WTAP_FILE_TYPE_SUBTYPE_PCAP)
+        out_file_type == WTAP_FILE_TYPE_SUBTYPE_PCAP) {
+        tshark_debug1("tshark: writing PCAP format to %s", save_file);
         pdh = wtap_dump_open(save_file, out_file_type, linktype,
             snapshot_length, FALSE /* compressed */, &err);
-    else
+    }
+    else {
+        tshark_debug2("tshark: writing format type %d, to %s", out_file_type, save_file);
         pdh = wtap_dump_open_ng(save_file, out_file_type, linktype,
-            snapshot_length, FALSE /* compressed */, shb_hdr, idb_inf, &err);
+            snapshot_length, FALSE /* compressed */, shb_hdr, idb_inf, nrb_hdr, &err);
+    }
 
     g_free(idb_inf);
     idb_inf = NULL;
@@ -3175,6 +3267,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
   if (perform_two_pass_analysis) {
     frame_data *fdata;
 
+    tshark_debug1("tshark: perform_two_pass_analysis, do_dissection=%s", do_dissection ? "TRUE" : "FALSE");
+
     /* Allocate a frame_data_sequence for all the frames. */
     cf->frames = new_frame_data_sequence();
 
@@ -3186,11 +3280,14 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
       if (cf->rfcode || cf->dfcode)
         create_proto_tree = TRUE;
 
+      tshark_debug1("tshark: create_proto_tree = %s", create_proto_tree ? "TRUE" : "FALSE");
+
       /* We're not going to display the protocol tree on this pass,
          so it's not going to be "visible". */
       edt = epan_dissect_new(cf->epan, create_proto_tree, FALSE);
     }
 
+    tshark_debug0("tshark: reading records for first pass");
     while (wtap_read(cf->wth, &err, &err_info, &data_offset)) {
       if (process_packet_first_pass(cf, edt, data_offset, wtap_phdr(cf->wth),
                          wtap_buf_ptr(cf->wth))) {
@@ -3200,6 +3297,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
          * (unless we roll over max_packet_count ?)
          */
         if ( (--max_packet_count == 0) || (max_byte_count != 0 && data_offset >= max_byte_count)) {
+          tshark_debug3("tshark: max_packet_count (%d) or max_byte_count (%" G_GINT64_MODIFIER "d/%" G_GINT64_MODIFIER "d) reached",
+                        max_packet_count, data_offset, max_byte_count);
           err = 0; /* This is not an error */
           break;
         }
@@ -3222,6 +3321,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
     prev_cap = NULL;
     ws_buffer_init(&buf, 1500);
 
+    tshark_debug0("tshark: done with first pass");
+
     if (do_dissection) {
       gboolean create_proto_tree;
 
@@ -3230,6 +3331,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
            create_proto_tree = TRUE;
       else
            create_proto_tree = FALSE;
+
+      tshark_debug1("tshark: create_proto_tree = %s", create_proto_tree ? "TRUE" : "FALSE");
 
       /* The protocol tree will be "visible", i.e., printed, only if we're
          printing packet details, which is true if we're printing stuff
@@ -3242,14 +3345,17 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
       fdata = frame_data_sequence_find(cf->frames, framenum);
       if (wtap_seek_read(cf->wth, fdata->file_off, &phdr, &buf, &err,
                          &err_info)) {
+        tshark_debug1("tshark: invoking process_packet_second_pass() for frame #%d", framenum);
         if (process_packet_second_pass(cf, edt, fdata, &phdr, &buf,
                                        tap_flags)) {
           /* Either there's no read filtering or this packet passed the
              filter, so, if we're writing to a capture file, write
              this packet out. */
           if (pdh != NULL) {
+            tshark_debug1("tshark: writing packet #%d to outfile", framenum);
             if (!wtap_dump(pdh, &phdr, ws_buffer_start_ptr(&buf), &err, &err_info)) {
               /* Error writing to a capture file */
+              tshark_debug1("tshark: error writing to a capture file (%d)", err);
               switch (err) {
 
               case WTAP_ERR_UNWRITABLE_ENCAP:
@@ -3319,8 +3425,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
                 break;
               }
               wtap_dump_close(pdh, &err);
-              g_free(shb_hdr);
-              g_free(appname);
+              wtap_free_shb(shb_hdr);
+              wtap_free_nrb(nrb_hdr);
               exit(2);
             }
           }
@@ -3334,9 +3440,14 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
     }
 
     ws_buffer_free(&buf);
+
+    tshark_debug0("tshark: done with second pass");
   }
   else {
+    /* !perform_two_pass_analysis */
     framenum = 0;
+
+    tshark_debug1("tshark: perform one pass analysis, do_dissection=%s", do_dissection ? "TRUE" : "FALSE");
 
     if (do_dissection) {
       gboolean create_proto_tree;
@@ -3346,6 +3457,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
         create_proto_tree = TRUE;
       else
         create_proto_tree = FALSE;
+
+      tshark_debug1("tshark: create_proto_tree = %s", create_proto_tree ? "TRUE" : "FALSE");
 
       /* The protocol tree will be "visible", i.e., printed, only if we're
          printing packet details, which is true if we're printing stuff
@@ -3357,6 +3470,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
     while (wtap_read(cf->wth, &err, &err_info, &data_offset)) {
       framenum++;
 
+      tshark_debug1("tshark: processing packet #%d", framenum);
+
       if (process_packet(cf, edt, data_offset, wtap_phdr(cf->wth),
                          wtap_buf_ptr(cf->wth),
                          tap_flags)) {
@@ -3364,8 +3479,10 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
            filter, so, if we're writing to a capture file, write
            this packet out. */
         if (pdh != NULL) {
+          tshark_debug1("tshark: writing packet #%d to outfile", framenum);
           if (!wtap_dump(pdh, wtap_phdr(cf->wth), wtap_buf_ptr(cf->wth), &err, &err_info)) {
             /* Error writing to a capture file */
+            tshark_debug1("tshark: error writing to a capture file (%d)", err);
             switch (err) {
 
             case WTAP_ERR_UNWRITABLE_ENCAP:
@@ -3423,8 +3540,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
               break;
             }
             wtap_dump_close(pdh, &err);
-            g_free(shb_hdr);
-            g_free(appname);
+            wtap_free_shb(shb_hdr);
+            wtap_free_nrb(nrb_hdr);
             exit(2);
           }
         }
@@ -3435,6 +3552,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
        * (unless we roll over max_packet_count ?)
        */
       if ( (--max_packet_count == 0) || (max_byte_count != 0 && data_offset >= max_byte_count)) {
+        tshark_debug3("tshark: max_packet_count (%d) or max_byte_count (%" G_GINT64_MODIFIER "d/%" G_GINT64_MODIFIER "d) reached",
+                      max_packet_count, data_offset, max_byte_count);
         err = 0; /* This is not an error */
         break;
       }
@@ -3449,6 +3568,7 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
   wtap_phdr_cleanup(&phdr);
 
   if (err != 0) {
+    tshark_debug1("tshark: something failed along the line (%d)", err);
     /*
      * Print a message noting that the read failed somewhere along the line.
      *
@@ -3537,8 +3657,8 @@ out:
   cf->wth = NULL;
 
   g_free(save_file_string);
-  g_free(shb_hdr);
-  g_free(appname);
+  wtap_free_shb(shb_hdr);
+  wtap_free_nrb(nrb_hdr);
 
   return err;
 }
@@ -3741,21 +3861,23 @@ print_columns(capture_file *cf)
   size_t  buf_offset;
   size_t  column_len;
   size_t  col_len;
+  col_item_t* col_item;
 
   line_bufp = get_line_buf(256);
   buf_offset = 0;
   *line_bufp = '\0';
   for (i = 0; i < cf->cinfo.num_cols; i++) {
+    col_item = &cf->cinfo.columns[i];
     /* Skip columns not marked as visible. */
     if (!get_column_visible(i))
       continue;
-    switch (cf->cinfo.col_fmt[i]) {
+    switch (col_item->col_fmt) {
     case COL_NUMBER:
-      column_len = col_len = strlen(cf->cinfo.col_data[i]);
+      column_len = col_len = strlen(col_item->col_data);
       if (column_len < 3)
         column_len = 3;
       line_bufp = get_line_buf(buf_offset + column_len);
-      put_spaces_string(line_bufp + buf_offset, cf->cinfo.col_data[i], col_len, column_len);
+      put_spaces_string(line_bufp + buf_offset, col_item->col_data, col_len, column_len);
       break;
 
     case COL_CLS_TIME:
@@ -3766,11 +3888,11 @@ print_columns(capture_file *cf)
     case COL_UTC_TIME:
     case COL_UTC_YMD_TIME:  /* XXX - wider */
     case COL_UTC_YDOY_TIME: /* XXX - wider */
-      column_len = col_len = strlen(cf->cinfo.col_data[i]);
+      column_len = col_len = strlen(col_item->col_data);
       if (column_len < 10)
         column_len = 10;
       line_bufp = get_line_buf(buf_offset + column_len);
-      put_spaces_string(line_bufp + buf_offset, cf->cinfo.col_data[i], col_len, column_len);
+      put_spaces_string(line_bufp + buf_offset, col_item->col_data, col_len, column_len);
       break;
 
     case COL_DEF_SRC:
@@ -3782,11 +3904,11 @@ print_columns(capture_file *cf)
     case COL_DEF_NET_SRC:
     case COL_RES_NET_SRC:
     case COL_UNRES_NET_SRC:
-      column_len = col_len = strlen(cf->cinfo.col_data[i]);
+      column_len = col_len = strlen(col_item->col_data);
       if (column_len < 12)
         column_len = 12;
       line_bufp = get_line_buf(buf_offset + column_len);
-      put_spaces_string(line_bufp + buf_offset, cf->cinfo.col_data[i], col_len, column_len);
+      put_spaces_string(line_bufp + buf_offset, col_item->col_data, col_len, column_len);
       break;
 
     case COL_DEF_DST:
@@ -3798,17 +3920,17 @@ print_columns(capture_file *cf)
     case COL_DEF_NET_DST:
     case COL_RES_NET_DST:
     case COL_UNRES_NET_DST:
-      column_len = col_len = strlen(cf->cinfo.col_data[i]);
+      column_len = col_len = strlen(col_item->col_data);
       if (column_len < 12)
         column_len = 12;
       line_bufp = get_line_buf(buf_offset + column_len);
-      put_string_spaces(line_bufp + buf_offset, cf->cinfo.col_data[i], col_len, column_len);
+      put_string_spaces(line_bufp + buf_offset, col_item->col_data, col_len, column_len);
       break;
 
     default:
-      column_len = strlen(cf->cinfo.col_data[i]);
+      column_len = strlen(col_item->col_data);
       line_bufp = get_line_buf(buf_offset + column_len);
-      put_string(line_bufp + buf_offset, cf->cinfo.col_data[i], column_len);
+      put_string(line_bufp + buf_offset, col_item->col_data, column_len);
       break;
     }
     buf_offset += column_len;
@@ -3828,12 +3950,12 @@ print_columns(capture_file *cf)
        * even if we're only adding " ".
        */
       line_bufp = get_line_buf(buf_offset + 4);
-      switch (cf->cinfo.col_fmt[i]) {
+      switch (col_item->col_fmt) {
 
       case COL_DEF_SRC:
       case COL_RES_SRC:
       case COL_UNRES_SRC:
-        switch (cf->cinfo.col_fmt[i + 1]) {
+        switch (cf->cinfo.columns[i+1].col_fmt) {
 
         case COL_DEF_DST:
         case COL_RES_DST:
@@ -3852,7 +3974,7 @@ print_columns(capture_file *cf)
       case COL_DEF_DL_SRC:
       case COL_RES_DL_SRC:
       case COL_UNRES_DL_SRC:
-        switch (cf->cinfo.col_fmt[i + 1]) {
+        switch (cf->cinfo.columns[i+1].col_fmt) {
 
         case COL_DEF_DL_DST:
         case COL_RES_DL_DST:
@@ -3871,7 +3993,7 @@ print_columns(capture_file *cf)
       case COL_DEF_NET_SRC:
       case COL_RES_NET_SRC:
       case COL_UNRES_NET_SRC:
-        switch (cf->cinfo.col_fmt[i + 1]) {
+        switch (cf->cinfo.columns[i+1].col_fmt) {
 
         case COL_DEF_NET_DST:
         case COL_RES_NET_DST:
@@ -3890,7 +4012,7 @@ print_columns(capture_file *cf)
       case COL_DEF_DST:
       case COL_RES_DST:
       case COL_UNRES_DST:
-        switch (cf->cinfo.col_fmt[i + 1]) {
+        switch (cf->cinfo.columns[i+1].col_fmt) {
 
         case COL_DEF_SRC:
         case COL_RES_SRC:
@@ -3909,7 +4031,7 @@ print_columns(capture_file *cf)
       case COL_DEF_DL_DST:
       case COL_RES_DL_DST:
       case COL_UNRES_DL_DST:
-        switch (cf->cinfo.col_fmt[i + 1]) {
+        switch (cf->cinfo.columns[i+1].col_fmt) {
 
         case COL_DEF_DL_SRC:
         case COL_RES_DL_SRC:
@@ -3928,7 +4050,7 @@ print_columns(capture_file *cf)
       case COL_DEF_NET_DST:
       case COL_RES_NET_DST:
       case COL_UNRES_NET_DST:
-        switch (cf->cinfo.col_fmt[i + 1]) {
+        switch (cf->cinfo.columns[i+1].col_fmt) {
 
         case COL_DEF_NET_SRC:
         case COL_RES_NET_SRC:

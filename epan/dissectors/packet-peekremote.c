@@ -54,6 +54,8 @@
 
 #include "config.h"
 
+#include <wiretap/wtap.h>
+
 #include <epan/packet.h>
 #include <epan/expert.h>
 
@@ -115,6 +117,28 @@ static const value_string peekremote_type_vals[] = {
   { 6, "kMediaSpecificHdrType_Wireless3" },
   { 0, NULL }
 };
+
+/*
+ * Extended flags.
+ *
+ * Some determined from bug 10637, some determined from bug 9586,
+ * and the ones present in both agree, so we're assuming that
+ * the "remote Peek" protocol and the "Peek tagged" file format
+ * use the same bits (which wouldn't be too surprising, as they
+ * both come from Wildpackets).
+ */
+#define EXT_FLAG_20_MHZ_LOWER                   0x00000001
+#define EXT_FLAG_20_MHZ_UPPER                   0x00000002
+#define EXT_FLAG_40_MHZ                         0x00000004
+#define EXT_FLAGS_BANDWIDTH                     0x00000007
+#define EXT_FLAG_HALF_GI                        0x00000008
+#define EXT_FLAG_FULL_GI                        0x00000010
+#define EXT_FLAGS_GI                            0x00000018
+#define EXT_FLAG_AMPDU                          0x00000020
+#define EXT_FLAG_AMSDU                          0x00000040
+#define EXT_FLAG_802_11ac                       0x00000080
+#define EXT_FLAG_MCS_INDEX_USED                 0x00000100
+#define EXT_FLAGS_RESERVED                      0xFFFFFE00
 
 /* hfi elements */
 #define THIS_HF_INIT HFI_INIT(proto_peekremote)
@@ -233,43 +257,43 @@ static header_field_info hfi_peekremote_extflags THIS_HF_INIT =
 
 static header_field_info hfi_peekremote_extflags_20mhz_lower THIS_HF_INIT =
       { "20 MHz Lower",     "peekremote.extflags.20mhz_lower", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000001, NULL, HFILL };
+        EXT_FLAG_20_MHZ_LOWER, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_20mhz_upper THIS_HF_INIT =
       { "20 MHz Upper",     "peekremote.extflags.20mhz_upper", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000002, NULL, HFILL };
+        EXT_FLAG_20_MHZ_UPPER, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_40mhz THIS_HF_INIT =
       { "40 MHz",     "peekremote.extflags.40mhz", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000004, NULL, HFILL };
+        EXT_FLAG_40_MHZ, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_half_gi THIS_HF_INIT =
       { "Half Guard Interval",     "peekremote.extflags.half_gi", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000008, NULL, HFILL };
+        EXT_FLAG_HALF_GI, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_full_gi THIS_HF_INIT =
       { "Full Guard Interval",     "peekremote.extflags.full_gi", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000010, NULL, HFILL };
+        EXT_FLAG_FULL_GI, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_ampdu THIS_HF_INIT =
       { "AMPDU",     "peekremote.extflags.ampdu", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000020, NULL, HFILL };
+        EXT_FLAG_AMPDU, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_amsdu THIS_HF_INIT =
       { "AMSDU",     "peekremote.extflags.amsdu", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000040, NULL, HFILL };
+        EXT_FLAG_AMSDU, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_11ac THIS_HF_INIT =
       { "802.11ac",     "peekremote.extflags.11ac", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000080, NULL, HFILL };
+        EXT_FLAG_802_11ac, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_future_use THIS_HF_INIT =
       { "MCS index used",     "peekremote.extflags.future_use", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
-        0x00000100, NULL, HFILL };
+        EXT_FLAG_MCS_INDEX_USED, NULL, HFILL };
 
 static header_field_info hfi_peekremote_extflags_reserved THIS_HF_INIT =
       { "Reserved",     "peekremote.extflags.reserved", FT_UINT32, BASE_HEX, NULL,
-        0xFFFFFE80, "Must be zero", HFILL };
+        EXT_FLAGS_RESERVED, "Must be zero", HFILL };
 
 /* XXX - are the numbers antenna numbers? */
 static header_field_info hfi_peekremote_signal_1_dbm THIS_HF_INIT =
@@ -312,8 +336,7 @@ static gint ett_peekremote_flags = -1;
 static gint ett_peekremote_status = -1;
 static gint ett_peekremote_extflags = -1;
 
-static dissector_handle_t wlan_withfcs;
-static dissector_handle_t wlan_withoutfcs;
+static dissector_handle_t wlan_radio_handle;
 
 
 static int
@@ -380,6 +403,10 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
   proto_item *ti_header_version, *ti_header_size;
   guint8 header_version;
   guint header_size;
+  struct ieee_802_11_phdr phdr;
+  guint32 extflags;
+  guint16 frequency;
+  guint16 mcs_index;
   tvbuff_t *next_tvb;
 
   if (tvb_memeql(tvb, 0, magic, 4) == -1) {
@@ -389,6 +416,13 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
      */
     return FALSE;
   }
+
+  /* We don't have any 802.11 metadata yet. */
+  phdr.fcs_len = 4; /* has an FCS */
+  phdr.decrypted = FALSE;
+  phdr.datapad = FALSE;
+  phdr.phy = PHDR_802_11_PHY_UNKNOWN;
+  phdr.presence_flags = 0;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "PEEKREMOTE");
   col_clear(pinfo->cinfo, COL_INFO);
@@ -412,23 +446,58 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
       if (header_size > 9)
         offset += (header_size - 9);
     } else {
+      phdr.presence_flags |=
+          PHDR_802_11_HAS_CHANNEL|
+          PHDR_802_11_HAS_SIGNAL_PERCENT|
+          PHDR_802_11_HAS_NOISE_PERCENT|
+          PHDR_802_11_HAS_SIGNAL_DBM|
+          PHDR_802_11_HAS_NOISE_DBM|
+          PHDR_802_11_HAS_TSF_TIMESTAMP;
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_type, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
+      mcs_index = tvb_get_ntohs(tvb, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_mcs_index, tvb, offset, 2, ENC_BIG_ENDIAN);
       offset += 2;
+      phdr.channel = tvb_get_ntohs(tvb, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_channel, tvb, offset, 2, ENC_BIG_ENDIAN);
       offset += 2;
+      frequency = tvb_get_ntohl(tvb, offset);
+      if (frequency != 0) {
+        phdr.presence_flags |= PHDR_802_11_HAS_FREQUENCY;
+        phdr.frequency = frequency;
+      }
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_frequency, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_band, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset +=4;
+      extflags = tvb_get_ntohl(tvb, offset);
+      if (extflags & EXT_FLAG_802_11ac) {
+        guint i;
+        phdr.phy = PHDR_802_11_PHY_11AC;
+        phdr.phy_info.info_11ac.presence_flags = 0;
+        /*
+         * XXX - this probably has only one user, so only one MCS index
+         * and only one NSS, but where's the NSS?
+         */
+        for (i = 0; i < 4; i++) {
+          phdr.phy_info.info_11ac.nss[i] = 0;
+        }
+      } else {
+        phdr.phy = PHDR_802_11_PHY_11N;
+        phdr.phy_info.info_11n.presence_flags = PHDR_802_11N_HAS_MCS_INDEX;
+        phdr.phy_info.info_11n.mcs_index = mcs_index;
+      }
       offset += dissect_peekremote_extflags(tvb, pinfo, peekremote_tree, offset);
+      phdr.signal_percent = tvb_get_guint8(tvb, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_signal_percent, tvb, offset, 1, ENC_NA);
       offset += 1;
+      phdr.noise_percent = tvb_get_guint8(tvb, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_noise_percent, tvb, offset, 1, ENC_NA);
       offset += 1;
+      phdr.signal_dbm = tvb_get_guint8(tvb, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_signal_dbm, tvb, offset, 1, ENC_NA);
       offset += 1;
+      phdr.noise_dbm = tvb_get_guint8(tvb, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_noise_dbm, tvb, offset, 1, ENC_NA);
       offset += 1;
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_signal_1_dbm, tvb, offset, 1, ENC_NA);
@@ -454,6 +523,7 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
       offset += dissect_peekremote_flags(tvb, pinfo, peekremote_tree, offset);
       offset += dissect_peekremote_status(tvb, pinfo, peekremote_tree, offset);
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_timestamp, tvb, offset, 8, ENC_BIG_ENDIAN);
+      phdr.tsf_timestamp = tvb_get_ntoh64(tvb, offset);
       offset += 8;
     }
     break;
@@ -467,7 +537,7 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 
   proto_item_set_end(ti, tvb, offset);
   next_tvb = tvb_new_subset_remaining(tvb, offset);
-  call_dissector(wlan_withfcs, next_tvb, pinfo, tree);
+  call_dissector_with_data(wlan_radio_handle, next_tvb, pinfo, tree, &phdr);
   return TRUE;
 }
 
@@ -477,6 +547,7 @@ dissect_peekremote_legacy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
   tvbuff_t *next_tvb;
   proto_tree *peekremote_tree = NULL;
   proto_item *ti = NULL;
+  struct ieee_802_11_phdr phdr;
   guint8 signal_percent;
 
   /*
@@ -511,11 +582,30 @@ dissect_peekremote_legacy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
   proto_item_set_end(ti, tvb, 20);
   next_tvb = tvb_new_subset_remaining(tvb, 20);
   /* When signal = 100 % and coming from ARUBA ERM, it is TX packet and there is no FCS */
-  if (GPOINTER_TO_INT(data) == IS_ARUBA && signal_percent == 100){
-    return 20 + call_dissector(wlan_withoutfcs, next_tvb, pinfo, tree);
+  if (GPOINTER_TO_INT(data) == IS_ARUBA && signal_percent == 100) {
+    phdr.fcs_len = 0; /* TX packet, no FCS */
   } else {
-    return 20 + call_dissector(wlan_withfcs, next_tvb, pinfo, tree);
+    phdr.fcs_len = 4; /* We have an FCS */
   }
+  phdr.decrypted = FALSE;
+  phdr.phy = PHDR_802_11_PHY_UNKNOWN;
+  phdr.presence_flags =
+      PHDR_802_11_HAS_CHANNEL|
+      PHDR_802_11_HAS_DATA_RATE|
+      PHDR_802_11_HAS_SIGNAL_PERCENT|
+      PHDR_802_11_HAS_NOISE_PERCENT|
+      PHDR_802_11_HAS_SIGNAL_DBM|
+      PHDR_802_11_HAS_NOISE_DBM|
+      PHDR_802_11_HAS_TSF_TIMESTAMP;
+  phdr.channel = tvb_get_guint8(tvb, 17);
+  phdr.data_rate = tvb_get_guint8(tvb, 16);
+  phdr.signal_percent = tvb_get_guint8(tvb, 18);
+  phdr.noise_percent = tvb_get_guint8(tvb, 18);
+  phdr.signal_dbm = tvb_get_guint8(tvb, 0);
+  phdr.noise_dbm = tvb_get_guint8(tvb, 1);
+  phdr.tsf_timestamp = tvb_get_ntoh64(tvb, 8);
+
+  return 20 + call_dissector_with_data(wlan_radio_handle, next_tvb, pinfo, tree, &phdr);
 }
 
 void
@@ -598,13 +688,12 @@ proto_reg_handoff_peekremote(void)
 {
   dissector_handle_t peekremote_handle;
 
-  wlan_withfcs = find_dissector("wlan_withfcs");
-  wlan_withoutfcs = find_dissector("wlan_withoutfcs");
+  wlan_radio_handle = find_dissector("wlan_radio");
 
   peekremote_handle = new_create_dissector_handle(dissect_peekremote_legacy, proto_peekremote);
   dissector_add_uint("udp.port", 5000, peekremote_handle);
 
-  heur_dissector_add("udp", dissect_peekremote_new, proto_peekremote);
+  heur_dissector_add("udp", dissect_peekremote_new, "OmniPeek Remote over UDP", "peekremote_udp", proto_peekremote, HEURISTIC_ENABLE);
 }
 
 /*

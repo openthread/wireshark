@@ -1225,6 +1225,7 @@ insert_new_rows(GList *list)
   model = gtk_tree_view_get_model(if_cb);
   /* Scan through the list and build a list of strings to display. */
   for (if_entry = g_list_first(list); if_entry != NULL; if_entry = g_list_next(if_entry)) {
+    gchar *auth_str = NULL;
     if_info = (if_info_t *)if_entry->data;
 #ifdef HAVE_PCAP_REMOTE
     add_interface_to_remote_list(if_info);
@@ -1282,7 +1283,14 @@ insert_new_rows(GList *list)
     }
     device.cfilter = g_strdup(global_capture_opts.default_options.cfilter);
     monitor_mode = prefs_capture_device_monitor_mode(if_string);
-    caps = capture_get_if_capabilities(if_string, monitor_mode, NULL, main_window_update);
+#ifdef HAVE_PCAP_REMOTE
+    if (global_remote_opts.remote_host_opts.auth_type == CAPTURE_AUTH_PWD) {
+      auth_str = g_strdup_printf("%s:%s", global_remote_opts.remote_host_opts.auth_username,
+                                 global_remote_opts.remote_host_opts.auth_password);
+    }
+#endif
+    caps = capture_get_if_capabilities(if_string, monitor_mode, auth_str, NULL, main_window_update);
+    g_free(auth_str);
     gtk_list_store_append (GTK_LIST_STORE(model), &iter);
     for (; (curr_addr = g_slist_nth(if_info->addrs, ips)) != NULL; ips++) {
       if (ips != 0) {
@@ -2985,7 +2993,7 @@ void options_interface_cb(GtkTreeView *view, GtkTreePath *path, GtkTreeViewColum
    * confuse users, so that they ask why this is grayed out on
    * their non-Windows machine and ask how to enable it.
    */
-  airpcap_if_selected = get_airpcap_if_from_name(airpcap_if_list, device.name);
+  airpcap_if_selected = get_airpcap_if_from_name(g_airpcap_if_list, device.name);
   if (airpcap_if_selected != NULL) {
     advanced_bt = gtk_button_new_with_label("Wireless Settings");
 
@@ -3480,6 +3488,10 @@ add_pipe_cb(gpointer w _U_)
     device.if_info.addrs = NULL;
     device.if_info.loopback = FALSE;
     device.if_info.type = IF_PIPE;
+#ifdef HAVE_EXTCAP
+    device.if_info.extcap = NULL;
+    device.external_cap_args_settings = NULL;
+#endif
 #if defined(HAVE_PCAP_CREATE)
     device.monitor_mode_enabled   = FALSE;
     device.monitor_mode_supported = FALSE;
@@ -4604,13 +4616,13 @@ capture_prep_cb(GtkWidget *w _U_, gpointer d _U_)
   /* update airpcap interface list */
 
   /* load the airpcap interfaces */
-  airpcap_if_list = get_airpcap_interface_list(&err, &err_str);
+  g_airpcap_if_list = get_airpcap_interface_list(&err, &err_str);
 
   /* If we don't get a list don't do any thing.
    * If the error is AIRPCAP_NOT_LOADED it avoids an unnecessary rescan of the packet list
    * ( see airpcap_loader.h for error codes).
    */
-  if (airpcap_if_list == NULL) {
+  if (g_airpcap_if_list == NULL) {
     if (err == CANT_GET_AIRPCAP_INTERFACE_LIST) {
       simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_str);
       g_free(err_str);
@@ -4620,7 +4632,7 @@ capture_prep_cb(GtkWidget *w _U_, gpointer d _U_)
     /* XXXX update_decryption_mode_list() triggers a rescan, should only be done if the mode is changed */
     update_decryption_mode_list(decryption_cb);
     /* select the first as default (THIS SHOULD BE CHANGED) */
-    airpcap_if_active = airpcap_get_default_if(airpcap_if_list);
+    airpcap_if_active = airpcap_get_default_if(g_airpcap_if_list);
   }
 #endif
 
@@ -5875,6 +5887,7 @@ capture_prep_monitor_changed_cb(GtkWidget *monitor, gpointer argp _U_)
   link_row          *linkr;
   GtkWidget         *linktype_combo_box = (GtkWidget *) g_object_get_data(G_OBJECT(opt_edit_w), E_CAP_LT_CBX_KEY);
   GtkWidget         *linktype_lb        = (GtkWidget *)g_object_get_data(G_OBJECT(linktype_combo_box), E_CAP_LT_CBX_LABEL_KEY);
+  gchar             *auth_str = NULL;
 
   device = g_array_index(global_capture_opts.all_ifaces, interface_t, marked_interface);
   global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, marked_interface);
@@ -5882,7 +5895,14 @@ capture_prep_monitor_changed_cb(GtkWidget *monitor, gpointer argp _U_)
 
   if_string = g_strdup(device.name);
   monitor_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(monitor));
-  caps = capture_get_if_capabilities(if_string, monitor_mode, NULL, main_window_update);
+#ifdef HAVE_PCAP_REMOTE
+  if (device.remote_opts.remote_host_opts.auth_type == CAPTURE_AUTH_PWD) {
+    auth_str = g_strdup_printf("%s:%s", device.remote_opts.remote_host_opts.auth_username,
+                               device.remote_opts.remote_host_opts.auth_password);
+  }
+#endif
+  caps = capture_get_if_capabilities(if_string, monitor_mode, auth_str, NULL, main_window_update);
+  g_free(auth_str);
 
   if (caps != NULL) {
     g_signal_handlers_disconnect_by_func(linktype_combo_box, G_CALLBACK(select_link_type_cb), NULL );

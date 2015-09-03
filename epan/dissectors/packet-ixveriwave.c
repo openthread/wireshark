@@ -1,4 +1,4 @@
-/* packet-ixveriwave-common.c
+/* packet-ixveriwave.c
  * Routines for calling the right protocol for the ethertype.
  *
  * Tom Cook <tcook@ixiacom.com>
@@ -69,48 +69,29 @@ static frame_end_data previous_frame_data = {0,0};
 #define VW_RADIOTAP_FPGA_VER_vVW510021      0x000C  /* vVW510021 version detected */
 #define VW_RADIOTAP_FPGA_VER_vVW510021_11n  0x000D
 
-#define IEEE80211_CHAN_CCK                  0x00020 /* CCK channel */
-#define IEEE80211_CHAN_OFDM                 0x00040 /* OFDM channel */
-#define IEEE80211_CHAN_2GHZ                 0x00080 /* 2 GHz spectrum channel. */
-#define IEEE80211_CHAN_5GHZ                 0x00100 /* 5 GHz spectrum channel */
+#define CHAN_CCK                            0x00020 /* CCK channel */
+#define CHAN_OFDM                           0x00040 /* OFDM channel */
 
-#define IEEE80211_RADIOTAP_F_FCS            0x0010  /* frame includes FCS */
-#define IEEE80211_RADIOTAP_F_DATAPAD        0x0020  /* frame has padding between
-                                                     * 802.11 header and payload
-                                                     * (to 32-bit boundary)
-                                                     */
-#define IEEE80211_RADIOTAP_F_HT             0x0040  /* HT mode */
-#define IEEE80211_RADIOTAP_F_VHT            0x0080  /* VHT mode */
-#define IEEE80211_RADIOTAP_F_CFP            0x0001  /* sent/received
-                                                     * during CFP
-                                                     */
-#define IEEE80211_RADIOTAP_F_SHORTPRE       0x0002  /* sent/received
+#define FLAGS_SHORTPRE                      0x0002  /* sent/received
                                                      * with short
                                                      * preamble
                                                      */
-#define IEEE80211_RADIOTAP_F_WEP            0x0004  /* sent/received
+#define FLAGS_WEP                           0x0004  /* sent/received
                                                      * with WEP encryption
                                                      */
-#define IEEE80211_RADIOTAP_F_FRAG           0x0008  /* sent/received
-                                                     * with fragmentation
-                                                     */
-#define IEEE80211_PLCP_RATE_MASK        0x7f    /* parses out the rate or MCS index from the PLCP header(s) */
-#define IEEE80211_RADIOTAP_F_40MHZ      0x0200  /* 40 Mhz channel bandwidth */
-#define IEEE80211_RADIOTAP_F_80MHZ      0x0400  /* 80 Mhz channel bandwidth */
-#define IEEE80211_RADIOTAP_F_160MHZ     0x0800  /* 80 Mhz channel bandwidth */
-#define IEEE80211_RADIOTAP_F_SHORTGI    0x0100
+#define FLAGS_CHAN_HT                       0x0040  /* HT mode */
+#define FLAGS_CHAN_VHT                      0x0080  /* VHT mode */
+#define FLAGS_CHAN_SHORTGI                  0x0100  /* short guard interval */
+#define FLAGS_CHAN_40MHZ                    0x0200  /* 40 Mhz channel bandwidth */
+#define FLAGS_CHAN_80MHZ                    0x0400  /* 80 Mhz channel bandwidth */
+#define FLAGS_CHAN_160MHZ                   0x0800  /* 160 Mhz channel bandwidth */
 
-/* For RADIOTAP_FLAGS */
-#define RADIOTAP_F_CFP          0x001               /* sent/received during CFP */
-#define RADIOTAP_F_SHORTPRE     0x002               /* sent/received with short preamble */
-#define RADIOTAP_F_WEP          0x004               /* sent/received with WEP encryption */
-#define RADIOTAP_F_FRAG         0x008               /* sent/received with fragmentation */
-#define RADIOTAP_F_FCS          0x010               /* frame includes FCS */
-#define RADIOTAP_F_DATAPAD      0x020               /* padding between 802.11 hdr & payload */
-#define RADIOTAP_F_CHAN_HT      0x040               /* In HT mode */
-#define RADIOTAP_F_CHAN_40MHZ   0x080               /* 40 Mhz CBW */
-#define RADIOTAP_F_CHAN_80MHZ   0x100               /* 80 Mhz CBW */
-#define RADIOTAP_F_CHAN_SHORTGI 0x200               /* Short guard interval */
+#define INFO_MPDU_OF_A_MPDU                 0x0400  /* MPDU of A-MPDU */
+#define INFO_FIRST_MPDU_OF_A_MPDU           0x0800  /* first MPDU of A-MPDU */
+#define INFO_LAST_MPDU_OF_A_MPDU            0x1000  /* last MPDU of A-MPDU */
+#define INFO_MSDU_OF_A_MSDU                 0x2000  /* MSDU of A-MSDU */
+#define INFO_FIRST_MSDU_OF_A_MSDU           0x4000  /* first MSDU of A-MSDU */
+#define INFO_LAST_MSDU_OF_A_MSDU            0x8000  /* last MSDU of A-MSDU */
 
 #define ETHERNET_PORT           1
 #define WLAN_PORT               0
@@ -148,8 +129,7 @@ static gint ett_radiotap_present = -1;
 static gint ett_radiotap_flags = -1;
 /* static gint ett_radiotap_channel_flags = -1; */
 
-static dissector_handle_t ieee80211_handle;
-static dissector_handle_t ieee80211_datapad_handle;
+static dissector_handle_t ieee80211_radio_handle;
 
 /* Ethernet fields */
 static int hf_ixveriwave_vw_info = -1;
@@ -195,12 +175,8 @@ static int hf_radiotap_dbm_antc = -1;
 static int hf_radiotap_dbm_antd = -1;
 static int hf_radiotap_fcs_bad = -1;
 
-static int hf_radiotap_flags_cfp = -1;
 static int hf_radiotap_flags_preamble = -1;
 static int hf_radiotap_flags_wep = -1;
-static int hf_radiotap_flags_frag = -1;
-static int hf_radiotap_flags_fcs = -1;
-static int hf_radiotap_flags_datapad = -1;
 static int hf_radiotap_flags_ht = -1;
 static int hf_radiotap_flags_vht = -1;
 static int hf_radiotap_flags_40mhz = -1;
@@ -677,28 +653,36 @@ static void
 wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree *tap_tree)
 {
     proto_tree *ft, *flags_tree         = NULL;
-    proto_item *hdr_fcs_ti              = NULL;
     int         align_offset, offset;
-    guint32     calc_fcs;
     tvbuff_t   *next_tvb;
     guint       length;
     gint8       dbm;
-    guint8      rflags                  = 0;
+    /*guint8      plcp_type;*/
     guint8      mcs_index;
+    guint8      nss;
     float       phyRate;
+    guint       i;
 
     proto_tree *vweft, *vw_errorFlags_tree = NULL, *vwift,*vw_infoFlags_tree = NULL;
-    guint16     vw_flags, vw_info, vw_ht_length, vw_rflags;
+    guint16     vw_flags, vw_chanflags, vw_info, vw_ht_length, vw_rflags;
     guint32     vw_errors;
 
     ifg_info   *p_ifg_info;
     proto_item *ti;
+    struct ieee_802_11_phdr phdr;
+
+    /* We don't have any 802.11 metadata yet. */
+    phdr.fcs_len = 0; /* no FCS */
+    phdr.decrypted = FALSE;
+    phdr.datapad = FALSE;
+    phdr.phy = PHDR_802_11_PHY_UNKNOWN;
+    phdr.presence_flags = 0;
 
     /* First add the IFG information, need to grab the info bit field here */
     vw_info = tvb_get_letohs(tvb, 20);
     p_ifg_info = (struct ifg_info *) p_get_proto_data(wmem_file_scope(), pinfo, proto_ixveriwave, 0);
     if (tree) {
-        if ((vw_info & 0x0400) && !(vw_info & 0x0800))  /* If the packet is part of an A-MPDU but not the first MPDU */
+        if ((vw_info & INFO_MPDU_OF_A_MPDU) && !(vw_info & INFO_FIRST_MPDU_OF_A_MPDU))  /* If the packet is part of an A-MPDU but not the first MPDU */
             ti = proto_tree_add_uint(tap_tree, hf_ixveriwave_vw_ifg, tvb, 18, 0, 0);
         else
             ti = proto_tree_add_uint(tap_tree, hf_ixveriwave_vw_ifg, tvb, 18, 0, p_ifg_info->ifg);
@@ -714,19 +698,11 @@ wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree 
     if (tree) {
         ft = proto_tree_add_uint(tap_tree, hf_radiotap_flags, tvb, offset, 2, vw_rflags);
         flags_tree = proto_item_add_subtree(ft, ett_radiotap_flags);
-        proto_tree_add_boolean(flags_tree, hf_radiotap_flags_cfp,
-            tvb, offset, 2, vw_rflags);
         proto_tree_add_boolean(flags_tree, hf_radiotap_flags_preamble,
             tvb, offset, 2, vw_rflags);
         proto_tree_add_boolean(flags_tree, hf_radiotap_flags_wep,
             tvb, offset, 2, vw_rflags);
-        proto_tree_add_boolean(flags_tree, hf_radiotap_flags_frag,
-            tvb, offset, 2, vw_rflags);
-        proto_tree_add_boolean(flags_tree, hf_radiotap_flags_fcs,
-            tvb, offset, 2, vw_rflags);
-        proto_tree_add_boolean(flags_tree, hf_radiotap_flags_datapad,
-            tvb, offset, 2, vw_rflags);
-        if ( vw_rflags & IEEE80211_RADIOTAP_F_HT ) {
+        if ( vw_rflags & FLAGS_CHAN_HT ) {
             proto_tree_add_boolean(flags_tree, hf_radiotap_flags_ht,
             tvb, offset, 2, vw_rflags);
             proto_tree_add_boolean(flags_tree, hf_radiotap_flags_40mhz,
@@ -734,7 +710,7 @@ wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree 
             proto_tree_add_boolean(flags_tree, hf_radiotap_flags_shortgi,
             tvb, offset, 2, vw_rflags);
         }
-        if ( vw_rflags & IEEE80211_RADIOTAP_F_VHT ) {
+        if ( vw_rflags & FLAGS_CHAN_VHT ) {
             proto_tree_add_boolean(flags_tree, hf_radiotap_flags_vht,
             tvb, offset, 2, vw_rflags);
             proto_tree_add_boolean(flags_tree, hf_radiotap_flags_shortgi,
@@ -747,16 +723,43 @@ wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree 
     }
     offset      +=2;
 
-    /* Need to add in 2 more bytes to the offset to account for the channel flags */
+    vw_chanflags = tvb_get_letohs(tvb, offset);
     offset      +=2;
     phyRate = (float)tvb_get_letohs(tvb, offset) / 10;
     offset      +=2;
+    /*plcp_type = tvb_get_guint8(tvb, offset);*/
     offset++;
     mcs_index = tvb_get_guint8(tvb, offset);
     offset++;
+    nss = tvb_get_guint8(tvb, offset);
     offset++;
 
-    if ((vw_rflags & IEEE80211_RADIOTAP_F_HT) || (vw_rflags & IEEE80211_RADIOTAP_F_VHT) ) {
+    if ((vw_rflags & FLAGS_CHAN_HT) || (vw_rflags & FLAGS_CHAN_VHT)) {
+        if (vw_rflags & FLAGS_CHAN_VHT) {
+            phdr.phy = PHDR_802_11_PHY_11AC;
+            phdr.phy_info.info_11ac.presence_flags =
+                PHDR_802_11AC_HAS_SHORT_GI;
+            phdr.phy_info.info_11ac.short_gi = ((vw_rflags & FLAGS_CHAN_SHORTGI) != 0);
+            /*
+             * XXX - this probably has only one user, so only one MCS index
+             * and only one NSS.
+             */
+            phdr.phy_info.info_11ac.nss[0] = nss;
+            phdr.phy_info.info_11ac.mcs[0] = mcs_index;
+            for (i = 1; i < 4; i++)
+                phdr.phy_info.info_11ac.nss[i] = 0;
+        } else {
+            /*
+             * XXX - where's the number of extension spatial streams?
+             * The code in wiretap/vwr.c doesn't seem to provide it.
+             */
+            phdr.phy = PHDR_802_11_PHY_11N;
+            phdr.phy_info.info_11n.presence_flags =
+                PHDR_802_11N_HAS_MCS_INDEX |
+                PHDR_802_11N_HAS_SHORT_GI;
+            phdr.phy_info.info_11n.mcs_index = mcs_index;
+            phdr.phy_info.info_11n.short_gi = ((vw_rflags & FLAGS_CHAN_SHORTGI) != 0);
+        }
         if (tree) {
             proto_tree_add_item(tap_tree, hf_radiotap_mcsindex,
                                 tvb, offset - 2, 1, ENC_BIG_ENDIAN);
@@ -769,6 +772,17 @@ wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree 
                                        "%.1f (MCS %d)", phyRate, mcs_index);
         }
     } else {
+        /*
+         * XXX - CHAN_OFDM could be 11a or 11g.
+         *
+         * XXX - use the PLCP type?
+         */
+        if (vw_chanflags & CHAN_CCK) {
+            phdr.phy = PHDR_802_11_PHY_11B;
+            phdr.phy_info.info_11b.presence_flags = 0;
+        }
+        phdr.presence_flags |= PHDR_802_11_HAS_DATA_RATE;
+        phdr.data_rate = tvb_get_letohs(tvb, offset-5) / 5;
         if (tree) {
             proto_tree_add_uint_format_value(tap_tree, hf_radiotap_datarate,
             tvb, offset - 5, 2, tvb_get_letohs(tvb, offset-5),
@@ -778,7 +792,8 @@ wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree 
     col_add_fstr(pinfo->cinfo, COL_TX_RATE, "%.1f", phyRate);
 
     dbm = (gint8) tvb_get_guint8(tvb, offset);
-
+    phdr.presence_flags |= PHDR_802_11_HAS_SIGNAL_DBM;
+    phdr.signal_dbm = dbm;
     col_add_fstr(pinfo->cinfo, COL_RSSI, "%d dBm", dbm);
     if (tree) {
         proto_tree_add_int_format_value(tap_tree,
@@ -941,48 +956,11 @@ wlantap_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree 
         }
     }
 
-    /* This handles the case of an FCS existing at the end of the frame. */
-    if (rflags & IEEE80211_RADIOTAP_F_FCS)
-        pinfo->pseudo_header->ieee_802_11.fcs_len = 4;
-    else
-        pinfo->pseudo_header->ieee_802_11.fcs_len = 0;
-
     /* Grab the rest of the frame. */
     next_tvb = tvb_new_subset_remaining(tvb, length);
 
-    /* If we had an in-header FCS, check it. */
-    if (hdr_fcs_ti) {
-        /* It would be very strange for the header to have an FCS for the
-         * frame *and* the frame to have the FCS at the end, but it's possible, so
-         * take that into account by using the FCS length recorded in pinfo. */
-
-        /* Watch out for [erroneously] short frames */
-        if (tvb_length(next_tvb) > (unsigned int) pinfo->pseudo_header->ieee_802_11.fcs_len) {
-            guint32 sent_fcs = 0;
-            calc_fcs = crc32_802_tvb(next_tvb,
-                                     tvb_length(next_tvb) - pinfo->pseudo_header->ieee_802_11.fcs_len);
-
-            /* By virtue of hdr_fcs_ti being set, we know that 'tree' is set,
-            * so there's no need to check it here. */
-            if (calc_fcs == sent_fcs) {
-                proto_item_append_text(hdr_fcs_ti, " [correct]");
-            }
-            else {
-                proto_item_append_text(hdr_fcs_ti, " [incorrect, should be 0x%08x]", calc_fcs);
-                proto_tree_add_boolean(tap_tree, hf_radiotap_fcs_bad,
-                    tvb, 0, 4, TRUE);
-            }
-        }
-        else {
-            proto_item_append_text(hdr_fcs_ti,
-            " [cannot verify - not enough data]");
-        }
-    }
-
-    /* dissect the 802.11 header next */
-    call_dissector((rflags & IEEE80211_RADIOTAP_F_DATAPAD) ?
-                   ieee80211_datapad_handle : ieee80211_handle,
-                   next_tvb, pinfo, tree);
+    /* dissect the 802.11 packet next */
+    call_dissector_with_data(ieee80211_radio_handle, next_tvb, pinfo, tree, &phdr);
 }
 
 void proto_register_ixveriwave(void)
@@ -1214,55 +1192,35 @@ framing signal deasserted.  this is caused by software setting the drain all reg
         { "Flags", "ixveriwave.flags",
         FT_UINT16, BASE_HEX, NULL,  0x0, NULL, HFILL } },
 
-    { &hf_radiotap_flags_cfp,
-        { "CFP", "ixveriwave.flags.cfp",
-        FT_BOOLEAN, 12, NULL,  IEEE80211_RADIOTAP_F_CFP,
-        "Sent/Received during CFP", HFILL } },
-
     { &hf_radiotap_flags_preamble,
         { "Preamble", "ixveriwave.flags.preamble",
-        FT_BOOLEAN, 12, TFS(&preamble_type),  IEEE80211_RADIOTAP_F_SHORTPRE,
+        FT_BOOLEAN, 12, TFS(&preamble_type),  FLAGS_SHORTPRE,
         "Sent/Received with short preamble", HFILL } },
 
     { &hf_radiotap_flags_wep,
         { "WEP", "ixveriwave.flags.wep",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_WEP,
+        FT_BOOLEAN, 12, NULL, FLAGS_WEP,
         "Sent/Received with WEP encryption", HFILL } },
-
-    { &hf_radiotap_flags_frag,
-        { "Fragmentation", "ixveriwave.flags.frag",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_FRAG,
-        "Sent/Received with fragmentation", HFILL } },
-
-    { &hf_radiotap_flags_fcs,
-        { "FCS at end", "ixveriwave.flags.fcs",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_FCS,
-        "Frame includes FCS at end", HFILL } },
-
-    { &hf_radiotap_flags_datapad,
-        { "Data Pad", "ixveriwave.flags.datapad",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_DATAPAD,
-        "Frame has padding between 802.11 header and payload", HFILL } },
 
     { &hf_radiotap_flags_ht,
         { "HT frame", "ixveriwave.flags.ht",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_HT, NULL, HFILL } },
+        FT_BOOLEAN, 12, NULL, FLAGS_CHAN_HT, NULL, HFILL } },
 
     { &hf_radiotap_flags_vht,
         { "VHT frame", "ixveriwave.flags.vht",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_VHT, NULL, HFILL } },
+        FT_BOOLEAN, 12, NULL, FLAGS_CHAN_VHT, NULL, HFILL } },
 
     { &hf_radiotap_flags_40mhz,
         { "40 MHz channel bandwidth", "ixveriwave.flags.40mhz",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_40MHZ, NULL, HFILL } },
+        FT_BOOLEAN, 12, NULL, FLAGS_CHAN_40MHZ, NULL, HFILL } },
 
     { &hf_radiotap_flags_80mhz,
         { "80 MHz channel bandwidth", "ixveriwave.flags.80mhz",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_80MHZ, NULL, HFILL } },
+        FT_BOOLEAN, 12, NULL, FLAGS_CHAN_80MHZ, NULL, HFILL } },
 
     { &hf_radiotap_flags_shortgi,
         { "Short guard interval", "ixveriwave.flags.shortgi",
-        FT_BOOLEAN, 12, NULL, IEEE80211_RADIOTAP_F_SHORTGI, NULL, HFILL } },
+        FT_BOOLEAN, 12, NULL, FLAGS_CHAN_SHORTGI, NULL, HFILL } },
 
     { &hf_radiotap_dbm_antsignal,
         { "SSI Signal", "ixveriwave.dbm_antsignal",
@@ -1367,27 +1325,27 @@ framing signal deasserted.  this is caused by software setting the drain all reg
     /* tx info decodes for VW510021 and previous versions */
     { &hf_radiotap_vw_info_tx_bit10,
         { "MPDU of A-MPDU", "ixveriwave.info.bit10",
-        FT_BOOLEAN, 16, NULL, 0x0400, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_MPDU_OF_A_MPDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_tx_bit11,
         { "First MPDU of A-MPDU", "ixveriwave.info.bit11",
-        FT_BOOLEAN, 16, NULL, 0x0800, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_FIRST_MPDU_OF_A_MPDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_tx_bit12,
         { "Last MPDU of A-MPDU", "ixveriwave.info.bit12",
-        FT_BOOLEAN, 16, NULL, 0x1000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_LAST_MPDU_OF_A_MPDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_tx_bit13,
         { "MSDU of A-MSDU", "ixveriwave.info.bit13",
-        FT_BOOLEAN, 16, NULL, 0x2000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_MSDU_OF_A_MSDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_tx_bit14,
         { "First MSDU of A-MSDU", "ixveriwave.info.bit14",
-        FT_BOOLEAN, 16, NULL, 0x4000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_FIRST_MSDU_OF_A_MSDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_tx_bit15,
         { "Last MSDU of A-MSDU", "ixveriwave.info.bit15",
-        FT_BOOLEAN, 16, NULL, 0x8000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_LAST_MSDU_OF_A_MSDU, NULL, HFILL } },
     /*v510006 uses bits */
 
     /* rx info decodes for fpga ver VW510021 */
@@ -1401,27 +1359,27 @@ framing signal deasserted.  this is caused by software setting the drain all reg
 
     { &hf_radiotap_vw_info_rx_2_bit10,
         { "MPDU of an A-MPDU", "ixveriwave.info.bit10",
-        FT_BOOLEAN, 16, NULL, 0x0400, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_MPDU_OF_A_MPDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_rx_2_bit11,
         { "First MPDU of A-MPDU", "ixveriwave.info.bit11",
-        FT_BOOLEAN, 16, NULL, 0x0800, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_FIRST_MPDU_OF_A_MPDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_rx_2_bit12,
         { "Last MPDU of A-MPDU", "ixveriwave.info.bit12",
-        FT_BOOLEAN, 16, NULL, 0x1000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_LAST_MPDU_OF_A_MPDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_rx_2_bit13,
         { "MSDU of A-MSDU", "ixveriwave.info.bit13",
-        FT_BOOLEAN, 16, NULL, 0x2000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_MSDU_OF_A_MSDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_rx_2_bit14,
         { "First MSDU of A-MSDU", "ixveriwave.info.bit14",
-        FT_BOOLEAN, 16, NULL, 0x4000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_FIRST_MSDU_OF_A_MSDU, NULL, HFILL } },
 
     { &hf_radiotap_vw_info_rx_2_bit15,
         { "Last MSDU of A-MSDU", "ixveriwave.info.bit15",
-        FT_BOOLEAN, 16, NULL, 0x8000, NULL, HFILL } },
+        FT_BOOLEAN, 16, NULL, INFO_LAST_MSDU_OF_A_MSDU, NULL, HFILL } },
     };
 
     static gint *ett[] = {
@@ -1447,9 +1405,8 @@ void proto_reg_handoff_ixveriwave(void)
 {
     /* handle for ethertype dissector */
     ethernet_handle          = find_dissector("eth_withoutfcs");
-    /* handle for 802.11 dissector */
-    ieee80211_handle         = find_dissector("wlan");
-    ieee80211_datapad_handle = find_dissector("wlan_datapad");
+    /* handle for 802.11+radio information dissector */
+    ieee80211_radio_handle   = find_dissector("wlan_radio");
 
     ixveriwave_handle           = create_dissector_handle(dissect_ixveriwave, proto_ixveriwave);
     dissector_add_uint("wtap_encap", WTAP_ENCAP_IXVERIWAVE, ixveriwave_handle);

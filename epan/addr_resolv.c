@@ -299,7 +299,15 @@ ipv6_equal(gconstpointer v1, gconstpointer v2)
 /*
  * Flag controlling what names to resolve.
  */
-e_addr_resolve gbl_resolv_flags = {TRUE, FALSE, FALSE, TRUE, TRUE, FALSE};
+e_addr_resolve gbl_resolv_flags = {
+    TRUE,   /* mac_name */
+    FALSE,  /* network_name */
+    FALSE,  /* transport_name */
+    TRUE,   /* concurrent_dns */
+    TRUE,   /* dns_pkt_addr_resolution */
+    TRUE,   /* use_external_net_name_resolver */
+    FALSE   /* load_hosts_file_from_profile_only */
+};
 #if defined(HAVE_C_ARES) || defined(HAVE_GNU_ADNS)
 static guint name_resolve_concurrency = 500;
 #endif
@@ -1037,34 +1045,6 @@ try_resolv:
 
 } /* host_lookup6 */
 
-static const gchar *
-solve_address_to_name(const address *addr)
-{
-    switch (addr->type) {
-
-        case AT_ETHER:
-            return get_ether_name((const guint8 *)addr->data);
-
-        case AT_IPv4: {
-                          guint32 ip4_addr;
-                          memcpy(&ip4_addr, addr->data, sizeof ip4_addr);
-                          return get_hostname(ip4_addr);
-                      }
-
-        case AT_IPv6: {
-                          struct e_in6_addr ip6_addr;
-                          memcpy(&ip6_addr.bytes, addr->data, sizeof ip6_addr.bytes);
-                          return get_hostname6(&ip6_addr);
-                      }
-
-        case AT_STRINGZ:
-                      return (const gchar *)addr->data;
-
-        default:
-                      return NULL;
-    }
-}
-
 /*
  * Ethernet / manufacturer resolution
  *
@@ -1481,7 +1461,7 @@ initialize_ethers(void)
 {
     ether_t *eth;
     char    *manuf_path;
-    guint    mask;
+    guint    mask = 0;
 
     /* hash table initialization */
     wka_hashtable   = g_hash_table_new_full(eth_addr_hash, eth_addr_cmp, g_free, g_free);
@@ -2442,6 +2422,11 @@ addr_resolve_pref_init(module_t *nameres)
             " capture file name resolution blocks and DNS packets in the capture.",
             &gbl_resolv_flags.network_name);
 
+    prefs_register_bool_preference(nameres, "dns_pkt_addr_resolution",
+            "Use captured DNS packet data for address resolution",
+            "Whether address/name pairs found in captured DNS packets should be used by Wireshark for name resolution.",
+            &gbl_resolv_flags.dns_pkt_addr_resolution);
+
     prefs_register_bool_preference(nameres, "use_external_name_resolver",
             "Use an external network name resolver",
             "Use your system's configured name resolver"
@@ -2479,6 +2464,16 @@ addr_resolve_pref_init(module_t *nameres)
             " Checking this box only loads the \"hosts\" in the current profile.",
             &gbl_resolv_flags.load_hosts_file_from_profile_only);
 
+}
+
+void
+disable_name_resolution(void) {
+    gbl_resolv_flags.mac_name                           = FALSE;
+    gbl_resolv_flags.network_name                       = FALSE;
+    gbl_resolv_flags.transport_name                     = FALSE;
+    gbl_resolv_flags.concurrent_dns                     = FALSE;
+    gbl_resolv_flags.dns_pkt_addr_resolution            = FALSE;
+    gbl_resolv_flags.use_external_net_name_resolver     = FALSE;
 }
 
 #ifdef HAVE_C_ARES
@@ -3006,32 +3001,6 @@ sctp_port_to_display(wmem_allocator_t *allocator, guint port)
 
 } /* sctp_port_to_display */
 
-const gchar *
-address_to_display(wmem_allocator_t *allocator, const address *addr)
-{
-    gchar *str = NULL;
-    const gchar *result = solve_address_to_name(addr);
-
-    if (result != NULL) {
-        str = wmem_strdup(allocator, result);
-    }
-    else if (addr->type == AT_NONE) {
-        str = wmem_strdup(allocator, "NONE");
-    }
-    else {
-        str = (gchar *) wmem_alloc(allocator, MAX_ADDR_STR_LEN);
-        address_to_str_buf(addr, str, MAX_ADDR_STR_LEN);
-    }
-
-    return str;
-}
-
-const gchar *
-get_addr_name(const address *addr)
-{
-    return solve_address_to_name(addr);
-}
-
 gchar *
 get_ether_name(const guint8 *addr)
 {
@@ -3221,18 +3190,22 @@ char* get_hash_manuf_resolved_name(hashmanuf_t* manuf)
 const gchar *
 eui64_to_display(wmem_allocator_t *allocator, const guint64 addr_eui64)
 {
-    guint8 *addr = (guint8 *)wmem_alloc(allocator, 8);
+    guint8 *addr = (guint8 *)wmem_alloc(NULL, 8);
     hashmanuf_t *manuf_value;
+    const gchar *ret;
 
     /* Copy and convert the address to network byte order. */
     *(guint64 *)(void *)(addr) = pntoh64(&(addr_eui64));
 
     manuf_value = manuf_name_lookup(addr);
     if (!gbl_resolv_flags.mac_name || (manuf_value->status == HASHETHER_STATUS_UNRESOLVED)) {
-        return wmem_strdup_printf(allocator, "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+        ret = wmem_strdup_printf(allocator, "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+    } else {
+        ret = wmem_strdup_printf(allocator, "%s_%02x:%02x:%02x:%02x:%02x", manuf_value->resolved_name, addr[3], addr[4], addr[5], addr[6], addr[7]);
     }
-    return wmem_strdup_printf(allocator, "%s_%02x:%02x:%02x:%02x:%02x", manuf_value->resolved_name, addr[3], addr[4], addr[5], addr[6], addr[7]);
 
+    wmem_free(NULL, addr);
+    return ret;
 } /* eui64_to_display */
 
 #ifdef HAVE_C_ARES

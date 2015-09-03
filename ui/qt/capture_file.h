@@ -40,6 +40,7 @@ public:
 
     capture_file *capFile() const { return isValid() ? cap_file_ : NULL; }
     void setCapFile(capture_file *cap_file) { cap_file_ = cap_file; }
+
     /** Check capture file validity
      *
      * @return true if the file is open, readable, and tappable. false if the file
@@ -67,14 +68,9 @@ public:
      */
     const QString fileName();
 
-    /** Retap the capture file
+    /** Reload the capture file
      */
-    void retapPackets();
-
-    /** Cancel any tapping that might be in progress.
-     */
-    void stopTapping();
-
+    void reload();
 
     // XXX This shouldn't be needed.
     static capture_file *globalCapFile();
@@ -89,6 +85,8 @@ signals:
     void captureFileReloadFinished() const;
     void captureFileRescanStarted() const;
     void captureFileRescanFinished() const;
+    void captureFileRetapStarted() const;
+    void captureFileRetapFinished() const;
     void captureFileClosing() const;
     void captureFileClosed() const;
     void captureFileSaveStarted(const QString &file_path) const;
@@ -106,9 +104,28 @@ signals:
     void captureCaptureStopping(capture_session *cap_session);
     void captureCaptureFailed(capture_session *cap_session);
 
-    void setCaptureStopFlag(bool);
-
 public slots:
+    /** Retap the capture file. Convenience wrapper for cf_retap_packets.
+     * Application events are processed periodically via update_progress_dlg.
+     */
+    void retapPackets();
+
+    /** Retap the capture file after the current batch of application events
+     * is processed. If you call this instead of retapPackets or
+     * cf_retap_packets in a dialog's constructor it will be displayed before
+     * tapping starts.
+     */
+    void delayedRetapPackets();
+
+    /** Cancel any tapping that might be in progress.
+     */
+    void stopLoading();
+
+    /** Sets the capture file's "stop_flag" member.
+     *
+     * @param stop_flag If true, stops the current capture file operation.
+     */
+    void setCaptureStopFlag(bool stop_flag = true);
 
 private:
     static void captureFileCallback(gint event, gpointer data, gpointer user_data);

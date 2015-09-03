@@ -1,5 +1,6 @@
 /* packet-cisco-metadata.c
  * Routines for dissection of Cisco's MetaData protocol.
+ * draft-smith-kandula-sxp
  * Copyright 2013 by Vaibhav Katkade (vkatkade[AT]cisco.com)
  *
  * Wireshark - Network traffic analyzer
@@ -82,7 +83,7 @@ dissect_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         gboolean is_802_2 = TRUE;
 
         /* Don't throw an exception for this check (even a BoundsError) */
-        if (tvb_length_remaining(tvb, 4) >= 2) {
+        if (tvb_captured_length_remaining(tvb, 4) >= 2) {
             if (tvb_get_ntohs(tvb, 4) == 0xffff)
                 is_802_2 = FALSE;
         }
