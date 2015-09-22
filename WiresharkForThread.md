@@ -2,11 +2,13 @@
 
 This document is a short summary for what is needed to build Wireshark from the `thread-wireshark` repository and how to use Git in conjunction with it.
 
+**Note that as of 2015-09-21, the Thread Wireshark repository is officially hosted on Bitbucket (https://bitbucket.org/threadgroup/thread-wireshark).**
+
 ## Instructions for building using Windows ##
 
-### Git and Github ###
+### Git and Bitbucket ###
 
-The first thing to point out is that Git and Github are not the same thing. Github hosts projects as Git repositories, using Git "under the hood". As a result, Github can be used very effectively in conjunction with Git on your local PC using a cloned repository and that is the recommended way of working.
+The first thing to point out is that Git and Github are not the same thing and that Bitbucket is a replacement for Github, not Git. Bitbucket hosts projects as Git repositories, using Git "under the hood". As a result, Bitbucket can be used very effectively in conjunction with Git on your local PC using a cloned repository and that is the recommended way of working.
 
 ### Development tools ###
 
@@ -18,11 +20,11 @@ The first thing to do is to follow [these instructions](https://www.wireshark.or
 
 The main difference is that in Section 2.2.8, **do not use the specified repository**. Instead, do:
 
-    git clone https://github.com/TheThreadGroup/thread-wireshark.git wireshark
+    git clone git@bitbucket.org:threadgroup/thread-wireshark.git wireshark
 
-This will clone the repository from the Thread Group site into a directory called `wireshark`. This includes all the patches required for Thread already incorporated into the source files.
+This will clone the repository from the Thread Group Bitbucket site into a directory called `wireshark`. This includes all the patches required for Thread already incorporated into the source files.
 
-Also, the environment variable setup has been put into a file called `vs2013cfg.bat`. You will need to alter this to change where your `WIRESHARK_BASE_DIR` is.
+Also, the environment variable setup has been put into a file called `vs2013cfg.bat`. You will need to alter this to change where your `WIRESHARK_BASE_DIR` is and possibly the PATH for Cygwin.
 
 ### Command prompt for building ###
 
@@ -88,13 +90,13 @@ However, occasionally, a "cleaner" build is needed; this can be done by running:
 
     nmake -f Makefile.nmake maintainer-clean
 
-## Using Git and Github ##
+## Using Git and Bitbucket ##
 
 This section is more about how the Thread Wireshark repository works in conjunction with the Wireshark Git repository and gives guidance on how to submit changes.
 
 ### Git configuration ###
 
-You will need to do the following to make Git work properly with Github repositories:
+You will need to do the following to make Git work properly with Bitbucket Git repositories:
 
     git config user.name "John Doe"
     git config user.email "johndoe@example.com"
@@ -120,11 +122,11 @@ Users will typically branch, make changes locally, commit to the branch and push
 
 #### Branching ####
 
-A tracking branch should be used. This means that a branch is also created on the Github repository that will track any changes made on the local repository. This is done by doing:
+A tracking branch should be used. This means that a branch is also created on the Bitbucket repository that will track any changes made on the local repository. This is done by doing:
 
     git checkout --b owner/arm origin/owner/arm
 
-where `owner/arm` is the name of the local branch and `origin/owner/arm` is the name of the branch on the remote repository (i.e. `thread-wireshark` repository on Github).
+where `owner/arm` is the name of the local branch and `origin/owner/arm` is the name of the branch on the remote repository (i.e. `thread-wireshark` repository on Bitbucket).
 
 #### Modifying files ####
 
@@ -160,7 +162,7 @@ When Users are completely confident that their changes are good, they can push t
 
 This will cause the changes to appear on the remote branch but not the master branch.
 
-Users will then typically issue a Github "pull request". This notifies everybody and especially the Upstream Maintainer, who will to merge in the changes to the master branch of the  `thread-wireshark` repository and ensure that any conflicts are resolved.
+Users will then typically issue a Bitbucket "pull request". This notifies everybody and especially the Upstream Maintainer, who will to merge in the changes to the master branch of the `thread-wireshark` repository and ensure that any conflicts are resolved.
 
 ### Upstream Maintainer operation ###
 
