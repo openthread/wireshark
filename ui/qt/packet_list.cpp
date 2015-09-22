@@ -136,6 +136,7 @@ packet_list_select_last_row(void)
 gboolean
 packet_list_select_row_from_data(frame_data *fdata_needle)
 {
+    gbl_cur_packet_list->packetListModel()->flushVisibleRows();
     int row = gbl_cur_packet_list->packetListModel()->visibleIndexOf(fdata_needle);
     if (row >= 0) {
         gbl_cur_packet_list->setCurrentIndex(gbl_cur_packet_list->packetListModel()->index(row,0));
@@ -374,6 +375,7 @@ PacketList::PacketList(QWidget *parent) :
     g_assert(gbl_cur_packet_list == NULL);
     gbl_cur_packet_list = this;
 
+    connect(packet_list_model_, SIGNAL(rowHeightsVary()), this, SLOT(rowHeightsVary()));
     connect(packet_list_model_, SIGNAL(goToPacket(int)), this, SLOT(goToPacket(int)));
     connect(wsApp, SIGNAL(addressResolutionChanged()), this, SLOT(redrawVisiblePackets()));
 
@@ -636,10 +638,9 @@ void PacketList::columnsChanged()
     prefs.num_cols = g_list_length(prefs.col_list);
     col_cleanup(&cap_file_->cinfo);
     build_column_format_array(&cap_file_->cinfo, prefs.num_cols, FALSE);
-    packet_list_model_->recreateVisibleRows(); // Calls PacketListRecord::resetColumns
     setColumnVisibility();
     create_far_overlay_ = true;
-    redrawVisiblePackets();
+    packet_list_model_->resetColumns();
 }
 
 // Fields have changed, update custom columns
@@ -648,6 +649,7 @@ void PacketList::fieldsChanged(capture_file *cf)
     prefs.num_cols = g_list_length(prefs.col_list);
     col_cleanup(&cf->cinfo);
     build_column_format_array(&cf->cinfo, prefs.num_cols, FALSE);
+    // call packet_list_model_->resetColumns() ?
 }
 
 // Column widths should
@@ -728,6 +730,14 @@ void PacketList::setAutoScroll(bool enabled)
     }
 }
 
+// Called when we finish reading, reloading, rescanning, and retapping
+// packets.
+void PacketList::captureFileReadFinished()
+{
+    packet_list_model_->flushVisibleRows();
+    packet_list_model_->dissectIdle(true);
+}
+
 void PacketList::freeze()
 {
     setUpdatesEnabled(false);
@@ -765,6 +775,7 @@ void PacketList::clear() {
     create_near_overlay_ = true;
     create_far_overlay_ = true;
 
+    setUniformRowHeights(true);
     setColumnVisibility();
 }
 
@@ -799,10 +810,10 @@ bool PacketList::contextMenuActive()
     return ctx_column_ >= 0 ? true : false;
 }
 
-const QString &PacketList::getFilterFromRowAndColumn()
+QString PacketList::getFilterFromRowAndColumn()
 {
     frame_data *fdata;
-    QString &filter = *new QString();
+    QString filter;
     int row = currentIndex().row();
 
     if (!cap_file_ || !packet_list_model_ || ctx_column_ < 0 || ctx_column_ >= cap_file_->cinfo.num_cols) return filter;
@@ -888,7 +899,7 @@ void PacketList::setPacketComment(QString new_comment)
 {
     int row = currentIndex().row();
     frame_data *fdata;
-    gchar *new_packet_comment = new_comment.toUtf8().data();
+    gchar *new_packet_comment;
 
     if (!cap_file_ || !packet_list_model_) return;
 
@@ -899,9 +910,12 @@ void PacketList::setPacketComment(QString new_comment)
     /* Check if we are clearing the comment */
     if(new_comment.isEmpty()) {
         new_packet_comment = NULL;
+    } else {
+        new_packet_comment = qstring_strdup(new_comment);
     }
 
     cf_set_user_packet_comment(cap_file_, fdata, new_packet_comment);
+    g_free(new_packet_comment);
 
     redrawVisiblePackets();
 }
@@ -1221,6 +1235,14 @@ void PacketList::sectionMoved(int, int, int)
     }
 
     wsApp->emitAppSignal(WiresharkApplication::ColumnsChanged);
+}
+
+void PacketList::rowHeightsVary()
+{
+    // This impairs performance considerably for large numbers of packets.
+    // We should probably move a bunch of the code in ::data to
+    // RelatedPacketDelegate and make it the delegate for everything.
+    setUniformRowHeights(false);
 }
 
 void PacketList::copySummary()

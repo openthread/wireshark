@@ -71,9 +71,9 @@ enum {
     status_col_
 };
 
-const QRgb color_cn_ = 0xbfbfff;
-const QRgb color_rtp_warn_ = 0xffdbbf;
-const QRgb color_pt_event_ = 0xefffff;
+static const QRgb color_cn_ = 0xbfbfff;
+static const QRgb color_rtp_warn_ = 0xffdbbf;
+static const QRgb color_pt_event_ = 0xefffff;
 
 enum { rtp_analysis_type_ = 1000 };
 class RtpAnalysisTreeWidgetItem : public QTreeWidgetItem
@@ -115,7 +115,7 @@ public:
             status = "Suspected duplicate (MAC address) only delta time calculated";
             bg_color = color_rtp_warn_;
         } else if (statinfo->flags & STAT_FLAG_REG_PT_CHANGE) {
-            status = QString("Payload changed to PT=%u").arg(statinfo->pt);
+            status = QString("Payload changed to PT=%1").arg(statinfo->pt);
             if (statinfo->flags & STAT_FLAG_PT_T_EVENT) {
                 status.append(" telephone/event");
             }

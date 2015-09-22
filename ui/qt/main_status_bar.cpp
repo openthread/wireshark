@@ -242,11 +242,13 @@ void MainStatusBar::expertUpdate() {
 // ui/gtk/main_statusbar.c
 void MainStatusBar::setFileName(CaptureFile &cf)
 {
-    popFileStatus();
-    QString msgtip = QString("%1 (%2)")
-            .arg(cf.capFile()->filename)
-            .arg(file_size_to_qstring(cf.capFile()->f_datalen));
-    pushFileStatus(cf.fileName(), msgtip);
+    if (cf.isValid()) {
+        popFileStatus();
+        QString msgtip = QString("%1 (%2)")
+                .arg(cf.capFile()->filename)
+                .arg(file_size_to_qstring(cf.capFile()->f_datalen));
+        pushFileStatus(cf.fileName(), msgtip);
+    }
 }
 
 void MainStatusBar::setCaptureFile(capture_file *cf)
@@ -382,16 +384,28 @@ void MainStatusBar::updateCaptureStatistics(capture_session *cap_session)
 #else
     /* Do we have any packets? */
     if ((!cap_session || cap_session->cf == cap_file_) && cap_file_ && cap_file_->count) {
-        packets_str.append(QString(tr("Packets: %1 %4 Displayed: %2 %4 Marked: %3"))
+        packets_str.append(QString(tr("Packets: %1 %4 Displayed: %2 (%3%)"))
                           .arg(cap_file_->count)
                           .arg(cap_file_->displayed_count)
-                          .arg(cap_file_->marked_count)
+                          .arg((100.0*cap_file_->displayed_count)/cap_file_->count, 0, 'f', 1)
                           .arg(UTF8_MIDDLE_DOT));
+        if(cap_file_->marked_count > 0) {
+            packets_str.append(QString(tr(" %1 Marked: %2 (%3%)"))
+                              .arg(UTF8_MIDDLE_DOT)
+                              .arg(cap_file_->marked_count)
+                              .arg((100.0*cap_file_->marked_count)/cap_file_->count, 0, 'f', 1));
+        }
         if(cap_file_->drops_known) {
-            packets_str.append(QString(tr(" %1 Dropped: %2")).arg(UTF8_MIDDLE_DOT).arg(cap_file_->drops));
+            packets_str.append(QString(tr(" %1 Dropped: %2 (%3%)"))
+                              .arg(UTF8_MIDDLE_DOT)
+                              .arg(cap_file_->drops)
+                              .arg((100.0*cap_file_->drops)/cap_file_->count, 0, 'f', 1));
         }
         if(cap_file_->ignored_count > 0) {
-            packets_str.append(QString(tr(" %1 Ignored: %2")).arg(UTF8_MIDDLE_DOT).arg(cap_file_->ignored_count));
+            packets_str.append(QString(tr(" %1 Ignored: %2 (%3%)"))
+                              .arg(UTF8_MIDDLE_DOT)
+                              .arg(cap_file_->ignored_count)
+                              .arg((100.0*cap_file_->ignored_count)/cap_file_->count, 0, 'f', 1));
         }
         if(!cap_file_->is_tempfile) {
             /* Loading an existing file */

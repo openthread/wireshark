@@ -104,6 +104,7 @@
 #include "filter_dialog.h"
 #include "funnel_statistics.h"
 #include "gsm_map_summary_dialog.h"
+#include "iax2_analysis_dialog.h"
 #include "io_graph_dialog.h"
 #include "lbm_stream_dialog.h"
 #include "lbm_uimflow_dialog.h"
@@ -155,7 +156,7 @@ static const char *dfe_property_ = "display filter expression"; //TODO : Fix Tra
 // We're too lazy to sublcass QAction.
 static const char *color_number_property_ = "color number";
 
-bool MainWindow::openCaptureFile(QString& cf_path, QString& read_filter, unsigned int type)
+bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned int type)
 {
     QString file_name = "";
     dfilter_t *rfcode = NULL;
@@ -264,7 +265,7 @@ bool MainWindow::openCaptureFile(QString& cf_path, QString& read_filter, unsigne
     return true;
 }
 
-void MainWindow::filterPackets(QString& new_filter, bool force)
+void MainWindow::filterPackets(QString new_filter, bool force)
 {
     cf_status_t cf_status;
 
@@ -675,6 +676,8 @@ void MainWindow::captureFileReadFinished() {
 
     main_ui_->statusBar->setFileName(capture_file_);
 
+    packet_list_->captureFileReadFinished();
+
     emit setDissectedCaptureFile(capture_file_.capFile());
 }
 
@@ -935,6 +938,15 @@ void MainWindow::stopCapture() {
     packet_list_->setAutoScroll(false);
 }
 
+// Keep focus rects from showing through the welcome screen. Primarily for
+// OS X.
+void MainWindow::mainStackChanged(int)
+{
+    for (int i = 0; i < main_ui_->mainStack->count(); i++) {
+        main_ui_->mainStack->widget(i)->setEnabled(i == main_ui_->mainStack->currentIndex());
+    }
+}
+
 // XXX - Copied from ui/gtk/menus.c
 
 /**
@@ -1127,7 +1139,7 @@ void MainWindow::setMenusForSelectedPacket()
         QString filter;
         if (capture_file_.capFile()->edt) {
             enable = color_filter->is_filter_valid(&capture_file_.capFile()->edt->pi);
-            filter = color_filter->build_filter_string(&capture_file_.capFile()->edt->pi);
+            filter = gchar_free_to_qstring(color_filter->build_filter_string(&capture_file_.capFile()->edt->pi));
         }
         conv_action->setEnabled(enable);
         conv_action->setData(filter);
@@ -1480,33 +1492,6 @@ void MainWindow::on_actionDisplayFilterExpression_triggered()
 
 // On Qt4 + OS X with unifiedTitleAndToolBarOnMac set it's possible to make
 // the main window obnoxiously wide.
-
-// We might want to do something different here. We should probably merge
-// the dfilter and gui.filter_expressions code first.
-void MainWindow::addDisplayFilterButton(QString df_text)
-{
-    struct filter_expression *cur_fe = *pfilter_expression_head;
-    struct filter_expression *fe = g_new0(struct filter_expression, 1);
-
-    QFontMetrics fm = main_ui_->displayFilterToolBar->fontMetrics();
-    QString label = fm.elidedText(df_text, Qt::ElideMiddle, fm.height() * 15);
-
-    fe->enabled = TRUE;
-    fe->label = qstring_strdup(label);
-    fe->expression = qstring_strdup(df_text);
-
-    if (!cur_fe) {
-        *pfilter_expression_head = fe;
-    } else {
-        while (cur_fe->next) {
-            cur_fe = cur_fe->next;
-        }
-        cur_fe->next = fe;
-    }
-
-    prefs_main_write();
-    filterExpressionsChanged();
-}
 
 void MainWindow::displayFilterButtonClicked()
 {
@@ -2543,7 +2528,7 @@ void MainWindow::on_actionAnalyzeReloadLuaPlugins_triggered()
 
 void MainWindow::openFollowStreamDialog(follow_type_t type) {
     FollowStreamDialog *fsd = new FollowStreamDialog(*this, capture_file_, type);
-    connect(fsd, SIGNAL(updateFilter(QString&, bool)), this, SLOT(filterPackets(QString&, bool)));
+    connect(fsd, SIGNAL(updateFilter(QString, bool)), this, SLOT(filterPackets(QString, bool)));
     connect(fsd, SIGNAL(goToPacket(int)), packet_list_, SLOT(goToPacket(int)));
 
     fsd->show();
@@ -2568,8 +2553,8 @@ void MainWindow::on_actionAnalyzeFollowSSLStream_triggered()
 void MainWindow::openSCTPAllAssocsDialog()
 {
     SCTPAllAssocsDialog *sctp_dialog = new SCTPAllAssocsDialog(this, capture_file_.capFile());
-    connect(sctp_dialog, SIGNAL(filterPackets(QString&,bool)),
-            this, SLOT(filterPackets(QString&,bool)));
+    connect(sctp_dialog, SIGNAL(filterPackets(QString,bool)),
+            this, SLOT(filterPackets(QString,bool)));
     connect(this, SIGNAL(setCaptureFile(capture_file*)),
             sctp_dialog, SLOT(setCaptureFile(capture_file*)));
     sctp_dialog->fillTable();
@@ -2595,8 +2580,8 @@ void MainWindow::on_actionSCTPShowAllAssociations_triggered()
 void MainWindow::on_actionSCTPAnalyseThisAssociation_triggered()
 {
     SCTPAssocAnalyseDialog *sctp_analyse = new SCTPAssocAnalyseDialog(this, NULL, capture_file_.capFile());
-    connect(sctp_analyse, SIGNAL(filterPackets(QString&,bool)),
-            this, SLOT(filterPackets(QString&,bool)));
+    connect(sctp_analyse, SIGNAL(filterPackets(QString,bool)),
+            this, SLOT(filterPackets(QString,bool)));
 
     if (sctp_analyse->isMinimized() == true)
     {
@@ -2956,8 +2941,8 @@ void MainWindow::openVoipCallsDialog(bool all_flows)
     VoipCallsDialog *voip_calls_dialog = new VoipCallsDialog(*this, capture_file_, all_flows);
     connect(voip_calls_dialog, SIGNAL(goToPacket(int)),
             packet_list_, SLOT(goToPacket(int)));
-    connect(voip_calls_dialog, SIGNAL(updateFilter(QString&, bool)),
-            this, SLOT(filterPackets(QString&, bool)));
+    connect(voip_calls_dialog, SIGNAL(updateFilter(QString, bool)),
+            this, SLOT(filterPackets(QString, bool)));
     voip_calls_dialog->show();
 }
 
@@ -2972,15 +2957,23 @@ void MainWindow::on_actionTelephonyGsmMapSummary_triggered()
     gms_dialog->show();
 }
 
-void MainWindow::on_actionTelephonyMtp3Summary_triggered()
+void MainWindow::on_actionTelephonyIax2StreamAnalysis_triggered()
 {
-    Mtp3SummaryDialog *mtp3s_dialog = new Mtp3SummaryDialog(*this, capture_file_);
-    mtp3s_dialog->show();
+    Iax2AnalysisDialog *iax2_analysis_dialog = new  Iax2AnalysisDialog(*this, capture_file_);
+    connect(iax2_analysis_dialog, SIGNAL(goToPacket(int)),
+            packet_list_, SLOT(goToPacket(int)));
+    iax2_analysis_dialog->show();
 }
 
 void MainWindow::on_actionTelephonyISUPMessages_triggered()
 {
     openStatisticsTreeDialog("isup_msg");
+}
+
+void MainWindow::on_actionTelephonyMtp3Summary_triggered()
+{
+    Mtp3SummaryDialog *mtp3s_dialog = new Mtp3SummaryDialog(*this, capture_file_);
+    mtp3s_dialog->show();
 }
 
 void MainWindow::on_actionTelephonyRTPStreams_triggered()
@@ -2990,8 +2983,8 @@ void MainWindow::on_actionTelephonyRTPStreams_triggered()
             packet_list_, SLOT(redrawVisiblePackets()));
     connect(rtp_stream_dialog, SIGNAL(goToPacket(int)),
             packet_list_, SLOT(goToPacket(int)));
-    connect(rtp_stream_dialog, SIGNAL(updateFilter(QString&, bool)),
-            this, SLOT(filterPackets(QString&, bool)));
+    connect(rtp_stream_dialog, SIGNAL(updateFilter(QString, bool)),
+            this, SLOT(filterPackets(QString, bool)));
     rtp_stream_dialog->show();
 }
 
@@ -3030,8 +3023,8 @@ void MainWindow::on_actionATT_Server_Attributes_triggered()
     BluetoothAttServerAttributesDialog *bluetooth_att_sever_attributes_dialog = new BluetoothAttServerAttributesDialog(*this, capture_file_);
     connect(bluetooth_att_sever_attributes_dialog, SIGNAL(goToPacket(int)),
             packet_list_, SLOT(goToPacket(int)));
-    connect(bluetooth_att_sever_attributes_dialog, SIGNAL(updateFilter(QString&, bool)),
-            this, SLOT(filterPackets(QString&, bool)));
+    connect(bluetooth_att_sever_attributes_dialog, SIGNAL(updateFilter(QString, bool)),
+            this, SLOT(filterPackets(QString, bool)));
     bluetooth_att_sever_attributes_dialog->show();
 }
 
@@ -3040,8 +3033,8 @@ void MainWindow::on_actionDevices_triggered()
     BluetoothDevicesDialog *bluetooth_devices_dialog = new BluetoothDevicesDialog(*this, capture_file_);
     connect(bluetooth_devices_dialog, SIGNAL(goToPacket(int)),
             packet_list_, SLOT(goToPacket(int)));
-    connect(bluetooth_devices_dialog, SIGNAL(updateFilter(QString&, bool)),
-            this, SLOT(filterPackets(QString&, bool)));
+    connect(bluetooth_devices_dialog, SIGNAL(updateFilter(QString, bool)),
+            this, SLOT(filterPackets(QString, bool)));
     bluetooth_devices_dialog->show();
 }
 
@@ -3050,8 +3043,8 @@ void MainWindow::on_actionHCI_Summary_triggered()
     BluetoothHciSummaryDialog *bluetooth_hci_summary_dialog = new BluetoothHciSummaryDialog(*this, capture_file_);
     connect(bluetooth_hci_summary_dialog, SIGNAL(goToPacket(int)),
             packet_list_, SLOT(goToPacket(int)));
-    connect(bluetooth_hci_summary_dialog, SIGNAL(updateFilter(QString&, bool)),
-            this, SLOT(filterPackets(QString&, bool)));
+    connect(bluetooth_hci_summary_dialog, SIGNAL(updateFilter(QString, bool)),
+            this, SLOT(filterPackets(QString, bool)));
     bluetooth_hci_summary_dialog->show();
 }
 
@@ -3203,11 +3196,8 @@ void MainWindow::on_goToCancel_clicked()
 
 void MainWindow::on_goToGo_clicked()
 {
-    int packet_num = main_ui_->goToLineEdit->text().toInt();
+    gotoFrame(main_ui_->goToLineEdit->text().toInt());
 
-    if (packet_num > 0) {
-        packet_list_->goToPacket(packet_num);
-    }
     on_goToCancel_clicked();
 }
 
@@ -3252,7 +3242,8 @@ void MainWindow::on_actionCaptureStart_triggered()
     }
 
     /* XXX - will closing this remove a temporary file? */
-    if (testCaptureFileClose(FALSE, *new QString(" before starting a new capture"))) {
+    QString before_what(tr(" before starting a new capture"));
+    if (testCaptureFileClose(FALSE, before_what)) {
         startCapture();
     } else {
         // simply clicking the button sets it to 'checked' even though we've
@@ -3357,6 +3348,14 @@ void MainWindow::externalMenuItem_triggered()
                 QDesktopServices::openUrl(QUrl(QString((gchar *)entry->user_data)));
             }
         }
+    }
+}
+
+void MainWindow::gotoFrame(int packet_num)
+{
+    if ( packet_num > 0 )
+    {
+        packet_list_->goToPacket(packet_num);
     }
 }
 

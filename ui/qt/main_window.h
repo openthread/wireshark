@@ -90,6 +90,8 @@ public:
 
     virtual QMenu *createPopupMenu();
 
+    void gotoFrame(int packet_num);
+
 protected:
     bool eventFilter(QObject *obj, QEvent *event);
     void keyPressEvent(QKeyEvent *event);
@@ -167,7 +169,7 @@ private:
     void exportDissections(export_type_e export_type);
 
     void fileAddExtension(QString &file_name, int file_type, bool compressed);
-    bool testCaptureFileClose(bool from_quit = false, QString& before_what = *new QString());
+    bool testCaptureFileClose(bool from_quit = false, QString before_what = QString());
     void captureStop();
 
     void initMainToolbarIcons();
@@ -213,9 +215,9 @@ public slots:
      * @return True on success, false on failure.
      */
     // XXX We might want to return a cf_read_status_t or a CaptureFile.
-    bool openCaptureFile(QString& cf_path, QString& display_filter, unsigned int type);
-    bool openCaptureFile(QString& cf_path = *new QString(), QString& display_filter = *new QString()) { return openCaptureFile(cf_path, display_filter, WTAP_TYPE_AUTO); }
-    void filterPackets(QString& new_filter = *new QString(), bool force = false);
+    bool openCaptureFile(QString cf_path, QString display_filter, unsigned int type);
+    bool openCaptureFile(QString cf_path = QString(), QString display_filter = QString()) { return openCaptureFile(cf_path, display_filter, WTAP_TYPE_AUTO); }
+    void filterPackets(QString new_filter = QString(), bool force = false);
     void updateForUnsavedChanges();
     void layoutPanes();
     void applyRecentPaneGeometry();
@@ -257,6 +259,7 @@ private slots:
 
     void loadWindowGeometry();
     void saveWindowGeometry();
+    void mainStackChanged(int);
     void updateRecentFiles();
     void recentActionTriggered();
     void setMenusForSelectedPacket();
@@ -272,13 +275,13 @@ private slots:
     void addDynamicMenus();
     void reloadDynamicMenus();
     void addExternalMenus();
+    QMenu * searchSubMenu(QString objectName);
 
     void startInterfaceCapture(bool valid);
 
     void setFeaturesEnabled(bool enabled = true);
 
     void on_actionDisplayFilterExpression_triggered();
-    void addDisplayFilterButton(QString df_text);
     void displayFilterButtonClicked();
 
     // Handle FilterAction signals
@@ -529,8 +532,9 @@ private slots:
     void openVoipCallsDialog(bool all_flows = false);
     void on_actionTelephonyVoipCalls_triggered();
     void on_actionTelephonyGsmMapSummary_triggered();
-    void on_actionTelephonyMtp3Summary_triggered();
+    void on_actionTelephonyIax2StreamAnalysis_triggered();
     void on_actionTelephonyISUPMessages_triggered();
+    void on_actionTelephonyMtp3Summary_triggered();
     void on_actionTelephonyRTPStreams_triggered();
     void on_actionTelephonyRTPStreamAnalysis_triggered();
     void on_actionTelephonyRTSPPacketCounter_triggered();

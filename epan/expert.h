@@ -132,9 +132,8 @@ expert_add_info_format(packet_info *pinfo, proto_item *pi, expert_field *eiindex
 
 /** Add an expert info associated with some byte data
  Add an expert info tree to a protocol item using registered expert info item.
- This function is intended to replace places where
- proto_tree_add_text or proto_tree_add_none_format + expert_add_info
- would be used.
+ This function is intended to replace places where a "text only" proto_tree_add_xxx
+ API + expert_add_info would be used.
  @param tree Current protocol tree (or NULL)
  @param pinfo Packet info of the currently processed packet. May be NULL if tree is supplied
  @param eiindex The registered expert info item
@@ -150,8 +149,9 @@ proto_tree_add_expert(proto_tree *tree, packet_info *pinfo, expert_field *eiinde
 /** Add an expert info associated with some byte data
  Add an expert info tree to a protocol item, using registered expert info item,
  but with a formatted message.
- This function is intended to replace places where
- proto_tree_add_text or proto_tree_add_none_format + expert_add_info_format
+ Add an expert info tree to a protocol item using registered expert info item.
+ This function is intended to replace places where a "text only" proto_tree_add_xxx
+ API + expert_add_info_format
  would be used.
  @param tree Current protocol tree (or NULL)
  @param pinfo Packet info of the currently processed packet. May be NULL if tree is supplied
@@ -175,6 +175,13 @@ WS_DLL_PUBLIC expert_module_t *expert_register_protocol(int id);
  * Deregister expert info from a protocol.
  */
 WS_DLL_PUBLIC void expert_deregister_protocol (expert_module_t *module);
+
+/**
+ * Get summary text of an expert_info field.
+ * This is intended for use in expert_add_info_format or proto_tree_add_expert_format
+ * to get the "base" string to then append additional information
+ */
+WS_DLL_PUBLIC const gchar* expert_get_summary(expert_field *eiindex);
 
 /** Register a expert field array.
  @param module the protocol handle from expert_register_protocol()

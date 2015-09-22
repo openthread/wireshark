@@ -80,6 +80,7 @@ const value_string expert_group_vals[] = {
 	{ PI_PROTOCOL,          "Protocol" },
 	{ PI_SECURITY,          "Security" },
 	{ PI_COMMENTS_GROUP,    "Comment" },
+	{ PI_DECRYPTION,        "Decryption" },
 	{ 0, NULL }
 };
 
@@ -409,6 +410,20 @@ expert_registrar_get_byname(const char *field_name)
 	return hfinfo;
 }
 
+/**
+ * Get summary text of an expert_info field.
+ * This is intended for use in expert_add_info_format or proto_tree_add_expert_format
+ * to get the "base" string to then append additional information
+ */
+const gchar* expert_get_summary(expert_field *eiindex)
+{
+	expert_field_info *eiinfo;
+
+	/* Look up the item */
+	EXPERT_REGISTRAR_GET_NTH(eiindex->ei, eiinfo);
+
+    return eiinfo->summary;
+}
 
 /** clear flags according to the mask and set new flag values */
 #define FI_REPLACE_FLAGS(fi, mask, flags_in) { \
@@ -588,7 +603,7 @@ proto_tree_add_expert_internal(proto_tree *tree, packet_info *pinfo, expert_fiel
 	/* Look up the item */
 	EXPERT_REGISTRAR_GET_NTH(expindex->ei, eiinfo);
 
-	ti = proto_tree_add_text(tree, tvb, start, length, "%s", eiinfo->summary);
+	ti = proto_tree_add_text_internal(tree, tvb, start, length, "%s", eiinfo->summary);
 	va_start(unused, length);
 	expert_set_info_vformat(pinfo, ti, eiinfo->group, eiinfo->severity, *eiinfo->hf_info.p_id, FALSE, eiinfo->summary, unused);
 	va_end(unused);
@@ -614,7 +629,7 @@ proto_tree_add_expert_format(proto_tree *tree, packet_info *pinfo, expert_field 
 	EXPERT_REGISTRAR_GET_NTH(expindex->ei, eiinfo);
 
 	va_start(ap, format);
-	ti = proto_tree_add_text_valist(tree, tvb, start, length, format, ap);
+	ti = proto_tree_add_text_valist_internal(tree, tvb, start, length, format, ap);
 	va_end(ap);
 
 	va_start(ap, format);

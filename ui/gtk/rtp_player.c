@@ -55,6 +55,7 @@
 #include <math.h>
 #include <string.h>
 #include <portaudio.h>
+#include <assert.h>
 
 #include <gtk/gtk.h>
 
@@ -65,10 +66,9 @@
 #include <epan/prefs.h>
 #include <wsutil/report_err.h>
 
-#include <codecs/codecs.h>
-
 #include "globals.h"
 
+#include "ui/rtp_media.h"
 #include "ui/rtp_stream.h"
 #include "ui/simple_dialog.h"
 #include "ui/voip_calls.h"
@@ -119,14 +119,13 @@ static int new_jitter_buff;
 /* a hash table with the RTP streams to play per audio channel */
 static GHashTable *rtp_channels_hash = NULL;
 
-static int sample_rate = 8000;
-static int channels = 1;
+static unsigned sample_rate = 8000;
+static unsigned channels = 1;
 
 /* Port Audio stuff */
-static int output_channels = 2;
+static unsigned output_channels = 2;
 
 #define PA_SAMPLE_TYPE  paInt16
-typedef gint16 SAMPLE;
 #define SAMPLE_SILENCE  (0)
 #define FRAMES_PER_BUFFER  (512)
 
@@ -189,13 +188,6 @@ typedef struct _rtp_channel_info {
 	guint32 num_packets;
 } rtp_channel_info_t;
 
-/* defines a RTP packet */
-typedef struct _rtp_packet {
-	struct _rtp_info *info;	/* the RTP dissected info */
-	double arrive_offset;	/* arrive offset time since the beginning of the stream in ms */
-	guint8* payload_data;
-} rtp_packet_t;
-
 /* defines the two RTP channels to be played */
 typedef struct _rtp_play_channles {
 	rtp_channel_info_t* rci[2]; /* Channels to be played */
@@ -217,11 +209,6 @@ typedef struct _rtp_play_channles {
 
 /* The two RTP channels to play */
 static rtp_play_channels_t *rtp_channels = NULL;
-
-typedef struct _rtp_decoder_t {
-	codec_handle_t handle;
-	void *context;
-} rtp_decoder_t;
 
 
 typedef struct _data_info {
@@ -271,17 +258,6 @@ rtp_stream_value_destroy(gpointer rsi_arg)
 	g_free((void *)(rsi->dest_addr.data));
 	g_free(rsi);
 	rsi = NULL;
-}
-
-/****************************************************************************/
-static void
-rtp_decoder_value_destroy(gpointer dec_arg)
-{
-	rtp_decoder_t *dec = (rtp_decoder_t *)dec_arg;
-
-	if (dec->handle)
-		codec_release(dec->handle, dec->context);
-	g_free(dec_arg);
 }
 
 /****************************************************************************/
@@ -378,14 +354,14 @@ add_rtp_packet(const struct _rtp_info *rtp_info, packet_info *pinfo)
 	}
 
 	/* increment the number of packets in this stream, this is used for the progress bar and statistics */
-    stream_info->packet_count++;
+	stream_info->packet_count++;
 
 	/* Add the RTP packet to the list */
-    new_rtp_packet = g_new0(rtp_packet_t, 1);
+	new_rtp_packet = g_new0(rtp_packet_t, 1);
 	new_rtp_packet->info = (struct _rtp_info *)g_malloc(sizeof(struct _rtp_info));
 
 	memcpy(new_rtp_packet->info, rtp_info, sizeof(struct _rtp_info));
-    new_rtp_packet->arrive_offset = nstime_to_msec(&pinfo->rel_ts) - nstime_to_msec(&stream_info->start_rel_time);
+	new_rtp_packet->arrive_offset = nstime_to_msec(&pinfo->rel_ts) - nstime_to_msec(&stream_info->start_rel_time);
 	/* copy the RTP payload to the rtp_packet to be decoded later */
 	if (rtp_info->info_all_data_present && (rtp_info->info_payload_len != 0)) {
 		new_rtp_packet->payload_data = (guint8 *)g_malloc(rtp_info->info_payload_len);
@@ -394,7 +370,7 @@ add_rtp_packet(const struct _rtp_info *rtp_info, packet_info *pinfo)
 		new_rtp_packet->payload_data = NULL;
 	}
 
-    stream_info->rtp_packet_list = g_list_append(stream_info->rtp_packet_list, new_rtp_packet);
+	stream_info->rtp_packet_list = g_list_append(stream_info->rtp_packet_list, new_rtp_packet);
 
 	g_string_free(key_str, TRUE);
 }
@@ -414,7 +390,7 @@ mark_rtp_stream_to_play(gchar *key _U_ , rtp_stream_info_t *rsi, gpointer ptr _U
 	/* Reset the "to be play" value because the user can close and reopen the RTP Player window
 	 * and the streams are not reset in that case
 	 */
-    rsi->decode = FALSE;
+	rsi->decode = FALSE;
 
 	/* and associate the RTP stream with a call using the first RTP packet in the stream */
 	graph_list = g_queue_peek_nth_link(voip_calls->graph_analysis->items, 0);
@@ -453,62 +429,6 @@ mark_all_rtp_stream_to_decode(gchar *key _U_ , rtp_stream_info_t *rsi, gpointer 
 }
 
 /****************************************************************************/
-/* Decode a RTP packet
- * Return the number of decoded bytes
- */
-static int
-decode_rtp_packet(rtp_packet_t *rp, SAMPLE **out_buff, GHashTable *decoders_hash)
-{
-	unsigned int  payload_type;
-	const gchar *p;
-	rtp_decoder_t *decoder;
-	SAMPLE *tmp_buff = NULL;
-	int tmp_buff_len;
-	int decoded_bytes = 0;
-
-	if ((rp->payload_data == NULL) || (rp->info->info_payload_len == 0) ) {
-		return 0;
-	}
-
-	payload_type = rp->info->info_payload_type;
-
-	/* Look for registered codecs */
-	decoder = (rtp_decoder_t *)g_hash_table_lookup(decoders_hash, GUINT_TO_POINTER(payload_type));
-	if (!decoder) {  /* Put either valid or empty decoder into the hash table */
-		decoder = g_new(rtp_decoder_t,1);
-		decoder->handle = NULL;
-		decoder->context = NULL;
-
-		if (rp->info->info_payload_type_str && find_codec(rp->info->info_payload_type_str)) {
-			p = rp->info->info_payload_type_str;
-		} else {
-			p = try_val_to_str_ext(payload_type, &rtp_payload_type_short_vals_ext);
-		}
-
-		if (p) {
-			decoder->handle = find_codec(p);
-			if (decoder->handle)
-				decoder->context = codec_init(decoder->handle);
-		}
-		g_hash_table_insert(decoders_hash, GUINT_TO_POINTER(payload_type), decoder);
-	}
-	if (decoder->handle) {  /* Decode with registered codec */
-		tmp_buff_len = codec_decode(decoder->handle, decoder->context, rp->payload_data, rp->info->info_payload_len, NULL, NULL);
-		tmp_buff = (SAMPLE *)g_malloc(tmp_buff_len);
-		decoded_bytes = codec_decode(decoder->handle, decoder->context, rp->payload_data, rp->info->info_payload_len, tmp_buff, &tmp_buff_len);
-		*out_buff = tmp_buff;
-
-		channels = codec_get_channels(decoder->handle, decoder->context);
-		sample_rate = codec_get_frequency(decoder->handle, decoder->context);
-
-		return decoded_bytes;
-	}
-
-	*out_buff = NULL;
-	return 0;
-}
-
-/****************************************************************************/
 static void
 update_progress_bar(gfloat fraction)
 {
@@ -533,7 +453,8 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 	GList*  rtp_packet_list;
 	rtp_packet_t *rp;
 
-	int i;
+	size_t i;
+	gint32 j;
 	double rtp_time;
 	double rtp_time_prev;
 	double arrive_time;
@@ -551,8 +472,8 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 #endif
 	char *src_addr, *dst_addr;
 
-	int decoded_bytes;
-	int decoded_bytes_prev;
+	size_t decoded_bytes;
+	size_t decoded_bytes_prev;
 	int jitter_buff;
 	SAMPLE *out_buff = NULL;
 	sample_t silence;
@@ -611,7 +532,7 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 	} else {
 		/* Add silence between the two streams if needed */
 		silence_frames = (gint32)((nstime_to_msec(&rsi->start_fd->abs_ts) - nstime_to_msec(&rci->stop_time_abs)) * sample_rate);
-		for (i = 0; i< silence_frames; i++) {
+		for (j = 0; j < silence_frames; j++) {
 			g_array_append_val(rci->samples, silence);
 		}
 		rci->num_packets += rsi->packet_count;
@@ -631,7 +552,7 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 #endif
 	seq = 0;
 	start_timestamp = 0;
-	decoders_hash = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, rtp_decoder_value_destroy);
+	decoders_hash = rtp_decoder_hash_table_new();
 
 	/* we update the progress bar 100 times */
 
@@ -669,7 +590,7 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 			seq = rp->info->info_seq_num - 1;
 		}
 
-		decoded_bytes = decode_rtp_packet(rp, &out_buff, decoders_hash);
+		decoded_bytes = decode_rtp_packet(rp, &out_buff, decoders_hash, &channels, &sample_rate);
 		if (decoded_bytes == 0) {
 			seq = rp->info->info_seq_num;
 		}
@@ -720,7 +641,7 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 				if (silence_frames > MAX_SILENCE_FRAMES)
 					silence_frames = MAX_SILENCE_FRAMES;
 
-				for (i = 0; i< silence_frames; i++) {
+				for (j = 0; j < silence_frames; j++) {
 					silence.status = status;
 					g_array_append_val(rci->samples, silence);
 
@@ -756,7 +677,7 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 			if (silence_frames > MAX_SILENCE_FRAMES)
 				silence_frames = MAX_SILENCE_FRAMES;
 
-			for (i = 0; i< silence_frames; i++) {
+			for (j = 0; j < silence_frames; j++) {
 				silence.status = status;
 				g_array_append_val(rci->samples, silence);
 
@@ -1888,6 +1809,7 @@ play_channels(void)
 	/* if not PAUSE, then start to PLAY */
 	} else {
 #if PORTAUDIO_API_1
+		assert(output_channels <= INT_MAX);
 		err = Pa_OpenStream(
 			  &pa_stream,
 			  paNoDevice,     /* default input device */
@@ -1895,7 +1817,7 @@ play_channels(void)
 			  PA_SAMPLE_TYPE,
 			  NULL,
 			  Pa_GetDefaultOutputDeviceID(),
-			  output_channels,
+			  (int)output_channels,
 			  PA_SAMPLE_TYPE,
 			  NULL,
 			  sample_rate,
@@ -1935,10 +1857,11 @@ play_channels(void)
 		}
 #else /* PORTAUDIO_API_1 */
 		if (Pa_GetDefaultOutputDevice() != paNoDevice) {
+		        assert(output_channels <= INT_MAX);
 			err = Pa_OpenDefaultStream(
 				&pa_stream,
 				0,
-				output_channels,
+				(int)output_channels,
 				PA_SAMPLE_TYPE,
 				sample_rate,
 				FRAMES_PER_BUFFER,

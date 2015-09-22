@@ -185,6 +185,7 @@ static gint ett_iax2_trunk_call = -1;
 static expert_field ei_iax_too_many_transfers = EI_INIT;
 static expert_field ei_iax_circuit_id_conflict = EI_INIT;
 static expert_field ei_iax_peer_address_unsupported = EI_INIT;
+static expert_field ei_iax_invalid_len = EI_INIT;
 
 static const fragment_items iax2_fragment_items = {
   &ett_iax2_fragment,
@@ -1250,7 +1251,10 @@ static guint32 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
     /* do non-tree-dependent stuff first */
     switch (ies_type) {
       case IAX_IE_DATAFORMAT:
-        if (ies_len != 4) THROW(ReportedBoundsError);
+        if (ies_len != 4) {
+          proto_tree_add_expert(iax_tree, pinfo, &ei_iax_invalid_len, tvb, offset+1, 1);
+          break;
+        }
         ie_data -> dataformat = tvb_get_ntohl(tvb, offset+2);
         break;
 
@@ -1294,7 +1298,7 @@ static guint32 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
     /* the rest of this stuff only needs doing if we have an iax_tree */
 
     if (iax_tree && ies_type < NUM_HF_IAX2_IES) {
-      proto_item *ti, *ie_item;
+      proto_item *ti, *ie_item = NULL;
       proto_tree *ies_tree;
       int ie_hf = hf_iax2_ies[ies_type];
 
@@ -1321,7 +1325,10 @@ static guint32 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
         {
           proto_tree *codec_tree;
 
-          if (ies_len != 4) THROW(ReportedBoundsError);
+          if (ies_len != 4) {
+            proto_tree_add_expert(ies_tree, pinfo, &ei_iax_invalid_len, tvb, offset+1, 1);
+            break;
+          }
 
           ie_item =
             proto_tree_add_item(ies_tree, ie_hf,
@@ -1374,27 +1381,24 @@ static guint32 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
           apparent_addr_family = tvb_get_letohs(tvb, offset+2);
           proto_tree_add_uint(sockaddr_tree, hf_IAX_IE_APPARENTADDR_SINFAMILY, tvb, offset + 2, 2, apparent_addr_family);
 
-          switch (apparent_addr_family) {
-            case LINUX_AF_INET:
-            {
-              guint32 addr;
-              proto_tree_add_uint(sockaddr_tree, hf_IAX_IE_APPARENTADDR_SINPORT, tvb, offset + 4, 2, ie_data->peer_port);
-              memcpy(&addr, ie_data->peer_address.data, 4);
-              proto_tree_add_ipv4(sockaddr_tree, hf_IAX_IE_APPARENTADDR_SINADDR, tvb, offset + 6, 4, addr);
-              break;
-            }
+          if (apparent_addr_family == LINUX_AF_INET) {
+            guint32 addr;
+            proto_tree_add_uint(sockaddr_tree, hf_IAX_IE_APPARENTADDR_SINPORT, tvb, offset + 4, 2, ie_data->peer_port);
+            memcpy(&addr, ie_data->peer_address.data, 4);
+            proto_tree_add_ipv4(sockaddr_tree, hf_IAX_IE_APPARENTADDR_SINADDR, tvb, offset + 6, 4, addr);
           }
           break;
         }
 
         default:
           if (ie_hf != -1) {
-            /* throw an error if the IE isn't the expected length */
-            enum ftenum type = proto_registrar_get_nth(ie_hf)->type;
-            gint explen = ftype_length(type);
-            if (explen != 0 && ies_len != explen)
-              THROW(ReportedBoundsError);
-            switch (type) {
+            gint explen = proto_registrar_get_length(ie_hf);
+            if (explen != 0 && ies_len != explen) {
+              proto_tree_add_expert(ies_tree, pinfo, &ei_iax_invalid_len, tvb, offset+1, 1);
+              break;
+            }
+
+            switch (proto_registrar_get_ftype(ie_hf)) {
             case FT_UINT8:
             case FT_UINT16:
             case FT_UINT24:
@@ -1467,12 +1471,9 @@ static guint32 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
           break;
       }
 
-      /* by now, we *really* ought to have added an item */
-      DISSECTOR_ASSERT(ie_item != NULL);
-
       /* Retrieve the text from the item we added, and append it to the main IE
        * item */
-      if (!PROTO_ITEM_IS_HIDDEN(ti)) {
+      if (ie_item && !PROTO_ITEM_IS_HIDDEN(ti)) {
         field_info *ie_finfo = PITEM_FINFO(ie_item);
 
         /* if the representation of the item has already been set, use that;
@@ -1481,8 +1482,7 @@ static guint32 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, guint32 offset,
           proto_item_set_text(ti, "Information Element: %s",
                               ie_finfo->rep->representation);
         else {
-          guint8 *ie_val = NULL;
-          ie_val = (guint8 *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH);
+          guint8 *ie_val = (guint8 *)wmem_alloc(wmem_packet_scope(), ITEM_LABEL_LENGTH);
           proto_item_fill_label(ie_finfo, ie_val);
           proto_item_set_text(ti, "Information Element: %s",
                               ie_val);
@@ -3181,6 +3181,7 @@ proto_register_iax2(void)
     { &ei_iax_too_many_transfers, { "iax2.too_many_transfers", PI_PROTOCOL, PI_WARN, "Too many transfers for iax_call", EXPFILL }},
     { &ei_iax_circuit_id_conflict, { "iax2.circuit_id_conflict", PI_PROTOCOL, PI_WARN, "Circuit ID conflict", EXPFILL }},
     { &ei_iax_peer_address_unsupported, { "iax2.peer_address_unsupported", PI_PROTOCOL, PI_WARN, "Peer address unsupported", EXPFILL }},
+    { &ei_iax_invalid_len, { "iax2.invalid_len", PI_PROTOCOL, PI_WARN, "Invalid length", EXPFILL }}
   };
 
   expert_module_t* expert_iax;

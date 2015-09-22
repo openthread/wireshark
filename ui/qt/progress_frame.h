@@ -37,10 +37,14 @@ class ProgressFrame;
 
 class ProgressFrame;
 class QDialogButtonBox;
+class QElapsedTimer;
+class QGraphicsOpacityEffect;
+class QPropertyAnimation;
 
 // Define the structure describing a progress dialog.
 struct progdlg {
     ProgressFrame *progress_frame;  // This progress frame
+    QElapsedTimer *elapsed_timer; // Application event processing
     QWidget *top_level_window;  // Progress frame's main window
 };
 
@@ -71,8 +75,8 @@ signals:
     void setHidden();
     void stopLoading();
 
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
 protected:
+#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     void timerEvent(QTimerEvent *event);
 #endif
 
@@ -86,6 +90,8 @@ private:
     gboolean *stop_flag_;
 #if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     int show_timer_;
+    QGraphicsOpacityEffect *effect_;
+    QPropertyAnimation *animation_;
 #endif
 #ifdef QWINTASKBARPROGRESS_H
     bool update_taskbar_;
@@ -93,7 +99,7 @@ private:
 #endif
 
 private slots:
-    void on_pushButton_clicked();
+    void on_stopButton_clicked();
 
     void show(bool animate, bool terminate_is_stop, gboolean *stop_flag);
     void setMaximumValue(int value);

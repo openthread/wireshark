@@ -193,7 +193,7 @@ void WiresharkApplication::refreshRecentFiles(void) {
             continue;
         }
 
-        rf_status = new RecentFileStatus(ri->filename);
+        rf_status = new RecentFileStatus(ri->filename, this);
 
         connect(rf_status, SIGNAL(statusFound(QString, qint64, bool)),
                 this, SLOT(itemStatusFinished(QString, qint64, bool)), Qt::QueuedConnection);
@@ -484,7 +484,6 @@ WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
     setApplicationName("Wireshark");
 
     Q_INIT_RESOURCE(about);
-    Q_INIT_RESOURCE(display_filter);
     Q_INIT_RESOURCE(i18n);
     Q_INIT_RESOURCE(layout);
     Q_INIT_RESOURCE(status);
@@ -616,7 +615,7 @@ WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
 
     // Application-wide style sheet
     QString app_style_sheet = qApp->styleSheet();
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MAC) && QT_VERSION < QT_VERSION_CHECK(5, 6, 0)
     // Qt uses the HITheme API to draw splitters. In recent versions of OS X
     // this looks particularly bad: https://bugreports.qt.io/browse/QTBUG-43425
     // This doesn't look native but it looks better than Yosemite's bit-rotten
@@ -982,7 +981,7 @@ QList<recent_item_status *> WiresharkApplication::recentItems() const {
     return recent_items_;
 }
 
-void WiresharkApplication::addRecentItem(const QString &filename, qint64 size, bool accessible) {
+void WiresharkApplication::addRecentItem(const QString filename, qint64 size, bool accessible) {
     recent_item_status *ri = new(recent_item_status);
 
     ri->filename = filename;

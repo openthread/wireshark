@@ -243,6 +243,8 @@ Windows Search Protocol (MS-WSP)
 Message Queuing Telemetry Transport For Sensor Networks (MQTT-SN)
 Time Division Multiplexing over Packet Network (TDMoP)
 Concise Binary Object Representation (CBOR) (RFC 7049)
+XIP Serval
+TCP based Robot Operating System protocol (TCPROS)
 --sort-and-group--
 
 === Updated Protocol Support
@@ -262,7 +264,7 @@ Netscaler 3.5
 === New and Updated Capture Interfaces support
 
 --sort-and-group--
-Androiddump - provide interfaces to capture (Logcat and Bluetooth) from connected Android devices
+Androiddump - provide interfaces to capture (Logcat, Bluetooth and WiFi) from connected Android devices
 --sort-and-group--
 
 === Major API Changes
@@ -276,6 +278,7 @@ you want to write dissectors in something other than C, use Lua.
 * Plugins can now create GUI menu items.
 * Heuristic dissectors can now be globally enabled/disabled so
 heur_dissector_add() has a few more parameters to make that possible
+* proto_tree_add_text has been removed.
 
 
 == Getting Wireshark

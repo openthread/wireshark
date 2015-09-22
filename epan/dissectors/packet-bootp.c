@@ -468,6 +468,25 @@ static int hf_bootp_option_6RD_ipv4_mask_len = -1;			/* 212 */
 static int hf_bootp_option_6RD_prefix_len = -1;				/* 212 */
 static int hf_bootp_option_6RD_prefix = -1;				/* 212 */
 static int hf_bootp_option_6RD_border_relay_ip = -1;			/* 212 */
+static int hf_bootp_option242_avaya = -1;				/* 242 */
+static int hf_bootp_option242_avaya_tlssrvr = -1;			/* 242 */
+static int hf_bootp_option242_avaya_httpsrvr = -1;			/* 242 */
+static int hf_bootp_option242_avaya_httpdir = -1;			/* 242 */
+static int hf_bootp_option242_avaya_static = -1;			/* 242 */
+static int hf_bootp_option242_avaya_mcipadd = -1;			/* 242 */
+static int hf_bootp_option242_avaya_dot1x = -1;				/* 242 */
+static int hf_bootp_option242_avaya_icmpdu = -1;			/* 242 */
+static int hf_bootp_option242_avaya_icmpred = -1;			/* 242 */
+static int hf_bootp_option242_avaya_l2q = -1;				/* 242 */
+static int hf_bootp_option242_avaya_l2qvlan = -1;			/* 242 */
+static int hf_bootp_option242_avaya_loglocal = -1;			/* 242 */
+static int hf_bootp_option242_avaya_phy1stat = -1;			/* 242 */
+static int hf_bootp_option242_avaya_phy2stat = -1;			/* 242 */
+static int hf_bootp_option242_avaya_procpswd = -1;			/* 242 */
+static int hf_bootp_option242_avaya_procstat = -1;			/* 242 */
+static int hf_bootp_option242_avaya_snmpadd = -1;			/* 242 */
+static int hf_bootp_option242_avaya_snmpstring = -1;			/* 242 */
+static int hf_bootp_option242_avaya_vlantest = -1;			/* 242 */
 static int hf_bootp_option_private_proxy_autodiscovery = -1;		/* 252 */
 static int hf_bootp_option_end = -1;					/* 255 */
 static int hf_bootp_option_end_overload = -1;				/* 255 (with overload)*/
@@ -494,6 +513,7 @@ static gint ett_bootp_option82_suboption9 = -1;
 static gint ett_bootp_option125_suboption = -1;
 static gint ett_bootp_option125_tr111_suboption = -1;
 static gint ett_bootp_option125_cl_suboption = -1;
+static gint ett_bootp_option242_suboption = -1;
 static gint ett_bootp_fqdn = -1;
 static gint ett_bootp_fqdn_flags = -1;
 static gint ett_bootp_filename_option = -1;
@@ -623,6 +643,9 @@ enum {
 	RFC_3361_ENC_FQDN,
 	RFC_3361_ENC_IPADDR
 };
+
+static void dissect_vendor_avaya_param(proto_tree *tree, packet_info *pinfo, proto_item *vti,
+		tvbuff_t *tvb, int optoff, wmem_strbuf_t *avaya_param_buf);
 
 /* converts fixpoint presentation into decimal presentation
    also converts values which are out of range to allow decoding of received data */
@@ -959,6 +982,72 @@ static const value_string sip_server_enc_vals[] = {
 	{1, "IPv4 Address" },
 	{0, NULL }
 };
+
+static const string_string option242_avaya_phystat_vals[] = {
+	{ "0", "Disabled" },
+	{ "1", "Auto" },
+	{ "2", "10Mbps half" },
+	{ "3", "10Mbps full" },
+	{ "4", "100Mbps half" },
+	{ "5", "100Mbps full" },
+	{ "6", "1000Mbps full" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_l2q_vals[] = {
+	{ "0", "Auto" },
+	{ "1", "Enabled" },
+	{ "2", "Disabled" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_dot1x_vals[] = {
+	{ "0", "With PAE pass-through" },
+	{ "1", "With PAE pass-through and proxy Logoff" },
+	{ "2", "Without PAE pass-through or proxy Logoff" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_icmpdu_vals[] = {
+	{ "0", "No ICMP Destination Unreachable messages" },
+	{ "1", "Send limited Port Unreachable messages" },
+	{ "2", "Send Protocol and Port Unreachable messages" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_icmpred_vals[] = {
+	{ "0", "Ignore ICMP Redirect messages" },
+	{ "1", "Process ICMP Redirect messages" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_loglocal_vals[] = {
+	{ "0", "Disabled" },
+	{ "1", "Emergencie" },
+	{ "2", "Alerts" },
+	{ "3", "Critical" },
+	{ "4", "Errors" },
+	{ "5", "Warnings" },
+	{ "6", "Notices" },
+	{ "7", "Information" },
+	{ "8", "Debug" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_procstat_vals[] = {
+	{ "0", "All administrative options" },
+	{ "1", "Only view administrative options" },
+	{ 0, NULL }
+};
+
+static const string_string option242_avaya_static_vals[] = {
+	{ "0", "Static programming never overrides call server (DHCP) or call server administered data" },
+	{ "1", "Static programming overrides only file server administered data" },
+	{ "2", "Static programming overrides only call server administered data" },
+	{ "3", "Static programming overrides both file server- and call server-administered data" },
+	{ 0, NULL }
+};
+
 /* bootp options administration */
 #define BOOTP_OPT_NUM	256
 
@@ -1208,7 +1297,7 @@ static struct opt_info default_bootp_opt[BOOTP_OPT_NUM] = {
 /* 239 */ { "Private",					opaque, NULL },
 /* 240 */ { "Private",					opaque, NULL },
 /* 241 */ { "Private",					opaque, NULL },
-/* 242 */ { "Private",					opaque, NULL },
+/* 242 */ { "Private/Avaya IP Telephone",		special, NULL },
 /* 243 */ { "Private",					opaque, NULL },
 /* 244 */ { "Private",					opaque, NULL },
 /* 245 */ { "Private",					opaque, NULL },
@@ -2681,6 +2770,47 @@ bootp_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *bp_tree, proto_item 
 		break;
 	}
 
+	case 242: {	/* Avaya IP Telephone */
+		proto_tree *o242avaya_v_tree;
+		proto_item *avaya_ti;
+		gchar *avaya_option = NULL;
+		gchar *field = NULL;
+		wmem_strbuf_t *avaya_param_buf = NULL;
+
+		/* minimum length is 5 bytes */
+		if (optlen < 5) {
+			expert_add_info_format(pinfo, vti, &ei_bootp_bad_length, "Avaya IP Telephone option length isn't >= 5");
+			optoff += optlen;
+			break;
+		}
+		avaya_option = (gchar*)tvb_get_string_enc(wmem_packet_scope(), tvb, optoff, optlen, ENC_ASCII);
+		avaya_ti = proto_tree_add_string(v_tree, hf_bootp_option242_avaya, tvb, optoff, optlen, avaya_option);
+		o242avaya_v_tree = proto_item_add_subtree(avaya_ti, ett_bootp_option242_suboption);
+		avaya_param_buf = wmem_strbuf_new(wmem_packet_scope(), "");
+		for ( field = strtok(avaya_option, ","); field; field = strtok(NULL, ",") ) {
+			if (!strchr(field, '=')) {
+				if (wmem_strbuf_get_len(avaya_param_buf) == 0) {
+					expert_add_info_format(pinfo, vti, &hf_bootp_subopt_unknown_type, "ERROR, Unknown parameter %s", field);
+					optoff += (int)strlen(field);
+					break;
+				}
+				wmem_strbuf_append_printf(avaya_param_buf,",%s", field);
+			}
+			else {
+				if (wmem_strbuf_get_len(avaya_param_buf) > 0) {
+					dissect_vendor_avaya_param(o242avaya_v_tree, pinfo, vti, tvb, optoff, avaya_param_buf);
+					optoff += (int)wmem_strbuf_get_len(avaya_param_buf) + 1;
+					wmem_strbuf_truncate(avaya_param_buf, 0);
+				}
+				wmem_strbuf_append(avaya_param_buf, field);
+			}
+		}
+		if (wmem_strbuf_get_len(avaya_param_buf) > 0) {
+			dissect_vendor_avaya_param(o242avaya_v_tree, pinfo, vti, tvb, optoff, avaya_param_buf);
+		}
+		break;
+	}
+
 	default:	/* not special */
 		/* The PacketCable CCC option number can vary.	If this is a CCC option,
 		   handle it as a special.
@@ -3033,6 +3163,75 @@ dissect_vendor_pxeclient_suboption(packet_info *pinfo, proto_item *v_ti, proto_t
 
 	optoff += (subopt_len + 2);
 	return optoff;
+}
+
+static void
+dissect_vendor_avaya_param(proto_tree *tree, packet_info *pinfo, proto_item *vti,
+		tvbuff_t *tvb, int optoff, wmem_strbuf_t *avaya_param_buf)
+{
+	const gchar *field;
+	int len;
+
+	field = wmem_strbuf_get_str(avaya_param_buf);
+	len = (int)wmem_strbuf_get_len(avaya_param_buf);
+
+	if((strncmp(field, "TLSSRVR=", 8) == 0) && ( len > 8 )) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_tlssrvr, tvb, optoff, len, field + 8);
+	}
+	else if((strncmp(field, "HTTPSRVR=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_httpsrvr, tvb, optoff, len, field + 9);
+	}
+	else if((strncmp(field, "HTTPDIR=", 8) == 0) && ( len > 8)) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_httpdir, tvb, optoff, len, field + 8);
+	}
+	else if((strncmp(field, "STATIC=", 7) == 0) && ( len > 7)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_static, tvb, optoff, len, field + 7, "%s (%s)", field + 7, str_to_str(field + 7, option242_avaya_static_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "MCIPADD=", 8) == 0) && ( len > 8)) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_mcipadd, tvb, optoff, len, field + 8);
+	}
+	else if((strncmp(field, "DOT1X=", 6) == 0) && ( len > 6)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_dot1x, tvb, optoff, len, field + 6, "%s (%s)", field + 6, str_to_str(field + 6, option242_avaya_dot1x_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "ICMPDU=", 7) == 0) && ( len > 7)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_icmpdu, tvb, optoff, len, field + 7, "%s (%s)", field + 7, str_to_str(field + 7, option242_avaya_icmpdu_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "ICMPRED=", 8) == 0) && ( len > 8)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_icmpred, tvb, optoff, len, field + 8, "%s (%s)", field + 8, str_to_str(field + 8, option242_avaya_icmpred_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "L2Q=", 4) == 0) && ( len > 4)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_l2q, tvb, optoff, len, field + 4, "%s (%s)", field + 4, str_to_str(field + 4, option242_avaya_l2q_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "L2QVLAN=", 8) == 0) && ( len > 8)) {
+		proto_tree_add_int(tree, hf_bootp_option242_avaya_l2qvlan, tvb, optoff, len, atoi(field +8));
+	}
+	else if((strncmp(field, "LOGLOCAL=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_loglocal, tvb, optoff, len, field + 9, "%s (%s)", field + 9, str_to_str(field + 9, option242_avaya_loglocal_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "PHY1STAT=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_phy1stat, tvb, optoff, len, field + 9, "%s (%s)", field + 9, str_to_str(field + 9, option242_avaya_phystat_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "PHY2STAT=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_phy2stat, tvb, optoff, len, field + 9, "%s (%s)", field + 9, str_to_str(field + 9, option242_avaya_phystat_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "PROCPSWD=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_procpswd, tvb, optoff, len, field + 9);
+	}
+	else if((strncmp(field, "PROCSTAT=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_string_format_value(tree, hf_bootp_option242_avaya_procstat, tvb, optoff, len, field + 9, "%s (%s)", field + 9, str_to_str(field + 9, option242_avaya_procstat_vals, "Unknown (%s)"));
+	}
+	else if((strncmp(field, "SNMPADD=", 8) == 0) && ( len > 8)) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_snmpadd, tvb, optoff, len, field + 8);
+	}
+	else if((strncmp(field, "SNMPSTRING=", 11) == 0) && ( len > 11)) {
+		proto_tree_add_string(tree, hf_bootp_option242_avaya_snmpstring, tvb, optoff, len, field + 11);
+	}
+	else if((strncmp(field, "VLANTEST=", 9) == 0) && ( len > 9)) {
+		proto_tree_add_int(tree, hf_bootp_option242_avaya_vlantest, tvb, optoff, len, atoi(field + 9));
+	}
+	else {
+		expert_add_info_format(pinfo, vti, &hf_bootp_subopt_unknown_type, "ERROR, Unknown Avaya IP Telephone parameter %s", field);
+	}
 }
 
 /* RFC3825Decoder: http://www.enum.at/rfc3825encoder.529.0.html */
@@ -7473,6 +7672,101 @@ proto_register_bootp(void)
 		  { "Invalidate All PacketCable Call Management Servers", "bootp.ccc.ietf.sec_tkt.all_pc_call_management",
 		    FT_BOOLEAN, 16, TFS(&tfs_yes_no), 0x02,
 		    NULL, HFILL }},
+
+		{ &hf_bootp_option242_avaya,
+		  { "Private/Avaya IP Telephone",  "bootp.option.vendor.avaya",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: Private/Avaya IP Telephone", HFILL }},
+
+		{ &hf_bootp_option242_avaya_tlssrvr,
+		  { "TLSSRVR",  "bootp.option.vendor.avaya.tlssrvr",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: TLSSRVR (HTTPS server(s) to download configuration)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_httpsrvr,
+		  { "HTTPSRVR",  "bootp.option.vendor.avaya.httpsrvr",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: HTTPSRVR (HTTP server(s) to download configuration)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_httpdir,
+		  { "HTTPDIR",  "bootp.option.vendor.avaya.httpdir",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: HTTPDIR (Path to configuration files)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_static,
+		  { "STATIC",  "bootp.option.vendor.avaya.static",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: STATIC (Static programming override flag)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_mcipadd,
+		  { "MCIPADD",  "bootp.option.vendor.avaya.mcipadd",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: MCIPADD (List of CM server(s))", HFILL }},
+
+		{ &hf_bootp_option242_avaya_dot1x,
+		  { "DOT1X",  "bootp.option.vendor.avaya.dot1x",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: DOT1X (802.1X Supplicant operation mode)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_icmpdu,
+		  { "ICMPDU",  "bootp.option.vendor.avaya.icmpdu",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: ICMPDU (ICMP Destination Unreachable processing)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_icmpred,
+		  { "ICMPRED",  "bootp.option.vendor.avaya.icmpred",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: ICMPRED (ICMP Redirect handling)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_l2q,
+		  { "L2Q",  "bootp.option.vendor.avaya.l2q",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: L2Q (Controls 802.1Q tagging)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_l2qvlan,
+		  { "L2QVLAN",  "bootp.option.vendor.avaya.l2qvlan",
+		    FT_INT32, BASE_DEC, NULL, 0x0,
+		    "Option 242: L2QVLAN (VLAN ID)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_loglocal,
+		  { "LOGLOCAL",  "bootp.option.vendor.avaya.loglocal",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: LOGLOCAL (Log level)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_phy1stat,
+		  { "PHY1STAT",  "bootp.option.vendor.avaya.phy1stat",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: PHY1STAT (Interface configuration)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_phy2stat,
+		  { "PHY2STAT",  "bootp.option.vendor.avaya.phy2stat",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: PHY2STAT (Interface configuration)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_procpswd,
+		  { "PROCPSWD",  "bootp.option.vendor.avaya.procpswd",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: PROCPSWD (Security string used to access local procedures)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_procstat,
+		  { "PROCSTAT",  "bootp.option.vendor.avaya.procstat",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: PROCSTAT (Local (dialpad) Administrative access)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_snmpadd,
+		  { "SNMPADD",  "bootp.option.vendor.avaya.snmpadd",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: SNMPADD (Allowable source IP Address(es) for SNMP queries)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_snmpstring,
+		  { "SNMPSTRING",  "bootp.option.vendor.avaya.snmpstring",
+		    FT_STRINGZ, BASE_NONE, NULL, 0x0,
+		    "Option 242: SNMPSTRING (SNMP community string)", HFILL }},
+
+		{ &hf_bootp_option242_avaya_vlantest,
+		  { "VLANTEST",  "bootp.option.vendor.avaya.vlantest",
+		    FT_INT32, BASE_DEC, NULL, 0x0,
+		    "Option 242: VLANTEST (Timeout in seconds)", HFILL }},
 	};
 
 	static uat_field_t bootp_uat_flds[] = {
@@ -7494,6 +7788,7 @@ proto_register_bootp(void)
 		&ett_bootp_option125_suboption,
 		&ett_bootp_option125_tr111_suboption,
 		&ett_bootp_option125_cl_suboption,
+		&ett_bootp_option242_suboption,
 		&ett_bootp_fqdn,
 		&ett_bootp_filename_option,
 		&ett_bootp_server_hostname,

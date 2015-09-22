@@ -76,6 +76,7 @@ set(DFILTER_FILES
 	dfilter/sttype-integer.c
 	dfilter/sttype-pointer.c
 	dfilter/sttype-range.c
+	dfilter/sttype-set.c
 	dfilter/sttype-string.c
 	dfilter/sttype-test.c
 	dfilter/syntax-tree.c
@@ -1324,6 +1325,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-tali.c
 	dissectors/packet-tapa.c
 	dissectors/packet-tcp.c
+	dissectors/packet-tcpros.c
 	dissectors/packet-tdmoe.c
 	dissectors/packet-tdmop.c
 	dissectors/packet-tds.c
@@ -1433,6 +1435,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-xcsl.c
 	dissectors/packet-xdmcp.c
 	dissectors/packet-xip.c
+	dissectors/packet-xip-serval.c
 	dissectors/packet-xmcp.c
 	dissectors/packet-xml.c
 	dissectors/packet-xmpp-conference.c

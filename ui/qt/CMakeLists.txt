@@ -69,6 +69,7 @@ set(WIRESHARK_QT_HEADERS
 	funnel_text_dialog.h
 	funnel_statistics.h
 	gsm_map_summary_dialog.h
+	iax2_analysis_dialog.h
 	import_text_dialog.h
 	interface_tree.h
 	io_graph_dialog.h
@@ -124,6 +125,7 @@ set(WIRESHARK_QT_HEADERS
 	stats_tree_dialog.h
 	service_response_time_dialog.h
 	simple_statistics_dialog.h
+	stock_icon_tool_button.h
 	syntax_line_edit.h
 	tap_parameter_dialog.h
 	tcp_stream_dialog.h
@@ -204,6 +206,7 @@ set(WIRESHARK_QT_SRC
 	font_color_preferences_frame.cpp
 	funnel_string_dialog.cpp
 	funnel_text_dialog.cpp
+	iax2_analysis_dialog.cpp
 	import_text_dialog.cpp
 	interface_tree.cpp
 	label_stack.cpp
@@ -257,6 +260,7 @@ set(WIRESHARK_QT_SRC
 	splash_overlay.cpp
 	sparkline_delegate.cpp
 	stock_icon.cpp
+	stock_icon_tool_button.cpp
 	syntax_line_edit.cpp
 	tap_parameter_dialog.cpp
 	tcp_stream_dialog.cpp
@@ -332,6 +336,7 @@ set(WIRESHARK_QT_UI
 	funnel_string_dialog.ui
 	funnel_text_dialog.ui
 	gsm_map_summary_dialog.ui
+	iax2_analysis_dialog.ui
 	import_text_dialog.ui
 	io_graph_dialog.ui
 	layout_preferences_frame.ui
@@ -393,7 +398,6 @@ endif()
 
 set(WIRESHARK_QT_QRC
 	../../image/about.qrc
-	../../image/display_filter.qrc
 	../../image/languages/languages.qrc
 	../../image/layout.qrc
 	../../image/status.qrc

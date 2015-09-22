@@ -36,7 +36,8 @@ typedef enum {
 	TEST_OP_LE,
 	TEST_OP_BITWISE_AND,
 	TEST_OP_CONTAINS,
-	TEST_OP_MATCHES
+	TEST_OP_MATCHES,
+	TEST_OP_IN
 } test_op_t;
 
 void

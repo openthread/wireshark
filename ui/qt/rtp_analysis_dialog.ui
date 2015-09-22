@@ -81,7 +81,7 @@
         </column>
         <column>
          <property name="text">
-          <string>Jitter</string>
+          <string>Jitter (ms)</string>
          </property>
         </column>
         <column>
@@ -130,7 +130,7 @@
           <widget class="QCustomPlot" name="streamGraph" native="true"/>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="forwardHorizontalLayout">
+          <layout class="QHBoxLayout" name="forwardHorizontalLayout" stretch="0,0,0,0,0,1">
            <item>
             <widget class="QCheckBox" name="fJitterCheckBox">
              <property name="toolTip">
@@ -140,6 +140,19 @@
               <string>Forward Jitter</string>
              </property>
             </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_3">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>10</width>
+               <height>5</height>
+              </size>
+             </property>
+            </spacer>
            </item>
            <item>
             <widget class="QCheckBox" name="fDiffCheckBox">
@@ -152,6 +165,19 @@
             </widget>
            </item>
            <item>
+            <spacer name="horizontalSpacer_5">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>10</width>
+               <height>5</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
             <widget class="QCheckBox" name="fDeltaCheckBox">
              <property name="toolTip">
               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Show or hide forward delta values.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -161,10 +187,23 @@
              </property>
             </widget>
            </item>
+           <item>
+            <spacer name="horizontalSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>10</width>
+               <height>5</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
           </layout>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="reverseHorizontalLayout">
+          <layout class="QHBoxLayout" name="reverseHorizontalLayout" stretch="0,0,0,0,0,1">
            <item>
             <widget class="QCheckBox" name="rJitterCheckBox">
              <property name="toolTip">
@@ -174,6 +213,19 @@
               <string>Reverse Jitter</string>
              </property>
             </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_4">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>10</width>
+               <height>5</height>
+              </size>
+             </property>
+            </spacer>
            </item>
            <item>
             <widget class="QCheckBox" name="rDiffCheckBox">
@@ -186,6 +238,19 @@
             </widget>
            </item>
            <item>
+            <spacer name="horizontalSpacer_6">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>10</width>
+               <height>5</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
             <widget class="QCheckBox" name="rDeltaCheckBox">
              <property name="toolTip">
               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Show or hide reverse delta values.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -194,6 +259,19 @@
               <string>Reverse Delta</string>
              </property>
             </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_2">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>10</width>
+               <height>5</height>
+              </size>
+             </property>
+            </spacer>
            </item>
           </layout>
          </item>

@@ -1237,6 +1237,7 @@ DISSECTOR_SRC = \
 	packet-tali.c		\
 	packet-tapa.c		\
 	packet-tcp.c		\
+	packet-tcpros.c		\
 	packet-tdmoe.c		\
 	packet-tdmop.c		\
 	packet-tds.c		\
@@ -1350,6 +1351,7 @@ DISSECTOR_SRC = \
 	packet-xcsl.c		\
 	packet-xdmcp.c		\
 	packet-xip.c		\
+	packet-xip-serval.c	\
 	packet-xmcp.c		\
 	packet-xml.c		\
 	packet-xmpp-conference.c	\

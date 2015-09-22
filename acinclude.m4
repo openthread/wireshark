@@ -1645,15 +1645,15 @@ if test "x$ac_supports_gcc_flags" = "xyes" ; then
     CFLAGS_saved="$CFLAGS"
     if expr "x$GCC_OPTION" : "x-W.*" >/dev/null
     then
-      CFLAGS="$CFLAGS $ac_wireshark_unknown_warning_option_error $GCC_OPTION"
+      CFLAGS="$ac_wireshark_unknown_warning_option_error $GCC_OPTION $CFLAGS"
     elif expr "x$GCC_OPTION" : "x-f.*" >/dev/null
     then
-      CFLAGS="$CFLAGS -Werror $GCC_OPTION"
+      CFLAGS="-Werror $GCC_OPTION $CFLAGS"
     elif expr "x$GCC_OPTION" : "x-m.*" >/dev/null
     then
-      CFLAGS="$CFLAGS -Werror $GCC_OPTION"
+      CFLAGS="-Werror $GCC_OPTION $CFLAGS"
     else
-      CFLAGS="$CFLAGS $GCC_OPTION"
+      CFLAGS="$GCC_OPTION $CFLAGS"
     fi
     AC_COMPILE_IFELSE(
       [
@@ -1682,14 +1682,14 @@ if test "x$ac_supports_gcc_flags" = "xyes" ; then
               # added them, by setting CFLAGS to the saved value plus
               # just the new option.
               #
-              CFLAGS="$CFLAGS_saved $GCC_OPTION"
+              CFLAGS="$GCC_OPTION $CFLAGS_saved"
               if test "$CC" = "$CC_FOR_BUILD"; then
                 #
                 # We're building the build tools with the same compiler
                 # with which we're building Wireshark, so add the flags
                 # to the flags for that compiler as well.
                 #
-                CFLAGS_FOR_BUILD="$CFLAGS_FOR_BUILD $GCC_OPTION"
+                CFLAGS_FOR_BUILD="$GCC_OPTION $CFLAGS_FOR_BUILD"
               fi
             ],
             [
@@ -1702,14 +1702,14 @@ if test "x$ac_supports_gcc_flags" = "xyes" ; then
           # added them, by setting CFLAGS to the saved value plus
           # just the new option.
           #
-          CFLAGS="$CFLAGS_saved $GCC_OPTION"
+          CFLAGS="$GCC_OPTION $CFLAGS_saved"
           if test "$CC" = "$CC_FOR_BUILD"; then
             #
             # We're building the build tools with the same compiler
             # with which we're building Wireshark, so add the flags
             # to the flags for that compiler as well.
             #
-            CFLAGS_FOR_BUILD="$CFLAGS_FOR_BUILD $GCC_OPTION"
+            CFLAGS_FOR_BUILD="$GCC_OPTION $CFLAGS_FOR_BUILD"
           fi
         fi
       ],
@@ -1743,15 +1743,15 @@ if test "x$ac_supports_gcc_flags" = "xyes" ; then
     CXXFLAGS_saved="$CXXFLAGS"
     if expr "x$GCC_OPTION" : "x-W.*" >/dev/null
     then
-      CXXFLAGS="$CXXFLAGS $ac_wireshark_unknown_warning_option_error $ac_wireshark_non_cxx_warning_option_error $GCC_OPTION"
+      CXXFLAGS="$ac_wireshark_unknown_warning_option_error $ac_wireshark_non_cxx_warning_option_error $GCC_OPTION $CXXFLAGS"
     elif expr "x$GCC_OPTION" : "x-f.*" >/dev/null
     then
-      CXXFLAGS="$CXXFLAGS -Werror $GCC_OPTION"
+      CXXFLAGS="-Werror $GCC_OPTION $CXXFLAGS"
     elif expr "x$GCC_OPTION" : "x-m.*" >/dev/null
     then
-      CXXFLAGS="$CXXFLAGS -Werror $GCC_OPTION"
+      CXXFLAGS="-Werror $GCC_OPTION $CXXFLAGS"
     else
-      CXXFLAGS="$CXXFLAGS $GCC_OPTION"
+      CXXFLAGS="$GCC_OPTION $CXXFLAGS"
     fi
     AC_LANG_PUSH([C++])
     AC_COMPILE_IFELSE(
@@ -1781,7 +1781,7 @@ if test "x$ac_supports_gcc_flags" = "xyes" ; then
               # added them, by setting CXXFLAGS to the saved value plus
               # just the new option.
               #
-              CXXFLAGS="$CXXFLAGS_saved $GCC_OPTION"
+              CXXFLAGS="$GCC_OPTION $CXXFLAGS_saved"
             ],
             [
               AC_MSG_RESULT(yes)
@@ -1793,7 +1793,7 @@ if test "x$ac_supports_gcc_flags" = "xyes" ; then
           # added them, by setting CXXFLAGS to the saved value plus
           # just the new option.
           #
-          CXXFLAGS="$CXXFLAGS_saved $GCC_OPTION"
+          CXXFLAGS="$GCC_OPTION $CXXFLAGS_saved"
         fi
       ],
       [
@@ -2064,6 +2064,34 @@ AC_DEFUN([AC_WIRESHARK_QT_MODULE_CHECK],
 	fi
 ])
 
+AC_DEFUN([AC_WIRESHARK_QT_ADD_PIC_IF_NEEDED],
+[
+    AC_LANG_PUSH([C++])
+	save_CPPFLAGS="$CPPFLAGS"
+	CPPFLAGS="$CPPFLAGS $Qt_CFLAGS"
+	AC_MSG_CHECKING([whether Qt works without -fPIC])
+	AC_PREPROC_IFELSE(
+		[AC_LANG_SOURCE([[#include <QtCore>]])],
+		[AC_MSG_RESULT(yes)],
+		[
+			AC_MSG_RESULT(no)
+			AC_MSG_CHECKING([whether Qt works with -fPIC])
+			CPPFLAGS="$CPPFLAGS -fPIC"
+			AC_PREPROC_IFELSE(
+				[AC_LANG_SOURCE([[#include <QtCore>]])],
+				[
+					AC_MSG_RESULT(yes)
+					Qt_CFLAGS="$Qt_CFLAGS -fPIC"
+				],
+				[
+					AC_MSG_RESULT(no)
+					AC_MSG_ERROR(Couldn't compile Qt without -fPIC nor with -fPIC)
+				])
+		])
+	CPPFLAGS="$save_CPPFLAGS"
+    AC_LANG_POP([C++])
+])
+
 dnl AC_WIRESHARK_QT_CHECK([MINIMUM-VERSION, REQUESTED-MAJOR_VERSION,
 dnl     [ACTION-IF-FOUND, [ACTION-IF-NOT-FOUND]]])
 dnl Test for Qt and define Qt_CFLAGS and Qt_LIBS.
@@ -2120,6 +2148,8 @@ AC_DEFUN([AC_WIRESHARK_QT_CHECK],
 		#
 		AC_WIRESHARK_QT_MODULE_CHECK(MacExtras, $1, $qt_version_to_check,
 			AC_DEFINE(QT_MACEXTRAS_LIB, 1, [Define if we have QtMacExtras]))
+
+		AC_WIRESHARK_QT_ADD_PIC_IF_NEEDED
 
 		AC_SUBST(Qt_LIBS)
 
