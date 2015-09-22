@@ -73,8 +73,12 @@ void proto_reg_handoff_mle(void);
 static int proto_mle = -1;
 
 /*  Registered fields for Auxiliary Security Header */
+static int hf_mle_security_suite = -1;
+static int hf_mle_security_control = -1;
 static int hf_mle_security_level = -1;
 static int hf_mle_key_id_mode = -1;
+static int hf_mle_aux_sec_hdr = -1;
+static int hf_mle_aux_sec_key_id = -1;
 static int hf_mle_aux_sec_reserved = -1;
 static int hf_mle_aux_sec_frame_counter = -1;
 static int hf_mle_aux_sec_key_source_4 = -1;
@@ -182,6 +186,12 @@ extern char *bytes_to_hexstr(char *out, const guint8 *ad, guint32 len);
 
 /* User definable values */
 static range_t *global_mle_port_range;
+
+static const value_string mle_sec_suite_names[] = {
+    { 0,   "802.15.4 Security" },
+    { 255, "No Security" },
+    { 0, NULL }
+};
 
 static const value_string mle_sec_level_names[] = {
     { SECURITY_LEVEL_NONE,        "No Security" },
@@ -889,7 +899,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Parse the security suite field. */
     /* Security Suite Field */
     security_suite = tvb_get_guint8(tvb, offset);
-    proto_tree_add_text(mle_tree, tvb, offset, 1, "Security Suite Field (0x%02x)", security_suite);
+    proto_tree_add_item(mle_tree, hf_mle_security_suite, tvb, offset, 1, security_suite);
     offset++;
 
     aux_header_offset = offset;
@@ -906,11 +916,11 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if (packet->key_id_mode != KEY_ID_MODE_IMPLICIT) aux_length++;
         if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) aux_length += 4;
         if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) aux_length += 8;
-        ti = proto_tree_add_text(mle_tree, tvb, offset, aux_length, "Auxiliary Security Header");
+        ti = proto_tree_add_item(mle_tree, hf_mle_aux_sec_hdr, tvb, offset, aux_length, FALSE);
         header_tree = proto_item_add_subtree(ti, ett_mle_auxiliary_security);
 
         /* Security Control Field */
-        ti = proto_tree_add_text(header_tree, tvb, offset, 1, "Security Control Field (0x%02x)", security_control);
+        ti = proto_tree_add_item(header_tree, hf_mle_security_control, tvb, offset, 1, security_control);
         field_tree = proto_item_add_subtree(ti, ett_mle_aux_sec_control);
         proto_tree_add_uint(field_tree, hf_mle_security_level, tvb, offset, 1, security_control & IEEE802154_AUX_SEC_LEVEL_MASK);
         proto_tree_add_uint(field_tree, hf_mle_key_id_mode, tvb, offset, 1, security_control & IEEE802154_AUX_KEY_ID_MODE_MASK);
@@ -932,7 +942,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if (packet->key_id_mode != KEY_ID_MODE_IMPLICIT) {
             
             /* Create a subtree. */
-            ti = proto_tree_add_text(header_tree, tvb, offset, 1, "Key Identifier Field"); /* Will fix length later. */
+            ti = proto_tree_add_item(header_tree, hf_mle_aux_sec_key_id, tvb, offset, 1, FALSE);
             field_tree = proto_item_add_subtree(ti, ett_mle_aux_sec_key_id);
             
             /* Add key source, if it exists. */
@@ -1563,7 +1573,6 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     return;
 }
 
-
 void
 proto_register_mle(void)
 {
@@ -1571,6 +1580,24 @@ proto_register_mle(void)
     
     /* Auxiliary Security Header Fields */
     /*----------------------------------*/
+    { &hf_mle_security_suite,
+      { "Security Suite",
+        "wpan.aux_sec.sec_suite",
+        FT_UINT8, BASE_HEX, VALS(mle_sec_suite_names), 0x0,
+        "The Security Suite of the frame",
+        HFILL
+      }
+    },
+    
+    { &hf_mle_security_control,
+      { "Security Control",
+        "wpan.aux_sec.sec_control",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        "The Security Control field of the frame",
+        HFILL
+      }
+    },
+    
     { &hf_mle_security_level,
       { "Security Level",
         "wpan.aux_sec.sec_level",
@@ -1585,6 +1612,24 @@ proto_register_mle(void)
         "wpan.aux_sec.key_id_mode",
         FT_UINT8, BASE_HEX, VALS(mle_key_id_mode_names), IEEE802154_AUX_KEY_ID_MODE_MASK,
         "The scheme to use by the recipient to lookup the key in its key table",
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_hdr,
+      { "Auxiliary Security Header",
+        "wpan.aux_sec.hdr",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        "The Auxiliary Security Header of the frame",
+        HFILL
+      }
+    },
+
+    { &hf_mle_aux_sec_key_id,
+      { "Key Identifier Field",
+        "wpan.aux_sec.key_id",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        "The Key Identifier field of the frame",
         HFILL
       }
     },
