@@ -68,7 +68,7 @@
 #include "ui/last_open_dir.h"
 #include "ui/progress_dlg.h"
 #include "ui/simple_dialog.h"
-#include "ui/utf8_entities.h"
+#include <wsutil/utf8_entities.h>
 
 
 #include "ui/gtk/gtkglobals.h"
@@ -785,7 +785,7 @@ rtp_packet_save_payload(tap_rtp_save_info_t    *saveinfo,
 			saveinfo->error_type = TAP_RTP_FILE_WRITE_ERROR;
 			return 0;
 		}
-		saveinfo->count += (rtpinfo->info_payload_len - rtpinfo->info_padding_count);
+		saveinfo->count += ((int)rtpinfo->info_payload_len - rtpinfo->info_padding_count);
 
 		fflush(saveinfo->fp);
 		saveinfo->saved = TRUE;

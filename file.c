@@ -1395,7 +1395,6 @@ cf_merge_files(char **out_filenamep, int in_file_count,
     case MERGE_ERR_CANT_OPEN_OUTFILE:
       cf_open_failure_alert_box(out_filename, err, err_info, TRUE,
                                 file_type);
-      ws_close(out_fd);
       break;
 
     case MERGE_ERR_CANT_READ_INFILE:      /* fall through */
@@ -1408,6 +1407,7 @@ cf_merge_files(char **out_filenamep, int in_file_count,
   }
 
   g_free(err_info);
+  ws_close(out_fd);
 
   if (status != MERGE_OK) {
     /* Callers aren't expected to treat an error or an explicit abort
@@ -1471,10 +1471,12 @@ cf_filter_packets(capture_file *cf, gchar *dftext, gboolean force)
 
   /* Now rescan the packet list, applying the new filter, but not
      throwing away information constructed on a previous pass. */
-  if (dftext == NULL) {
-    rescan_packets(cf, "Resetting", "Filter", FALSE);
-  } else {
-    rescan_packets(cf, "Filtering", dftext, FALSE);
+  if (cf->state != FILE_CLOSED) {
+    if (dftext == NULL) {
+      rescan_packets(cf, "Resetting", "Filter", FALSE);
+    } else {
+      rescan_packets(cf, "Filtering", dftext, FALSE);
+    }
   }
 
   /* Cleanup and release all dfilter resources */

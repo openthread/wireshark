@@ -46,10 +46,12 @@ set(WIRESHARK_QT_HEADERS
 	column_editor_frame.h
 	compiled_filter_output.h
 	conversation_dialog.h
+	conversation_hash_tables_dialog.h
 	decode_as_dialog.h
 	display_filter_combo.h
 	display_filter_edit.h
 	display_filter_expression_dialog.h
+	dissector_tables_dialog.h
 	elided_label.h
 	enabled_protocols_dialog.h
 	endpoint_dialog.h
@@ -79,6 +81,8 @@ set(WIRESHARK_QT_HEADERS
 	lbm_lbtru_transport_dialog.h
 	lbm_stream_dialog.h
 	lbm_uimflow_dialog.h
+	lte_mac_statistics_dialog.h
+	lte_rlc_statistics_dialog.h
 	main_status_bar.h
 	main_welcome.h
 	main_window.h
@@ -110,6 +114,8 @@ set(WIRESHARK_QT_HEADERS
 	response_time_delay_dialog.h
 	rpc_service_response_time_dialog.h
 	rtp_analysis_dialog.h
+	rtp_audio_stream.h
+	rtp_player_dialog.h
 	rtp_stream_dialog.h
 	sctp_all_assocs_dialog.h
 	sctp_assoc_analyse_dialog.h
@@ -126,6 +132,7 @@ set(WIRESHARK_QT_HEADERS
 	service_response_time_dialog.h
 	simple_statistics_dialog.h
 	stock_icon_tool_button.h
+	supported_protocols_dialog.h
 	syntax_line_edit.h
 	tap_parameter_dialog.h
 	tcp_stream_dialog.h
@@ -187,10 +194,12 @@ set(WIRESHARK_QT_SRC
 	column_editor_frame.cpp
 	compiled_filter_output.cpp
 	conversation_dialog.cpp
+	conversation_hash_tables_dialog.cpp
 	decode_as_dialog.cpp
 	display_filter_combo.cpp
 	display_filter_edit.cpp
 	display_filter_expression_dialog.cpp
+	dissector_tables_dialog.cpp
 	elided_label.cpp
 	enabled_protocols_dialog.cpp
 	endpoint_dialog.cpp
@@ -215,6 +224,8 @@ set(WIRESHARK_QT_SRC
 	lbm_lbtru_transport_dialog.cpp
 	lbm_stream_dialog.cpp
 	lbm_uimflow_dialog.cpp
+	lte_mac_statistics_dialog.cpp
+	lte_rlc_statistics_dialog.cpp
 	main_status_bar.cpp
 	main_welcome.cpp
 	main_window.cpp
@@ -247,6 +258,11 @@ set(WIRESHARK_QT_SRC
 	response_time_delay_dialog.cpp
 	rpc_service_response_time_dialog.cpp
 	rtp_analysis_dialog.cpp
+	rtp_audio_stream.cpp
+	rtp_player_dialog.cpp
+	rtp_stream_dialog.cpp
+	sctp_all_assocs_dialog.cpp
+	sctp_assoc_analyse_dialog.cpp
 	sctp_chunk_statistics_dialog.cpp
 	sctp_graph_dialog.cpp
 	sctp_graph_arwnd_dialog.cpp
@@ -261,6 +277,7 @@ set(WIRESHARK_QT_SRC
 	sparkline_delegate.cpp
 	stock_icon.cpp
 	stock_icon_tool_button.cpp
+	supported_protocols_dialog.cpp
 	syntax_line_edit.cpp
 	tap_parameter_dialog.cpp
 	tcp_stream_dialog.cpp
@@ -295,6 +312,8 @@ set(WIRESHARK_QT_TAP_SRC
 	funnel_statistics.cpp
 	gsm_map_summary_dialog.cpp
 	io_graph_dialog.cpp
+	lte_mac_statistics_dialog.cpp
+	lte_rlc_statistics_dialog.cpp
 	mtp3_summary_dialog.cpp
 	multicast_statistics_dialog.cpp
 	rtp_stream_dialog.cpp
@@ -322,8 +341,10 @@ set(WIRESHARK_QT_UI
 	column_preferences_frame.ui
 	column_editor_frame.ui
 	compiled_filter_output.ui
+	conversation_hash_tables_dialog.ui
 	decode_as_dialog.ui
 	display_filter_expression_dialog.ui
+	dissector_tables_dialog.ui
 	enabled_protocols_dialog.ui
 	expert_info_dialog.ui
 	export_object_dialog.ui
@@ -362,6 +383,7 @@ set(WIRESHARK_QT_UI
 	protocol_hierarchy_dialog.ui
 	resolved_addresses_dialog.ui
 	rtp_analysis_dialog.ui
+	rtp_player_dialog.ui
 	rtp_stream_dialog.ui
 	sctp_all_assocs_dialog.ui
 	sctp_assoc_analyse_dialog.ui
@@ -372,6 +394,7 @@ set(WIRESHARK_QT_UI
 	search_frame.ui
 	sequence_dialog.ui
 	splash_overlay.ui
+	supported_protocols_dialog.ui
 	tap_parameter_dialog.ui
 	tcp_stream_dialog.ui
 	time_shift_dialog.ui

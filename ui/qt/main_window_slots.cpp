@@ -89,10 +89,12 @@
 #include "color_utils.h"
 #include "coloring_rules_dialog.h"
 #include "conversation_dialog.h"
+#include "conversation_hash_tables_dialog.h"
 #include "enabled_protocols_dialog.h"
 #include "decode_as_dialog.h"
 #include "display_filter_edit.h"
 #include "display_filter_expression_dialog.h"
+#include "dissector_tables_dialog.h"
 #include "endpoint_dialog.h"
 #include "expert_info_dialog.h"
 #include "export_object_dialog.h"
@@ -110,6 +112,8 @@
 #include "lbm_uimflow_dialog.h"
 #include "lbm_lbtrm_transport_dialog.h"
 #include "lbm_lbtru_transport_dialog.h"
+#include "lte_mac_statistics_dialog.h"
+#include "lte_rlc_statistics_dialog.h"
 #include "mtp3_summary_dialog.h"
 #include "multicast_statistics_dialog.h"
 #include "packet_comment_dialog.h"
@@ -130,6 +134,7 @@
 #include "sequence_dialog.h"
 #include "stats_tree_dialog.h"
 #include "stock_icon.h"
+#include "supported_protocols_dialog.h"
 #include "tap_parameter_dialog.h"
 #include "tcp_stream_dialog.h"
 #include "time_shift_dialog.h"
@@ -1177,11 +1182,6 @@ void MainWindow::setMenusForSelectedPacket()
 }
 
 void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
-    // XXX Add commented items below
-
-    // The ProtoTree either doesn't exist yet or emitted protoItemSelected as
-    // a result of a packet list selection. Don't assume control of the menu.
-    if (!proto_tree_ || !proto_tree_->hasFocus()) return;
 
     bool can_match_selected = false;
     bool is_framenum = false;
@@ -1243,6 +1243,32 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
         }
     }
 
+    // Always enable / disable the following items.
+    main_ui_->actionFileExportPacketBytes->setEnabled(have_field_info);
+
+    main_ui_->actionCopyAllVisibleItems->setEnabled(capture_file_.capFile() != NULL);
+    main_ui_->actionCopyAllVisibleSelectedTreeItems->setEnabled(can_match_selected);
+    main_ui_->actionEditCopyDescription->setEnabled(can_match_selected);
+    main_ui_->actionEditCopyFieldName->setEnabled(can_match_selected);
+    main_ui_->actionEditCopyValue->setEnabled(can_match_selected);
+    main_ui_->actionEditCopyAsFilter->setEnabled(can_match_selected);
+
+    main_ui_->actionViewExpandSubtrees->setEnabled(have_subtree);
+
+    main_ui_->actionGoGoToLinkedPacket->setEnabled(is_framenum);
+
+    main_ui_->actionAnalyzeCreateAColumn->setEnabled(can_match_selected);
+
+    main_ui_->actionContextShowLinkedPacketInNewWindow->setEnabled(is_framenum);
+
+    main_ui_->actionContextWikiProtocolPage->setEnabled(can_open_url);
+    main_ui_->actionContextFilterFieldReference->setEnabled(can_open_url);
+
+
+    // Only enable / disable the following items if we have focus so that we
+    // don't clobber anything we may have set in setMenusForSelectedPacket.
+    if (!proto_tree_ || !proto_tree_->hasFocus()) return;
+
     main_ui_->menuConversationFilter->clear();
     for (GList *color_list_entry = color_conv_filter_list; color_list_entry; color_list_entry = g_list_next(color_list_entry)) {
         color_conversation_filter_t* color_filter = (color_conversation_filter_t *)color_list_entry->data;
@@ -1278,20 +1304,6 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
 //                         frame_selected && (gbl_resolv_flags.mac_name || gbl_resolv_flags.network_name ||
 //                                            gbl_resolv_flags.transport_name || gbl_resolv_flags.concurrent_dns));
 
-    main_ui_->actionFileExportPacketBytes->setEnabled(have_field_info);
-    main_ui_->actionContextShowLinkedPacketInNewWindow->setEnabled(is_framenum);
-
-    main_ui_->actionCopyAllVisibleItems->setEnabled(capture_file_.capFile() != NULL);
-    main_ui_->actionCopyAllVisibleSelectedTreeItems->setEnabled(can_match_selected);
-
-    main_ui_->actionEditCopyDescription->setEnabled(can_match_selected);
-    main_ui_->actionEditCopyFieldName->setEnabled(can_match_selected);
-    main_ui_->actionEditCopyValue->setEnabled(can_match_selected);
-    main_ui_->actionEditCopyAsFilter->setEnabled(can_match_selected);
-
-    main_ui_->actionGoGoToLinkedPacket->setEnabled(is_framenum);
-
-    main_ui_->actionAnalyzeCreateAColumn->setEnabled(can_match_selected);
 
     main_ui_->actionAnalyzeAAFSelected->setEnabled(can_match_selected);
     main_ui_->actionAnalyzeAAFNotSelected->setEnabled(can_match_selected);
@@ -1306,11 +1318,6 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
     main_ui_->actionAnalyzePAFOrSelected->setEnabled(can_match_selected);
     main_ui_->actionAnalyzePAFAndNotSelected->setEnabled(can_match_selected);
     main_ui_->actionAnalyzePAFOrNotSelected->setEnabled(can_match_selected);
-
-    main_ui_->actionViewExpandSubtrees->setEnabled(have_subtree);
-
-    main_ui_->actionContextWikiProtocolPage->setEnabled(can_open_url);
-    main_ui_->actionContextFilterFieldReference->setEnabled(can_open_url);
 }
 
 void MainWindow::interfaceSelectionChanged()
@@ -1785,21 +1792,23 @@ void MainWindow::actionEditCopyTriggered(MainWindow::CopySelected selection_type
 
     if (!capture_file_.capFile()) return;
 
+    field_info *finfo_selected = capture_file_.capFile()->finfo_selected;
+
     switch(selection_type) {
     case CopySelectedDescription:
-        if (capture_file_.capFile()->finfo_selected->rep &&
-                strlen (capture_file_.capFile()->finfo_selected->rep->representation) > 0) {
-            clip.append(capture_file_.capFile()->finfo_selected->rep->representation);
+        if (finfo_selected && finfo_selected->rep
+                && strlen (finfo_selected->rep->representation) > 0) {
+            clip.append(finfo_selected->rep->representation);
         }
         break;
     case CopySelectedFieldName:
-        if (capture_file_.capFile()->finfo_selected->hfinfo->abbrev != 0) {
-            clip.append(capture_file_.capFile()->finfo_selected->hfinfo->abbrev);
+        if (finfo_selected && finfo_selected->hfinfo->abbrev != 0) {
+            clip.append(finfo_selected->hfinfo->abbrev);
         }
         break;
     case CopySelectedValue:
-        if (capture_file_.capFile()->edt != 0) {
-            gchar* field_str = get_node_field_value(capture_file_.capFile()->finfo_selected, capture_file_.capFile()->edt);
+        if (finfo_selected && capture_file_.capFile()->edt != 0) {
+            gchar* field_str = get_node_field_value(finfo_selected, capture_file_.capFile()->edt);
             clip.append(field_str);
             g_free(field_str);
         }
@@ -1814,11 +1823,12 @@ void MainWindow::actionEditCopyTriggered(MainWindow::CopySelected selection_type
 
         break;
     case CopyAllVisibleSelectedTreeItems:
-        clip.append(proto_tree_->currentItem()->text(0));
-        clip.append("\n");
+        if (proto_tree_->selectedItems().count() > 0) {
+            clip.append(proto_tree_->currentItem()->text(0));
+            clip.append("\n");
 
-        recursiveCopyProtoTreeItems(proto_tree_->currentItem(), clip, 1);
-
+            recursiveCopyProtoTreeItems(proto_tree_->currentItem(), clip, 1);
+        }
         break;
     }
 
@@ -2307,6 +2317,24 @@ void MainWindow::openPacketDialog(bool from_reference)
 
         packet_dialog->show();
     }
+}
+
+void MainWindow::on_actionViewInternalsConversationHashTables_triggered()
+{
+    ConversationHashTablesDialog *conversation_hash_tables_dlg = new ConversationHashTablesDialog(this);
+    conversation_hash_tables_dlg->show();
+}
+
+void MainWindow::on_actionViewInternalsDissectorTables_triggered()
+{
+    DissectorTablesDialog *dissector_tables_dlg = new DissectorTablesDialog(this);
+    dissector_tables_dlg->show();
+}
+
+void MainWindow::on_actionViewInternalsSupportedProtocols_triggered()
+{
+    SupportedProtocolsDialog *supported_protocols_dlg = new SupportedProtocolsDialog(this);
+    supported_protocols_dlg->show();
 }
 
 void MainWindow::on_actionViewShowPacketInNewWindow_triggered()
@@ -2968,6 +2996,33 @@ void MainWindow::on_actionTelephonyIax2StreamAnalysis_triggered()
 void MainWindow::on_actionTelephonyISUPMessages_triggered()
 {
     openStatisticsTreeDialog("isup_msg");
+}
+
+// -z mac-lte,stat
+void MainWindow::statCommandLteMacStatistics(const char *arg, void *)
+{
+    LteMacStatisticsDialog *lte_mac_stats_dlg = new LteMacStatisticsDialog(*this, capture_file_, arg);
+    connect(lte_mac_stats_dlg, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
+            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    lte_mac_stats_dlg->show();
+}
+
+void MainWindow::on_actionTelephonyLteMacStatistics_triggered()
+{
+    statCommandLteMacStatistics(NULL, NULL);
+}
+
+void MainWindow::statCommandLteRlcStatistics(const char *arg, void *)
+{
+    LteRlcStatisticsDialog *lte_rlc_stats_dlg = new LteRlcStatisticsDialog(*this, capture_file_, arg);
+    connect(lte_rlc_stats_dlg, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
+            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    lte_rlc_stats_dlg->show();
+}
+
+void MainWindow::on_actionTelephonyLteRlcStatistics_triggered()
+{
+    statCommandLteRlcStatistics(NULL, NULL);
 }
 
 void MainWindow::on_actionTelephonyMtp3Summary_triggered()

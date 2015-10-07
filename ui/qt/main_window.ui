@@ -303,6 +303,14 @@
      <addaction name="actionViewColorizeResetColorization"/>
      <addaction name="actionViewColorizeNewConversationRule"/>
     </widget>
+    <widget class="QMenu" name="menuInternals">
+     <property name="title">
+      <string>Internals</string>
+     </property>
+     <addaction name="actionViewInternalsConversationHashTables"/>
+     <addaction name="actionViewInternalsDissectorTables"/>
+     <addaction name="actionViewInternalsSupportedProtocols"/>
+    </widget>
     <addaction name="actionViewMainToolbar"/>
     <addaction name="actionViewFilterToolbar"/>
     <addaction name="actionViewWirelessToolbar"/>
@@ -326,6 +334,8 @@
     <addaction name="menuColorizeConversation"/>
     <addaction name="separator"/>
     <addaction name="actionViewResizeColumns"/>
+    <addaction name="separator"/>
+    <addaction name="menuInternals"/>
     <addaction name="separator"/>
     <addaction name="actionViewShowPacketInNewWindow"/>
     <addaction name="actionViewReload"/>
@@ -611,7 +621,7 @@
    </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
-     <string>Tools</string>
+     <string>&amp;Tools</string>
     </property>
     <addaction name="actionToolsPlaceholder"/>
    </widget>
@@ -788,6 +798,9 @@
   <action name="actionHelpContents">
    <property name="text">
     <string>&amp;Contents</string>
+   </property>
+   <property name="toolTip">
+    <string>Help contents</string>
    </property>
    <property name="shortcut">
     <string>F1</string>
@@ -1117,6 +1130,9 @@
    <property name="toolTip">
     <string>Refresh interfaces</string>
    </property>
+   <property name="shortcut">
+    <string>F5</string>
+   </property>
   </action>
   <action name="actionCaptureRestart">
    <property name="text">
@@ -1173,6 +1189,9 @@
    <property name="text">
     <string>Description</string>
    </property>
+   <property name="toolTip">
+    <string>Copy this item's description</string>
+   </property>
    <property name="shortcut">
     <string>Ctrl+Shift+D</string>
    </property>
@@ -1191,6 +1210,9 @@
    <property name="text">
     <string>Field Name</string>
    </property>
+   <property name="toolTip">
+    <string>Copy this item's field name</string>
+   </property>
    <property name="shortcut">
     <string>Ctrl+Shift+F</string>
    </property>
@@ -1198,6 +1220,9 @@
   <action name="actionEditCopyValue">
    <property name="text">
     <string>Value</string>
+   </property>
+   <property name="toolTip">
+    <string>Copy this item's value</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+Shift+V</string>
@@ -1209,6 +1234,9 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+Shift+C</string>
+   </property>
+   <property name="toolTip">
+    <string>Copy this item as a display filter</string>
    </property>
   </action>
   <action name="actionAnalyzeAAFSelected">
@@ -2001,6 +2029,9 @@
    <property name="text">
     <string>Zoom Out</string>
    </property>
+   <property name="toolTip">
+    <string>Shrink the main window text</string>
+   </property>
    <property name="shortcut">
     <string>Ctrl+-</string>
    </property>
@@ -2008,6 +2039,9 @@
   <action name="actionViewNormalSize">
    <property name="text">
     <string>Normal Size</string>
+   </property>
+   <property name="toolTip">
+    <string>Return the main window text to its normal size</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+0</string>
@@ -2328,6 +2362,30 @@
     <string>Show or hide the packet bytes</string>
    </property>
   </action>
+  <action name="actionViewInternalsConversationHashTables">
+   <property name="text">
+    <string>Conversation Hash Tables</string>
+   </property>
+   <property name="toolTip">
+    <string>Show each conversation hash table</string>
+   </property>
+  </action>
+  <action name="actionViewInternalsDissectorTables">
+   <property name="text">
+    <string>Dissector Tables</string>
+   </property>
+   <property name="toolTip">
+    <string>Show each dissector table and its entries</string>
+   </property>
+  </action>
+  <action name="actionViewInternalsSupportedProtocols">
+   <property name="text">
+    <string>Supported Protocols</string>
+   </property>
+   <property name="toolTip">
+    <string>Show the currently supported protocols and display filter fields</string>
+   </property>
+  </action>
   <action name="actionContextCopyBytesHexTextDump">
    <property name="text">
     <string>Bytes as Hex + ASCII Dump</string>
@@ -2376,7 +2434,22 @@
     <string>GSM MAP summary statistics</string>
    </property>
   </action>
-  <action name="actionTelephonyMtp3Summary">
+  <action name="actionTelephonyLteMacStatistics">
+   <property name="text">
+    <string>MAC Statistics</string>
+   </property>
+   <property name="toolTip">
+    <string>LTE MAC statistics</string>
+   </property>
+  </action>
+  <action name="actionTelephonyLteRlcStatistics">
+   <property name="text">
+    <string>RLC Statistics</string>
+   </property>
+   <property name="toolTip">
+    <string>LTE RLC statistics</string>
+   </property>
+  </action>  <action name="actionTelephonyMtp3Summary">
    <property name="text">
     <string>MTP3 Summary</string>
    </property>

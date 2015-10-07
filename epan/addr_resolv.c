@@ -621,8 +621,8 @@ wmem_utoa(wmem_allocator_t *allocator, guint port)
 }
 
 
-static gchar
-*serv_name_lookup(const guint port, const port_type proto)
+static const gchar *
+serv_name_lookup(const guint port, const port_type proto)
 {
     serv_port_t *serv_port_table;
     gchar *name;
@@ -659,10 +659,7 @@ static gchar
         } /* proto */
     }
 
-    /* getservbyport() was used here but it was to expensive, if the functionality is desired
-     * it would be better to pre parse etc/services or C:\Windows\System32\drivers\etc at
-     * startup
-     */
+    /* Use numerical port string */
     name = (gchar*)g_malloc(16);
     guint32_to_str_buf(port, name, 16);
 
@@ -770,10 +767,10 @@ fill_dummy_ip4(const guint addr, hashipv4_t* volatile tp)
 {
     subnet_entry_t subnet_entry;
 
-    if ((tp->flags & DUMMY_ADDRESS_ENTRY) == DUMMY_ADDRESS_ENTRY)
+    if (tp->flags & DUMMY_ADDRESS_ENTRY)
         return; /* already done */
 
-    tp->flags = tp->flags | DUMMY_ADDRESS_ENTRY; /* Overwrite if we get async DNS reply */
+    tp->flags |= DUMMY_ADDRESS_ENTRY; /* Overwrite if we get async DNS reply */
 
     /* Do we have a subnet for this address? */
     subnet_entry = subnet_lookup(addr);
@@ -877,7 +874,7 @@ host_lookup(const guint addr, gboolean *found)
         if ((tp->flags & DUMMY_AND_RESOLVE_FLGS) ==  DUMMY_ADDRESS_ENTRY) {
             goto try_resolv;
         }
-        if ((tp->flags & DUMMY_ADDRESS_ENTRY) == DUMMY_ADDRESS_ENTRY) {
+        if (tp->flags & DUMMY_ADDRESS_ENTRY) {
             *found = FALSE;
         }
         return tp;
@@ -885,7 +882,7 @@ host_lookup(const guint addr, gboolean *found)
 
 try_resolv:
     if (gbl_resolv_flags.network_name && gbl_resolv_flags.use_external_net_name_resolver) {
-        tp->flags = tp->flags|TRIED_RESOLVE_ADDRESS;
+        tp->flags |= TRIED_RESOLVE_ADDRESS;
 
 #ifdef ASYNC_DNS
         if (gbl_resolv_flags.concurrent_dns &&
@@ -984,7 +981,7 @@ host_lookup6(const struct e_in6_addr *addr, gboolean *found)
         if ((tp->flags & DUMMY_AND_RESOLVE_FLGS) ==  DUMMY_ADDRESS_ENTRY) {
             goto try_resolv;
         }
-        if ((tp->flags & DUMMY_ADDRESS_ENTRY) == DUMMY_ADDRESS_ENTRY) {
+        if (tp->flags & DUMMY_ADDRESS_ENTRY) {
             *found = FALSE;
         }
         return tp;
@@ -993,7 +990,7 @@ host_lookup6(const struct e_in6_addr *addr, gboolean *found)
 try_resolv:
     if (gbl_resolv_flags.network_name &&
             gbl_resolv_flags.use_external_net_name_resolver) {
-        tp->flags = tp->flags|TRIED_RESOLVE_ADDRESS;
+        tp->flags |= TRIED_RESOLVE_ADDRESS;
 #ifdef INET6
 #ifdef HAVE_C_ARES
         if ((gbl_resolv_flags.concurrent_dns) &&
@@ -1010,7 +1007,7 @@ try_resolv:
             if ((tp->flags & DUMMY_ADDRESS_ENTRY) == 0) {
                 g_strlcpy(tp->name, tp->ip6, MAXNAMELEN);
                 ip6_to_str_buf(addr, tp->name);
-                tp->flags = tp->flags | DUMMY_ADDRESS_ENTRY;
+                tp->flags |= DUMMY_ADDRESS_ENTRY;
             }
             return tp;
         }
@@ -1037,7 +1034,7 @@ try_resolv:
 
     /* unknown host or DNS timeout */
     if ((tp->flags & DUMMY_ADDRESS_ENTRY) == 0) {
-        tp->flags = tp->flags | DUMMY_ADDRESS_ENTRY;
+        tp->flags |= DUMMY_ADDRESS_ENTRY;
         g_strlcpy(tp->name, tp->ip6, MAXNAMELEN);
     }
     *found = FALSE;
@@ -2352,7 +2349,7 @@ subnet_entry_set(guint32 subnet_addr, const guint32 mask_length, const gchar* na
     tp->next = NULL;
     tp->addr = subnet_addr;
     /* Clear DUMMY_ADDRESS_ENTRY */
-    tp->flags = tp->flags & 0xfe; /*Never used again...*/
+    tp->flags &= ~DUMMY_ADDRESS_ENTRY; /*Never used again...*/
     g_strlcpy(tp->name, name, MAXNAMELEN); /* This is longer than subnet names can actually be */
     have_subnet_entry = TRUE;
 }
@@ -2651,7 +2648,7 @@ get_hostname(const guint addr)
     if (!gbl_resolv_flags.network_name)
         return tp->ip;
 
-    tp->flags = tp->flags | RESOLVED_ADDRESS_USED;
+    tp->flags |= RESOLVED_ADDRESS_USED;
 
     return tp->name;
 }
@@ -2671,7 +2668,7 @@ get_hostname6(const struct e_in6_addr *addr)
     if (!gbl_resolv_flags.network_name)
         return tp->ip6;
 
-    tp->flags = tp->flags | RESOLVED_ADDRESS_USED;
+    tp->flags |= RESOLVED_ADDRESS_USED;
 
     return tp->name;
 }
@@ -2700,7 +2697,7 @@ add_ipv4_name(const guint addr, const gchar *name)
         g_strlcpy(tp->name, name, MAXNAMELEN);
         new_resolved_objects = TRUE;
     }
-    tp->flags = tp->flags | TRIED_RESOLVE_ADDRESS;
+    tp->flags |= TRIED_RESOLVE_ADDRESS;
 
 } /* add_ipv4_name */
 
@@ -2731,7 +2728,7 @@ add_ipv6_name(const struct e_in6_addr *addrp, const gchar *name)
         g_strlcpy(tp->name, name, MAXNAMELEN);
         new_resolved_objects = TRUE;
     }
-    tp->flags = tp->flags | TRIED_RESOLVE_ADDRESS;
+    tp->flags |= TRIED_RESOLVE_ADDRESS;
 
 } /* add_ipv6_name */
 
@@ -3000,6 +2997,20 @@ sctp_port_to_display(wmem_allocator_t *allocator, guint port)
     return wmem_strdup(allocator, serv_name_lookup(port, PT_SCTP));
 
 } /* sctp_port_to_display */
+
+int
+port_with_resolution_to_str_buf(gchar *buf, gulong buf_size, port_type port_typ, guint16 port_num)
+{
+    const gchar *port_res_str;
+
+    if (!gbl_resolv_flags.transport_name ||
+            (port_typ == PT_NONE) ||
+            ((port_res_str = serv_name_lookup(port_num, port_typ)) == NULL)) {
+        /* No name resolution support, just return port string */
+        return g_snprintf(buf, buf_size, "%u", port_num);
+    }
+    return g_snprintf(buf, buf_size, "%s (%u)", port_res_str, port_num);
+}
 
 gchar *
 get_ether_name(const guint8 *addr)

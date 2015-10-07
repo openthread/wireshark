@@ -346,11 +346,11 @@ MainWindow::MainWindow(QWidget *parent) :
     main_ui_->menuHelp->insertAction(update_sep, update_action);
     connect(update_action, SIGNAL(triggered()), this, SLOT(checkForUpdates()));
 #endif
-    master_split_.setObjectName(tr("splitterMaster"));
-    extra_split_.setObjectName(tr("splitterExtra"));
+    master_split_.setObjectName("splitterMaster");
+    extra_split_.setObjectName("splitterExtra");
     main_ui_->mainStack->addWidget(&master_split_);
 
-    empty_pane_.setObjectName(tr("emptyPane"));
+    empty_pane_.setObjectName("emptyPane");
 
     packet_list_ = new PacketList(&master_split_);
 
@@ -395,6 +395,15 @@ MainWindow::MainWindow(QWidget *parent) :
             this, SLOT(captureCaptureFailed(capture_session *)));
     connect(&capture_file_, SIGNAL(captureCaptureUpdateContinue(capture_session*)),
             main_ui_->statusBar, SLOT(updateCaptureStatistics(capture_session*)));
+
+    connect(&capture_file_, SIGNAL(captureCaptureUpdateStarted(capture_session *)),
+            wsApp, SLOT(captureStarted()));
+    connect(&capture_file_, SIGNAL(captureCaptureUpdateFinished(capture_session *)),
+            wsApp, SLOT(captureFinished()));
+    connect(&capture_file_, SIGNAL(captureCaptureFixedStarted(capture_session *)),
+            wsApp, SLOT(captureStarted()));
+    connect(&capture_file_, SIGNAL(captureCaptureFixedFinished(capture_session *)),
+            wsApp, SLOT(captureFinished()));
 
     connect(&capture_file_, SIGNAL(captureFileOpened()),
             this, SLOT(captureFileOpened()));
@@ -2145,6 +2154,8 @@ void MainWindow::addDynamicMenus()
 {
     // Manual additions
     wsApp->addDynamicMenuGroupItem(REGISTER_STAT_GROUP_TELEPHONY_GSM, main_ui_->actionTelephonyGsmMapSummary);
+    wsApp->addDynamicMenuGroupItem(REGISTER_STAT_GROUP_TELEPHONY_LTE, main_ui_->actionTelephonyLteMacStatistics);
+    wsApp->addDynamicMenuGroupItem(REGISTER_STAT_GROUP_TELEPHONY_LTE, main_ui_->actionTelephonyLteRlcStatistics);
     wsApp->addDynamicMenuGroupItem(REGISTER_STAT_GROUP_TELEPHONY_MTP3, main_ui_->actionTelephonyMtp3Summary);
 
     // Fill in each menu

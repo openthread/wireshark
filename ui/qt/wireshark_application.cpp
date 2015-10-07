@@ -57,7 +57,7 @@
 #include "ui/software_update.h"
 #include "ui/last_open_dir.h"
 #include "ui/recent_utils.h"
-#include "ui/utf8_entities.h"
+#include <wsutil/utf8_entities.h>
 
 #ifdef _WIN32
 #  include "ui/win32/console_win32.h"
@@ -187,6 +187,9 @@ extern "C" void menu_recent_file_write_all(FILE *rf) {
 void WiresharkApplication::refreshRecentFiles(void) {
     recent_item_status *ri;
     RecentFileStatus *rf_status;
+
+    // We're in the middle of a capture. Don't create traffic.
+    if (active_captures_ > 0) return;
 
     foreach (ri, recent_items_) {
         if (ri->in_thread) {
@@ -342,11 +345,11 @@ void WiresharkApplication::setConfigurationProfile(const gchar *profile_name)
 
     (void) readConfigurationFiles (&gdp_path, &dp_path);
 
-    recent_read_profile_static(&rf_path, &rf_open_errno);
-    if (rf_path != NULL && rf_open_errno != 0) {
+    if (!recent_read_profile_static(&rf_path, &rf_open_errno)) {
         simple_dialog(ESD_TYPE_WARN, ESD_BTN_OK,
             "Could not open common recent file\n\"%s\": %s.",
             rf_path, g_strerror(rf_open_errno));
+        g_free(rf_path);
     }
     if (recent.gui_fileopen_remembered_dir &&
         test_for_directory(recent.gui_fileopen_remembered_dir) == EISDIR) {
@@ -478,7 +481,9 @@ void WiresharkApplication::itemStatusFinished(const QString filename, qint64 siz
 WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
     QApplication(argc, argv),
     initialized_(false),
-    is_reloading_lua_(false)
+    is_reloading_lua_(false),
+    if_notifier_(NULL),
+    active_captures_(0)
 {
     wsApp = this;
     setApplicationName("Wireshark");

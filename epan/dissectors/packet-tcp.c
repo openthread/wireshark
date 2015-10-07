@@ -37,6 +37,7 @@
 #include <epan/reassemble.h>
 #include <epan/decode_as.h>
 #include <epan/in_cksum.h>
+#include <wsutil/utf8_entities.h>
 
 #include "packet-tcp.h"
 #include "packet-ip.h"
@@ -500,11 +501,6 @@ static heur_dissector_list_t heur_subdissector_list;
 static dissector_handle_t data_handle;
 static dissector_handle_t sport_handle;
 static guint32 tcp_stream_count;
-
-/* XXX - redefined here to not create UI dependencies */
-#define UTF8_LEFTWARDS_ARROW            "\xe2\x86\x90"      /* 8592 / 0x2190 */
-#define UTF8_RIGHTWARDS_ARROW           "\xe2\x86\x92"      /* 8594 / 0x2192 */
-#define UTF8_LEFT_RIGHT_ARROW           "\xe2\x86\x94"      /* 8596 / 0x2194 */
 
 static const int *tcp_option_mptcp_capable_flags[] = {
   &hf_tcp_option_mptcp_checksum_flag,
@@ -2491,10 +2487,6 @@ tcp_dissect_pdus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             (*dissect_pdu)(next_tvb, pinfo, tree, dissector_data);
         }
         CATCH_NONFATAL_ERRORS {
-            /*  Restore the private_data structure in case one of the
-             *  called dissectors modified it (and, due to the exception,
-             *  was unable to restore it).
-             */
             show_exception(tvb, pinfo, tree, EXCEPT_CODE, GET_MESSAGE);
 
             /*
@@ -2520,13 +2512,8 @@ tcp_dissect_pdus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static void
 tcp_info_append_uint(packet_info *pinfo, const char *abbrev, guint32 val)
 {
-    char buf[16];
-
-    guint32_to_str_buf(val, buf, sizeof(buf));
     /* fstr(" %s=%u", abbrev, val) */
-    col_append_lstr(pinfo->cinfo, COL_INFO,
-        " ", abbrev, "=", buf,
-        COL_ADD_LSTR_TERMINATOR);
+    col_append_str_uint(pinfo->cinfo, COL_INFO, " ", abbrev, val);
 }
 
 static void
@@ -4384,7 +4371,7 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     dst_port_str = tcp_port_to_display(wmem_packet_scope(), tcph->th_dport);
     col_add_lstr(pinfo->cinfo, COL_INFO,
         src_port_str,
-        "\xe2\x86\x92", /* UTF8_RIGHTWARDS_ARROW */
+        " "UTF8_RIGHTWARDS_ARROW" ",
         dst_port_str,
         COL_ADD_LSTR_TERMINATOR);
 
@@ -4401,13 +4388,11 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         tcp_tree = proto_item_add_subtree(ti, ett_tcp);
         p_add_proto_data(pinfo->pool, pinfo, proto_tcp, pinfo->curr_layer_num, tcp_tree);
 
-        proto_tree_add_uint_format_value(tcp_tree, hf_tcp_srcport, tvb, offset, 2, tcph->th_sport,
-                                   "%s (%u)", src_port_str, tcph->th_sport);
-        proto_tree_add_uint_format_value(tcp_tree, hf_tcp_dstport, tvb, offset + 2, 2, tcph->th_dport,
-                                   "%s (%u)", dst_port_str, tcph->th_dport);
-        hidden_item = proto_tree_add_uint(tcp_tree, hf_tcp_port, tvb, offset, 2, tcph->th_sport);
+        proto_tree_add_item(tcp_tree, hf_tcp_srcport, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(tcp_tree, hf_tcp_dstport, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
+        hidden_item = proto_tree_add_item(tcp_tree, hf_tcp_port, tvb, offset, 2, ENC_BIG_ENDIAN);
         PROTO_ITEM_SET_HIDDEN(hidden_item);
-        hidden_item = proto_tree_add_uint(tcp_tree, hf_tcp_port, tvb, offset + 2, 2, tcph->th_dport);
+        hidden_item = proto_tree_add_item(tcp_tree, hf_tcp_port, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
         PROTO_ITEM_SET_HIDDEN(hidden_item);
 
         /*  If we're dissecting the headers of a TCP packet in an ICMP packet
@@ -5135,20 +5120,18 @@ tcp_cleanup(void)
 void
 proto_register_tcp(void)
 {
-    static value_string tcp_ports[65536+1];
-
     static hf_register_info hf[] = {
 
         { &hf_tcp_srcport,
-        { "Source Port",        "tcp.srcport", FT_UINT16, BASE_DEC, VALS(tcp_ports), 0x0,
+        { "Source Port",        "tcp.srcport", FT_UINT16, BASE_PT_TCP, NULL, 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_dstport,
-        { "Destination Port",       "tcp.dstport", FT_UINT16, BASE_DEC, VALS(tcp_ports), 0x0,
+        { "Destination Port",       "tcp.dstport", FT_UINT16, BASE_PT_TCP, NULL, 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_port,
-        { "Source or Destination Port", "tcp.port", FT_UINT16, BASE_DEC, VALS(tcp_ports), 0x0,
+        { "Source or Destination Port", "tcp.port", FT_UINT16, BASE_PT_TCP, NULL, 0x0,
             NULL, HFILL }},
 
         { &hf_tcp_stream,
@@ -5990,28 +5973,6 @@ proto_register_tcp(void)
 
     module_t *tcp_module;
     expert_module_t* expert_tcp;
-
-    {
-        int i, j;
-        gboolean transport_name_old = gbl_resolv_flags.transport_name;
-
-        gbl_resolv_flags.transport_name = TRUE;
-        for (i = 0, j = 0; i <= 65535; i++) {
-            const char *serv = tcp_port_to_display(wmem_epan_scope(), i);
-
-            if (serv) {
-                value_string *p = &tcp_ports[j++];
-
-                p->value = i;
-                p->strptr = serv;
-            }
-        }
-        /* NULL terminate */
-        tcp_ports[j].value = 0;
-        tcp_ports[j].strptr = NULL;
-
-        gbl_resolv_flags.transport_name = transport_name_old;
-    }
 
     proto_tcp = proto_register_protocol("Transmission Control Protocol", "TCP", "tcp");
     register_dissector("tcp", dissect_tcp, proto_tcp);

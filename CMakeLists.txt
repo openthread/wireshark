@@ -178,9 +178,9 @@ include(CMakeInstallDirs)
 
 # Updated by make-version.pl
 set(GIT_REVISION 0)
-set(PROJECT_MAJOR_VERSION 1)
-set(PROJECT_MINOR_VERSION 99)
-set(PROJECT_PATCH_VERSION 10)
+set(PROJECT_MAJOR_VERSION 2)
+set(PROJECT_MINOR_VERSION 1)
+set(PROJECT_PATCH_VERSION 0)
 set(PROJECT_BUILD_VERSION ${GIT_REVISION})
 set(PROJECT_VERSION_EXTENSION "$ENV{WIRESHARK_VERSION_EXTRA}")
 set(PROJECT_VERSION "${PROJECT_MAJOR_VERSION}.${PROJECT_MINOR_VERSION}.${PROJECT_PATCH_VERSION}${PROJECT_VERSION_EXTENSION}")
@@ -346,6 +346,7 @@ else()
 		-fwrapv
 		-fno-strict-overflow
 		-fno-delete-null-pointer-checks
+		-fPIE
 		-Wvla
 		-Waddress
 		-Wattributes
@@ -380,6 +381,7 @@ else()
 	set(WIRESHARK_EXTRA_COMPILER_COMMON_FLAGS
 		# The following are for C and C++
 		-Wpedantic
+		-Wno-variadic-macros
 		#
 		# Various code blocks this one.
 		#
@@ -566,6 +568,7 @@ endif()
 if(NOT CMAKE_C_COMPILER_ID MATCHES "MSVC")
 	set(WIRESHARK_LD_FLAGS
 		-Wl,--as-needed
+		-fPIE -pie
 		# -flto
 		# -fwhopr
 		# -fwhole-program
@@ -659,7 +662,7 @@ if(BUILD_wireshark)
 		set(PACKAGELIST ${PACKAGELIST}
 			Qt5Core
 			Qt5LinguistTools
-			Qt5MultimediaWidgets
+			Qt5Multimedia
 			Qt5PrintSupport
 			Qt5Widgets
 		)
@@ -672,7 +675,7 @@ if(BUILD_wireshark)
 		set(QT_VERSION 5)
 	else()
 		set(PACKAGELIST ${PACKAGELIST} Qt4)
-		# set(Qt4_OPTIONS 4.7.1 REQUIRED QtCore QtGui)
+		set(Qt4_OPTIONS 4.7.1 REQUIRED QtCore QtGui)
 		set(QT_VERSION 4)
 	endif()
 endif()
@@ -697,7 +700,7 @@ if(ENABLE_KERBEROS)
 	set(PACKAGELIST ${PACKAGELIST} KERBEROS)
 endif()
 
-# Portable audio
+# Portable audio (GTK+ only)
 if(ENABLE_PORTAUDIO AND BUILD_wireshark_gtk)
 	set(PACKAGELIST ${PACKAGELIST} PORTAUDIO)
 endif()
@@ -876,10 +879,10 @@ if (Qt5Widgets_FOUND)
 	endif()
 	set (QT_FOUND ON)
 	set (QT_LIBRARIES ${Qt5Widgets_LIBRARIES} ${Qt5PrintSupport_LIBRARIES})
-	if(Qt5MultimediaWidgets_FOUND)
-		set (QT_LIBRARIES ${QT_LIBRARIES} ${Qt5MultimediaWidgets_LIBRARIES})
+	if(Qt5Multimedia_FOUND)
+		set (QT_LIBRARIES ${QT_LIBRARIES} ${Qt5Multimedia_LIBRARIES})
 		# That's the name autofoo uses
-		set(QT_MULTIMEDIAWIDGETS_LIB 1)
+		set(QT_MULTIMEDIA_LIB 1)
 	endif()
 	if(Qt5MacExtras_FOUND)
 		set (QT_LIBRARIES ${QT_LIBRARIES} ${Qt5MacExtras_LIBRARIES})
@@ -1082,6 +1085,8 @@ set( IN_FILES
 	image/wiretap.rc.in
 	image/wireshark.exe.manifest.in
 	packaging/macosx/Info.plist.in
+	packaging/macosx/osx-dmg.sh.in
+	packaging/macosx/Wireshark_package.pmdoc/index.xml.in
 	${CUSTOM_PLUGIN_IN_FILES}
 	ui/doxygen.cfg.in
 	ui/gtk/doxygen.cfg.in
@@ -2296,6 +2301,51 @@ if(ENABLE_APPLICATION_BUNDLE)
 		WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/run"
 	)
 	add_dependencies(app_bundle ${PROGLIST})
+
+	add_custom_target(dmg_package_prep DEPENDS app_bundle)
+
+	ADD_CUSTOM_COMMAND(
+		OUTPUT ${CMAKE_BINARY_DIR}/packaging/macosx/PkgInfo
+		COMMAND ${CMAKE_COMMAND} -E echo APPLWshk > ${CMAKE_BINARY_DIR}/packaging/macosx/PkgInfo
+	)
+
+	ADD_CUSTOM_TARGET( dmg_package
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					"${PROJECT_SOURCE_DIR}/ipmap.html"
+					$<TARGET_FILE_DIR:wireshark>
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+					${CMAKE_SOURCE_DIR}/packaging/macosx/ChmodBPF
+					${CMAKE_BINARY_DIR}/run/ChmodBPF
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+					${CMAKE_SOURCE_DIR}/packaging/macosx/Resources
+					${CMAKE_BINARY_DIR}/run/Resources
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+					${CMAKE_SOURCE_DIR}/packaging/macosx/Scripts
+					${CMAKE_BINARY_DIR}/run/Scripts
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+					${CMAKE_SOURCE_DIR}/packaging/macosx/utility-launcher
+					${CMAKE_BINARY_DIR}/run/utility-launcher
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					${CMAKE_SOURCE_DIR}/COPYING
+					${CMAKE_BINARY_DIR}/run/COPYING.txt
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+					${CMAKE_SOURCE_DIR}/packaging/macosx/Wireshark_package.pmdoc
+					${CMAKE_BINARY_DIR}/run/Wireshark_package.pmdoc
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					${CMAKE_BINARY_DIR}/packaging/macosx/Wireshark_package.pmdoc/index.xml
+					${CMAKE_BINARY_DIR}/run/Wireshark_package.pmdoc/index.xml
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					${CMAKE_SOURCE_DIR}/packaging/macosx/dmg_background.png
+					${CMAKE_BINARY_DIR}/run/dmg_background.png
+		COMMAND bash -x ${CMAKE_BINARY_DIR}/packaging/macosx/osx-dmg.sh
+			--source-directory ${CMAKE_SOURCE_DIR}/packaging/macosx
+		# Unlike nsis_package_prep + nsis_package, we can add a direct
+		# dependency here.
+		DEPENDS dmg_package_prep
+		# We create Wireshark.app in "run". Do our work there.
+		WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/run
+	)
+
 endif()
 
 pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/androiddump 1 )
@@ -2474,6 +2524,33 @@ add_custom_target(test-programs
 )
 set_target_properties(test-programs PROPERTIES FOLDER "Tests")
 
+if (WIN32)
+	file (TO_NATIVE_PATH ${CMAKE_SOURCE_DIR}/tools/Get-HardenFlags.ps1 _win_harden_flags)
+	add_custom_target(hardening-check
+		COMMAND ${POWERSHELL_COMMAND} "${_win_harden_flags}" "${CMAKE_BINARY_DIR}"
+		DEPENDS ${PROGLIST}
+		COMMENT "Checking binaries for security features"
+	)
+	set_target_properties(hardening-check PROPERTIES FOLDER "Tests")
+else ()
+	find_program(HARDENING_CHECK_EXECUTABLE hardening-check
+		DOC "Path to the hardening-check utility."
+	)
+	if (NOT "${HARDENING_CHECK_EXECUTABLE}" STREQUAL "HARDENING_CHECK_EXECUTABLE-NOTFOUND")
+		foreach(_prog ${PROGLIST})
+			get_target_property(_prog_dir ${_prog} RUNTIME_OUTPUT_DIRECTORY)
+			if (${_prog_dir} STREQUAL "_prog_dir-NOTFOUND")
+				set(_prog_dir "${CMAKE_BINARY_DIR}/run")
+			endif()
+			set(_prog_paths ${_prog_paths} "${_prog_dir}/${_prog}")
+		endforeach()
+		add_custom_target(hardening-check
+			COMMAND ${HARDENING_CHECK_EXECUTABLE} ${_prog_paths}
+			DEPENDS ${PROGLIST}
+			COMMENT "Checking binaries for security features"
+		)
+	endif()
+endif()
 
 #
 # Editor modelines  -  http://www.wireshark.org/tools/modelines.html

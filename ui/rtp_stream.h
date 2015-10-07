@@ -60,7 +60,7 @@ typedef struct _rtp_stream_info {
     gboolean        end_stream; /**< Used to track streams across payload types */
     int             rtp_event;
 
-    guint16         call_num; /**< Used to match call_num in voip_calls_info_t */
+    int             call_num; /**< Used to match call_num in voip_calls_info_t */
     guint32         setup_frame_number; /**< frame number of setup message */
     /* Start and stop packets needed for .num and .abs_ts */
     frame_data     *start_fd;
@@ -71,13 +71,12 @@ typedef struct _rtp_stream_info {
     gboolean        tag_vlan_error;
     gboolean        tag_diffserv_error;
 
-    gboolean        decode; /**< Decode this stream */
-    GList          *rtp_packet_list; /**< List of RTP rtp_packet_t */
+    gboolean        decode; /**< Decode this stream. GTK+ only? */
+    GList          *rtp_packet_list; /**< List of RTP rtp_packet_t. GTK+ only */
 
     tap_rtp_stat_t  rtp_stats;  /**< here goes the RTP statistics info */
-    gboolean        problem;    /**< if the streams had wrong sequence numbers or wrong timerstamps */
+    gboolean        problem;    /**< if the streams had wrong sequence numbers or wrong timestamps */
 } rtp_stream_info_t;
-
 
 /** tapping modes */
 typedef enum
@@ -89,12 +88,14 @@ typedef enum
 
 typedef struct _rtpstream_tapinfo rtpstream_tapinfo_t;
 
+typedef void (*rtpstream_tap_reset_cb)(rtpstream_tapinfo_t *tapinfo);
 typedef void (*rtpstream_tap_draw_cb)(rtpstream_tapinfo_t *tapinfo);
 typedef void (*tap_mark_packet_cb)(rtpstream_tapinfo_t *tapinfo, frame_data *fd);
 
 /* structure that holds the information about all detected streams */
 /** struct holding all information of the tap */
 struct _rtpstream_tapinfo {
+    rtpstream_tap_reset_cb tap_reset;       /**< tap reset callback */
     rtpstream_tap_draw_cb tap_draw;         /**< tap draw callback */
     tap_mark_packet_cb tap_mark_packet;     /**< packet marking callback */
     void *tap_data;                         /**< data for tap callbacks */
@@ -108,6 +109,16 @@ struct _rtpstream_tapinfo {
     FILE              *save_file;
     gboolean           is_registered; /**< if the tap listener is currently registered or not */
 };
+
+#if 0
+#define RTP_STREAM_DEBUG(...) { \
+    char *RTP_STREAM_DEBUG_MSG = g_strdup_printf(__VA_ARGS__); \
+    g_warning("rtp_stream: %s:%d %s", G_STRFUNC, __LINE__, RTP_STREAM_DEBUG_MSG); \
+    g_free(RTP_STREAM_DEBUG_MSG); \
+}
+#else
+#define RTP_STREAM_DEBUG()
+#endif
 
 /****************************************************************************/
 /* INTERFACE */

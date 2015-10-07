@@ -5923,7 +5923,29 @@ static const value_string hf_display[] = {
 	{ ABSOLUTE_TIME_LOCAL,		  "ABSOLUTE_TIME_LOCAL"		   },
 	{ ABSOLUTE_TIME_UTC,		  "ABSOLUTE_TIME_UTC"		   },
 	{ ABSOLUTE_TIME_DOY_UTC,	  "ABSOLUTE_TIME_DOY_UTC"	   },
+	{ BASE_PT_UDP,			  "BASE_PT_UDP"			   },
+	{ BASE_PT_TCP,			  "BASE_PT_TCP"			   },
+	{ BASE_PT_DCCP,			  "BASE_PT_DCCP"		   },
+	{ BASE_PT_SCTP,			  "BASE_PT_SCTP"		   },
 	{ 0,				  NULL } };
+
+static inline port_type
+display_to_port_type(field_display_e e)
+{
+	switch (e) {
+	case BASE_PT_UDP:
+		return PT_UDP;
+	case BASE_PT_TCP:
+		return PT_TCP;
+	case BASE_PT_DCCP:
+		return PT_DCCP;
+	case BASE_PT_SCTP:
+		return PT_SCTP;
+	default:
+		break;
+	}
+	return PT_NONE;
+}
 
 /* temporary function containing assert part for easier profiling */
 static void
@@ -6062,6 +6084,26 @@ tmp_fld_check_assert(header_field_info *hfinfo)
 		case FT_UINT48:
 		case FT_UINT56:
 		case FT_UINT64:
+			if (IS_BASE_PORT(hfinfo->display)) {
+				tmp_str = val_to_str_wmem(NULL, hfinfo->display, hf_display, "(Unknown: 0x%x)");
+				if (hfinfo->type != FT_UINT16) {
+					g_error("Field '%s' (%s) has 'display' value %s but it can only be used with FT_UINT16, not %s\n",
+						hfinfo->name, hfinfo->abbrev,
+						tmp_str, ftype_name(hfinfo->type));
+				}
+				if (hfinfo->strings != NULL) {
+					g_error("Field '%s' (%s) is an %s (%s) but has a strings value\n",
+						hfinfo->name, hfinfo->abbrev,
+						ftype_name(hfinfo->type), tmp_str);
+				}
+				if (hfinfo->bitmask != 0) {
+					g_error("Field '%s' (%s) is an %s (%s) but has a bitmask\n",
+						hfinfo->name, hfinfo->abbrev,
+						ftype_name(hfinfo->type), tmp_str);
+				}
+				wmem_free(NULL, tmp_str);
+				break;
+			}
 			/*  Require integral types (other than frame number,
 			 *  which is always displayed in decimal) to have a
 			 *  number base.
@@ -6174,6 +6216,22 @@ tmp_fld_check_assert(header_field_info *hfinfo)
 					ftype_name(hfinfo->type));
 			break;
 
+		case FT_IPv4:
+			switch (hfinfo->display) {
+				case BASE_NONE:
+				case BASE_NETMASK:
+					break;
+
+				default:
+					tmp_str = val_to_str_wmem(NULL, hfinfo->display, hf_display, "(Unknown: 0x%x)");
+					g_error("Field '%s' (%s) is an IPv4 value (%s)"
+						" but is being displayed as %s\n",
+						hfinfo->name, hfinfo->abbrev,
+						ftype_name(hfinfo->type), tmp_str);
+					wmem_free(NULL, tmp_str);
+					break;
+			}
+			break;
 		default:
 			if (hfinfo->display != BASE_NONE) {
 				tmp_str = val_to_str_wmem(NULL, hfinfo->display, hf_display, "(Bit count: %d)");
@@ -6247,7 +6305,7 @@ register_number_string_decoding_error(void)
 	proto_set_cant_toggle(proto_number_string_decoding_error);
 }
 
-#define PROTO_PRE_ALLOC_HF_FIELDS_MEM (144000+PRE_ALLOC_EXPERT_FIELDS_MEM)
+#define PROTO_PRE_ALLOC_HF_FIELDS_MEM (170000+PRE_ALLOC_EXPERT_FIELDS_MEM)
 static int
 proto_register_field_init(header_field_info *hfinfo, const int parent)
 {
@@ -6659,7 +6717,14 @@ proto_item_fill_label(field_info *fi, gchar *label_str)
 			addr.len  = 4;
 			addr.data = &n_addr;
 
-			addr_str = (char*)address_with_resolution_to_str(NULL, &addr);
+			if (hfinfo->display == BASE_NETMASK)
+			{
+				addr_str = (char*)address_to_str(NULL, &addr);
+			}
+			else
+			{
+				addr_str = (char*)address_with_resolution_to_str(NULL, &addr);
+			}
 			g_snprintf(label_str, ITEM_LABEL_LENGTH,
 				   "%s: %s", hfinfo->name, addr_str);
 			wmem_free(NULL, addr_str);
@@ -6969,7 +7034,7 @@ fill_label_number(field_info *fi, gchar *label_str, gboolean is_signed)
 		fmtfunc(tmp, value);
 		label_fill(label_str, 0, hfinfo, tmp);
 	}
-    else if (hfinfo->strings && hfinfo->type != FT_FRAMENUM) { /* Add fill_label_framenum? */
+	else if (hfinfo->strings && hfinfo->type != FT_FRAMENUM) { /* Add fill_label_framenum? */
 		const char *val_str = hf_try_val_to_str_const(value, hfinfo, "Unknown");
 
 		out = hfinfo_number_vals_format(hfinfo, buf, value);
@@ -6977,6 +7042,13 @@ fill_label_number(field_info *fi, gchar *label_str, gboolean is_signed)
 			label_fill(label_str, 0, hfinfo, val_str);
 		else
 			label_fill_descr(label_str, 0, hfinfo, val_str, out);
+	}
+	else if (IS_BASE_PORT(hfinfo->display)) {
+		gchar tmp[ITEM_LABEL_LENGTH];
+
+		port_with_resolution_to_str_buf(tmp, sizeof(tmp),
+			display_to_port_type((field_display_e)hfinfo->display), value);
+		label_fill(label_str, 0, hfinfo, tmp);
 	}
 	else {
 		out = hfinfo_number_value_format(hfinfo, buf, value);
@@ -7805,6 +7877,58 @@ proto_registrar_dump_values(void)
 		}
 	}
 }
+
+/* Prints the number of registered fields.
+ * Useful for determining an appropriate value for
+ * PROTO_PRE_ALLOC_HF_FIELDS_MEM.
+ *
+ * Returns FALSE if PROTO_PRE_ALLOC_HF_FIELDS_MEM is larger than or equal to
+ * the number of fields, TRUE otherwise.
+ */
+gboolean
+proto_registrar_dump_fieldcount(void)
+{
+	guint32			i;
+	header_field_info	*hfinfo;
+	guint32			deregistered_count = 0;
+	guint32			same_name_count = 0;
+	guint32			protocol_count = 0;
+
+	for (i = 0; i < gpa_hfinfo.len; i++) {
+		if (gpa_hfinfo.hfi[i] == NULL) {
+			deregistered_count++;
+			continue; /* This is a deregistered protocol or header field */
+		}
+
+		PROTO_REGISTRAR_GET_NTH(i, hfinfo);
+
+		if (proto_registrar_is_protocol(i))
+			protocol_count++;
+
+		if (hfinfo->same_name_prev_id != -1)
+			same_name_count++;
+	}
+
+	printf ("There are %d header fields registered, of which:\n"
+		"\t%d are deregistered\n"
+		"\t%d are protocols\n"
+		"\t%d have the same name as another field\n\n",
+		gpa_hfinfo.len, deregistered_count, protocol_count,
+		same_name_count);
+
+	printf ("%d fields were pre-allocated.\n%s", PROTO_PRE_ALLOC_HF_FIELDS_MEM,
+		(gpa_hfinfo.allocated_len > PROTO_PRE_ALLOC_HF_FIELDS_MEM) ?
+		    "* * Please increase PROTO_PRE_ALLOC_HF_FIELDS_MEM (in epan/proto.c)! * *\n\n" :
+		    "\n");
+
+	printf ("The header field table consumes %d KiB of memory.\n",
+		(int)(gpa_hfinfo.allocated_len * sizeof(header_field_info *) / 1024));
+	printf ("The fields themselves consume %d KiB of memory.\n",
+		(int)(gpa_hfinfo.len * sizeof(header_field_info) / 1024));
+
+	return (gpa_hfinfo.allocated_len > PROTO_PRE_ALLOC_HF_FIELDS_MEM);
+}
+
 
 /* Dumps the contents of the registration database to stdout. An independent
  * program can take this output and format it into nice tables or HTML or

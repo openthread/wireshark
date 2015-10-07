@@ -5257,13 +5257,13 @@ static const value_string ff_psmp_sta_info_flags[] = {
 
 static const char* wlan_conv_get_filter_type(conv_item_t* conv, conv_filter_type_e filter)
 {
-    if ((filter == CONV_FT_SRC_ADDRESS) && (conv->src_address.type == AT_ETHER))
+    if ((filter == CONV_FT_SRC_ADDRESS) && ((conv->src_address.type == AT_ETHER) || (conv->src_address.type == wlan_address_type)))
         return "wlan.sa";
 
-    if ((filter == CONV_FT_DST_ADDRESS) && (conv->dst_address.type == AT_ETHER))
+    if ((filter == CONV_FT_DST_ADDRESS) && ((conv->dst_address.type == AT_ETHER) || (conv->dst_address.type == wlan_address_type)))
         return "wlan.da";
 
-    if ((filter == CONV_FT_ANY_ADDRESS) && (conv->src_address.type == AT_ETHER))
+    if ((filter == CONV_FT_ANY_ADDRESS) && ((conv->src_address.type == AT_ETHER) || (conv->src_address.type == wlan_address_type)))
         return "wlan.addr";
 
     return CONV_FILTER_INVALID;
@@ -5360,6 +5360,12 @@ extra_one_mul_two_base_custom(gchar *result, guint32 value)
  * The MSDU (or a fragment thereof), the Mesh Control field (if and only if the
  * frame is transmitted by a mesh STA and the Mesh Control Present subfield of
  * the QoS Control field is 1)...
+ *
+ * 8.2.4.5.1 "QoS Control field structure", table 8-4, in 802.11-2012,
+ * seems to indicate that the bit that means "Mesh Control Present" in
+ * frames sent by mesh STAs in a mesh BSS is part of the TXOP Limit field,
+ * the AP PS Buffer State field, the TXOP Duration Requested field, or the
+ * Queue Size field in some data frames in non-mesh BSSes.
  *
  * We need a statefull sniffer for that.  For now, use heuristics.
  *
@@ -5637,11 +5643,11 @@ capture_ieee80211_common (const guchar * pd, int offset, int len,
     case DATA_QOS_DATA_CF_POLL:
     case DATA_QOS_DATA_CF_ACK_POLL:
     {
-      /* Data frames that actually contain *data* */
+      /* These are data frames that actually contain *data*. */
       hdr_length = (FCF_ADDR_SELECTOR(fcf) == DATA_ADDR_T4) ? DATA_LONG_HDR_LEN : DATA_SHORT_HDR_LEN;
 
       if (DATA_FRAME_IS_QOS(COMPOSE_FRAME_TYPE(fcf))) {
-        /* QoS frame */
+        /* QoS frame, so the header includes a QoS field */
         guint16 qosoff;  /* Offset of the 2-byte QoS field */
         guint8 mesh_flags;
 
@@ -5670,7 +5676,8 @@ capture_ieee80211_common (const guchar * pd, int offset, int len,
 
         if (datapad) {
           /*
-           * Add in Atheros padding between the 802.11 header and body.
+           * Include the padding between the 802.11 header and the body,
+           * as "helpfully" provided by some Atheros adapters.
            *
            * XXX - would the mesh header be part of the header or the body
            * from the point of view of the Atheros adapters that insert
@@ -5719,12 +5726,12 @@ capture_ieee80211_common (const guchar * pd, int offset, int len,
         /* XXX - this requires us to parse the header to find the source
            and destination addresses. */
         if (BYTES_ARE_IN_FRAME(offset+hdr_length, len, 12)) {
-            /* We have two MAC addresses after the header. */
-            if ((memcmp(&pd[offset+hdr_length+6], pinfo->dl_src.data, 6) == 0) ||
-                (memcmp(&pd[offset+hdr_length+6], pinfo->dl_dst.data, 6) == 0)) {
-              capture_eth (pd, offset + hdr_length, len, ld);
-              return;
-            }
+          /* We have two MAC addresses after the header. */
+          if ((memcmp(&pd[offset+hdr_length+6], pinfo->dl_src.data, 6) == 0) ||
+              (memcmp(&pd[offset+hdr_length+6], pinfo->dl_dst.data, 6) == 0)) {
+            capture_eth (pd, offset + hdr_length, len, ld);
+            return;
+          }
         }
 #endif
         if ((pd[offset+hdr_length] == 0xff) && (pd[offset+hdr_length+1] == 0xff))
@@ -10063,8 +10070,8 @@ dissect_vendor_ie_wpawme(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, in
             proto_tree_add_item(aci_aifsn_tree, hf_ieee80211_wfa_ie_wme_acp_reserved, tvb, offset, 1, ENC_NA);
             aci_aifsn = tvb_get_guint8(tvb, offset);
             proto_item_append_text(ac_item, " ACI %u (%s), ACM %s, AIFSN %u",
-            (aci_aifsn & 0x60) >> 5, try_val_to_str((aci_aifsn & 0x60) >> 5, ieee80211_wfa_ie_wme_acs_vals),
-            (aci_aifsn & 0x10) ? "yes" : "no ", aci_aifsn & 0x0f);
+              (aci_aifsn & 0x60) >> 5, try_val_to_str((aci_aifsn & 0x60) >> 5, ieee80211_wfa_ie_wme_acs_vals),
+              (aci_aifsn & 0x10) ? "yes" : "no", aci_aifsn & 0x0f);
             offset += 1;
 
             /* ECWmin/ECWmax field */
@@ -10073,7 +10080,7 @@ dissect_vendor_ie_wpawme(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, in
             proto_tree_add_item(ecw_tree, hf_ieee80211_wfa_ie_wme_acp_ecw_max, tvb, offset, 1, ENC_NA);
             proto_tree_add_item(ecw_tree, hf_ieee80211_wfa_ie_wme_acp_ecw_min, tvb, offset, 1, ENC_NA);
             ecw = tvb_get_guint8(tvb, offset);
-            proto_item_append_text(ac_item, ", ECWmin %u ,ECWmax %u", ecw & 0x0f, (ecw & 0xf0) >> 4);
+            proto_item_append_text(ac_item, ", ECWmin %u, ECWmax %u", ecw & 0x0f, (ecw & 0xf0) >> 4);
             offset += 1;
 
             /* TXOP Limit */
@@ -11749,7 +11756,7 @@ dissect_mcs_set(proto_tree *tree, tvbuff_t *tvb, int offset, gboolean basic, gbo
     rx_nss = MAX(2,rx_nss);
   }
 
-  proto_tree_add_item(bit_tree, hf_ieee80211_mcsset_rx_bitmask_32, tvb, offset , 4, ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(bit_tree, hf_ieee80211_mcsset_rx_bitmask_32, tvb, offset, 4, ENC_LITTLE_ENDIAN);
   proto_tree_add_item(bit_tree, hf_ieee80211_mcsset_rx_bitmask_33to38, tvb, offset, 4, ENC_LITTLE_ENDIAN);
   proto_tree_add_item(bit_tree, hf_ieee80211_mcsset_rx_bitmask_39to52, tvb, offset, 4, ENC_LITTLE_ENDIAN);
   offset += 2;
@@ -12816,11 +12823,18 @@ dissect_ht_info_ie_1_0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int 
  * and that everything except for "AC Constraint" and "RDG/More Cowbell^W
  * PPDU" is different for the VHT version.
  *
- * I read this as meaning that management frames and QoS data frames that
- * aren't HT or VHT frames should never have the Order field set, and
- * those that *are* HT or VHT frames should have it set only if there's
- * an HT Control field, so there's no need to check the radio information
- * to see whether the frame is an HT or VHT frame or not.
+ * I read the second clause of 8.2.4.1.10 "Order field", as modified by
+ * 802.11ac, as meaning that, for QoS data and management frames, the
+ * Order field will *only* be set to 1 for HT or VHT frames, and therefore
+ * that we do *not* have to determine, from radio metadata, whether the
+ * frame was transmitted as an HT or VHT frame.
+ *
+ * (See bug 11351, in which a frame with an HT Control field, with a
+ * radiotap header, lacks the MCS or VHT fields in the radiotap header,
+ * so Wireshark has no clue that it's an HT or VHT field, and misdissected
+ * the packet.  Omnipeek, which also appeared to have no clue that it was
+ * an HT or VHT field - it called it an 802.11b frame - *did* dissect the
+ * HT Control field.)
  */
 
 static void
@@ -13156,10 +13170,10 @@ dissect_qos_map_set(packet_info *pinfo, proto_tree *tree, proto_item *item,
     offset++;
 
     if (val == 255 && val2 == 255) {
-      proto_item_append_text(dscp_item, " (UP %u not in use)", i + 1);
+      proto_item_append_text(dscp_item, " (UP %u not in use)", i);
     } else {
       proto_item_append_text(dscp_item, " (0x%02x-0x%02x: UP %u)",
-                             val, val2, i + 1);
+                             val, val2, i);
     }
   }
 
@@ -16498,14 +16512,18 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
   case MGT_FRAME:
     hdr_len = MGT_FRAME_HDR_LEN;
     if (HAS_HT_CONTROL(FCF_FLAGS(fcf))) {
-      /* Frame has a 4-byte HT Control field */
+      /*
+       * Management frames with the Order bit set have an HT Control field;
+       * see 8.2.4.1.10 "Order field".  If they're not HT frames, they should
+       * never have the Order bit set.
+       */
       hdr_len += 4;
       htc_len = 4;
     }
     break;
 
   case CONTROL_FRAME:
-    if (COMPOSE_FRAME_TYPE(fcf) == CTRL_CONTROL_WRAPPER) {
+    if (frame_type_subtype == CTRL_CONTROL_WRAPPER) {
       hdr_len = 6;
       cw_fcf = ctrl_fcf;
     } else {
@@ -16571,13 +16589,17 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
   case DATA_FRAME:
     hdr_len = (FCF_ADDR_SELECTOR(fcf) == DATA_ADDR_T4) ? DATA_LONG_HDR_LEN : DATA_SHORT_HDR_LEN;
 
-    if (DATA_FRAME_IS_QOS(COMPOSE_FRAME_TYPE(fcf))) {
+    if (DATA_FRAME_IS_QOS(frame_type_subtype)) {
       /* QoS frame */
       qosoff = hdr_len;
       hdr_len += 2; /* Include the QoS field in the header length */
 
       if (HAS_HT_CONTROL(FCF_FLAGS(fcf))) {
-        /* Frame has a 4-byte HT Control field */
+        /*
+         * QoS data frames with the Order bit set have an HT Control field;
+         * see 8.2.4.1.10 "Order field".  If they're not HT frames, they
+         * should never have the Order bit set.
+         */
         hdr_len += 4;
         htc_len = 4;
       }

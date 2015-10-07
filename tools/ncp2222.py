@@ -56,6 +56,8 @@ compcode_lists  = None
 ptvc_lists      = None
 msg             = None
 reply_var = None
+#ensure unique expert function declarations
+expert_hash     = {}
 
 REC_START       = 0
 REC_LENGTH      = 1
@@ -117,7 +119,7 @@ class UniqueCollection:
 
     def HasMember(self, object):
         "Does the list of members contain the object?"
-        if repr(object) in self.members_reprs:
+        if repr(object) in self.member_reprs:
             return 1
         else:
             return 0
@@ -215,7 +217,7 @@ class PTVC(NamedList):
                 # Do we have this var?
                 if repeat_name not in named_vars:
                     sys.exit("%s does not have %s var defined." % \
-                            (name, var_name))
+                            (name, repeat_name))
                 repeat = named_vars[repeat_name]
             else:
                 repeat = NO_REPEAT
@@ -276,7 +278,7 @@ class PTVC(NamedList):
         x =  "static const ptvc_record %s[] = {\n" % (self.Name())
         for ptvc_rec in self.list:
             x = x +  "    %s,\n" % (ptvc_rec.Code())
-        x = x + "    { NULL, 0, NULL, NULL, NO_ENDIANNESS, NO_VAR, NO_REPEAT, NO_REQ_COND, NCP_FMT_NONE }\n"
+        x = x + "    { NULL, 0, NULL, NULL, NO_ENDIANNESS, NO_VAR, NO_REPEAT, NO_REQ_COND }\n"
         x = x + "};\n"
         return x
 
@@ -303,7 +305,7 @@ class PTVCBitfield(PTVC):
         x = x + "static const ptvc_record ptvc_%s[] = {\n" % (self.Name())
         for ptvc_rec in self.list:
             x = x +  "    %s,\n" % (ptvc_rec.Code())
-        x = x + "    { NULL, 0, NULL, NULL, NO_ENDIANNESS, NO_VAR, NO_REPEAT, NO_REQ_COND, NCP_FMT_NONE }\n"
+        x = x + "    { NULL, 0, NULL, NULL, NO_ENDIANNESS, NO_VAR, NO_REPEAT, NO_REQ_COND }\n"
         x = x + "};\n"
 
         x = x + "static const sub_ptvc_record %s = {\n" % (self.Name(),)
@@ -400,10 +402,9 @@ class PTVCRecord:
         else:
             req_info_str = "NULL"
 
-        return "{ &%s, %s, %s, %s, %s, %s, %s, %s, %s }" % \
+        return "{ &%s, %s, %s, %s, %s, %s, %s, %s }" % \
                 (self.field.HFName(), length, sub_ptvc_name,
-                req_info_str, endianness, var, repeat, req_cond,
-                self.field.SpecialFmt())
+                req_info_str, endianness, var, repeat, req_cond)
 
     def Offset(self):
         return self.offset
@@ -415,7 +416,12 @@ class PTVCRecord:
         return self.field
 
     def __repr__(self):
-        return "{%s len=%s end=%s var=%s rpt=%s rqc=%s}" % \
+        if self.req_info_str:
+            return "{%s len=%s end=%s var=%s rpt=%s rqc=%s info=%s}" % \
+                (self.field.HFName(), self.length,
+                self.endianness, self.var, self.repeat, self.req_cond, self.req_info_str[1])
+        else:
+            return "{%s len=%s end=%s var=%s rpt=%s rqc=%s}" % \
                 (self.field.HFName(), self.length,
                 self.endianness, self.var, self.repeat, self.req_cond)
 
@@ -569,7 +575,20 @@ class NCP:
                 self.req_info_str = record[REC_INFO_STR]
 
         ptvc = PTVC(name, records, code)
-        return ptvc_lists.Add(ptvc)
+
+        #if the record is a duplicate, remove the req_info_str so
+        #that an unused info_string isn't generated
+        remove_info = 0
+        if ptvc_lists.HasMember(ptvc):
+            if 'info' in repr(ptvc):
+                remove_info = 1
+
+        ptvc_test = ptvc_lists.Add(ptvc)
+
+        if remove_info:
+            self.req_info_str = None
+
+        return ptvc_test
 
     def CName(self):
         "Returns a C symbol based on the NCP function code"
@@ -581,6 +600,7 @@ class NCP:
 
     def MakeExpert(self, func):
         self.expert_func = func
+        expert_hash[func] = func
 
     def Variables(self):
         """Returns a list of variables used in the request and reply records.
@@ -730,6 +750,7 @@ class Type:
     type            = "Type"
     ftype           = None
     disp            = "BASE_DEC"
+    custom_func     = None
     endianness      = NA
     values          = []
 
@@ -739,7 +760,6 @@ class Type:
         self.bytes = bytes
         self.endianness = endianness
         self.hfname = "hf_ncp_" + self.abbrev
-        self.special_fmt = "NCP_FMT_NONE"
 
     def Length(self):
         return self.bytes
@@ -765,7 +785,10 @@ class Type:
         return self.disp
 
     def ValuesName(self):
-        return "NULL"
+        if self.custom_func:
+            return "CF_FUNC(" + self.custom_func + ")"
+        else:
+            return "NULL"
 
     def Mask(self):
         return 0
@@ -780,16 +803,12 @@ class Type:
         return "NULL"
 
     def NWDate(self):
-        self.special_fmt = "NCP_FMT_NW_DATE"
+        self.disp = "BASE_CUSTOM"
+        self.custom_func = "padd_date"
 
     def NWTime(self):
-        self.special_fmt = "NCP_FMT_NW_TIME"
-
-    def NWUnicode(self):
-        self.special_fmt = "NCP_FMT_UNICODE"
-
-    def SpecialFmt(self):
-        return self.special_fmt
+        self.disp = "BASE_CUSTOM"
+        self.custom_func = "padd_time"
 
     #def __cmp__(self, other):
     #    return cmp(self.hfname, other.hfname)
@@ -836,7 +855,7 @@ class struct(PTVC, Type):
         return vars
 
     def ReferenceString(self, var, repeat, req_cond):
-        return "{ PTVC_STRUCT, NO_LENGTH, &%s, NULL, NO_ENDIANNESS, %s, %s, %s, NCP_FMT_NONE }" % \
+        return "{ PTVC_STRUCT, NO_LENGTH, &%s, NULL, NO_ENDIANNESS, %s, %s, %s }" % \
                 (self.name, var, repeat, req_cond)
 
     def Code(self):
@@ -845,7 +864,7 @@ class struct(PTVC, Type):
         x = x + "static const ptvc_record ptvc_%s[] = {\n" % (self.name,)
         for ptvc_rec in self.list:
             x = x +  "    %s,\n" % (ptvc_rec.Code())
-        x = x + "    { NULL, NO_LENGTH, NULL, NULL, NO_ENDIANNESS, NO_VAR, NO_REPEAT, NO_REQ_COND, NCP_FMT_NONE }\n"
+        x = x + "    { NULL, NO_LENGTH, NULL, NULL, NO_ENDIANNESS, NO_VAR, NO_REPEAT, NO_REQ_COND }\n"
         x = x + "};\n"
 
         x = x + "static const sub_ptvc_record %s = {\n" % (self.name,)
@@ -3929,7 +3948,6 @@ TransportType                   = val_string8("transport_type", "Communications 
 ])
 TreeLength                      = uint32("tree_length", "Tree Length")
 TreeName                        = nstring32("tree_name", "Tree Name")
-TreeName.NWUnicode()
 TrusteeAccessMask           = uint8("trustee_acc_mask", "Trustee Access Mask")
 TrusteeRights                   = bitfield16("trustee_rights_low", "Trustee Rights", [
         bf_boolean16(0x0001, "trustee_rights_read", "Read"),
@@ -5900,6 +5918,7 @@ static int ptvc_struct_int_storage;
 
     if global_highest_var > -1:
         print("#define NUM_REPEAT_VARS    %d" % (global_highest_var + 1))
+        print("static guint repeat_vars[NUM_REPEAT_VARS];")
     else:
         print("#define NUM_REPEAT_VARS    0")
         print("static guint *repeat_vars = NULL;")
@@ -6140,6 +6159,8 @@ static int hf_bit13lflags = -1;
 static int hf_bit14lflags = -1;
 static int hf_bit15lflags = -1;
 static int hf_bit16lflags = -1;
+static int hf_l1flagsl = -1;
+static int hf_l1flagsh = -1;
 static int hf_bit1l1flagsl = -1;
 static int hf_bit2l1flagsl = -1;
 static int hf_bit3l1flagsl = -1;
@@ -6355,6 +6376,7 @@ static int hf_nds_ds_time = -1;
 static int hf_nds_ping_version = -1;
 static int hf_nds_search_scope = -1;
 static int hf_nds_num_objects = -1;
+static int hf_siflags = -1;
 static int hf_bit1siflags = -1;
 static int hf_bit2siflags = -1;
 static int hf_bit3siflags = -1;
@@ -6688,10 +6710,8 @@ static expert_field ei_ncp_address_type = EI_INIT;
     funcs_without_length = {}
 
     print("/* Forward declaration of expert info functions defined in ncp2222.inc */")
-    for pkt in packets:
-        if pkt.expert_func:
-            print("static void %s_expert_func(ptvcursor_t *ptvc, packet_info *pinfo, const ncp_record *ncp_rec, gboolean request);" % pkt.expert_func)
-
+    for expert in expert_hash:
+        print("static void %s_expert_func(ptvcursor_t *ptvc, packet_info *pinfo, const ncp_record *ncp_rec, gboolean request);" % expert)
 
     # Print ncp_record packet records
     print("#define SUBFUNC_WITH_LENGTH      0x02")
@@ -6829,7 +6849,7 @@ proto_register_ncp2222(void)
     { "Message Size", "ncp.ndsmessagesize", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_ncp_nds_flag,
-    { "NDS Protocol Flags", "ncp.ndsflag", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "NDS Protocol Flags", "ncp.ndsflag", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
     { &hf_ncp_nds_verb,
     { "NDS Verb", "ncp.ndsverb", FT_UINT8, BASE_HEX, VALS(ncp_nds_verb_vals), 0x0, NULL, HFILL }},
@@ -7347,6 +7367,12 @@ proto_register_ncp2222(void)
     { &hf_bit16lflags,
     { "Not Defined", "ncp.bit16lflags", FT_BOOLEAN, 16, NULL, 0x00008000, NULL, HFILL }},
 
+    { &hf_l1flagsl,
+    { "Information Flags (low) Byte", "ncp.l1flagsl", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+
+    { &hf_l1flagsh,
+    { "Information Flags (high) Byte", "ncp.l1flagsh", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+
     { &hf_bit1l1flagsl,
     { "Output Flags", "ncp.bit1l1flagsl", FT_BOOLEAN, 16, NULL, 0x00000001, NULL, HFILL }},
 
@@ -7628,7 +7654,7 @@ proto_register_ncp2222(void)
     { "Attribute Name", "ncp.mv_string", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_syntax,
-    { "Attribute Syntax", "ncp.nds_syntax", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { "Attribute Syntax", "ncp.nds_syntax", FT_UINT32, BASE_DEC, VALS(nds_syntax), 0x0, NULL, HFILL }},
 
     { &hf_value_string,
     { "Value", "ncp.value_string", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -7685,16 +7711,16 @@ proto_register_ncp2222(void)
     { "Distance object is from Root", "ncp.nds_depth", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_info_type,
-    { "Info Type", "ncp.nds_info_type", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { "Info Type", "ncp.nds_info_type", FT_UINT32, BASE_RANGE_STRING|BASE_DEC, RVALS(nds_info_type), 0x0, NULL, HFILL }},
 
     { &hf_nds_class_def_type,
-    { "Class Definition Type", "ncp.nds_class_def_type", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { "Class Definition Type", "ncp.nds_class_def_type", FT_UINT32, BASE_DEC, VALS(class_def_type), 0x0, NULL, HFILL }},
 
     { &hf_nds_all_attr,
     { "All Attributes", "ncp.nds_all_attr", FT_UINT32, BASE_DEC, NULL, 0x0, "Return all Attributes?", HFILL }},
 
     { &hf_nds_return_all_classes,
-    { "All Classes", "ncp.nds_return_all_classes", FT_STRING, BASE_NONE, NULL, 0x0, "Return all Classes?", HFILL }},
+    { "All Classes", "ncp.nds_return_all_classes", FT_UINT32, BASE_DEC, NULL, 0x0, "Return all Classes?", HFILL }},
 
     { &hf_nds_req_flags,
     { "Request Flags", "ncp.nds_req_flags", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -7718,7 +7744,7 @@ proto_register_ncp2222(void)
     { "Streams Flags", "ncp.nds_stream_flags", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_tag_string,
-    { "Tags", "ncp.nds_tags", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { "Tags", "ncp.nds_tags", FT_UINT32, BASE_DEC, VALS(nds_tags), 0x0, NULL, HFILL }},
 
     { &hf_value_bytes,
     { "Bytes", "ncp.value_bytes", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -7739,7 +7765,7 @@ proto_register_ncp2222(void)
     { "Replica Number", "ncp.rnum", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_min_nds_ver,
-    { "Minimum NDS Version", "ncp.min_nds_version", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "Minimum NDS Version", "ncp.min_nds_version", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_ver_include,
     { "Include NDS Version", "ncp.inc_nds_ver", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -7764,10 +7790,10 @@ proto_register_ncp2222(void)
 #endif
 
     { &hf_nds_dn_output_type,
-    { "Output Entry Specifier Type", "ncp.nds_out_es_type", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "Output Entry Specifier Type", "ncp.nds_out_es_type", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_nested_output_type,
-    { "Nested Output Entry Specifier Type", "ncp.nds_nested_out_es", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "Nested Output Entry Specifier Type", "ncp.nds_nested_out_es", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_output_delimiter,
     { "Output Delimiter", "ncp.nds_out_delimiter", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -7791,7 +7817,7 @@ proto_register_ncp2222(void)
     { "Event Number", "ncp.nds_event_num", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_compare_results,
-    { "Compare Results", "ncp.nds_compare_results", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { "Compare Values Returned", "ncp.nds_compare_results", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_parent,
     { "Parent ID", "ncp.nds_parent", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -7914,7 +7940,7 @@ proto_register_ncp2222(void)
     { "ASN.1 ID", "ncp.nds_asn1", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_acflags,
-    { "Attribute Constraint Flags", "ncp.nds_acflags", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "Attribute Constraint Flags", "ncp.nds_acflags", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_upper,
     { "Upper Limit Value", "ncp.nds_upper", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -8193,11 +8219,13 @@ proto_register_ncp2222(void)
     { "Ping Version", "ncp.nds_ping_version", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_nds_search_scope,
-    { "Search Scope", "ncp.nds_search_scope", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { "Search Scope", "ncp.nds_search_scope", FT_UINT32, BASE_DEC|BASE_RANGE_STRING, RVALS(nds_search_scope), 0x0, NULL, HFILL }},
 
     { &hf_nds_num_objects,
     { "Number of Objects to Search", "ncp.nds_num_objects", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
+    { &hf_siflags,
+    { "Information Types", "ncp.siflags", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
     { &hf_bit1siflags,
     { "Names", "ncp.bit1siflags", FT_BOOLEAN, 16, NULL, 0x00000001, NULL, HFILL }},
@@ -8275,7 +8303,7 @@ proto_register_ncp2222(void)
     { "NDS Fragments", "nds.fragments", FT_NONE, BASE_NONE, NULL, 0x0, "NDPS Fragments", HFILL }},
 
     { &hf_nds_verb2b_req_flags,
-    { "Flags", "ncp.nds_verb2b_flags", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "Flags", "ncp.nds_verb2b_flags", FT_UINT32, BASE_HEX, VALS(nds_verb2b_flag_vals), 0x0, NULL, HFILL }},
 
     { &hf_ncp_ip_address,
     { "IP Address", "ncp.ip_addr", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -8358,7 +8386,7 @@ proto_register_ncp2222(void)
     { "NDS Iteration Verb", "ncp.ndsiterverb", FT_UINT32, BASE_DEC_HEX, VALS(iterator_subverbs), 0x0, NULL, HFILL }},
 
     { &hf_iter_completion_code,
-    { "Iteration Completion Code", "ncp.iter_completion_code", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+    { "Iteration Completion Code", "ncp.iter_completion_code", FT_UINT32, BASE_HEX, VALS(nds_reply_errors), 0x0, NULL, HFILL }},
 
 #if 0 /* Unused ? */
     { &hf_nds_iterobj,

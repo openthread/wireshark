@@ -892,6 +892,8 @@ EXTRA_DIST = \
 	image/capture_comment_add.png	\
 	image/capture_comment_disabled.png	\
 	image/capture_comment_update.png	\
+	image/capture_comment_update.svg	\
+	image/capture_comment_update@2x.png	\
 	image/clist_ascend.xpm			\
 	image/clist_descend.xpm			\
 	image/copy-8.png			\
@@ -955,9 +957,6 @@ EXTRA_DIST = \
 	image/stock_dialog_warning_48.xpm	\
 	image/text2pcap.rc.in			\
 	image/tfshark.rc.in			\
-	image/toolbar/12x12/media-playback-start.png	\
-	image/toolbar/12x12/media-playback-start.svg	\
-	image/toolbar/12x12/media-playback-start@2x.png	\
 	image/toolbar/14x14/x-filter-bookmark.active.png \
 	image/toolbar/14x14/x-filter-bookmark.active.svg \
 	image/toolbar/14x14/x-filter-bookmark.active@2x.png \

@@ -392,6 +392,10 @@ private slots:
     void on_actionViewColorizeNewConversationRule_triggered();
     void on_actionViewResizeColumns_triggered();
 
+    void on_actionViewInternalsConversationHashTables_triggered();
+    void on_actionViewInternalsDissectorTables_triggered();
+    void on_actionViewInternalsSupportedProtocols_triggered();
+
     void openPacketDialog(bool from_reference = false);
     void on_actionViewShowPacketInNewWindow_triggered();
     void on_actionContextShowLinkedPacketInNewWindow_triggered();
@@ -532,6 +536,10 @@ private slots:
     void openVoipCallsDialog(bool all_flows = false);
     void on_actionTelephonyVoipCalls_triggered();
     void on_actionTelephonyGsmMapSummary_triggered();
+    void statCommandLteMacStatistics(const char *arg, void *);
+    void on_actionTelephonyLteRlcStatistics_triggered();
+    void statCommandLteRlcStatistics(const char *arg, void *);
+    void on_actionTelephonyLteMacStatistics_triggered();
     void on_actionTelephonyIax2StreamAnalysis_triggered();
     void on_actionTelephonyISUPMessages_triggered();
     void on_actionTelephonyMtp3Summary_triggered();

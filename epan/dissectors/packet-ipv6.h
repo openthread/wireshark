@@ -93,7 +93,8 @@ struct ip6_rthdr0 {
     guint8 ip6r0_segleft;   /* segments left */
     guint8 ip6r0_reserved;  /* reserved field */
     guint8 ip6r0_slmap[3];  /* strict/loose bit map */
-    struct e_in6_addr  ip6r0_addr[1];   /* up to 23 addresses */
+    /* followed by up to 127 addresses */
+    struct e_in6_addr ip6r0_addr[1];
 };
 
 /* Fragment header */
@@ -160,7 +161,6 @@ struct ip6_shim {
 };
 
 #define IP6F_OFF_MASK           0xfff8 /* mask out offset from _offlg */
-#define IP6F_OFF_SHIFT          0x0007 /* right-shift offset by this many bits */
 #define IP6F_RESERVED_MASK      0x0006 /* reserved bits in ip6f_offlg */
 #define IP6F_MORE_FRAG          0x0001 /* more-fragments flag */
 

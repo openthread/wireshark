@@ -69,6 +69,7 @@
 #define RECENT_GUI_FILEOPEN_REMEMBERED_DIR    "gui.fileopen_remembered_dir"
 #define RECENT_GUI_CONVERSATION_TABS          "gui.conversation_tabs"
 #define RECENT_GUI_ENDPOINT_TABS              "gui.endpoint_tabs"
+#define RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES   "gui.rlc_pdus_from_mac_frames"
 
 #define RECENT_GUI_GEOMETRY                   "gui.geom."
 
@@ -800,6 +801,11 @@ write_profile_recent(void)
   fprintf(rf, RECENT_GUI_ENDPOINT_TABS ": %s\n", string_list);
   g_free(string_list);
 
+  fprintf(rf, "\n# For RLC stats, whether to use RLC PDUs found inside MAC frames.\n");
+  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
+  fprintf(rf, RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES ": %s\n",
+          recent.gui_rlc_use_pdus_from_mac == TRUE ? "TRUE" : "FALSE");
+
   if (get_last_open_dir() != NULL) {
     fprintf(rf, "\n# Last directory navigated to in File Open dialog.\n");
 
@@ -1038,6 +1044,13 @@ read_set_recent_pair_static(gchar *key, const gchar *value,
     recent.conversation_tabs = prefs_get_string_list(value);
   } else if (strcmp(key, RECENT_GUI_ENDPOINT_TABS) == 0) {
     recent.endpoint_tabs = prefs_get_string_list(value);
+  } else if (strcmp(key, RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES) == 0) {
+    if (g_ascii_strcasecmp(value, "true") == 0) {
+        recent.gui_rlc_use_pdus_from_mac = TRUE;
+    }
+    else {
+        recent.gui_rlc_use_pdus_from_mac = FALSE;
+    }
   } else if (strcmp(key, RECENT_KEY_COL_WIDTH) == 0) {
     col_l = prefs_get_string_list(value);
     if (col_l == NULL)
@@ -1195,7 +1208,7 @@ recent_set_arg(char *prefarg)
 
 
 /* opens the user's recent common file and read the first part */
-void
+gboolean
 recent_read_static(char **rf_path_return, int *rf_errno_return)
 {
   char       *rf_path;
@@ -1228,8 +1241,6 @@ recent_read_static(char **rf_path_return, int *rf_errno_return)
     read_prefs_file(rf_path, rf, read_set_recent_common_pair_static, NULL);
 
     fclose(rf);
-    g_free(rf_path);
-    rf_path = NULL;
   } else {
     /* We failed to open it.  If we failed for some reason other than
        "it doesn't exist", return the errno and the pathname, so our
@@ -1237,14 +1248,17 @@ recent_read_static(char **rf_path_return, int *rf_errno_return)
     if (errno != ENOENT) {
       *rf_errno_return = errno;
       *rf_path_return = rf_path;
+      return FALSE;
     }
   }
+  g_free(rf_path);
+  return TRUE;
 }
 
 
 
 /* opens the user's recent file and read the first part */
-void
+gboolean
 recent_read_profile_static(char **rf_path_return, int *rf_errno_return)
 {
   char       *rf_path, *rf_common_path;
@@ -1309,8 +1323,6 @@ recent_read_profile_static(char **rf_path_return, int *rf_errno_return)
       fclose(rf);
     }
     g_free(rf_common_path);
-    g_free(rf_path);
-    rf_path = NULL;
   } else {
     /* We failed to open it.  If we failed for some reason other than
        "it doesn't exist", return the errno and the pathname, so our
@@ -1318,12 +1330,15 @@ recent_read_profile_static(char **rf_path_return, int *rf_errno_return)
     if (errno != ENOENT) {
       *rf_errno_return = errno;
       *rf_path_return = rf_path;
+      return FALSE;
     }
   }
+  g_free(rf_path);
+  return TRUE;
 }
 
 /* opens the user's recent file and read it out */
-void
+gboolean
 recent_read_dynamic(char **rf_path_return, int *rf_errno_return)
 {
   char       *rf_path;
@@ -1348,8 +1363,6 @@ recent_read_dynamic(char **rf_path_return, int *rf_errno_return)
     dfilter_combo_add_empty();
 #endif
     fclose(rf);
-    g_free(rf_path);
-    rf_path = NULL;
   } else {
     /* We failed to open it.  If we failed for some reason other than
        "it doesn't exist", return the errno and the pathname, so our
@@ -1357,8 +1370,11 @@ recent_read_dynamic(char **rf_path_return, int *rf_errno_return)
     if (errno != ENOENT) {
       *rf_errno_return = errno;
       *rf_path_return = rf_path;
+      return FALSE;
     }
   }
+  g_free(rf_path);
+  return TRUE;
 }
 
 gint

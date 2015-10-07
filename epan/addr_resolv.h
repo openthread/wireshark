@@ -53,12 +53,18 @@ extern "C" {
 typedef struct _e_addr_resolve {
   gboolean mac_name;                          /**< Whether to resolve Ethernet MAC to manufacturer names */
   gboolean network_name;                      /**< Whether to resolve IPv4, IPv6, and IPX addresses into host names */
-  gboolean transport_name;                    /**< Whether to resolve TCP/UDP ports into service names */
+  gboolean transport_name;                    /**< Whether to resolve TCP/UDP/DCCP/SCTP ports into service names */
   gboolean concurrent_dns;                    /**< Whether to use concurrent DNS name resolution */
   gboolean dns_pkt_addr_resolution;           /**< Whether to resolve addresses using captured DNS packets */
   gboolean use_external_net_name_resolver;    /**< Whether to system's configured DNS server to resolve names */
   gboolean load_hosts_file_from_profile_only; /**< Whether to only load the hosts in the current profile, not hosts files */
 } e_addr_resolve;
+
+#define ADDR_RESOLV_MACADDR(at) \
+    (((at)->type == AT_ETHER))
+
+#define ADDR_RESOLV_NETADDR(at) \
+    (((at)->type == AT_IPv4) || ((at)->type == AT_IPv6) || ((at)->type == AT_IPX))
 
 struct hashether;
 typedef struct hashether hashether_t;
@@ -76,12 +82,12 @@ typedef struct serv_port {
 /*
  *
  */
-#define DUMMY_ADDRESS_ENTRY      1<<0
-#define TRIED_RESOLVE_ADDRESS    1<<1
-#define RESOLVED_ADDRESS_USED    1<<2
+#define DUMMY_ADDRESS_ENTRY      (1U<<0)
+#define TRIED_RESOLVE_ADDRESS    (1U<<1)
+#define RESOLVED_ADDRESS_USED    (1U<<2)
 
-#define DUMMY_AND_RESOLVE_FLGS   3
-#define USED_AND_RESOLVED_MASK   (1+4)
+#define DUMMY_AND_RESOLVE_FLGS   (DUMMY_ADDRESS_ENTRY | TRIED_RESOLVE_ADDRESS)
+#define USED_AND_RESOLVED_MASK   (DUMMY_ADDRESS_ENTRY | RESOLVED_ADDRESS_USED)
 typedef struct hashipv4 {
     guint             addr;
     guint8            flags;          /* B0 dummy_entry, B1 resolve, B2 If the address is used in the trace */
@@ -133,6 +139,13 @@ extern gchar *dccp_port_to_display(wmem_allocator_t *allocator, guint port);
  * or the port number as a string if not found.
  */
 WS_DLL_PUBLIC gchar *sctp_port_to_display(wmem_allocator_t *allocator, guint port);
+
+/*
+ * port_with_resolution_to_str_buf() prints the "<resolved> (<numerical>)" port
+ * string to 'buf'. Return value is the same as g_snprintf().
+ */
+WS_DLL_PUBLIC int port_with_resolution_to_str_buf(gchar *buf, gulong buf_size,
+                                        port_type port_typ, guint16 port_num);
 
 /*
  * Asynchronous host name lookup initialization, processing, and cleanup

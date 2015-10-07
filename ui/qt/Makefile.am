@@ -152,9 +152,13 @@ column_preferences_frame.$(OBJEXT): ui_column_preferences_frame.h
 
 compiled_filter_output.$(OBJEXT): ui_compiled_filter_output.h
 
+conversation_hash_tables_dialog.$(OBJEXT): ui_conversation_hash_tables_dialog.h
+
 decode_as_dialog.$(OBJEXT): ui_decode_as_dialog.h
 
 display_filter_expression_dialog.$(OBJEXT): ui_display_filter_expression_dialog.h
+
+dissector_tables_dialog.$(OBJEXT): ui_dissector_tables_dialog.h
 
 enabled_protocols_dialog.$(OBJEXT): ui_enabled_protocols_dialog.h
 
@@ -240,6 +244,8 @@ resolved_addresses_dialog.$(OBJEXT): ui_resolved_addresses_dialog.h
 
 rtp_analysis_dialog.$(OBJEXT): ui_rtp_analysis_dialog.h
 
+rtp_player_dialog.$(OBJEXT): ui_rtp_player_dialog.h
+
 rtp_stream_dialog.$(OBJEXT): ui_rtp_stream_dialog.h
 
 search_frame.$(OBJEXT): ui_search_frame.h
@@ -259,6 +265,8 @@ sctp_graph_arwnd_dialog.$(OBJEXT): ui_sctp_graph_arwnd_dialog.h
 sctp_graph_byte_dialog.$(OBJEXT): ui_sctp_graph_byte_dialog.h
 
 splash_overlay.$(OBJEXT): ui_splash_overlay.h
+
+supported_protocols_dialog.$(OBJEXT): ui_supported_protocols_dialog.h
 
 tap_parameter_dialog.$(OBJEXT): ui_tap_parameter_dialog.h
 
