@@ -1278,11 +1278,9 @@ static icmp_transaction_t *transaction_start(packet_info *pinfo, proto_tree *tre
 
     /* Print state tracking in the tree */
     if (icmpv6_trans->resp_frame) {
-        if (tree) {
-            it = proto_tree_add_uint(tree, hf_icmpv6_resp_in, NULL, 0, 0,
-                icmpv6_trans->resp_frame);
-            PROTO_ITEM_SET_GENERATED(it);
-        }
+        it = proto_tree_add_uint(tree, hf_icmpv6_resp_in, NULL, 0, 0,
+            icmpv6_trans->resp_frame);
+        PROTO_ITEM_SET_GENERATED(it);
         col_append_fstr(pinfo->cinfo, COL_INFO, " (reply in %d)", icmpv6_trans->resp_frame);
     }
 
@@ -1361,11 +1359,9 @@ static icmp_transaction_t *transaction_end(packet_info *pinfo, proto_tree *tree,
     }
 
     /* Print state tracking in the tree */
-    if (tree) {
-        it = proto_tree_add_uint(tree, hf_icmpv6_resp_to, NULL, 0, 0,
-            icmpv6_trans->rqst_frame);
-        PROTO_ITEM_SET_GENERATED(it);
-    }
+    it = proto_tree_add_uint(tree, hf_icmpv6_resp_to, NULL, 0, 0,
+        icmpv6_trans->rqst_frame);
+    PROTO_ITEM_SET_GENERATED(it);
 
     nstime_delta(&ns, &pinfo->fd->abs_ts, &icmpv6_trans->rqst_time);
     icmpv6_trans->resp_time = ns;
