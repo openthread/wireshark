@@ -81,8 +81,7 @@ static int hf_mle_aux_sec_hdr = -1;
 static int hf_mle_aux_sec_key_id = -1;
 static int hf_mle_aux_sec_reserved = -1;
 static int hf_mle_aux_sec_frame_counter = -1;
-static int hf_mle_aux_sec_key_source_4 = -1;
-static int hf_mle_aux_sec_key_source_8 = -1;
+static int hf_mle_aux_sec_key_source = -1;
 static int hf_mle_aux_sec_key_index = -1;
 
 static int hf_mle_mic = -1;
@@ -144,6 +143,7 @@ static int hf_mle_tlv_conn_id_seq = -1;
 static int hf_mle_tlv_link_margin = -1;
 static int hf_mle_tlv_status = -1;
 static int hf_mle_tlv_version = -1;
+static int hf_mle_tlv_addr_reg_entry = -1;
 static int hf_mle_tlv_addr_reg_iid_type = -1;
 static int hf_mle_tlv_addr_reg_cid = -1;
 static int hf_mle_tlv_addr_reg_iid = -1;
@@ -156,6 +156,7 @@ static gint ett_mle_tlv = -1;
 static gint ett_mle_neighbor = -1;
 #ifdef THREAD_EXTENSIONS
 static gint ett_mle_router = -1;
+static gint ett_mle_addr_reg = -1;
 static gint ett_mle_thread_nwd = -1;
 #endif // THREAD_EXTENSIONS
 static gint ett_mle_auxiliary_security = -1;
@@ -334,6 +335,10 @@ static const true_false_string mle_tlv_mode_device_type = {
 static const true_false_string mle_tlv_mode_nwk_data = {
     "Full",
     "Stable"
+};
+static const true_false_string mle_tlv_addr_reg_iid_type = {
+    "Compressed",
+    "Full"
 };
 
 #ifdef THREAD_EXTENSIONS
@@ -886,10 +891,9 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }    
 
     /* Create the protocol tree. */
-    if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_reported_length(tvb), "Mesh Link Exchange");
-        mle_tree = proto_item_add_subtree(proto_root, ett_mle);
-    }
+    proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_reported_length(tvb), "Mesh Link Exchange");
+    mle_tree = proto_item_add_subtree(proto_root, ett_mle);
+
     /* Add the protocol name. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Mesh Link Exchange");
     /* Add the packet length. */
@@ -948,14 +952,14 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             /* Add key source, if it exists. */
             if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
                 packet->key_source.addr32 = tvb_get_ntohl(tvb, offset);
-                proto_tree_add_uint(field_tree, hf_mle_aux_sec_key_source_4, tvb, offset, 4, packet->key_source.addr32);
+                proto_tree_add_item(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 4, FALSE);
                 proto_item_set_len(ti, 1 + 4);
                 offset += 4;
             }
         
             if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) {
                 packet->key_source.addr64 = tvb_get_ntoh64(tvb, offset);
-                proto_tree_add_uint64(field_tree, hf_mle_aux_sec_key_source_8, tvb, offset, 8, packet->key_source.addr64);
+                proto_tree_add_item(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 8, FALSE);
                 proto_item_set_len(ti, 1 + 8);
                 offset += 8;
             }
@@ -1536,29 +1540,55 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
                 
             case MLE_TLV_ADDRESS_REGISTRATION:
-                if ((tlv_len != 9) && (tlv_len != 17)) {
-                    /* TLV Length must be 9 or 17 */
-                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
-                    offset += tlv_len;  
-                } else {
-                    guint8 iid_type;
+                {
+                    guint8 iid_type, i;
+                    guint8 entries = 0;
+                    guint8 check_len = tlv_len;
+                    guint8 check_offset = offset;
                     
-                    iid_type = tvb_get_guint8(payload_tvb, offset);
-                    if (iid_type & ADDR_REG_MASK_IID_TYPE_MASK) {
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_cid, payload_tvb, offset, 1, FALSE);
-                        offset++;
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid, payload_tvb, offset, 8, FALSE);
-                        offset += 8;
+                    /* Check consistency of entries */
+                    while (check_len > 0) {
+                        guint8 len;
+                        
+                        iid_type = tvb_get_guint8(payload_tvb, check_offset);
+                        if (iid_type & ADDR_REG_MASK_IID_TYPE_MASK) {
+                            len = 9;
+                        } else {
+                            len = 17;
+                        }
+                        check_offset += len;
+                        check_len -= len;
+                        entries++;
+                    }
+                
+                    proto_item_append_text(ti, ")");
+                    if (check_len != 0) {
+                        /* Not an integer number of entries */
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                        offset += tlv_len;  
                     } else {
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
-                        offset++;
-                        proto_tree_add_ipv6(tlv_tree, hf_mle_tlv_addr_reg_ipv6, payload_tvb, offset, 16, FALSE);
-                        offset += 16;
+                        for (i = 0; i < entries; i++) {
+                            proto_tree *ar_tree;
+
+                            ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_reg_entry, payload_tvb, offset, 1, FALSE);
+                            ar_tree = proto_item_add_subtree(ti, ett_mle_addr_reg);
+                            iid_type = tvb_get_guint8(payload_tvb, offset);
+                            if (iid_type & ADDR_REG_MASK_IID_TYPE_MASK) {
+                                proto_tree_add_item(ar_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
+                                proto_tree_add_item(ar_tree, hf_mle_tlv_addr_reg_cid, payload_tvb, offset, 1, FALSE);
+                                offset++;
+                                proto_tree_add_item(ar_tree, hf_mle_tlv_addr_reg_iid, payload_tvb, offset, 8, FALSE);
+                                offset += 8;
+                            } else {
+                                proto_tree_add_item(ar_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
+                                offset++;
+                                proto_tree_add_ipv6(ar_tree, hf_mle_tlv_addr_reg_ipv6, payload_tvb, offset, 16, FALSE);
+                                offset += 16;
+                            }
+                        }
                     }
                 }
-                proto_item_append_text(ti, ")");
                 break;
 #endif // THREAD_EXTENSIONS
 
@@ -1652,20 +1682,11 @@ proto_register_mle(void)
       }
     },
 
-    { &hf_mle_aux_sec_key_source_4,
+    { &hf_mle_aux_sec_key_source,
       { "Key Source",
         "wpan.aux_sec.key_source",
-        FT_UINT32, BASE_HEX, NULL, 0x0,
-        "Key Source (4 octet) for processing of the protected frame",
-        HFILL
-      }
-    },
-
-    { &hf_mle_aux_sec_key_source_8,
-      { "Key Source",
-        "wpan.aux_sec.key_source",
-        FT_UINT32, BASE_HEX, NULL, 0x0,
-        "Key Source (8 octet) for processing of the protected frame",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Key Source for processing of the protected frame",
         HFILL
       }
     },
@@ -2192,10 +2213,19 @@ proto_register_mle(void)
       }
     },
         
+    { &hf_mle_tlv_addr_reg_entry,
+      { "Address Registration Entry",
+        "mle.tlv.addr_reg",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
     { &hf_mle_tlv_addr_reg_iid_type,
       { "IID type",
         "mle.tlv.addr_reg_iid_type",
-        FT_BOOLEAN, 8, NULL, ADDR_REG_MASK_IID_TYPE_MASK,
+        FT_BOOLEAN, 8, TFS(&mle_tlv_addr_reg_iid_type), ADDR_REG_MASK_IID_TYPE_MASK,
         "Context ID",
         HFILL
       }
@@ -2267,6 +2297,7 @@ proto_register_mle(void)
 #ifdef THREAD_EXTENSIONS
     &ett_mle_neighbor,
     &ett_mle_router,
+    &ett_mle_addr_reg,
     &ett_mle_thread_nwd
 #else // !THREAD_EXTENSIONS
     &ett_mle_neighbor

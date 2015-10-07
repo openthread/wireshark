@@ -1012,13 +1012,13 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
         /* Add key source, if it exists. */
         if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
           packet->key_source.addr32 = tvb_get_ntohl(tvb, offset);
-          proto_tree_add_uint64(field_tree, hf_ieee802154_aux_sec_key_source, tvb, offset, 4, packet->key_source.addr32);
+          proto_tree_add_item(field_tree, hf_ieee802154_aux_sec_key_source, tvb, offset, 4, FALSE);
           proto_item_set_len(ti, 1 + 4);
           offset += (int)sizeof (guint32);
         }
         if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) {
           packet->key_source.addr64 = tvb_get_ntoh64(tvb, offset);
-          proto_tree_add_uint64(field_tree, hf_ieee802154_aux_sec_key_source, tvb, offset, 8, packet->key_source.addr64);
+          proto_tree_add_item(field_tree, hf_ieee802154_aux_sec_key_source, tvb, offset, 8, FALSE);
           proto_item_set_len(ti, 1 + 8);
           offset += 8;
         }
@@ -2905,7 +2905,7 @@ void proto_register_ieee802154(void)
             "Frame counter of the originator of the protected frame", HFILL }},
 
         { &hf_ieee802154_aux_sec_key_source,
-        { "Key Source", "wpan.aux_sec.key_source", FT_UINT64, BASE_HEX, NULL, 0x0,
+        { "Key Source", "wpan.aux_sec.key_source", FT_BYTES, BASE_NONE, NULL, 0x0,
             "Key Source for processing of the protected frame", HFILL }},
 
         { &hf_ieee802154_aux_sec_key_index,
