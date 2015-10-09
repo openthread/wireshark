@@ -220,12 +220,12 @@ typedef enum {
 } ws_decrypt_status;
 
 static tvbuff_t *dissect_ieee802154_decrypt(tvbuff_t *, guint, packet_info *, ieee802154_packet *,
-        ws_decrypt_status *);
+        ws_decrypt_status *, unsigned char *);
 static void ccm_init_block          (gchar *, gboolean, gint, guint64, ieee802154_packet *, gint);
 static gboolean ccm_ctr_encrypt     (const gchar *, const gchar *, gchar *, gchar *, gint);
 static gboolean ccm_cbc_mac         (const gchar *, const gchar *, const gchar *, gint, const gchar *, gint, gchar *);
 
-static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key);
+static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key);
 
 /*  Initialize Protocol and Registered fields */
 static int proto_ieee802154_nonask_phy = -1;
@@ -1078,8 +1078,24 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
 
     /* Encrypted Payload. */
     if (packet->security_enable) {
-        payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, &status);
+        unsigned char key[16];
+        unsigned char alt_key[16];
 
+        /* Lookup the key. */
+        /*
+         * TODO: What this dissector really needs is a UAT to store multiple keys
+         * and a variety of key configuration data. However, two shared keys
+         * should be sufficient to get packet encryption off to a start.
+         */
+        if (!ieee802154_set_mac_key(packet, key, alt_key)) {
+            goto dissect_ieee802154_fcs;
+        }
+
+        payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, &status, key);
+        if (status != DECRYPT_PACKET_SUCCEEDED) {
+            payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, &status, alt_key);
+        }
+        
         /* Get the unencrypted data if decryption failed.  */
         if (!payload_tvb) {
             /* Deal with possible truncation and the FCS field at the end. */
@@ -1843,12 +1859,11 @@ dissect_ieee802154_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
  *---------------------------------------------------------------
  */
 static tvbuff_t *
-dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee802154_packet *packet, ws_decrypt_status *status)
+dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee802154_packet *packet, ws_decrypt_status *status, unsigned char *key)
 {
     tvbuff_t           *ptext_tvb;
     gboolean            have_mic = FALSE;
     guint64             srcAddr;
-    unsigned char       key[16];
     unsigned char       tmp[16];
     unsigned char       rx_mic[16];
     guint               M;
@@ -1930,17 +1945,6 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
     else {
         /* Lookup failed.  */
         *status = DECRYPT_PACKET_NO_EXT_SRC_ADDR;
-        return NULL;
-    }
-
-    /* Lookup the key. */
-    /*
-     * TODO: What this dissector really needs is a UAT to store multiple keys
-     * and a variety of key configuration data. However, two shared keys
-     * should be sufficient to get packet encryption off to a start.
-     */
-    if (!ieee802154_set_mac_key(packet, key)) {
-        *status = DECRYPT_PACKET_NO_KEY;
         return NULL;
     }
 
@@ -2338,7 +2342,7 @@ ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes)
 }
 
 /* Set MAC key function. */
-static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key)
+static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
 {
     int i;
     
@@ -2365,11 +2369,15 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
             seq_ctr_bytes = g_byte_array_new();
             res = hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
             assert(seq_ctr_bytes->len == 4);
-            seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[0] & 0x80) + (packet->key_index - 1);
+            seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[3] & 0x80) + ((packet->key_index - 1) & 0x7F);
         }
         if (seq_ctr_bytes != NULL) {
             ieee802154_create_thread_temp_keys(seq_ctr_bytes);
             memcpy(key, ieee802154_temp_key, IEEE802154_CIPHER_SIZE);
+            /* Create an alternate key based on the wraparound case */
+            seq_ctr_bytes->data[3] ^= 0x80;
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            memcpy(alt_key, ieee802154_temp_key, IEEE802154_CIPHER_SIZE);
             g_byte_array_free(seq_ctr_bytes, TRUE);
             return TRUE;
         }
@@ -2378,7 +2386,7 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
 }
 
 /* Set MLE key function. */
-gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key)
+gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
 {
     int i;
     
@@ -2411,7 +2419,7 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key)
                 assert(seq_ctr_bytes->len == 4);
             }
             /* Replace lower part with counter based on packet key index */
-            seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[0] & 0x80) + (packet->key_index - 1);
+            seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[3] & 0x80) + ((packet->key_index - 1) & 0x7F);
         }
         else if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
             /* Reconstruct the key source from the key source in the packet */
@@ -2430,6 +2438,10 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key)
         if (seq_ctr_bytes != NULL) {
             ieee802154_create_thread_temp_keys(seq_ctr_bytes);
             memcpy(key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
+            /* Create an alternate key based on the wraparound case */
+            seq_ctr_bytes->data[3] ^= 0x80;
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            memcpy(alt_key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
             g_byte_array_free(seq_ctr_bytes, TRUE);
             return TRUE;
         }

@@ -264,6 +264,6 @@ extern gboolean ieee802154_long_addr_invalidate(guint64, guint);
 
 extern ieee802154_map_tab_t ieee802154_map;
 
-extern gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key);
+extern gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key);
 
 #endif /* PACKET_IEEE802154_H */

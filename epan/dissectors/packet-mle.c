@@ -378,7 +378,8 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
                     ieee802154_packet * packet,
                     unsigned char * rx_mic,
                     unsigned int * rx_mic_len,
-                    ws_decrypt_status * status);
+                    ws_decrypt_status * status,
+                    unsigned char *key);
 
 static void ccm_init_block          (gchar *, gboolean, gint, guint64, guint32, ieee802154_security_level, gint);
 static gboolean ccm_ctr_encrypt     (const gchar *, const gchar *, gchar *, gchar *, gint);
@@ -404,7 +405,7 @@ static unsigned int mle_key_index[NUM_KEYS] = {1, 2};
 #endif /* INDEPENDENT_MLE_KEYS */
 static const char  *mle_user = "User";
 
-static gboolean mle_set_mle_key(ieee802154_packet *packet, unsigned char *key)
+static gboolean mle_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
 {
 #ifdef INDEPENDENT_MLE_KEYS
     int i;
@@ -429,7 +430,7 @@ static gboolean mle_set_mle_key(ieee802154_packet *packet, unsigned char *key)
     }
     return TRUE;
 #else
-    return ieee802154_set_mle_key(packet, key);
+    return ieee802154_set_mle_key(packet, key, alt_key);
 #endif
 }
 
@@ -458,12 +459,12 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
                     ieee802154_packet * packet,
                     unsigned char * rx_mic,
                     unsigned int * rx_mic_len,
-                    ws_decrypt_status * status)
+                    ws_decrypt_status * status,
+                    unsigned char *key)
 {
     tvbuff_t *          ptext_tvb;
     gboolean            have_mic = FALSE;
     guint64             srcAddr;
-    unsigned char       key[16];
     unsigned char       tmp[16];
     guint               M;
     gint                captured_len;
@@ -528,12 +529,6 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
     if (IEEE802154_IS_ENCRYPTED(packet->security_level) && captured_len) {
         void *text;
         
-        /* Lookup the key */
-        if (!mle_set_mle_key(packet, key)) {
-            *status = DECRYPT_PACKET_NO_KEY;
-            return NULL;
-        }
-        
         /*
          * Make a copy of the ciphertext in heap memory.
          *
@@ -542,7 +537,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
          */
         text = tvb_memdup(wmem_packet_scope(), tvb, offset, captured_len);
 
-        /* Perform CTR-mode transformation. */
+        /* Perform CTR-mode transformation. Try both the likely key and the alternate key */
         if (!ccm_ctr_encrypt(key, tmp, rx_mic, text, captured_len)) {
             g_free(text);
             *status = DECRYPT_PACKET_DECRYPT_FAILED;
@@ -559,12 +554,6 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
     else {
         /* Decrypt the MIC (if present). */
         if (have_mic) {
-            /* Lookup the key */
-            if (!mle_set_mle_key(packet, key)) {
-                *status = DECRYPT_PACKET_NO_KEY;
-                return NULL;
-            }
-        
             if (!ccm_ctr_encrypt(key, tmp, rx_mic, NULL, 0)) {
                 *status = DECRYPT_PACKET_DECRYPT_FAILED;
                 return NULL;
@@ -869,6 +858,8 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     ieee802154_hints_t      *ieee_hints;
     gboolean                mic_ok=TRUE;
    
+    unsigned char           key[16];
+    unsigned char           alt_key[16];
     unsigned char           rx_mic[16];
     unsigned int            rx_mic_len = 0;
 
@@ -972,9 +963,20 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
      
     /* Pass to decryption process */
+    
+    /* Lookup the key */
+    if (!mle_set_mle_key(packet, key, alt_key)) {
+        goto encryption_failed;
+    }
+
     /* TODO - shouldn't have to do this if security level == 0 really */
     memset(rx_mic, 0, 16);
-    payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status);
+    payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, key);
+    if (status != DECRYPT_PACKET_SUCCEEDED) {
+        /* Try with the alternate key */
+        memset(rx_mic, 0, 16);
+        payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, alt_key);
+    }
 
     /* MIC */
     mic_item = NULL;
