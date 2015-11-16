@@ -960,13 +960,12 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             proto_tree_add_uint(field_tree, hf_mle_aux_sec_key_index, tvb, offset, 1, packet->key_index);
             offset++;
         }  
-    }
-     
-    /* Pass to decryption process */
-    
-    /* Lookup the key */
-    if (!mle_set_mle_key(packet, key, alt_key)) {
-        goto encryption_failed;
+        /* Pass to decryption process */
+
+        /* Lookup the key */
+        if (!mle_set_mle_key(packet, key, alt_key)) {
+            goto encryption_failed;
+        }
     }
 
     /* TODO - shouldn't have to do this if security level == 0 really */
