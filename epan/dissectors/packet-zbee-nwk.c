@@ -1623,7 +1623,7 @@ static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     guint8      proto_id;
     char        *ssid;
     guint8      tlv_type, tlv_len;
-    proto_tree  *tlv_tree;
+    proto_tree  *tlv_tree = NULL;
 
     /* Reject the packet if data is NULL */
     if (!packet) return 0;
@@ -1700,15 +1700,15 @@ static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
 
     /* Length */
-    if (tree) {
+    if (tlv_tree) {
         proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_length, tvb, offset, 1, FALSE);
     }
-    offset++;    
-    
+    offset++;
+
     if (tlv_len) { /* Belt 'n' braces check */
         switch (tlv_type) {
             case THREAD_BEACON_TLV_STEERING_DATA:
-                if (tree) {
+                if (tlv_tree) {
 #if 1
                     /* Display simply */
                     proto_tree_add_item(tlv_tree, hf_thread_beacon_tlv_steering_data, tvb, offset, tlv_len, FALSE);

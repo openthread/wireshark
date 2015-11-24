@@ -2345,7 +2345,8 @@ ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes)
 static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
 {
     int i;
-    
+    GByteArray *seq_ctr_bytes = NULL;;
+
     /* Lookup the key. */
     /*
      * TODO: What this dissector really needs is a UAT to store multiple keys
@@ -2362,12 +2363,9 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
         }
     }
     if (i == NUM_KEYS) {
-        GByteArray *seq_ctr_bytes = NULL;;
-        gboolean   res;
-
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
             seq_ctr_bytes = g_byte_array_new();
-            res = hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
+            hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
             assert(seq_ctr_bytes->len == 4);
             seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[3] & 0x80) + ((packet->key_index - 1) & 0x7F);
         }
@@ -2407,15 +2405,13 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, u
     }
     if (i == NUM_KEYS) {
         GByteArray *seq_ctr_bytes = NULL;;
-        gboolean   res;
-
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
             seq_ctr_bytes = g_byte_array_new();
             if (ieee802154_thr_seq_ctr_acqd) {
                 seq_ctr_bytes = g_byte_array_set_size(seq_ctr_bytes, 4);
                 memcpy(seq_ctr_bytes->data, ieee802154_thr_seq_ctr_bytes, 3);
             } else {
-                res = hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
+                hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
                 assert(seq_ctr_bytes->len == 4);
             }
             /* Replace lower part with counter based on packet key index */

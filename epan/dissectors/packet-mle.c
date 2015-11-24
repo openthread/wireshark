@@ -403,13 +403,12 @@ static gboolean     mle_key_valid[NUM_KEYS];
 static guint8       mle_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
 static unsigned int mle_key_index[NUM_KEYS] = {1, 2};
 #endif /* INDEPENDENT_MLE_KEYS */
-static const char  *mle_user = "User";
 
 static gboolean mle_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
 {
 #ifdef INDEPENDENT_MLE_KEYS
     int i;
-    
+
     /* Lookup the key. */
     /*
      * TODO: What this dissector really needs is a UAT to store multiple keys
@@ -482,7 +481,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
     else {
         M = 0;
     }
-    
+
     reported_len = tvb_reported_length_remaining(tvb, offset) - M;
     if (reported_len < 0) {
         *status = DECRYPT_PACKET_TOO_SMALL;
@@ -513,7 +512,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         srcAddr = packet->src64; /* GUINT64_SWAP_LE_BE(packet->src64); */
     }
     else {
-        /* Lookup failed.  */ 
+        /* Lookup failed.  */
         *status = DECRYPT_PACKET_NO_EXT_SRC_ADDR;
         return NULL;
     }
@@ -527,15 +526,15 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
 
     /* Decrypt the ciphertext, and place the plaintext in a new tvb. */
     if (IEEE802154_IS_ENCRYPTED(packet->security_level) && captured_len) {
-        void *text;
-        
+        gchar *text;
+
         /*
          * Make a copy of the ciphertext in heap memory.
          *
          * We will decrypt the message in-place and then use the buffer as the
          * real data for the new tvb.
          */
-        text = tvb_memdup(wmem_packet_scope(), tvb, offset, captured_len);
+        text = (gchar*)tvb_memdup(wmem_packet_scope(), tvb, offset, captured_len);
 
         /* Perform CTR-mode transformation. Try both the likely key and the alternate key */
         if (!ccm_ctr_encrypt(key, tmp, rx_mic, text, captured_len)) {
@@ -575,10 +574,10 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         guint                   l_m = captured_len;
         guint                   l_a;
         guint8                  d_a[256];
-        
+
         memcpy(d_a   , (guint8 *)pinfo->src.data, pinfo->src.len);
         memcpy(d_a+16, (guint8 *)pinfo->dst.data, pinfo->dst.len);
-        
+
         tvb_memcpy(tvb, d_a+32, aux_offset, aux_len);
         l_a = 32 + aux_len;
 
@@ -608,7 +607,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
             *status = DECRYPT_PACKET_MIC_CHECK_FAILED;
         }
     }
-    
+
     if(rx_mic_len) {
         *rx_mic_len = M;
     }
@@ -653,7 +652,7 @@ ccm_init_block(gchar *block, gboolean adata, gint M, guint64 addr, guint32 count
     block[i++] = (guint8)((addr >> 16) & 0xff);
     block[i++] = (guint8)((addr >> 8) & 0xff);
     block[i++] = (guint8)((addr >> 0) & 0xff);
-    block[i++] = (guint8)((counter >> 24) & 0xff); 
+    block[i++] = (guint8)((counter >> 24) & 0xff);
     block[i++] = (guint8)((counter >> 16) & 0xff);
     block[i++] = (guint8)((counter >> 8) & 0xff);
     block[i++] = (guint8)((counter >> 0) & 0xff);
@@ -849,15 +848,15 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     ws_decrypt_status       status;
 
     proto_item              *ti, *mic_item;
-    proto_tree              *header_tree, *field_tree;
+    proto_tree              *header_tree = NULL, *field_tree = NULL;
     guint8                  security_suite;
     guint8                  security_control;
     guint                   aux_length = 0;
-    ieee802154_packet       *packet = wmem_alloc(wmem_packet_scope(), sizeof(ieee802154_packet));
-    ieee802154_packet       *original_packet;  
+    ieee802154_packet       *packet = (ieee802154_packet *)wmem_alloc(wmem_packet_scope(), sizeof(ieee802154_packet));
+    ieee802154_packet       *original_packet;
     ieee802154_hints_t      *ieee_hints;
     gboolean                mic_ok=TRUE;
-   
+
     unsigned char           key[16];
     unsigned char           alt_key[16];
     unsigned char           rx_mic[16];
@@ -866,20 +865,20 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     guint8                  cmd;
     guint8                  tlv_type, tlv_len;
     proto_tree              *tlv_tree;
-   
+
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "MLE");
     col_clear(pinfo->cinfo,   COL_INFO);
 
     ieee_hints = (ieee802154_hints_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_get_id_by_filter_name(IEEE802154_PROTOABBREV_WPAN), 0);
     original_packet = (ieee802154_packet *)ieee_hints->packet;
-     
+
     /* Copy IEEE 802.15.4 Source Address */
     packet->src_addr_mode = original_packet->src_addr_mode;
     if (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) {
         packet->src64 = original_packet->src64;
     } else {
         packet->src16 = original_packet->src16;
-    }    
+    }
 
     /* Create the protocol tree. */
     proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_reported_length(tvb), "Mesh Link Exchange");
@@ -902,8 +901,8 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Security material present if security suite = 0 */
     if (security_suite == 0) {
         security_control = tvb_get_guint8(tvb, offset);
-        packet->security_level = (security_control & IEEE802154_AUX_SEC_LEVEL_MASK);
-        packet->key_id_mode = (security_control & IEEE802154_AUX_KEY_ID_MODE_MASK) >> IEEE802154_AUX_KEY_ID_MODE_SHIFT;
+        packet->security_level = (ieee802154_security_level)(security_control & IEEE802154_AUX_SEC_LEVEL_MASK);
+        packet->key_id_mode = (ieee802154_key_id_mode)((security_control & IEEE802154_AUX_KEY_ID_MODE_MASK) >> IEEE802154_AUX_KEY_ID_MODE_SHIFT);
 
         aux_length += 5; /* Security control + frame counter */
 
@@ -922,7 +921,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_uint(field_tree, hf_mle_aux_sec_reserved, tvb, offset, 1, security_control & IEEE802154_AUX_KEY_RESERVED_MASK);
         offset++;
     } else {
-        packet->security_level = 0;
+        packet->security_level = (ieee802154_security_level)0;
     }
 
     /* Add additional fields for security level > 0 */
@@ -935,11 +934,11 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         /* Key identifier field(s). */
         if (packet->key_id_mode != KEY_ID_MODE_IMPLICIT) {
-            
+
             /* Create a subtree. */
             ti = proto_tree_add_item(header_tree, hf_mle_aux_sec_key_id, tvb, offset, 1, FALSE);
             field_tree = proto_item_add_subtree(ti, ett_mle_aux_sec_key_id);
-            
+
             /* Add key source, if it exists. */
             if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
                 packet->key_source.addr32 = tvb_get_ntohl(tvb, offset);
@@ -947,19 +946,19 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_item_set_len(ti, 1 + 4);
                 offset += 4;
             }
-        
+
             if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_8) {
                 packet->key_source.addr64 = tvb_get_ntoh64(tvb, offset);
                 proto_tree_add_item(field_tree, hf_mle_aux_sec_key_source, tvb, offset, 8, FALSE);
                 proto_item_set_len(ti, 1 + 8);
                 offset += 8;
             }
-            
+
             /* Add key identifier. */
             packet->key_index = tvb_get_guint8(tvb, offset);
             proto_tree_add_uint(field_tree, hf_mle_aux_sec_key_index, tvb, offset, 1, packet->key_index);
             offset++;
-        }  
+        }
         /* Pass to decryption process */
 
         /* Lookup the key */
@@ -979,10 +978,10 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* MIC */
     mic_item = NULL;
-    if (rx_mic_len) {
+    if (rx_mic_len && header_tree) {
         mic_item = proto_tree_add_bytes(header_tree, hf_mle_mic, tvb, 0, rx_mic_len, rx_mic);
         PROTO_ITEM_SET_GENERATED(mic_item);
-    }   
+    }
 
     /* Get the unencrypted data if decryption failed.  */
     if (!payload_tvb) {
@@ -1028,12 +1027,12 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          * probably didn't decrypt the packet right (eg: wrong key).
          */
         if (IEEE802154_IS_ENCRYPTED(packet->security_level)) {
-            mic_ok = FALSE;            
+            mic_ok = FALSE;
         }
         break;
     default:
         break;
-    }    
+    }
     /* This can cause a lot of problems so remove it by default */
 #ifdef INCLUDE_MIC_OK
     if (!mic_ok && mle_mic_ok) {
@@ -1047,44 +1046,44 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /***** NEW CODE HERE ****/
     /* If we're good, carry on and display the MLE payload */
-    offset = 0;    
-    
+    offset = 0;
+
     /* MLE Command */
-       proto_tree_add_item(mle_tree, hf_mle_command, payload_tvb, offset, 1, FALSE);  
-    
+       proto_tree_add_item(mle_tree, hf_mle_command, payload_tvb, offset, 1, FALSE);
+
     cmd = tvb_get_guint8(payload_tvb, offset);
     col_add_fstr(pinfo->cinfo, COL_INFO, "MLE %s%s", IEEE802154_IS_ENCRYPTED(packet->security_level) ? "Secured " : "", val_to_str(cmd, mle_command_vals, "Unknown (%x)"));
-    
+
     offset++;
-    
+
     /* MLE TLVs */
     while (tvb_offset_exists(payload_tvb, offset)) {
- 
+
         /* Get the length ahead of time to pass to next function so we can highlight
            proper amount of bytes */
         tlv_len = tvb_get_guint8(payload_tvb, offset+1);
- 
+
         ti = proto_tree_add_item(mle_tree, hf_mle_tlv, payload_tvb, offset, tlv_len+2, FALSE);
         tlv_tree = proto_item_add_subtree(ti, ett_mle_tlv);
-        
+
         /* Type */
         proto_tree_add_item(tlv_tree, hf_mle_tlv_type, payload_tvb, offset, 1, FALSE);
         tlv_type = tvb_get_guint8(payload_tvb, offset);
         offset++;
-    
+
         /* Add value name to value root label */
         proto_item_append_text(ti, " (%s", val_to_str(tlv_type, mle_tlv_vals, "Unknown (%d)"));
 
         /* Length */
-        proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, FALSE);        
-        offset++;    
-        
-        switch(tlv_type){        
+        proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, FALSE);
+        offset++;
+
+        switch(tlv_type){
             case MLE_TLV_SOURCE_ADDRESS:
-                {         
+                {
                     gboolean haveShortTLV = FALSE;
                     guint16 shortAddr;
-                
+
                     if (!((tlv_len == 2) || (tlv_len == 8))) {
                         /* TLV Length must be 2 or 8 */
                         expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
@@ -1095,8 +1094,8 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                             haveShortTLV = TRUE;
                             shortAddr = tvb_get_ntohs(payload_tvb, offset);
                         }
-                
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_source_addr, payload_tvb, offset, tlv_len, FALSE);                
+
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_source_addr, payload_tvb, offset, tlv_len, FALSE);
                         proto_item_append_text(ti, " = ");
                         while (tlv_len) {
                             guint8 addr;
@@ -1125,11 +1124,11 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     /* Get and display capability info. (blatantly plagiarised from packet-ieee802154.c */
 #ifdef THREAD_EXTENSIONS
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_nwk_data, payload_tvb, offset, 1, FALSE);
-#endif // !THREAD_EXTENSIONS                    
+#endif // !THREAD_EXTENSIONS
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_device_type, payload_tvb, offset, 1, FALSE);
 #ifdef THREAD_EXTENSIONS
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_sec_data_req, payload_tvb, offset, 1, FALSE);
-#endif // !THREAD_EXTENSIONS                    
+#endif // !THREAD_EXTENSIONS
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_idle_rx, payload_tvb, offset, 1, FALSE);
                 }
                 else {
@@ -1139,7 +1138,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
                 offset += tlv_len;
                 break;
-            
+
             case MLE_TLV_TIMEOUT:
                 if (tlv_len != 4) {
                     /* TLV Length must be 4 */
@@ -1151,7 +1150,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         guint16 data = 0;
                         guint8 len = 4; /* Fix it at 4 */
                         guint stroffset = offset;
-                        
+
                         while (len) {
                             data <<= 8;
                             data |= (guint16)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
@@ -1165,10 +1164,10 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_item_append_text(ti, ")");
                 offset += tlv_len;
                 break;
-                
+
             case MLE_TLV_CHALLENGE:
                 proto_item_append_text(ti, " = ");
-                proto_tree_add_item(tlv_tree, hf_mle_tlv_challenge, payload_tvb, offset, tlv_len, FALSE);                
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_challenge, payload_tvb, offset, tlv_len, FALSE);
                 while (tlv_len) {
                     guint8 addr;
                     addr = tvb_get_guint8(payload_tvb, offset);
@@ -1178,10 +1177,10 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
                 proto_item_append_text(ti, ")");
                 break;
-                
+
             case MLE_TLV_RESPONSE:
                 proto_item_append_text(ti, " = ");
-                proto_tree_add_item(tlv_tree, hf_mle_tlv_response, payload_tvb, offset, tlv_len, FALSE);                
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_response, payload_tvb, offset, tlv_len, FALSE);
                 while (tlv_len) {
                     guint8 addr;
                     addr = tvb_get_guint8(payload_tvb, offset);
@@ -1191,7 +1190,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
                 proto_item_append_text(ti, ")");
                 break;
-                
+
             case MLE_TLV_LINK_LAYER_FRAME_COUNTER:
             case MLE_TLV_MLE_FRAME_COUNTER:
                 if (tlv_len != 4) {
@@ -1204,7 +1203,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         guint32 data = 0;
                         guint8 len = 4; /* Fix it at 4 */
                         guint stroffset = offset;
-                        
+
                         while (len) {
                             data <<= 8;
                             data |= (guint32)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
@@ -1222,7 +1221,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_item_append_text(ti, ")");
                 offset += tlv_len;
                 break;
-                
+
             case MLE_TLV_LINK_QUALITY:
                 {
                     guint numNeighbors;
@@ -1231,14 +1230,14 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_lqi_c, payload_tvb, offset, 1, FALSE);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_lqi_size, payload_tvb, offset, 1, FALSE);
                     offset++;
-                
+
                     if ((tlv_len - 1) % (size + 3)) {
                         expert_add_info(pinfo, proto_root, &ei_mle_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                         numNeighbors = 0;
                     } else {
                         numNeighbors = (tlv_len - 1) / (size + 3);
-                    }                
+                    }
 
                     if (numNeighbors == 0) {
                         proto_item_append_text(ti, ")");
@@ -1247,29 +1246,29 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     } else {
                         proto_item_append_text(ti, ": %d Neighbors)", numNeighbors);
                     }
-                
+
                     /* Add subtrees */
-                
+
                     //Size is off by 1
                     size++;
-                
-                    while (numNeighbors) {               
+
+                    while (numNeighbors) {
                         ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_neighbor, payload_tvb, offset, size+2, FALSE);
                         neig_tree = proto_item_add_subtree(ti, ett_mle_neighbor);
-                    
+
                         proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_flagI, payload_tvb, offset, 1, FALSE);
                         proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_flagO, payload_tvb, offset, 1, FALSE);
                         proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_flagP, payload_tvb, offset, 1, FALSE);
                         offset++;
-                    
+
                         proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_idr, payload_tvb, offset, 1, FALSE);
                         offset++;
-                    
+
                         proto_tree_add_item(neig_tree, hf_mle_tlv_neighbor_addr, payload_tvb, offset,size, FALSE);
                         offset += size;
-                    
+
                         numNeighbors--;
-                    }                       
+                    }
                 }
                 break;
 
@@ -1278,12 +1277,12 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     guint8 param_id = tvb_get_guint8(payload_tvb, offset);
 
                     proto_item_append_text(ti, " = %s)", val_to_str(param_id, mle_tlv_nwk_param_vals, "Unknown (%d)"));
-        
+
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_network_param_id, payload_tvb, offset, 1, FALSE);
                     offset++;
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_network_delay, payload_tvb, offset, 4, FALSE);
                     offset += 4;
-                    
+
                     switch (param_id) {
                     case NETWORK_PARAM_ID_CHANNEL:
                         proto_tree_add_item(tlv_tree, hf_mle_tlv_network_channel, payload_tvb, offset, 2, FALSE);
@@ -1313,10 +1312,10 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             case MLE_TLV_ROUTING_TABLE:
                 {
                     proto_tree *rtr_tree;
-                    guint i, j;
-                    guint count;
+                    gint i, j;
+                    gint count;
                     guint64 id_mask, test_mask;
-                
+
                     proto_item_append_text(ti, ")");
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_id_seq, payload_tvb, offset, 1, FALSE);
                     offset++;
@@ -1332,7 +1331,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         }
                     }
 
-                    /* 
+                    /*
                      * | | | | | | | | | | |1|1|1|1|1|1|...|6|
                      * |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5|...|3|
                      * ---------------------------------------
@@ -1343,7 +1342,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                      */
                     /* Get the ID mask as a 64-bit number (BE) */
                     id_mask = tvb_get_ntoh64(payload_tvb, offset);
-                    
+
                     /* Just show the string of octets - best representation for a bit mask */
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_id_mask, payload_tvb, offset, 8, FALSE);
                     offset += 8;
@@ -1362,7 +1361,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                                     id_mask &= ~test_mask;
                                     break;
                                 }
-                            }                            
+                            }
                             ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_entry, payload_tvb, offset, 1, FALSE);
                             proto_item_append_text(ti, " (%d)", j);
                             rtr_tree = proto_item_add_subtree(ti, ett_mle_router);
@@ -1375,7 +1374,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     }
                 }
                 break;
-            
+
             case MLE_TLV_ADDRESS_16:
                 if (tlv_len != 2) {
                     /* TLV Length must be 2 */
@@ -1387,7 +1386,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     {
                         guint8 len = 2; /* Fix it at 2 */
                         guint stroffset = offset;
-                        
+
                         while (len) {
                             guint8 data;
                             data = tvb_get_guint8(payload_tvb, stroffset);
@@ -1407,7 +1406,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_item_append_text(ti, ")");
                 offset += tlv_len;
                 break;
-                
+
             case MLE_TLV_LEADER_DATA:
                 proto_item_append_text(ti, ")");
                 if (tlv_len != 8) {
@@ -1416,15 +1415,15 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                     offset += tlv_len;
                 } else {
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_partition_id, payload_tvb, offset, 4, FALSE);                
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_partition_id, payload_tvb, offset, 4, FALSE);
                     offset += 4;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_weighting, payload_tvb, offset, 1, FALSE);                
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_weighting, payload_tvb, offset, 1, FALSE);
                     offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_version, payload_tvb, offset, 1, FALSE);                
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_version, payload_tvb, offset, 1, FALSE);
                     offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_stable_version, payload_tvb, offset, 1, FALSE);                
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_stable_version, payload_tvb, offset, 1, FALSE);
                     offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_router_id, payload_tvb, offset, 1, FALSE);                
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_leader_data_router_id, payload_tvb, offset, 1, FALSE);
                     offset++;
                 }
                 break;
@@ -1440,14 +1439,14 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     offset += tlv_len;
                 }
                 break;
-                
+
             case MLE_TLV_TLV_REQUEST:
                 proto_item_append_text(ti, ")");
                 while (tlv_len) {
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_type, payload_tvb, offset, 1, FALSE);
                     offset++;
                     tlv_len--;
-                }                       
+                }
                 break;
 
             case MLE_TLV_SCAN_MASK:
@@ -1464,7 +1463,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_scan_mask_r, payload_tvb, offset, 1, FALSE);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_scan_mask_e, payload_tvb, offset, 1, FALSE);
                 }
-                offset += tlv_len;  
+                offset += tlv_len;
                 break;
 
             case MLE_TLV_CONNECTIVITY:
@@ -1472,7 +1471,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     /* TLV Length must be 7 */
                     expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
-                    offset += tlv_len;  
+                    offset += tlv_len;
                 } else {
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_max_child_cnt, payload_tvb, offset, 1, FALSE);
                     offset++;
@@ -1505,7 +1504,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_item_append_text(ti, " = %udB)", link_margin);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_link_margin, payload_tvb, offset, tlv_len, FALSE);
                 }
-                offset += tlv_len;  
+                offset += tlv_len;
                 break;
 
             case MLE_TLV_STATUS:
@@ -1515,15 +1514,15 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                 } else {
-                    guint8 status;
+                    guint8 stat;
 
-                    status = tvb_get_guint8(payload_tvb, offset);
-                    proto_item_append_text(ti, " = %d)", status);
+                    stat = tvb_get_guint8(payload_tvb, offset);
+                    proto_item_append_text(ti, " = %d)", stat);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_status, payload_tvb, offset, tlv_len, FALSE);
                 }
-                offset += tlv_len;  
+                offset += tlv_len;
                 break;
-                
+
             case MLE_TLV_VERSION:
                 if (tlv_len != 2) {
                     /* TLV Length must be 2 */
@@ -1537,20 +1536,20 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_item_append_text(ti, " = %d)", version);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_version, payload_tvb, offset, tlv_len, FALSE);
                 }
-                offset += tlv_len;  
+                offset += tlv_len;
                 break;
-                
+
             case MLE_TLV_ADDRESS_REGISTRATION:
                 {
                     guint8 iid_type, i;
                     guint8 entries = 0;
                     guint8 check_len = tlv_len;
                     guint8 check_offset = offset;
-                    
+
                     /* Check consistency of entries */
                     while (check_len > 0) {
                         guint8 len;
-                        
+
                         iid_type = tvb_get_guint8(payload_tvb, check_offset);
                         if (iid_type & ADDR_REG_MASK_IID_TYPE_MASK) {
                             len = 9;
@@ -1561,13 +1560,13 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         check_len -= len;
                         entries++;
                     }
-                
+
                     proto_item_append_text(ti, ")");
                     if (check_len != 0) {
                         /* Not an integer number of entries */
                         expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
                         proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
-                        offset += tlv_len;  
+                        offset += tlv_len;
                     } else {
                         for (i = 0; i < entries; i++) {
                             proto_tree *ar_tree;
@@ -1593,11 +1592,11 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
 #endif // THREAD_EXTENSIONS
 
-            default:                
+            default:
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
-                offset += tlv_len;           
-        }        
+                offset += tlv_len;
+        }
     }
 
     encryption_failed:
@@ -1608,7 +1607,7 @@ void
 proto_register_mle(void)
 {
   static hf_register_info hf[] = {
-    
+
     /* Auxiliary Security Header Fields */
     /*----------------------------------*/
     { &hf_mle_security_suite,
@@ -1619,7 +1618,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_security_control,
       { "Security Control",
         "wpan.aux_sec.sec_control",
@@ -1628,7 +1627,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_security_level,
       { "Security Level",
         "wpan.aux_sec.sec_level",
@@ -1700,7 +1699,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     { &hf_mle_mic,
       { "Decrypted MIC",
         "mle.mic",
@@ -1708,9 +1707,9 @@ proto_register_mle(void)
         "Decrypted MIC",
         HFILL
       }
-    },   
-        
-    /*MLE Command*/    
+    },
+
+    /*MLE Command*/
     { &hf_mle_command,
       { "Command",
         "mle.cmd",
@@ -1719,7 +1718,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     /* Generic TLV */
     { &hf_mle_tlv,
       { "TLV",
@@ -1729,7 +1728,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     { &hf_mle_tlv_type,
       { "Type",
         "mle.tlv.type",
@@ -1747,7 +1746,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     /* Type-Specific TLV Fields */
     { &hf_mle_tlv_source_addr,
       { "Address",
@@ -1756,7 +1755,7 @@ proto_register_mle(void)
         "Source address",
         HFILL
       }
-    },    
+    },
 
     /*  Capability Information Fields */
 #ifdef THREAD_EXTENSIONS
@@ -1806,8 +1805,8 @@ proto_register_mle(void)
         "Expected interval between transmissions in seconds",
         HFILL
       }
-    }, 
-        
+    },
+
     { &hf_mle_tlv_challenge,
       { "Challenge",
         "mle.tlv.challenge",
@@ -1816,7 +1815,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     { &hf_mle_tlv_response,
       { "Response",
         "mle.tlv.response",
@@ -1879,7 +1878,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-       
+
     { &hf_mle_tlv_neighbor_flagI,
       { "Incoming",
         "mle.tlv.neighbor.flagI",
@@ -1888,7 +1887,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-       
+
     { &hf_mle_tlv_neighbor_flagO,
       { "Outgoing",
         "mle.tlv.neighbor.flagO",
@@ -1897,7 +1896,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-       
+
     { &hf_mle_tlv_neighbor_flagP,
       { "Priority",
         "mle.tlv.neighbor.flagP",
@@ -1906,7 +1905,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-       
+
     { &hf_mle_tlv_neighbor_idr,
       { "Inverse Delivery Ratio",
         "mle.tlv.neighbor.idr",
@@ -1915,7 +1914,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-       
+
     { &hf_mle_tlv_neighbor_addr,
       { "Address",
         "mle.tlv.neighbor.addr",
@@ -1923,7 +1922,7 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
-    },          
+    },
 
     { &hf_mle_tlv_network_param_id,
       { "Parameter ID",
@@ -1933,7 +1932,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-       
+
     { &hf_mle_tlv_network_delay,
       { "Delay",
         "mle.tlv.network.delay",
@@ -1941,8 +1940,8 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
-    },          
-       
+    },
+
     { &hf_mle_tlv_network_channel,
       { "Channel",
         "mle.tlv.network.channel",
@@ -1950,8 +1949,8 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
-    },   
-       
+    },
+
     { &hf_mle_tlv_network_pan_id,
       { "PAN ID",
         "mle.tlv.network.pan_id",
@@ -1959,8 +1958,8 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
-    },          
-       
+    },
+
     { &hf_mle_tlv_network_pmt_join,
       { "Permit Join",
         "mle.tlv.network.pmt_join",
@@ -1968,8 +1967,8 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
-    },          
-       
+    },
+
     { &hf_mle_tlv_network_bcn_payload,
       { "Beacon Payload",
         "mle.tlv.network.bcn_payload",
@@ -1977,8 +1976,8 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
-    },          
-       
+    },
+
 #ifdef THREAD_EXTENSIONS
     { &hf_mle_tlv_route_tbl_id_seq,
       { "ID Sequence",
@@ -2006,7 +2005,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_route_tbl_nbr_out,
       { "Neighbor Out Link Quality",
         "mle.tlv.route_tbl.nbr_out",
@@ -2015,7 +2014,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_route_tbl_nbr_in,
       { "Neighbor In Link Quality",
         "mle.tlv.route_tbl.nbr_in",
@@ -2033,7 +2032,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_route_tbl_unknown,
       { "(unknown)",
         "mle.tlv.route_tbl.unknown",
@@ -2042,7 +2041,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_addr_16,
       { "Short Address",
         "mle.tlv.short_addr",
@@ -2050,8 +2049,8 @@ proto_register_mle(void)
         "Short address",
         HFILL
       }
-    }, 
-        
+    },
+
     { &hf_mle_tlv_leader_data_partition_id,
       { "Partition ID",
         "mle.tlv.leader_data.partition_id",
@@ -2060,7 +2059,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_leader_data_weighting,
       { "Weighting",
         "mle.tlv.leader_data.weighting",
@@ -2069,7 +2068,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_leader_data_version,
       { "Data Version",
         "mle.tlv.leader_data.data_version",
@@ -2078,7 +2077,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_leader_data_stable_version,
       { "Stable Data Version",
         "mle.tlv.leader_data.stable_data_version",
@@ -2087,7 +2086,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_leader_data_router_id,
       { "Leader Router ID",
         "mle.tlv.leader_data.router_id",
@@ -2096,7 +2095,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_network_data,
       { "Network Data",
         "mle.tlv.network_data",
@@ -2132,7 +2131,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_conn_child_cnt,
       { "Child Count",
         "mle.tlv.conn.child_cnt",
@@ -2195,7 +2194,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     { &hf_mle_tlv_status,
       { "Status",
         "mle.tlv.status",
@@ -2204,7 +2203,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
     { &hf_mle_tlv_version,
       { "Version",
         "mle.tlv.version",
@@ -2213,7 +2212,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-        
+
     { &hf_mle_tlv_addr_reg_entry,
       { "Address Registration Entry",
         "mle.tlv.addr_reg",
@@ -2230,7 +2229,7 @@ proto_register_mle(void)
         "Context ID",
         HFILL
       }
-    },    
+    },
 
     { &hf_mle_tlv_addr_reg_cid,
       { "Context ID",
@@ -2239,7 +2238,7 @@ proto_register_mle(void)
         "Context ID",
         HFILL
       }
-    },    
+    },
 
     { &hf_mle_tlv_addr_reg_iid,
       { "IID",
@@ -2248,7 +2247,7 @@ proto_register_mle(void)
         "IID",
         HFILL
       }
-    },    
+    },
 
     { &hf_mle_tlv_addr_reg_ipv6,
       { "IPv6 Address",
@@ -2257,7 +2256,7 @@ proto_register_mle(void)
         "IID",
         HFILL
       }
-    },    
+    },
 
     { &hf_mle_tlv_hold_time,
       { "Hold Time",
@@ -2276,7 +2275,7 @@ proto_register_mle(void)
         HFILL
       }
     },
-    
+
 #else // !THREAD_EXTENSIONS
     { &hf_mle_tlv_network_unknown,
       { "(unknown)",
@@ -2288,7 +2287,7 @@ proto_register_mle(void)
     }
 #endif // !THREAD_EXTENSIONS
   };
-  
+
   static gint *ett[] = {
     &ett_mle,
     &ett_mle_auxiliary_security,
@@ -2336,12 +2335,12 @@ proto_register_mle(void)
                   "Port numbers used for MLE traffic "
                   "(default " UDP_PORT_MLE_RANGE ")",
                   &global_mle_port_range, MAX_UDP_PORT);
-  
+
   /* Register preferences for a decryption key */
   /* TODO: Implement a UAT for multiple keys, and with more advanced key management. */
 
 #ifdef INDEPENDENT_MLE_KEYS
-  
+
 #if (NUM_KEYS == 2)
   prefs_register_string_preference(mle_module, "meshlink_key_1", "Decryption key 1",
       "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str[0]);
@@ -2429,7 +2428,7 @@ proto_reg_handoff_mle(void)
 #ifdef INDEPENDENT_MLE_KEYS
   for (i = 0; i < NUM_KEYS; i++)
   {
-  
+
     /* Get the IEEE 802.15.4 decryption key. */
     bytes = g_byte_array_new();
     res = hex_str_to_bytes(mle_key_str[i], bytes, FALSE);
@@ -2456,7 +2455,7 @@ proto_reg_handoff_mle(void)
           g_byte_array_free(seq_ctr_bytes, TRUE);
           memcpy(&buffer[4], "Thread", 6); /* len("Thread") */
           gcry_md_write(md_hd, buffer, 10);
-#endif                    
+#endif
           data_computed_md = gcry_md_read(md_hd, GCRY_MD_SHA256);
           if (data_computed_md != 0) {
             /* Copy lower hashed bytes to the key */
