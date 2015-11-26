@@ -49,7 +49,6 @@ static int hf_thread_diagnostic_tlv = -1;
 static int hf_thread_diagnostic_tlv_type = -1;
 static int hf_thread_diagnostic_tlv_length = -1;
 static int hf_thread_diagnostic_tlv_unknown = -1;
-static int hf_thread_diagnostic_tlv_sub_tlvs = -1;
 
 static gint ett_thread_diagnostic = -1;
 static gint ett_thread_diagnostic_tlv = -1;
@@ -75,6 +74,8 @@ dissect_thread_diagnostic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_item  *ti;
     guint8      tlv_type, tlv_len;
    
+    pinfo = pinfo; /* Prevent error */
+
     /* Create the protocol tree. */
     if (tree) {
         proto_root = proto_tree_add_protocol_format(tree, proto_thread_diagnostic, tvb, 0, tvb_reported_length(tvb), "Thread Diagnostic");
