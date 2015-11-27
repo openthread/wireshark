@@ -1340,6 +1340,12 @@ set(DISSECTOR_SRC
 	dissectors/packet-text-media.c
 	dissectors/packet-tfp.c
 	dissectors/packet-tftp.c
+	dissectors/packet-thread-address.c
+	dissectors/packet-thread-coap.c
+	dissectors/packet-thread-diagnostic.c
+	dissectors/packet-thread-meshcop.c
+	dissectors/packet-thread-nwd.c
+	dissectors/packet-thread-nwd.c
 	dissectors/packet-thrift.c
 	dissectors/packet-time.c
 	dissectors/packet-tipc.c
