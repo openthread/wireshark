@@ -487,7 +487,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         *status = DECRYPT_PACKET_TOO_SMALL;
         return NULL;
     }
-    /* Check of the payload is truncated.  */
+    /* Check if the payload is truncated.  */
     if (tvb_bytes_exist(tvb, offset, reported_len)) {
         captured_len = reported_len;
     }
@@ -534,7 +534,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
          * We will decrypt the message in-place and then use the buffer as the
          * real data for the new tvb.
          */
-        text = (gchar*)tvb_memdup(wmem_packet_scope(), tvb, offset, captured_len);
+        text = (gchar *)tvb_memdup(wmem_packet_scope(), tvb, offset, captured_len);
 
         /* Perform CTR-mode transformation. Try both the likely key and the alternate key */
         if (!ccm_ctr_encrypt(key, tmp, rx_mic, text, captured_len)) {
@@ -544,7 +544,7 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
         }
 
         /* Create a tvbuff for the plaintext. */
-        ptext_tvb = tvb_new_real_data(text, captured_len, reported_len);
+        ptext_tvb = tvb_new_real_data((const guint8 *)text, captured_len, reported_len);
         tvb_set_child_real_data_tvbuff(tvb, ptext_tvb);
         add_new_data_source(pinfo, ptext_tvb, "Decrypted MLE payload");
         *status = DECRYPT_PACKET_SUCCEEDED;
@@ -839,7 +839,7 @@ ccm_cbc_mac(const gchar *key _U_, const gchar *iv _U_, const gchar *a _U_, gint 
 static void
 dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
-    tvbuff_t                *volatile payload_tvb;
+    tvbuff_t                *volatile payload_tvb = NULL;
     proto_tree              *volatile mle_tree = NULL;
     proto_item              *volatile proto_root = NULL;
 
@@ -847,7 +847,8 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     guint                   aux_header_offset = 0;
     ws_decrypt_status       status;
 
-    proto_item              *ti, *mic_item;
+    proto_item              *ti;
+    proto_item              *mic_item = NULL;
     proto_tree              *header_tree = NULL, *field_tree = NULL;
     guint8                  security_suite;
     guint8                  security_control;
@@ -921,11 +922,11 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_uint(field_tree, hf_mle_aux_sec_reserved, tvb, offset, 1, security_control & IEEE802154_AUX_KEY_RESERVED_MASK);
         offset++;
     } else {
-        packet->security_level = (ieee802154_security_level)0;
+        packet->security_level = SECURITY_LEVEL_NONE;
     }
 
-    /* Add additional fields for security level > 0 */
-    if (packet->security_level > 0) {
+    /* Add additional fields for security level > SECURITY_LEVEL_NONE */
+    if (packet->security_level > SECURITY_LEVEL_NONE) {
 
         /* Frame Counter Field */
         packet->frame_counter = tvb_get_letohl (tvb, offset); /* Note - frame counter is sent little endian according to 802.15.4 rules */
@@ -965,22 +966,23 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if (!mle_set_mle_key(packet, key, alt_key)) {
             goto encryption_failed;
         }
-    }
 
-    /* TODO - shouldn't have to do this if security level == 0 really */
-    memset(rx_mic, 0, 16);
-    payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, key);
-    if (status != DECRYPT_PACKET_SUCCEEDED) {
-        /* Try with the alternate key */
         memset(rx_mic, 0, 16);
-        payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, alt_key);
-    }
+        payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, key);
+        if (status != DECRYPT_PACKET_SUCCEEDED) {
+            /* Try with the alternate key */
+            memset(rx_mic, 0, 16);
+            payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, alt_key);
+        }
 
-    /* MIC */
-    mic_item = NULL;
-    if (rx_mic_len && header_tree) {
-        mic_item = proto_tree_add_bytes(header_tree, hf_mle_mic, tvb, 0, rx_mic_len, rx_mic);
-        PROTO_ITEM_SET_GENERATED(mic_item);
+        /* MIC */
+        mic_item = NULL;
+        if (rx_mic_len && header_tree) {
+            mic_item = proto_tree_add_bytes(header_tree, hf_mle_mic, tvb, 0, rx_mic_len, rx_mic);
+            PROTO_ITEM_SET_GENERATED(mic_item);
+        }
+    } else {
+        status = DECRYPT_NOT_ENCRYPTED;
     }
 
     /* Get the unencrypted data if decryption failed.  */
@@ -1049,7 +1051,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset = 0;
 
     /* MLE Command */
-       proto_tree_add_item(mle_tree, hf_mle_command, payload_tvb, offset, 1, FALSE);
+    proto_tree_add_item(mle_tree, hf_mle_command, payload_tvb, offset, 1, FALSE);
 
     cmd = tvb_get_guint8(payload_tvb, offset);
     col_add_fstr(pinfo->cinfo, COL_INFO, "MLE %s%s", IEEE802154_IS_ENCRYPTED(packet->security_level) ? "Secured " : "", val_to_str(cmd, mle_command_vals, "Unknown (%x)"));
@@ -1312,8 +1314,8 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             case MLE_TLV_ROUTING_TABLE:
                 {
                     proto_tree *rtr_tree;
-                    gint i, j;
-                    gint count;
+                    guint i, j;
+                    guint8 count;
                     guint64 id_mask, test_mask;
 
                     proto_item_append_text(ti, ")");
