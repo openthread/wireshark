@@ -1345,7 +1345,6 @@ set(DISSECTOR_SRC
 	dissectors/packet-thread-diagnostic.c
 	dissectors/packet-thread-meshcop.c
 	dissectors/packet-thread-nwd.c
-	dissectors/packet-thread-nwd.c
 	dissectors/packet-thrift.c
 	dissectors/packet-time.c
 	dissectors/packet-tipc.c
