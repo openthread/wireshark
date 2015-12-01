@@ -43,8 +43,6 @@
 void proto_register_thread_nwd(void);
 void proto_reg_handoff_thread_nwd(void);
 
-static gboolean thread_nwd_is_octet_stream = FALSE;
-
 static int proto_thread_nwd = -1;
 
 static int hf_thread_nwd_tlv = -1;
@@ -165,7 +163,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tvbuff_t    *sub_tvb;
     guint       offset, tlv_offset;
     proto_item  *ti;
-    guint8      tlv_type, tlv_stable, tlv_len;
+    guint8      tlv_type, tlv_len;
    
     /* Create the protocol tree. */
     if (tree) {
@@ -191,7 +189,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         /* Stable */
         proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_stable, tvb, offset, 1, FALSE);
-        tlv_stable = tvb_get_guint8(tvb, offset) & 1;
         offset++;
     
         /* Add value name to value root label */
@@ -233,7 +230,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
             case THREAD_NWD_TLV_PREFIX:
                 {
-                    guint8 domain_id;
                     guint8 prefix_len;
                     guint8 prefix_byte_len;
                     struct e_in6_addr prefix;
@@ -244,7 +240,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         
                     /* Domain ID */
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_prefix_domain_id, tvb, offset, 1, ENC_BIG_ENDIAN);
-                    domain_id = tvb_get_guint8(tvb, offset);
                     offset++;
                     tlv_offset++;
 
@@ -316,12 +311,8 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             case THREAD_NWD_TLV_6LOWPAN_ID:
                 {
                     /* 6lowpan-ND */
-                    guint8 context_id;
-                    guint8 context_len;
-
                     proto_item_append_text(ti, ")");
                     /*  Flags & CID */
-                    context_id = tvb_get_guint8(tvb, offset) & ND_OPT_6CO_FLAG_CID;
                     ti = proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_6lowpan_id_6co_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
                     flag_tree = proto_item_add_subtree(ti, ett_thread_nwd_6co_flag);
                     proto_tree_add_item(flag_tree, hf_thread_nwd_tlv_6lowpan_id_6co_flag_reserved, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -331,7 +322,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
                     /* Context Length */
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_6lowpan_id_6co_context_length, tvb, offset, 1, ENC_BIG_ENDIAN);
-                    context_len = tvb_get_guint8(tvb, offset);
                     offset++;
                 }
                 break;
