@@ -30,6 +30,7 @@
 
 #include <glib.h>
 #include <stdlib.h>
+#include <math.h>
 #include <epan/packet.h>
 #include <epan/conversation.h>
 #include <epan/wmem/wmem.h>
@@ -44,6 +45,8 @@ void proto_register_thread_meshcop(void);
 void proto_reg_handoff_thread_meshcop(void);
 
 #define THREAD_MESHCOP_TLV_LENGTH_ESC  0xFF
+#define THREAD_32768_TO_NSEC_FACTOR ((double)30517.578125)
+#define TSTAMP_MASK_U_MASK 0x80
 
 static int proto_thread_meshcop = -1;
 
@@ -55,6 +58,7 @@ static int hf_thread_meshcop_tlv_unknown = -1;
 static int hf_thread_meshcop_tlv_sub_tlvs = -1;
 
 /* Channel TLV fields */
+static int hf_thread_meshcop_tlv_channel_page = -1;
 static int hf_thread_meshcop_tlv_channel = -1;
 
 /* PAN ID TLV fields */
@@ -65,6 +69,14 @@ static int hf_thread_meshcop_tlv_x_pan_id = -1;
 
 /* State TLV fields */
 static int hf_thread_meshcop_tlv_state = -1;
+
+/* Timestamp TLV fields */
+static int hf_thread_meshcop_tlv_active_tstamp = -1;
+static int hf_thread_meshcop_tlv_pending_tstamp = -1;
+static int hf_thread_meshcop_tlv_tstamp_u = -1;
+
+/* Delay Timer TLV fields */
+static int hf_thread_meshcop_tlv_delay_timer = -1;
 
 /* UDP Port fields */
 static int hf_thread_meshcop_tlv_udp_port = -1;
@@ -84,7 +96,7 @@ static expert_field ei_thread_meshcop_len_size_mismatch = EI_INIT;
 static dissector_handle_t thread_meshcop_handle;
 static dissector_handle_t thread_dtls_handle;
 
-#define THREAD_MESHCOP_TLV_CHANNEL                      0
+#define THREAD_MESHCOP_TLV_CHANNEL                      0 /* Modified for new features */
 #define THREAD_MESHCOP_TLV_PANID                        1
 #define THREAD_MESHCOP_TLV_XPANID                       2
 #define THREAD_MESHCOP_TLV_NETWORK_NAME                 3
@@ -98,7 +110,7 @@ static dissector_handle_t thread_dtls_handle;
 #define THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID      11
 #define THREAD_MESHCOP_TLV_SECURITY_POLICY              12
 #define THREAD_MESHCOP_TLV_GET                          13
-#define THREAD_MESHCOP_TLV_COMMISSIONING_DATA_TSTAMP    14
+#define THREAD_MESHCOP_TLV_ACTIVE_TSTAMP                14 /* Modified for new features */
 /* Gap */
 #define THREAD_MESHCOP_TLV_STATE                        16
 #define THREAD_MESHCOP_TLV_JOINER_DTLS_ENCAP            17
@@ -116,6 +128,15 @@ static dissector_handle_t thread_dtls_handle;
 /* Gap */
 #define THREAD_MESHCOP_TLV_UDP_ENCAPSULATION            48
 #define THREAD_MESHCOP_TLV_IPV6_ADDRESS                 49
+/* Gap */
+/* New features */
+#define THREAD_MESHCOP_TLV_PENDING_TSTAMP               51
+#define THREAD_MESHCOP_TLV_DELAY_TIMER                  52
+#define THREAD_MESHCOP_TLV_CHANNEL_MASK                 53
+#define THREAD_MESHCOP_TLV_COUNT                        54
+#define THREAD_MESHCOP_TLV_PERIOD                       55
+#define THREAD_MESHCOP_TLV_SCAN_DURATION                56
+#define THREAD_MESHCOP_TLV_ENERGY_LIST                  57
 
 static const value_string thread_meshcop_tlv_vals[] = {
 { THREAD_MESHCOP_TLV_CHANNEL,                   "Channel" },
@@ -132,7 +153,7 @@ static const value_string thread_meshcop_tlv_vals[] = {
 { THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID,   "Commissioner Session ID" },
 { THREAD_MESHCOP_TLV_SECURITY_POLICY,           "Security Policy" },
 { THREAD_MESHCOP_TLV_GET,                       "Get" },
-{ THREAD_MESHCOP_TLV_COMMISSIONING_DATA_TSTAMP, "Commissioning Data Timestamp" },
+{ THREAD_MESHCOP_TLV_ACTIVE_TSTAMP,             "Active Timestamp" },
 { THREAD_MESHCOP_TLV_STATE,                     "State" },
 { THREAD_MESHCOP_TLV_JOINER_DTLS_ENCAP,         "Joiner DTLS Encapsulation" },
 { THREAD_MESHCOP_TLV_JOINER_UDP_PORT,           "Joiner UDP Port" },
@@ -146,7 +167,15 @@ static const value_string thread_meshcop_tlv_vals[] = {
 { THREAD_MESHCOP_TLV_VENDOR_DATA,               "Vendor Data" },
 { THREAD_MESHCOP_TLV_VENDOR_STACK_VERSION,      "Vendor Stack Version" },
 { THREAD_MESHCOP_TLV_UDP_ENCAPSULATION,         "UDP Encapsulation" },
-{ THREAD_MESHCOP_TLV_IPV6_ADDRESS,              "IPv6 Address" }
+{ THREAD_MESHCOP_TLV_IPV6_ADDRESS,              "IPv6 Address" },
+/* New features */
+{ THREAD_MESHCOP_TLV_PENDING_TSTAMP,            "Pending Timestamp" },
+{ THREAD_MESHCOP_TLV_DELAY_TIMER,               "Delay Timer" },
+{ THREAD_MESHCOP_TLV_CHANNEL_MASK,              "Channel Mask" },
+{ THREAD_MESHCOP_TLV_COUNT,                     "Count" },
+{ THREAD_MESHCOP_TLV_PERIOD,                    "Period" },
+{ THREAD_MESHCOP_TLV_SCAN_DURATION,             "Scan Duration" },
+{ THREAD_MESHCOP_TLV_ENERGY_LIST,               "Energy List" }
 };
 
 typedef enum {
@@ -165,6 +194,8 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     guint8      tlv_type;
     guint16     tlv_len;
     mc_length_e tlv_mc_len;
+    nstime_t    timestamp;
+
    
     /* Create the protocol tree. */
     if (tree) {
@@ -222,10 +253,12 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
-                    if (tlv_len != 1) {
+                    if (tlv_len != 3) {
                         expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
+                        /* Channel page */
+                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_channel_page, tvb, offset, tlv_len, FALSE);
                         /* Channel */
                         proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_channel, tvb, offset, tlv_len, FALSE);
                     }
@@ -341,6 +374,42 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
                 break;
                 
+            case THREAD_MESHCOP_TLV_ACTIVE_TSTAMP:
+            case THREAD_MESHCOP_TLV_PENDING_TSTAMP:
+                {
+                    proto_item_append_text(ti, ")");
+                    
+                    if (tlv_len != 8) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* Fill in the nstime_t structure */
+                        timestamp.secs = (time_t)tvb_get_ntoh48(tvb, offset);
+                        timestamp.nsecs = (int)lround((double)(tvb_get_ntohs(tvb, offset + 6) >> 1) * THREAD_32768_TO_NSEC_FACTOR);
+                        if (tlv_type == THREAD_MESHCOP_TLV_ACTIVE_TSTAMP) {
+                            proto_tree_add_time(tree, hf_thread_meshcop_tlv_active_tstamp, tvb, offset, 8, &timestamp);
+                        } else {
+                            proto_tree_add_time(tree, hf_thread_meshcop_tlv_pending_tstamp, tvb, offset, 8, &timestamp);
+                        }
+                    }
+                    offset += tlv_len;
+                }
+                break;
+
+            case THREAD_MESHCOP_TLV_DELAY_TIMER:
+                {
+                    proto_item_append_text(ti, ")");
+                    
+                    if (tlv_len != 4) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_delay_timer, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+
             case THREAD_MESHCOP_TLV_NETWORK_NAME:
             case THREAD_MESHCOP_TLV_COMMISSIONING_CREDENTIAL:
             case THREAD_MESHCOP_TLV_NETWORK_MASTER_KEY:
@@ -352,7 +421,6 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             case THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID:
             case THREAD_MESHCOP_TLV_SECURITY_POLICY:
             case THREAD_MESHCOP_TLV_GET:
-            case THREAD_MESHCOP_TLV_COMMISSIONING_DATA_TSTAMP:
             case THREAD_MESHCOP_TLV_JOINER_KEK:
             case THREAD_MESHCOP_TLV_PROVISIONING_URL:
             case THREAD_MESHCOP_TLV_VENDOR_NAME:
@@ -431,10 +499,19 @@ proto_register_thread_meshcop(void)
     },
     
     /* Type-Specific TLV Fields */
+    { &hf_thread_meshcop_tlv_channel_page,
+      { "Channel Page",
+        "thread_meshcop.tlv.channel_page",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
     { &hf_thread_meshcop_tlv_channel,
       { "Channel",
         "thread_meshcop.tlv.channel",
-        FT_UINT8, BASE_DEC, NULL, 0x0,
+        FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
@@ -462,6 +539,42 @@ proto_register_thread_meshcop(void)
       { "State",
         "thread_meshcop.tlv.state",
         FT_INT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_meshcop_tlv_active_tstamp,
+      { "Active Timestamp",
+        "thread_meshcop.tlv.active_tstamp",
+        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_meshcop_tlv_pending_tstamp,
+      { "Pending Timestamp",
+        "thread_meshcop.tlv.pending_tstamp",
+        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_meshcop_tlv_tstamp_u,
+      { "Authoritative Source",
+        "thread_meshcop.tlv.tstamp_u",
+        FT_BOOLEAN, 8, NULL, TSTAMP_MASK_U_MASK,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_meshcop_tlv_delay_timer,
+      { "Delay Timer",
+        "thread_meshcop.tlv.delay_timer",
+        FT_UINT32, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }

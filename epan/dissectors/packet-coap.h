@@ -31,6 +31,7 @@
 #ifndef __PACKET_COAP_H__
 #define __PACKET_COAP_H__
 
+/* CoAP Message information */
 typedef struct {
     const gchar *ctype_str;
     guint ctype_value;
@@ -39,6 +40,18 @@ typedef struct {
     wmem_strbuf_t *uri_str_strbuf;	/* the maximum is 1024 > 510 = Uri-Host:255 + Uri-Path:255 x 2 */
     wmem_strbuf_t *uri_query_strbuf;	/* the maximum is 1024 >         765 = Uri-Query:255 x 3 */
 } coap_info;
+
+/* CoAP Conversation information */
+typedef struct {
+    wmem_map_t *messages;
+} coap_conv_info;
+
+/* CoAP Transaction tracking information */
+typedef struct {
+    guint32  req_frame;
+    guint32  rsp_frame;
+    wmem_strbuf_t *uri_str_strbuf;
+} coap_transaction;
 
 #endif /* __PACKET_COAP_H__ */
 
