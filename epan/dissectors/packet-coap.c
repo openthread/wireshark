@@ -251,6 +251,27 @@ static const char *nullstr = "(null)";
 
 void proto_reg_handoff_coap(void);
 
+static conversation_t *
+find_or_create_conversation_noaddrb(packet_info *pinfo)
+{
+	conversation_t *conv=NULL;
+
+	/* Have we seen this conversation before? */
+	if((conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+				     pinfo->ptype, pinfo->srcport,
+				     pinfo->destport, NO_ADDR_B|NO_PORT_B)) != NULL) {
+		if (pinfo->fd->num > conv->last_frame) {
+			conv->last_frame = pinfo->fd->num;
+		}
+	} else {
+		/* No, this is a new conversation. */
+		conv = conversation_new(pinfo->fd->num, &pinfo->src,
+					&pinfo->dst, pinfo->ptype,
+					pinfo->srcport, pinfo->destport, NO_ADDR_B|NO_PORT_B);
+	}
+	return conv;
+}
+
 static gint
 coap_get_opt_uint(tvbuff_t *tvb, gint offset, gint length)
 {
@@ -814,8 +835,8 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	 * Currently, the length is just copied from the reported length of the tvbuffer.
 	 */
 	coap_length = tvb_reported_length(tvb);
-	coinfo->ctype_str = "";
-	coinfo->ctype_value = DEFAULT_COAP_CTYPE_VALUE;
+    coinfo->ctype_str = "";
+    coinfo->ctype_value = DEFAULT_COAP_CTYPE_VALUE;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "CoAP");
 	col_clear(pinfo->cinfo, COL_INFO);
@@ -856,10 +877,11 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	offset += 2;
 
 	/* initialize the external value */
-	coinfo->block_number = DEFAULT_COAP_BLOCK_NUMBER;
-	coinfo->block_mflag  = 0;
-	coinfo->uri_str_strbuf   = wmem_strbuf_sized_new(wmem_packet_scope(), 0, 1024);
-	coinfo->uri_query_strbuf = wmem_strbuf_sized_new(wmem_packet_scope(), 0, 1024);
+    coinfo->block_number = DEFAULT_COAP_BLOCK_NUMBER;
+    coinfo->block_mflag  = 0;
+    coinfo->uri_str_strbuf   = wmem_strbuf_sized_new(wmem_packet_scope(), 0, 1024);
+    coinfo->uri_query_strbuf = wmem_strbuf_sized_new(wmem_packet_scope(), 0, 1024);
+    
 	coap_token_str = NULL;
 	if (token_len > 0) {
 		//coap_token_str = tvb_bytes_to_str_punct(wmem_packet_scope(), tvb, offset, token_len, ' ');
@@ -875,7 +897,7 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 		return;
 
     /* Use conversations to track state for request/response */
-    conversation = find_or_create_conversation(pinfo);
+    conversation = find_or_create_conversation_noaddrb(pinfo);
 
     /* Retrieve or create state structure for this conversation */
     ccinfo = (coap_conv_info *)conversation_get_proto_data(conversation, proto_coap);
@@ -889,44 +911,44 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
     /* Everything based on tokens */
     if (coap_token_str) {
         /* Process request/response in conversation */
-        code_class = code >> 5;
-        if (!PINFO_FD_VISITED(pinfo)) {
-            if (code == 0) {
-                /* Empty - do nothing */
-            } else if (code_class == 0) {
-                /* Request - log it */
-                coap_trans = wmem_new(wmem_file_scope(), coap_transaction);
-                coap_trans->req_frame = PINFO_FD_NUM(pinfo);
-                coap_trans->rsp_frame = 0;
-                if (coinfo->uri_str_strbuf) {
-                    /* Store the URI into CoAP transaction info */
-                    coap_trans->uri_str_strbuf = wmem_strbuf_new(wmem_file_scope(), wmem_strbuf_get_str(coinfo->uri_str_strbuf));
+        if (code == 1) {
+            int i;
+            /* Trap for breakpoint - looking for GET */
+            i = 0xFEED;
+        }
+        if (code != 0) { /* Ignore empty messages */
+            /* Try and look up a matching token. If it's the first
+             * sight of a request, there shouldn't be one */
+            code_class = code >> 5;
+            coap_trans = (coap_transaction *)wmem_map_lookup(ccinfo->messages, coap_token_str);
+            if (!coap_trans) {
+                if ((!PINFO_FD_VISITED(pinfo)) && (code_class == 0)) {
+                    /* New request - log it */
+                    coap_trans = wmem_new(wmem_file_scope(), coap_transaction);
+                    coap_trans->req_frame = PINFO_FD_NUM(pinfo);
+                    coap_trans->rsp_frame = 0;
+                    if (coinfo->uri_str_strbuf) {
+                        /* Store the URI into CoAP transaction info */
+                        coap_trans->uri_str_strbuf = wmem_strbuf_new(wmem_file_scope(), wmem_strbuf_get_str(coinfo->uri_str_strbuf));
+                    }
+                    wmem_map_insert(ccinfo->messages, coap_token_str, (void *)coap_trans);
                 }
-                wmem_map_insert(ccinfo->messages, coap_token_str, (void *)coap_trans);
-            } else if ((code_class >= 2) && (code_class <= 5)) {
-                /* Response - lookup the request, add the response */
-                coap_trans = (coap_transaction *)wmem_map_lookup(ccinfo->messages, coap_token_str);
-                if (coap_trans){
-                    coap_trans->rsp_frame = PINFO_FD_NUM(pinfo);
+            } else {
+                if ((code_class >= 2) && (code_class <= 5)) {
+                    if (!PINFO_FD_VISITED(pinfo)) {
+                        /* Log the first matching response frame */
+                        coap_trans->rsp_frame = PINFO_FD_NUM(pinfo);
+                    }
                     if (coap_trans->uri_str_strbuf) {
                         /* Copy the URI stored in matching transaction info into CoAP packet info */
                         coinfo->uri_str_strbuf = wmem_strbuf_new(wmem_packet_scope(), wmem_strbuf_get_str(coap_trans->uri_str_strbuf));
                     }
                 }
             }
-        } else {
-            if ((code_class >= 2) && (code_class <= 5)) {
-                coap_trans = (coap_transaction *)wmem_map_lookup(ccinfo->messages, coap_token_str);
-                /* Not quite sure why we need to do this again? Because it's wmem_packet_scope?? */
-                if (coap_trans->uri_str_strbuf) {
-                    /* Copy the URI stored in matching transaction info into CoAP packet info */
-                    coinfo->uri_str_strbuf = wmem_strbuf_new(wmem_packet_scope(), wmem_strbuf_get_str(coap_trans->uri_str_strbuf));
-                }
-            }
         }
     }
-
-	/* add informations to the packet list */
+    
+ 	/* add informations to the packet list */
 	if (coap_token_str != NULL)
 		col_append_fstr(pinfo->cinfo, COL_INFO, ", TKN:%s", coap_token_str);
 	if (coinfo->block_number != DEFAULT_COAP_BLOCK_NUMBER)
