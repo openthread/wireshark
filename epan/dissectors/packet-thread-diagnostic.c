@@ -74,7 +74,7 @@ dissect_thread_diagnostic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_item  *ti;
     guint8      tlv_type, tlv_len;
    
-    pinfo = pinfo; /* Prevent error */
+    (void)pinfo; /* Prevent warning/error */
 
     /* Create the protocol tree. */
     if (tree) {
