@@ -36,146 +36,236 @@
 #include <epan/wmem/wmem.h>
 #include <epan/expert.h>
 #include <epan/range.h>
+#include <epan/oui.h>
 #include <epan/prefs.h>
 #include <epan/strutil.h>
 #include <epan/to_str.h>
 
 /* Forward declarations */
-void proto_register_thread_meshcop(void);
-void proto_reg_handoff_thread_meshcop(void);
+void proto_register_thread_mc(void);
+void proto_reg_handoff_thread_mc(void);
 
-#define THREAD_MESHCOP_TLV_LENGTH_ESC  0xFF
-#define THREAD_32768_TO_NSEC_FACTOR ((double)30517.578125)
-#define TSTAMP_MASK_U_MASK 0x80
+#define THREAD_MC_TLV_LENGTH_ESC  0xFF
+#define THREAD_MC_32768_TO_NSEC_FACTOR ((double)30517.578125)
+#define THREAD_MC_TSTAMP_MASK_U_MASK 0x80
+#define THREAD_MC_SEC_POLICY_MASK_O_MASK 0x80
+#define THREAD_MC_SEC_POLICY_MASK_N_MASK 0x40
+#define THREAD_MC_STACK_VER_REV_MASK 0x0F
+#define THREAD_MC_STACK_VER_MIN_MASK 0xF0
+#define THREAD_MC_STACK_VER_MAJ_MASK 0x0F
 
-static int proto_thread_meshcop = -1;
+static int proto_thread_mc = -1;
 
-static int hf_thread_meshcop_tlv = -1;
-static int hf_thread_meshcop_tlv_type = -1;
-static int hf_thread_meshcop_tlv_length8 = -1;
-static int hf_thread_meshcop_tlv_length16 = -1;
-static int hf_thread_meshcop_tlv_unknown = -1;
-static int hf_thread_meshcop_tlv_sub_tlvs = -1;
+static int hf_thread_mc_tlv = -1;
+static int hf_thread_mc_tlv_type = -1;
+static int hf_thread_mc_tlv_length8 = -1;
+static int hf_thread_mc_tlv_length16 = -1;
+static int hf_thread_mc_tlv_unknown = -1;
+static int hf_thread_mc_tlv_sub_tlvs = -1;
 
 /* Channel TLV fields */
-static int hf_thread_meshcop_tlv_channel_page = -1;
-static int hf_thread_meshcop_tlv_channel = -1;
+static int hf_thread_mc_tlv_channel_page = -1;
+static int hf_thread_mc_tlv_channel = -1;
 
 /* PAN ID TLV fields */
-static int hf_thread_meshcop_tlv_pan_id = -1;
+static int hf_thread_mc_tlv_pan_id = -1;
 
 /* Extended PAN ID TLV fields */
-static int hf_thread_meshcop_tlv_x_pan_id = -1;
+static int hf_thread_mc_tlv_xpan_id = -1;
+
+/* Network Name TLV fields */
+static int hf_thread_mc_tlv_net_name = -1;
+
+/* PSKc TLV fields */
+static int hf_thread_mc_tlv_pskc = -1;
+
+/* Master Key TLV fields */
+static int hf_thread_mc_tlv_master_key = -1;
+
+/* Network Key Sequence TLV fields */
+static int hf_thread_mc_tlv_net_key_seq = -1;
+
+/* Mesh Local ULA TLV fields */
+static int hf_thread_mc_tlv_ml_ula = -1;
+
+/* Steering Data TLV fields */
+static int hf_thread_mc_tlv_steering_data = -1;
+
+/* Border Router Locator TLV fields */
+static int hf_thread_mc_tlv_br_locator = -1;
+
+/* Commissioner ID TLV fields */
+static int hf_thread_mc_tlv_commissioner_id = -1;
+
+/* Commissioner ID TLV fields */
+static int hf_thread_mc_tlv_commissioner_sess_id = -1;
+
+/* Security Policy TLV fields */
+static int hf_thread_mc_tlv_sec_policy = -1;
+static int hf_thread_mc_tlv_sec_policy_o = -1;
+static int hf_thread_mc_tlv_sec_policy_n = -1;
+static int hf_thread_mc_tlv_sec_policy_rot = -1;
 
 /* State TLV fields */
-static int hf_thread_meshcop_tlv_state = -1;
+static int hf_thread_mc_tlv_state = -1;
 
 /* Timestamp TLV fields */
-static int hf_thread_meshcop_tlv_active_tstamp = -1;
-static int hf_thread_meshcop_tlv_pending_tstamp = -1;
-static int hf_thread_meshcop_tlv_tstamp_u = -1;
+static int hf_thread_mc_tlv_active_tstamp = -1;
+static int hf_thread_mc_tlv_pending_tstamp = -1;
+static int hf_thread_mc_tlv_tstamp_u = -1;
 
 /* Delay Timer TLV fields */
-static int hf_thread_meshcop_tlv_delay_timer = -1;
+static int hf_thread_mc_tlv_delay_timer = -1;
 
-/* UDP Port fields */
-static int hf_thread_meshcop_tlv_udp_port = -1;
+/* IPv6 Address fields */
+static int hf_thread_mc_tlv_ipv6_addr = -1;
 
-/* IID fields */
-static int hf_thread_meshcop_tlv_iid = -1;
+/* UDP Port TLV fields */
+static int hf_thread_mc_tlv_udp_port = -1;
 
-/* Router locator fields */
-static int hf_thread_meshcop_tlv_router_locator = -1;
+/* IID TLV fields */
+static int hf_thread_mc_tlv_iid = -1;
 
-static gint ett_thread_meshcop = -1;
-static gint ett_thread_meshcop_tlv = -1;
+/* Joinrer Router locator TLV fields */
+static int hf_thread_mc_tlv_jr_locator = -1;
 
-static expert_field ei_thread_meshcop_tlv_length_failed = EI_INIT;
-static expert_field ei_thread_meshcop_len_size_mismatch = EI_INIT;
+/* KEK TLV fields */
+static int hf_thread_mc_tlv_kek = -1;
 
-static dissector_handle_t thread_meshcop_handle;
+/* Provisioning URL TLV fields */
+static int hf_thread_mc_tlv_provisioning_url = -1;
+
+/* Vendor TLV fields */
+static int hf_thread_mc_tlv_vendor_name = -1;
+static int hf_thread_mc_tlv_vendor_model = -1;
+static int hf_thread_mc_tlv_vendor_sw_ver = -1;
+static int hf_thread_mc_tlv_vendor_data = -1;
+static int hf_thread_mc_tlv_vendor_stack_ver = -1;
+static int hf_thread_mc_tlv_vendor_stack_ver_oui = -1;
+static int hf_thread_mc_tlv_vendor_stack_ver_build = -1;
+static int hf_thread_mc_tlv_vendor_stack_ver_rev = -1;
+static int hf_thread_mc_tlv_vendor_stack_ver_min = -1;
+static int hf_thread_mc_tlv_vendor_stack_ver_maj = -1;
+
+/* Channel Mask TLV fields */
+static int hf_thread_mc_tlv_chan_mask = -1;
+static int hf_thread_mc_tlv_chan_mask_page = -1;
+static int hf_thread_mc_tlv_chan_mask_len = -1;
+static int hf_thread_mc_tlv_chan_mask_mask = -1;
+
+/* Count TLV fields */
+static int hf_thread_mc_tlv_count = 1;
+
+/* Period TLV fields */
+static int hf_thread_mc_tlv_period = 1;
+
+/* Period TLV fields */
+static int hf_thread_mc_tlv_scan_duration = 1;
+
+/* Period TLV fields */
+static int hf_thread_mc_tlv_energy_list = 1;
+
+static gint ett_thread_mc = -1;
+static gint ett_thread_mc_tlv = -1;
+static gint ett_thread_mc_sec_policy = -1;
+static gint ett_thread_mc_stack_ver = -1;
+static gint ett_thread_mc_chan_mask = -1;
+
+static expert_field ei_thread_mc_tlv_length_failed = EI_INIT;
+static expert_field ei_thread_mc_len_size_mismatch = EI_INIT;
+static expert_field ei_thread_mc_len_too_long      = EI_INIT;
+
+static dissector_handle_t thread_mc_handle;
 static dissector_handle_t thread_dtls_handle;
+static dissector_handle_t thread_udp_handle;
 
-#define THREAD_MESHCOP_TLV_CHANNEL                      0 /* Modified for new features */
-#define THREAD_MESHCOP_TLV_PANID                        1
-#define THREAD_MESHCOP_TLV_XPANID                       2
-#define THREAD_MESHCOP_TLV_NETWORK_NAME                 3
-#define THREAD_MESHCOP_TLV_COMMISSIONING_CREDENTIAL     4
-#define THREAD_MESHCOP_TLV_NETWORK_MASTER_KEY           5
-#define THREAD_MESHCOP_TLV_NETWORK_KEY_SEQUENCE         6
-#define THREAD_MESHCOP_TLV_NETWORK_ML_ULA               7
-#define THREAD_MESHCOP_TLV_STEERING_DATA                8
-#define THREAD_MESHCOP_TLV_BORDER_ROUTER_LOCATOR        9
-#define THREAD_MESHCOP_TLV_COMMISSIONER_ID              10
-#define THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID      11
-#define THREAD_MESHCOP_TLV_SECURITY_POLICY              12
-#define THREAD_MESHCOP_TLV_GET                          13
-#define THREAD_MESHCOP_TLV_ACTIVE_TSTAMP                14 /* Modified for new features */
+#define THREAD_MC_TLV_CHANNEL                      0 /* Modified for new features */
+#define THREAD_MC_TLV_PANID                        1
+#define THREAD_MC_TLV_XPANID                       2
+#define THREAD_MC_TLV_NETWORK_NAME                 3
+#define THREAD_MC_TLV_PSKC                         4
+#define THREAD_MC_TLV_NETWORK_MASTER_KEY           5
+#define THREAD_MC_TLV_NETWORK_KEY_SEQUENCE         6
+#define THREAD_MC_TLV_NETWORK_ML_ULA               7
+#define THREAD_MC_TLV_STEERING_DATA                8
+#define THREAD_MC_TLV_BORDER_ROUTER_LOCATOR        9
+#define THREAD_MC_TLV_COMMISSIONER_ID              10
+#define THREAD_MC_TLV_COMMISSIONER_SESSION_ID      11
+#define THREAD_MC_TLV_SECURITY_POLICY              12
+#define THREAD_MC_TLV_GET                          13
+#define THREAD_MC_TLV_ACTIVE_TSTAMP                14 /* Modified for new features */
 /* Gap */
-#define THREAD_MESHCOP_TLV_STATE                        16
-#define THREAD_MESHCOP_TLV_JOINER_DTLS_ENCAP            17
-#define THREAD_MESHCOP_TLV_JOINER_UDP_PORT              18
-#define THREAD_MESHCOP_TLV_JOINER_IID                   19
-#define THREAD_MESHCOP_TLV_JOINER_ROUTER_LOCATOR        20
-#define THREAD_MESHCOP_TLV_JOINER_KEK                   21
+#define THREAD_MC_TLV_STATE                        16
+#define THREAD_MC_TLV_JOINER_DTLS_ENCAP            17
+#define THREAD_MC_TLV_JOINER_UDP_PORT              18
+#define THREAD_MC_TLV_JOINER_IID                   19
+#define THREAD_MC_TLV_JOINER_ROUTER_LOCATOR        20
+#define THREAD_MC_TLV_JOINER_KEK                   21
 /* Gap */
-#define THREAD_MESHCOP_TLV_PROVISIONING_URL             32
-#define THREAD_MESHCOP_TLV_VENDOR_NAME                  33
-#define THREAD_MESHCOP_TLV_VENDOR_MODEL                 34
-#define THREAD_MESHCOP_TLV_VENDOR_SW_VERSION            35
-#define THREAD_MESHCOP_TLV_VENDOR_DATA                  36
-#define THREAD_MESHCOP_TLV_VENDOR_STACK_VERSION         37
+#define THREAD_MC_TLV_PROVISIONING_URL             32
+#define THREAD_MC_TLV_VENDOR_NAME                  33
+#define THREAD_MC_TLV_VENDOR_MODEL                 34
+#define THREAD_MC_TLV_VENDOR_SW_VERSION            35
+#define THREAD_MC_TLV_VENDOR_DATA                  36
+#define THREAD_MC_TLV_VENDOR_STACK_VERSION         37
 /* Gap */
-#define THREAD_MESHCOP_TLV_UDP_ENCAPSULATION            48
-#define THREAD_MESHCOP_TLV_IPV6_ADDRESS                 49
+#define THREAD_MC_TLV_UDP_ENCAPSULATION            48
+#define THREAD_MC_TLV_IPV6_ADDRESS                 49
 /* Gap */
 /* New features */
-#define THREAD_MESHCOP_TLV_PENDING_TSTAMP               51
-#define THREAD_MESHCOP_TLV_DELAY_TIMER                  52
-#define THREAD_MESHCOP_TLV_CHANNEL_MASK                 53
-#define THREAD_MESHCOP_TLV_COUNT                        54
-#define THREAD_MESHCOP_TLV_PERIOD                       55
-#define THREAD_MESHCOP_TLV_SCAN_DURATION                56
-#define THREAD_MESHCOP_TLV_ENERGY_LIST                  57
+#define THREAD_MC_TLV_PENDING_TSTAMP               51
+#define THREAD_MC_TLV_DELAY_TIMER                  52
+#define THREAD_MC_TLV_CHANNEL_MASK                 53
+#define THREAD_MC_TLV_COUNT                        54
+#define THREAD_MC_TLV_PERIOD                       55
+#define THREAD_MC_TLV_SCAN_DURATION                56
+#define THREAD_MC_TLV_ENERGY_LIST                  57
 
-static const value_string thread_meshcop_tlv_vals[] = {
-{ THREAD_MESHCOP_TLV_CHANNEL,                   "Channel" },
-{ THREAD_MESHCOP_TLV_PANID,                     "PAN ID" },
-{ THREAD_MESHCOP_TLV_XPANID,                    "Extended PAN ID" },
-{ THREAD_MESHCOP_TLV_NETWORK_NAME,              "Network Name" },
-{ THREAD_MESHCOP_TLV_COMMISSIONING_CREDENTIAL,  "Commissioning Credential" },
-{ THREAD_MESHCOP_TLV_NETWORK_MASTER_KEY,        "Network Master Key" },
-{ THREAD_MESHCOP_TLV_NETWORK_KEY_SEQUENCE,      "Network Master Sequence" },
-{ THREAD_MESHCOP_TLV_NETWORK_ML_ULA,            "Mesh Link ULA" },
-{ THREAD_MESHCOP_TLV_STEERING_DATA,             "Steering Data" },
-{ THREAD_MESHCOP_TLV_BORDER_ROUTER_LOCATOR,     "Border Router Locator" },
-{ THREAD_MESHCOP_TLV_COMMISSIONER_ID,           "Commissioner ID" },
-{ THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID,   "Commissioner Session ID" },
-{ THREAD_MESHCOP_TLV_SECURITY_POLICY,           "Security Policy" },
-{ THREAD_MESHCOP_TLV_GET,                       "Get" },
-{ THREAD_MESHCOP_TLV_ACTIVE_TSTAMP,             "Active Timestamp" },
-{ THREAD_MESHCOP_TLV_STATE,                     "State" },
-{ THREAD_MESHCOP_TLV_JOINER_DTLS_ENCAP,         "Joiner DTLS Encapsulation" },
-{ THREAD_MESHCOP_TLV_JOINER_UDP_PORT,           "Joiner UDP Port" },
-{ THREAD_MESHCOP_TLV_JOINER_IID,                "Joiner IID" },
-{ THREAD_MESHCOP_TLV_JOINER_ROUTER_LOCATOR,     "Joiner Router Locator" },
-{ THREAD_MESHCOP_TLV_JOINER_KEK,                "Joiner KEK" },
-{ THREAD_MESHCOP_TLV_PROVISIONING_URL,          "Provisioning URL" },
-{ THREAD_MESHCOP_TLV_VENDOR_NAME,               "Vendor Name" },
-{ THREAD_MESHCOP_TLV_VENDOR_MODEL,              "Vendor Model" },
-{ THREAD_MESHCOP_TLV_VENDOR_SW_VERSION,         "Vendor Software Version" },
-{ THREAD_MESHCOP_TLV_VENDOR_DATA,               "Vendor Data" },
-{ THREAD_MESHCOP_TLV_VENDOR_STACK_VERSION,      "Vendor Stack Version" },
-{ THREAD_MESHCOP_TLV_UDP_ENCAPSULATION,         "UDP Encapsulation" },
-{ THREAD_MESHCOP_TLV_IPV6_ADDRESS,              "IPv6 Address" },
+static const value_string thread_mc_tlv_vals[] = {
+{ THREAD_MC_TLV_CHANNEL,                   "Channel" },
+{ THREAD_MC_TLV_PANID,                     "PAN ID" },
+{ THREAD_MC_TLV_XPANID,                    "Extended PAN ID" },
+{ THREAD_MC_TLV_NETWORK_NAME,              "Network Name" },
+{ THREAD_MC_TLV_PSKC,                      "PSKc" },
+{ THREAD_MC_TLV_NETWORK_MASTER_KEY,        "Network Master Key" },
+{ THREAD_MC_TLV_NETWORK_KEY_SEQUENCE,      "Network Master Sequence" },
+{ THREAD_MC_TLV_NETWORK_ML_ULA,            "Mesh Link ULA" },
+{ THREAD_MC_TLV_STEERING_DATA,             "Steering Data" },
+{ THREAD_MC_TLV_BORDER_ROUTER_LOCATOR,     "Border Router Locator" },
+{ THREAD_MC_TLV_COMMISSIONER_ID,           "Commissioner ID" },
+{ THREAD_MC_TLV_COMMISSIONER_SESSION_ID,   "Commissioner Session ID" },
+{ THREAD_MC_TLV_SECURITY_POLICY,           "Security Policy" },
+{ THREAD_MC_TLV_GET,                       "Get" },
+{ THREAD_MC_TLV_ACTIVE_TSTAMP,             "Active Timestamp" },
+{ THREAD_MC_TLV_STATE,                     "State" },
+{ THREAD_MC_TLV_JOINER_DTLS_ENCAP,         "Joiner DTLS Encapsulation" },
+{ THREAD_MC_TLV_JOINER_UDP_PORT,           "Joiner UDP Port" },
+{ THREAD_MC_TLV_JOINER_IID,                "Joiner IID" },
+{ THREAD_MC_TLV_JOINER_ROUTER_LOCATOR,     "Joiner Router Locator" },
+{ THREAD_MC_TLV_JOINER_KEK,                "Joiner KEK" },
+{ THREAD_MC_TLV_PROVISIONING_URL,          "Provisioning URL" },
+{ THREAD_MC_TLV_VENDOR_NAME,               "Vendor Name" },
+{ THREAD_MC_TLV_VENDOR_MODEL,              "Vendor Model" },
+{ THREAD_MC_TLV_VENDOR_SW_VERSION,         "Vendor Software Version" },
+{ THREAD_MC_TLV_VENDOR_DATA,               "Vendor Data" },
+{ THREAD_MC_TLV_VENDOR_STACK_VERSION,      "Vendor Stack Version" },
+{ THREAD_MC_TLV_UDP_ENCAPSULATION,         "UDP Encapsulation" },
+{ THREAD_MC_TLV_IPV6_ADDRESS,              "IPv6 Address" },
 /* New features */
-{ THREAD_MESHCOP_TLV_PENDING_TSTAMP,            "Pending Timestamp" },
-{ THREAD_MESHCOP_TLV_DELAY_TIMER,               "Delay Timer" },
-{ THREAD_MESHCOP_TLV_CHANNEL_MASK,              "Channel Mask" },
-{ THREAD_MESHCOP_TLV_COUNT,                     "Count" },
-{ THREAD_MESHCOP_TLV_PERIOD,                    "Period" },
-{ THREAD_MESHCOP_TLV_SCAN_DURATION,             "Scan Duration" },
-{ THREAD_MESHCOP_TLV_ENERGY_LIST,               "Energy List" }
+{ THREAD_MC_TLV_PENDING_TSTAMP,            "Pending Timestamp" },
+{ THREAD_MC_TLV_DELAY_TIMER,               "Delay Timer" },
+{ THREAD_MC_TLV_CHANNEL_MASK,              "Channel Mask" },
+{ THREAD_MC_TLV_COUNT,                     "Count" },
+{ THREAD_MC_TLV_PERIOD,                    "Period" },
+{ THREAD_MC_TLV_SCAN_DURATION,             "Scan Duration" },
+{ THREAD_MC_TLV_ENERGY_LIST,               "Energy List" }
+};
+
+/* TODO: These are not "states" */
+static const value_string thread_mc_state_vals[] = {
+{ -1, "Reject" },
+{ 0, "Pending" },
+{ 1, "Accept" }
 };
 
 typedef enum {
@@ -183,14 +273,20 @@ typedef enum {
     MC_LENGTH16
 } mc_length_e;
 
+static const true_false_string thread_mc_tlv_allowed = {
+    "Allowed",
+    "Not Allowed"
+};
+
 static void
-dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
     proto_item  *volatile proto_root = NULL;
-    proto_tree  *volatile thread_meshcop_tree = NULL;
+    proto_tree  *volatile thread_mc_tree = NULL;
     proto_tree  *tlv_tree;
     guint       offset;
     proto_item  *ti;
+    proto_item  *pi;
     guint8      tlv_type;
     guint16     tlv_len;
     mc_length_e tlv_mc_len;
@@ -199,8 +295,8 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_thread_meshcop, tvb, 0, tvb_reported_length(tvb), "Thread MeshCoP");
-        thread_meshcop_tree = proto_item_add_subtree(proto_root, ett_thread_meshcop);
+        proto_root = proto_tree_add_protocol_format(tree, proto_thread_mc, tvb, 0, tvb_reported_length(tvb), "Thread MeshCoP");
+        thread_mc_tree = proto_item_add_subtree(proto_root, ett_thread_mc);
     }
 
     offset = 0;
@@ -214,7 +310,7 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         tlv_len = (guint16)tvb_get_guint8(tvb, offset + 1);
         
         /* TODO: need to make sure this applies to all MeshCoP TLVs */
-        if (THREAD_MESHCOP_TLV_LENGTH_ESC == tlv_len) {
+        if (THREAD_MC_TLV_LENGTH_ESC == tlv_len) {
             /* 16-bit length field */
             tlv_len = tvb_get_ntohs(tvb, offset + 2);
             tlv_mc_len = MC_LENGTH16;
@@ -223,24 +319,24 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
  
         /* Create the tree */
-        ti = proto_tree_add_item(thread_meshcop_tree, hf_thread_meshcop_tlv, tvb, offset, tlv_len, FALSE);
-        tlv_tree = proto_item_add_subtree(ti, ett_thread_meshcop_tlv);
+        ti = proto_tree_add_item(thread_mc_tree, hf_thread_mc_tlv, tvb, offset, tlv_len, FALSE);
+        tlv_tree = proto_item_add_subtree(ti, ett_thread_mc_tlv);
         
         /* Type */
-        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_type, tvb, offset, 1, FALSE);
+        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_type, tvb, offset, 1, FALSE);
         offset++;
     
         /* Add value name to value root label */
-        proto_item_append_text(ti, " (%s", val_to_str(tlv_type, thread_meshcop_tlv_vals, "Unknown (%d)"));
+        proto_item_append_text(ti, " (%s", val_to_str(tlv_type, thread_mc_tlv_vals, "Unknown (%d)"));
 
         /* Length */
         switch (tlv_mc_len) {
             case MC_LENGTH8:
-                proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_length8, tvb, offset, 1, FALSE);
+                proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_length8, tvb, offset, 1, FALSE);
                 offset++;
                 break;
             case MC_LENGTH16:
-                proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_length16, tvb, offset + 1, 2, FALSE);
+                proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_length16, tvb, offset + 1, 2, FALSE);
                 offset += 3; /* Including escape byte */
                 break;
             default:
@@ -248,73 +344,273 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
                 
         switch(tlv_type) {
-            case THREAD_MESHCOP_TLV_CHANNEL:
+            case THREAD_MC_TLV_CHANNEL:
                 {
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
                     if (tlv_len != 3) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* Channel page */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_channel_page, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel_page, tvb, offset, tlv_len, FALSE);
                         /* Channel */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_channel, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
                 
-            case THREAD_MESHCOP_TLV_PANID:
+            case THREAD_MC_TLV_PANID:
                 {
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
                     if (tlv_len != 2) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* PAN ID */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_pan_id, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_pan_id, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
 
-            case THREAD_MESHCOP_TLV_XPANID:
+            case THREAD_MC_TLV_XPANID:
                 {
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
                     if (tlv_len != 8) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* PAN ID */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_x_pan_id, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_xpan_id, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
+
+            case THREAD_MC_TLV_NETWORK_NAME:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        gchar *str;
+                        
+                        str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tlv_len, ENC_UTF_8);
+                        proto_tree_add_string(tlv_tree, hf_thread_mc_tlv_net_name, tvb, offset, tlv_len, str);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
                 
-            case THREAD_MESHCOP_TLV_STATE:
+            case THREAD_MC_TLV_PSKC:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_pskc, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_NETWORK_MASTER_KEY:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_master_key, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_NETWORK_KEY_SEQUENCE:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 4) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_net_key_seq, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+    
+            case THREAD_MC_TLV_NETWORK_ML_ULA:
+                {
+                    struct e_in6_addr prefix;
+
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 8) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        tvb_memcpy(tvb, (guint8 *)&prefix.bytes, offset, tlv_len);
+                        proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_ula, tvb, offset, tlv_len, prefix.bytes);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_STEERING_DATA:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* Display it simply */
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_steering_data, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+
+            case THREAD_MC_TLV_BORDER_ROUTER_LOCATOR:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_br_locator, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_COMMISSIONER_ID:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 64) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        gchar *str;
+                        
+                        str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tlv_len, ENC_UTF_8);
+                        proto_tree_add_string(tlv_tree, hf_thread_mc_tlv_commissioner_id, tvb, offset, tlv_len, str);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+
+            case THREAD_MC_TLV_COMMISSIONER_SESSION_ID:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_commissioner_sess_id, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_SECURITY_POLICY:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 3) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree *sp_tree;
+
+                        pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy, tvb, offset, 1, FALSE);
+                        sp_tree = proto_item_add_subtree(ti, ett_thread_mc_sec_policy);
+                        proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_o, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_n, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_rot, tvb, offset+1, 2, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+
+            case THREAD_MC_TLV_GET:
+                {
+                    int i;
+                    
+                    proto_item_append_text(ti, ")");
+
+                    for (i = 0; i < tlv_len; i++) {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_type, tvb, offset, 1, FALSE);
+                        offset++;
+                    }
+                }
+                break;
+
+            case THREAD_MC_TLV_ACTIVE_TSTAMP:
+            case THREAD_MC_TLV_PENDING_TSTAMP:
+                {
+                    proto_item_append_text(ti, ")");
+                    
+                    if (tlv_len != 8) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* Fill in the nstime_t structure */
+                        timestamp.secs = (time_t)tvb_get_ntoh48(tvb, offset);
+                        timestamp.nsecs = (int)lround((double)(tvb_get_ntohs(tvb, offset + 6) >> 1) * THREAD_MC_32768_TO_NSEC_FACTOR);
+                        if (tlv_type == THREAD_MC_TLV_ACTIVE_TSTAMP) {
+                            proto_tree_add_time(tlv_tree, hf_thread_mc_tlv_active_tstamp, tvb, offset, 8, &timestamp);
+                        } else {
+                            proto_tree_add_time(tlv_tree, hf_thread_mc_tlv_pending_tstamp, tvb, offset, 8, &timestamp);
+                        }
+                    }
+                    offset += tlv_len;
+                }
+                break;
+
+            case THREAD_MC_TLV_STATE:
                 {
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
                     if (tlv_len != 1) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
-                        /* Channel */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_state, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_state, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
                 
-            case THREAD_MESHCOP_TLV_JOINER_DTLS_ENCAP:
+            case THREAD_MC_TLV_JOINER_DTLS_ENCAP:
                 {
                     tvbuff_t *sub_tvb;
                     
@@ -327,280 +623,810 @@ dissect_thread_meshcop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 }
                 break;
                 
-            case THREAD_MESHCOP_TLV_JOINER_UDP_PORT:
+            case THREAD_MC_TLV_JOINER_UDP_PORT:
                 {
                     proto_item_append_text(ti, ")");
 
                     if (tlv_len != 2) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* UDP Port */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_udp_port, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_udp_port, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
                 
-            case THREAD_MESHCOP_TLV_JOINER_IID:
+            case THREAD_MC_TLV_JOINER_IID:
                 {
                     proto_item_append_text(ti, ")");
                     
 //                    if (tlv_len != 8) {
                     if (0) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* IID */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_iid, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_iid, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
                 
-            case THREAD_MESHCOP_TLV_JOINER_ROUTER_LOCATOR:
+            case THREAD_MC_TLV_JOINER_ROUTER_LOCATOR:
                 {
                     proto_item_append_text(ti, ")");
                     
-//                    if (tlv_len != 8) {
-                    if (0) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
-                        /* Router locator */
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_router_locator, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_jr_locator, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
                 
-            case THREAD_MESHCOP_TLV_ACTIVE_TSTAMP:
-            case THREAD_MESHCOP_TLV_PENDING_TSTAMP:
+            case THREAD_MC_TLV_JOINER_KEK:
                 {
                     proto_item_append_text(ti, ")");
                     
-                    if (tlv_len != 8) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    if (tlv_len != 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
-                        /* Fill in the nstime_t structure */
-                        timestamp.secs = (time_t)tvb_get_ntoh48(tvb, offset);
-                        timestamp.nsecs = (int)lround((double)(tvb_get_ntohs(tvb, offset + 6) >> 1) * THREAD_32768_TO_NSEC_FACTOR);
-                        if (tlv_type == THREAD_MESHCOP_TLV_ACTIVE_TSTAMP) {
-                            proto_tree_add_time(tree, hf_thread_meshcop_tlv_active_tstamp, tvb, offset, 8, &timestamp);
-                        } else {
-                            proto_tree_add_time(tree, hf_thread_meshcop_tlv_pending_tstamp, tvb, offset, 8, &timestamp);
-                        }
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_kek, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
+                }
+                break;
+                
+            case THREAD_MC_TLV_PROVISIONING_URL:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 64) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        gchar *str;
+                        
+                        str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tlv_len, ENC_UTF_8);
+                        proto_tree_add_string(tlv_tree, hf_thread_mc_tlv_provisioning_url, tvb, offset, tlv_len, str);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_VENDOR_NAME:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 32) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        gchar *str;
+                        
+                        str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tlv_len, ENC_UTF_8);
+                        proto_tree_add_string(tlv_tree, hf_thread_mc_tlv_vendor_name, tvb, offset, tlv_len, str);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_VENDOR_MODEL:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent: TODO not specified in spec. */
+                    if (tlv_len > 32) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        gchar *str;
+                        
+                        str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tlv_len, ENC_UTF_8);
+                        proto_tree_add_string(tlv_tree, hf_thread_mc_tlv_vendor_model, tvb, offset, tlv_len, str);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_VENDOR_SW_VERSION:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        gchar *str;
+                        
+                        str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tlv_len, ENC_UTF_8);
+                        proto_tree_add_string(tlv_tree, hf_thread_mc_tlv_vendor_sw_ver, tvb, offset, tlv_len, str);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_VENDOR_DATA:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len > 64) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_too_long);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* Display it simply */
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_data, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
+            case THREAD_MC_TLV_VENDOR_STACK_VERSION:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 3) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        offset += tlv_len;           
+                    } else {
+                        proto_tree *sv_tree;
+                        guint8 build_u8;
+                        guint16 build;
+
+                        pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver, tvb, offset, 1, FALSE);
+                        sv_tree = proto_item_add_subtree(ti, ett_thread_mc_stack_ver);
+                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_oui, tvb, offset, 3, FALSE);
+                        offset += 3;
+                        build_u8 = tvb_get_guint8(tvb, offset);
+                        offset++;
+                        build = (guint16)build_u8 << 4;
+                        build_u8 = tvb_get_guint8(tvb, offset);
+                        build |= (guint16)build_u8 >> 4;
+                        pi = proto_tree_add_uint(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_build, tvb, 0, 0, build);
+                        PROTO_ITEM_SET_GENERATED(pi);
+                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_rev, tvb, offset, 1, FALSE);
+                        offset++;
+                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_min, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_maj, tvb, offset, 1, FALSE);
+                        offset++;
+                    }
+                }
+                break;
+                
+            case THREAD_MC_TLV_UDP_ENCAPSULATION:
+                {
+                    tvbuff_t *sub_tvb;
+                    
+                    /* TODO: Not sure if this is an actual UDP message as length/cksum missing */
+                    proto_item_append_text(ti, ")");
+                    if (tlv_len > 0) {
+                        sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
+                        call_dissector(thread_udp_handle, sub_tvb, pinfo, tlv_tree);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+                
+            case THREAD_MC_TLV_IPV6_ADDRESS:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 16) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ipv6_addr, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;           
                 }
                 break;
 
-            case THREAD_MESHCOP_TLV_DELAY_TIMER:
+            /* case THREAD_MC_TLV_PENDING_TSTAMP: Handled in THREAD_MC_TLV_ACTIVE_TSTAMP case */
+
+            case THREAD_MC_TLV_DELAY_TIMER:
                 {
                     proto_item_append_text(ti, ")");
                     
                     if (tlv_len != 4) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_meshcop_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
-                        proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_delay_timer, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_delay_timer, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+                
+            case THREAD_MC_TLV_CHANNEL_MASK:
+                {
+                    proto_tree *cm_tree;
+                    int i;
+                    guint8 entries = 0;
+                    guint16 check_len = tlv_len;
+                    guint8 check_offset = offset + 1; /* Channel page first */
+                    guint8 masklen;
+
+                    /* Check consistency of entries */
+                    while (check_len > 0) {
+                        guint8 masklen;
+
+                        masklen = tvb_get_guint8(tvb, check_offset);
+                        if (masklen == 0) {
+                            break; /* Get out or we might spin forever */
+                        }
+                        masklen += 2; /* Add in page and length */
+                        check_offset += masklen;
+                        check_len -= masklen;
+                        entries++;
+                    }
+
+                    proto_item_append_text(ti, ")");
+                    if (check_len != 0) {
+                        /* Not an integer number of entries */
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        offset += tlv_len;
+                    } else {
+                        for (i = 0; i < entries; i++) {
+                            pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_chan_mask, tvb, offset, 1, FALSE);
+                            cm_tree = proto_item_add_subtree(ti, ett_thread_mc_chan_mask);
+                            proto_tree_add_item(cm_tree, hf_thread_mc_tlv_chan_mask_page, tvb, offset, 1, FALSE);
+                            offset++;
+                            masklen = tvb_get_guint8(tvb, offset);
+                            proto_tree_add_item(cm_tree, hf_thread_mc_tlv_chan_mask_len, tvb, offset, 1, FALSE);
+                            offset++;
+                            proto_tree_add_item(cm_tree, hf_thread_mc_tlv_chan_mask_mask, tvb, offset, masklen, FALSE);
+                            offset += masklen;
+                        }
+                    }
+                }
+                break;
+                
+            case THREAD_MC_TLV_COUNT:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    if (tlv_len != 1) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_count, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
 
-            case THREAD_MESHCOP_TLV_NETWORK_NAME:
-            case THREAD_MESHCOP_TLV_COMMISSIONING_CREDENTIAL:
-            case THREAD_MESHCOP_TLV_NETWORK_MASTER_KEY:
-            case THREAD_MESHCOP_TLV_NETWORK_KEY_SEQUENCE:
-            case THREAD_MESHCOP_TLV_NETWORK_ML_ULA:
-            case THREAD_MESHCOP_TLV_STEERING_DATA:
-            case THREAD_MESHCOP_TLV_BORDER_ROUTER_LOCATOR:
-            case THREAD_MESHCOP_TLV_COMMISSIONER_ID:
-            case THREAD_MESHCOP_TLV_COMMISSIONER_SESSION_ID:
-            case THREAD_MESHCOP_TLV_SECURITY_POLICY:
-            case THREAD_MESHCOP_TLV_GET:
-            case THREAD_MESHCOP_TLV_JOINER_KEK:
-            case THREAD_MESHCOP_TLV_PROVISIONING_URL:
-            case THREAD_MESHCOP_TLV_VENDOR_NAME:
-            case THREAD_MESHCOP_TLV_VENDOR_MODEL:
-            case THREAD_MESHCOP_TLV_VENDOR_SW_VERSION:
-            case THREAD_MESHCOP_TLV_VENDOR_DATA:
-            case THREAD_MESHCOP_TLV_VENDOR_STACK_VERSION:
-            case THREAD_MESHCOP_TLV_UDP_ENCAPSULATION:
-            case THREAD_MESHCOP_TLV_IPV6_ADDRESS:
+            case THREAD_MC_TLV_PERIOD:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_period, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+
+            case THREAD_MC_TLV_SCAN_DURATION:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_scan_duration, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+
+            case THREAD_MC_TLV_ENERGY_LIST:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_energy_list, tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+
             default:                
                 proto_item_append_text(ti, ")");
-                proto_tree_add_item(tlv_tree, hf_thread_meshcop_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                 offset += tlv_len;           
         }        
     }
 }
 
 void
-proto_register_thread_meshcop(void)
+proto_register_thread_mc(void)
 {
   static hf_register_info hf[] = {
-    
+
     /* Generic TLV */
-    { &hf_thread_meshcop_tlv,
+    { &hf_thread_mc_tlv,
       { "TLV",
-        "thread_meshcop.tlv",
+        "thread_mc.tlv",
         FT_NONE, BASE_NONE, NULL, 0x0,
         "Type-Length-Value",
         HFILL
       }
     },
-        
-    { &hf_thread_meshcop_tlv_type,
+
+    { &hf_thread_mc_tlv_type,
       { "Type",
-        "thread_meshcop.tlv.type",
-        FT_UINT8, BASE_DEC, VALS(thread_meshcop_tlv_vals), 0x0,
+        "thread_mc.tlv.type",
+        FT_UINT8, BASE_DEC, VALS(thread_mc_tlv_vals), 0x0,
         "Type of value",
         HFILL
       }
     },
 
-    { &hf_thread_meshcop_tlv_length8,
+    { &hf_thread_mc_tlv_length8,
       { "Length",
-        "thread_meshcop.tlv.len8",
+        "thread_mc.tlv.len8",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         "Length of value (8-bit)",
         HFILL
       }
     },
-    
-    { &hf_thread_meshcop_tlv_length16,
+
+    { &hf_thread_mc_tlv_length16,
       { "Length",
-        "thread_meshcop.tlv.len16",
+        "thread_mc.tlv.len16",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         "Length of value (16-bit)",
         HFILL
       }
     },
-    
-    { &hf_thread_meshcop_tlv_unknown,
+
+    { &hf_thread_mc_tlv_unknown,
       { "Unknown",
-        "thread_meshcop.tlv.unknown",
+        "thread_mc.tlv.unknown",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Unknown TLV, raw value",
         HFILL
       }
     },
-    
-    { &hf_thread_meshcop_tlv_sub_tlvs,
+
+    { &hf_thread_mc_tlv_sub_tlvs,
       { "Sub-TLV(s)",
-        "thread_meshcop.tlv.sub_tlvs",
+        "thread_mc.tlv.sub_tlvs",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
-    
+
     /* Type-Specific TLV Fields */
-    { &hf_thread_meshcop_tlv_channel_page,
+    { &hf_thread_mc_tlv_channel_page,
       { "Channel Page",
-        "thread_meshcop.tlv.channel_page",
+        "thread_mc.tlv.channel_page",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
     },
-    
-    { &hf_thread_meshcop_tlv_channel,
+
+    { &hf_thread_mc_tlv_channel,
       { "Channel",
-        "thread_meshcop.tlv.channel",
-        FT_UINT16, BASE_DEC, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_pan_id,
-      { "PAN ID",
-        "thread_meshcop.tlv.pan_id",
-        FT_UINT16, BASE_HEX, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-     
-    { &hf_thread_meshcop_tlv_x_pan_id,
-      { "Extended PAN ID",
-        "thread_meshcop.tlv.x_pan_id",
-        FT_UINT64, BASE_HEX, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_state,
-      { "State",
-        "thread_meshcop.tlv.state",
-        FT_INT8, BASE_DEC, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_active_tstamp,
-      { "Active Timestamp",
-        "thread_meshcop.tlv.active_tstamp",
-        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_pending_tstamp,
-      { "Pending Timestamp",
-        "thread_meshcop.tlv.pending_tstamp",
-        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_tstamp_u,
-      { "Authoritative Source",
-        "thread_meshcop.tlv.tstamp_u",
-        FT_BOOLEAN, 8, NULL, TSTAMP_MASK_U_MASK,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_delay_timer,
-      { "Delay Timer",
-        "thread_meshcop.tlv.delay_timer",
-        FT_UINT32, BASE_DEC, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-    
-    { &hf_thread_meshcop_tlv_udp_port,
-      { "UDP Port",
-        "thread_meshcop.tlv.udp_port",
+        "thread_mc.tlv.channel",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_thread_meshcop_tlv_iid,
-      { "Interface Identifier",
-        "thread_meshcop.tlv.iid",
+    { &hf_thread_mc_tlv_pan_id,
+      { "PAN ID",
+        "thread_mc.tlv.pan_id",
+        FT_UINT16, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_xpan_id,
+      { "Extended PAN ID",
+        "thread_mc.tlv.xpan_id",
+        FT_UINT64, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_net_name,
+      { "Network Name",
+        "thread_mc.tlv.net_name",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_pskc,
+      { "PSKc",
+        "thread_mc.tlv.pskc",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
+
+    { &hf_thread_mc_tlv_master_key,
+      { "Master Key",
+        "thread_mc.tlv.master_key",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_net_key_seq,
+      { "Network Key Sequence",
+        "thread_mc.tlv.net_key_seq",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_ml_ula,
+      { "Mesh Local ULA Prefix",
+        "thread_mc.tlv.ml_ula",
+        FT_IPv6, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_steering_data,
+      { "Steering Data",
+        "thread_mc.tlv.steering_data",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_br_locator,
+      { "Border Router Locator",
+        "thread_mc.tlv.br_locator",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_commissioner_id,
+      { "Commissioner ID",
+        "thread_mc.tlv.commissioner_id",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_commissioner_sess_id,
+      { "Commissioner Session ID",
+        "thread_mc.tlv.commissioner_sess_id",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_sec_policy,
+      { "Security Policy",
+        "thread_mc.tlv.sec_policy",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_sec_policy_o,
+      { "Out-of-band Commissioning",
+        "thread_mc.tlv.sec_policy_o",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_allowed), THREAD_MC_SEC_POLICY_MASK_O_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_sec_policy_n,
+      { "Native Commissioning",
+        "thread_mc.tlv.sec_policy_n",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_allowed), THREAD_MC_SEC_POLICY_MASK_N_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_sec_policy_rot,
+      { "Rotation Time",
+        "thread_mc.tlv.sec_policy_rot",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_state,
+      { "State",
+        "thread_mc.tlv.state",
+        FT_INT8, BASE_DEC, VALS(thread_mc_state_vals), 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_active_tstamp,
+      { "Active Timestamp",
+        "thread_mc.tlv.active_tstamp",
+        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_pending_tstamp,
+      { "Pending Timestamp",
+        "thread_mc.tlv.pending_tstamp",
+        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_tstamp_u,
+      { "Authoritative Source",
+        "thread_mc.tlv.tstamp_u",
+        FT_BOOLEAN, 8, NULL, THREAD_MC_TSTAMP_MASK_U_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_udp_port,
+      { "UDP Port",
+        "thread_mc.tlv.udp_port",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_iid,
+      { "Interface Identifier",
+        "thread_mc.tlv.iid",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_jr_locator,
+      { "Joiner Router Locator",
+        "thread_mc.tlv.jr_locator",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_kek,
+      { "Key Encryption Key (KEK)",
+        "thread_mc.tlv.kek",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_provisioning_url,
+      { "Provisioning URL",
+        "thread_mc.tlv.provisioning_url",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_name,
+      { "Vendor Name",
+        "thread_mc.tlv.vendor_name",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_model,
+      { "Vendor Model",
+        "thread_mc.tlv.vendor_model",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_sw_ver,
+      { "Vendor Software Version",
+        "thread_mc.tlv.vendor_sw_ver",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_data,
+      { "Vendor Data",
+        "thread_mc.tlv.vendor_model",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_stack_ver,
+      { "Stack Version",
+        "thread_mc.tlv.vendor_stack_ver",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_stack_ver_oui,
+      { "OUI",
+        "thread_mc.tlv.vendor_stack_ver_oui",
+        FT_UINT24, BASE_HEX, VALS(oui_vals), 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_stack_ver_build,
+      { "Build",
+        "thread_mc.tlv.vendor_stack_ver_build",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_stack_ver_rev,
+      { "Revision",
+        "thread_mc.tlv.vendor_stack_ver_rev",
+        FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_REV_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_stack_ver_min,
+      { "Minor",
+        "thread_mc.tlv.vendor_stack_ver_min",
+        FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_MIN_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_vendor_stack_ver_maj,
+      { "Major",
+        "thread_mc.tlv.vendor_stack_ver_maj",
+        FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_MAJ_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_ipv6_addr,
+      { "IPv6 Address",
+        "thread_mc.tlv.ipv6_addr",
+        FT_IPv6, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_delay_timer,
+      { "Delay Timer",
+        "thread_mc.tlv.delay_timer",
+        FT_UINT32, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_chan_mask,
+      { "Channel Mask",
+        "thread_mc.tlv.chan_mask",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_chan_mask_page,
+      { "Channel Page",
+        "thread_mc.tlv.chan_mask_page",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
     
-    { &hf_thread_meshcop_tlv_router_locator,
-      { "Router Locator",
-        "thread_meshcop.tlv.router_locator",
+    { &hf_thread_mc_tlv_chan_mask_len,
+      { "Mask Length",
+        "thread_mc.tlv.chan_mask_len",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_chan_mask_mask,
+      { "Mask",
+        "thread_mc.tlv.chan_mask_mask",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_count,
+      { "Count",
+        "thread_mc.tlv.count",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_period,
+      { "Period",
+        "thread_mc.tlv.period",
+        FT_UINT16, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_scan_duration,
+      { "Scan Duration",
+        "thread_mc.tlv.scan_duration",
+        FT_UINT16, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_energy_list,
+      { "Energy List",
+        "thread_mc.tlv.energy_list",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -609,35 +1435,40 @@ proto_register_thread_meshcop(void)
   };
   
   static gint *ett[] = {
-    &ett_thread_meshcop,
-    &ett_thread_meshcop_tlv
+    &ett_thread_mc,
+    &ett_thread_mc_tlv,
+    &ett_thread_mc_sec_policy,
+    &ett_thread_mc_stack_ver,
+    &ett_thread_mc_chan_mask
   };
 
   static ei_register_info ei[] = {
-    { &ei_thread_meshcop_tlv_length_failed, { "thread_meshcop.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
-    { &ei_thread_meshcop_len_size_mismatch, { "thread_meshcop.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }}
+    { &ei_thread_mc_tlv_length_failed, { "thread_mc.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
+    { &ei_thread_mc_len_size_mismatch, { "thread_mc.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
+    { &ei_thread_mc_len_too_long, { "thread_mc.len_too_long", PI_UNDECODED, PI_WARN, "TLV Length too long", EXPFILL }}
   };
 
-  expert_module_t* expert_thread_meshcop;
+  expert_module_t* expert_thread_mc;
 
-  proto_thread_meshcop = proto_register_protocol("Thread MeshCoP", "Thread MeshCoP", "thread_meshcop");
-  proto_register_field_array(proto_thread_meshcop, hf, array_length(hf));
+  proto_thread_mc = proto_register_protocol("Thread MeshCoP", "Thread MeshCoP", "thread_mc");
+  proto_register_field_array(proto_thread_mc, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
-  expert_thread_meshcop = expert_register_protocol(proto_thread_meshcop);
-  expert_register_field_array(expert_thread_meshcop, ei, array_length(ei));
+  expert_thread_mc = expert_register_protocol(proto_thread_mc);
+  expert_register_field_array(expert_thread_mc, ei, array_length(ei));
 
-  register_dissector("thread_meshcop", dissect_thread_meshcop, proto_thread_meshcop);
+  register_dissector("thread_mc", dissect_thread_mc, proto_thread_mc);
 }
 
 void
-proto_reg_handoff_thread_meshcop(void)
+proto_reg_handoff_thread_mc(void)
 {
-  static gboolean thread_meshcop_initialized = FALSE;
+  static gboolean thread_mc_initialized = FALSE;
 
-  if (!thread_meshcop_initialized) {
-    thread_meshcop_handle = find_dissector("thread_meshcop");
+  if (!thread_mc_initialized) {
+    thread_mc_handle = find_dissector("thread_mc");
     thread_dtls_handle = find_dissector("dtls");
-    thread_meshcop_initialized = TRUE;
+    thread_udp_handle = find_dissector("udp");
+    thread_mc_initialized = TRUE;
   }
 }
 

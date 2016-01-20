@@ -69,6 +69,7 @@ static int hf_coap_opt_location_path	= -1;
 static int hf_coap_opt_uri_port		= -1;
 static int hf_coap_opt_location_query	= -1;
 static int hf_coap_opt_uri_path		= -1;
+static int hf_coap_opt_uri_path_recon	= -1;
 static int hf_coap_opt_observe		= -1;
 static int hf_coap_opt_accept		= -1;
 static int hf_coap_opt_if_match		= -1;
@@ -807,6 +808,7 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 {
 	gint              offset = 0;
 	proto_item       *coap_root;
+	proto_item       *pi;
 	proto_tree       *coap_tree;
 	guint8            ttype;
 	guint8            token_len;
@@ -954,9 +956,11 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	if (coinfo->block_number != DEFAULT_COAP_BLOCK_NUMBER)
 		col_append_fstr(pinfo->cinfo, COL_INFO, ", %sBlock #%u",
 				coinfo->block_mflag ? "" : "End of ", coinfo->block_number);
-	if (wmem_strbuf_get_len(coinfo->uri_str_strbuf) > 0)
+	if (wmem_strbuf_get_len(coinfo->uri_str_strbuf) > 0) {
 		col_append_fstr(pinfo->cinfo, COL_INFO, ", %s", wmem_strbuf_get_str(coinfo->uri_str_strbuf));
-
+        pi = proto_tree_add_string(coap_tree, hf_coap_opt_uri_path_recon, tvb, 0, 0, wmem_strbuf_get_str(coinfo->uri_str_strbuf));
+        PROTO_ITEM_SET_HIDDEN(pi);
+    }
 	if (wmem_strbuf_get_len(coinfo->uri_query_strbuf)> 0)
 		col_append_str(pinfo->cinfo, COL_INFO, wmem_strbuf_get_str(coinfo->uri_query_strbuf));
 
@@ -1139,6 +1143,11 @@ proto_register_coap(void)
 		},
 		{ &hf_coap_opt_uri_path,
 		  { "Uri-Path", "coap.opt.uri_path",
+		    FT_STRING, BASE_NONE, NULL, 0x0,
+		    NULL, HFILL }
+		},
+		{ &hf_coap_opt_uri_path_recon,
+		  { "Uri-Path", "coap.opt.uri_path_recon",
 		    FT_STRING, BASE_NONE, NULL, 0x0,
 		    NULL, HFILL }
 		},
