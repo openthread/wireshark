@@ -860,7 +860,6 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
                     /* Check consistency of entries */
                     while (check_len > 0) {
-                        guint8 masklen;
 
                         masklen = tvb_get_guint8(tvb, check_offset);
                         if (masklen == 0) {

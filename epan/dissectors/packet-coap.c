@@ -913,11 +913,6 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
     /* Everything based on tokens */
     if (coap_token_str) {
         /* Process request/response in conversation */
-        if (code == 1) {
-            int i;
-            /* Trap for breakpoint - looking for GET */
-            i = 0xFEED;
-        }
         if (code != 0) { /* Ignore empty messages */
             /* Try and look up a matching token. If it's the first
              * sight of a request, there shouldn't be one */
