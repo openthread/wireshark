@@ -4,6 +4,14 @@ This document is a short summary for what is needed to build Wireshark from the 
 
 **Note that as of 2015-09-21, the Thread Wireshark repository is officially hosted on Bitbucket (https://bitbucket.org/threadgroup/thread-wireshark).**
 
+## Setting preferences for Thread Wireshark ##
+
+**It is important to set the correct preferences for IEEE 802.15.4 or else it will stop with an assertion**
+
+The preferences should be set as follows:
+
+![IEEE 802.15.4 preferences](WiresharkForThreadPreferences.png)
+
 ## Instructions for building using Windows ##
 
 ### Git and Bitbucket ###
