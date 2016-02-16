@@ -90,6 +90,52 @@ However, occasionally, a "cleaner" build is needed; this can be done by running:
 
     nmake -f Makefile.nmake maintainer-clean
 
+## Instructions for building using CMake on Linux ##
+
+Note: This may also work on Mac but has not been tested.
+
+Look [here regarding Debian packaging](https://www.wireshark.org/docs/wsdg_html_chunked/ChSrcBinary.html):
+
+    $ dpkg-buildpackage -rfakeroot -us -uc
+
+When this is run, there may be a lot of missing dependencies. Install these:
+
+    $ sudo apt-get install <tool>
+
+* qttools5-dev
+* qttools5-dev-tools
+* python-ply
+* libc-ares-dev
+* xsltproc
+* libcap2-dev
+* quilt
+* libparse-yapp-perl
+* libgcrypt-dev
+* libgnutls-dev
+* portaudio19-dev
+* libkrb5-dev
+* liblua5.2-dev
+* libsmi2-dev
+* libgeoip-dev
+* imagemagick
+* libnl-genl-3-dev
+* libnl-route-3-dev
+* asciidoc
+* w3m
+* libsbc-dev
+
+You should now be able to [build using CMake](https://code.wireshark.org/review/gitweb?p=wireshark.git;a=blob_plain;f=README.cmake). If it fails first time (due to some wiretap libgcrypt issue), type `make` again and it should complete this time.
+
+If you need to do a complete rebuild having installed Wireshark, it is important to delete installed libraries:
+
+    /usr/local/lib/libwsutil.so.*
+    /usr/local/lib/libwireshark.so.*
+    /usr/local/lib/libwiretap.so.*
+
+and then re-running:
+
+    $ sudo make install
+
 ## Using Git and Bitbucket ##
 
 This section is more about how the Thread Wireshark repository works in conjunction with the Wireshark Git repository and gives guidance on how to submit changes.
