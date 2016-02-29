@@ -110,7 +110,7 @@ static const value_string thread_address_tlv_status_vals[] = {
 };
 
 static int
-dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     proto_item  *volatile proto_root = NULL;
     proto_tree  *volatile thread_address_tree = NULL;

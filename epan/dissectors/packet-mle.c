@@ -1152,17 +1152,17 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 } else {
                     proto_item_append_text(ti, " = ");
                     {
-                        guint16 data = 0;
-                        guint8 len = 4; /* Fix it at 4 */
+                        guint16 to_data = 0;
+                        guint8 to_len = 4; /* Fix it at 4 */
                         guint stroffset = offset;
 
-                        while (len) {
-                            data <<= 8;
-                            data |= (guint16)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
+                        while (to_len) {
+                            to_data <<= 8;
+                            to_data |= (guint16)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
                             stroffset++;
-                            len--;
+                            to_len--;
                         }
-                        proto_item_append_text(ti, "%d", data);
+                        proto_item_append_text(ti, "%d", to_data);
                     }
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_timeout, payload_tvb, offset, 2, FALSE);
                 }
@@ -1205,17 +1205,17 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 } else {
                     proto_item_append_text(ti, " = ");
                     {
-                        guint32 data = 0;
-                        guint8 len = 4; /* Fix it at 4 */
+                        guint32 fc_data = 0;
+                        guint8 fc_len = 4; /* Fix it at 4 */
                         guint stroffset = offset;
 
-                        while (len) {
-                            data <<= 8;
-                            data |= (guint32)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
+                        while (fc_len) {
+                            fc_data <<= 8;
+                            fc_data |= (guint32)tvb_get_guint8(payload_tvb, stroffset) & 0xFF;
                             stroffset++;
-                            len--;
+                            fc_len--;
                         }
-                        proto_item_append_text(ti, "%u", data);
+                        proto_item_append_text(ti, "%u", fc_data);
                     }
                     if (tlv_type == MLE_TLV_LINK_LAYER_FRAME_COUNTER) {
                         proto_tree_add_item(tlv_tree, hf_mle_tlv_ll_frm_cntr, payload_tvb, offset, tlv_len, FALSE);
@@ -1389,14 +1389,14 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     guint16 shortAddr = tvb_get_ntohs(payload_tvb, offset);
                     proto_item_append_text(ti, " = ");
                     {
-                        guint8 len = 2; /* Fix it at 2 */
+                        guint8 a16_len = 2; /* Fix it at 2 */
                         guint stroffset = offset;
 
-                        while (len) {
-                            guint8 data;
-                            data = tvb_get_guint8(payload_tvb, stroffset);
-                            proto_item_append_text(ti, "%02x", data);
-                            if (--len) {
+                        while (a16_len) {
+                            guint8 a16_data;
+                            a16_data = tvb_get_guint8(payload_tvb, stroffset);
+                            proto_item_append_text(ti, "%02x", a16_data);
+                            if (--a16_len) {
                                 proto_item_append_text(ti, ":");
                             }
                             stroffset++;
@@ -1553,16 +1553,16 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
                     /* Check consistency of entries */
                     while (check_len > 0) {
-                        guint8 len;
+                        guint8 ar_len;
 
                         iid_type = tvb_get_guint8(payload_tvb, check_offset);
                         if (iid_type & ADDR_REG_MASK_IID_TYPE_MASK) {
-                            len = 9;
+                            ar_len = 9;
                         } else {
-                            len = 17;
+                            ar_len = 17;
                         }
-                        check_offset += len;
-                        check_len -= len;
+                        check_offset += ar_len;
+                        check_len -= ar_len;
                         entries++;
                     }
 
