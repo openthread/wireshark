@@ -60,8 +60,8 @@ typedef struct imap_state {
   gboolean  ssl_requested;
 } imap_state_t;
 
-static void
-dissect_imap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_imap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   gboolean        is_request;
   proto_tree      *imap_tree, *reqresp_tree;
@@ -257,8 +257,7 @@ dissect_imap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
           /* If not yet switched to TLS, check for STARTTLS. */
           if (session_state->ssl_requested) {
-            if (!is_request && session_state->ssl_requested &&
-              strncmp(tokenbuf, "ok", tokenlen) == 0) {
+            if (!is_request && strncmp(tokenbuf, "ok", tokenlen) == 0) {
               /* STARTTLS accepted, next reply will be TLS. */
               ssl_starttls_ack(ssl_handle, pinfo, imap_handle);
             }
@@ -283,6 +282,8 @@ dissect_imap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       offset = next_offset; /* Skip over last line and \r\n at the end of it */
     }
   }
+
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -343,8 +344,8 @@ proto_register_imap(void)
   };
 
   static gint *ett[] = {
-  &ett_imap,
-  &ett_imap_reqresp,
+    &ett_imap,
+    &ett_imap_reqresp,
   };
 
   proto_imap = proto_register_protocol("Internet Message Access Protocol", "IMAP", "imap");
@@ -359,7 +360,7 @@ void
 proto_reg_handoff_imap(void)
 {
   dissector_add_uint("tcp.port", TCP_PORT_IMAP, imap_handle);
-  ssl_dissector_add(TCP_PORT_SSL_IMAP, "imap", TRUE);
+  ssl_dissector_add(TCP_PORT_SSL_IMAP, imap_handle);
   ssl_handle = find_dissector("ssl");
 }
 /*

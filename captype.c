@@ -32,10 +32,6 @@
 #include <locale.h>
 #include <errno.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
@@ -45,6 +41,8 @@
 #endif
 
 #include <glib.h>
+
+#include <wiretap/wtap.h>
 
 #include <wsutil/crash_info.h>
 #include <wsutil/file_util.h>
@@ -57,7 +55,6 @@
 #include <wsutil/plugins.h>
 #endif
 
-#include "wtap.h"
 #include <wsutil/report_err.h>
 #include <wsutil/str_util.h>
 
@@ -126,13 +123,11 @@ main(int argc, char *argv[])
   int    i;
   int    opt;
   int    overall_error_status;
-DIAG_OFF(cast-qual)
   static const struct option long_options[] = {
-      {(char *)"help", no_argument, NULL, 'h'},
-      {(char *)"version", no_argument, NULL, 'v'},
+      {"help", no_argument, NULL, 'h'},
+      {"version", no_argument, NULL, 'v'},
       {0, 0, 0, 0 }
   };
-DIAG_ON(cast-qual)
 
 #ifdef HAVE_PLUGINS
   char  *init_progfile_dir_error;
@@ -167,7 +162,7 @@ DIAG_ON(cast-qual)
   init_open_routines();
 
 #ifdef HAVE_PLUGINS
-  if ((init_progfile_dir_error = init_progfile_dir(argv[0], (void *)main))) {
+  if ((init_progfile_dir_error = init_progfile_dir(argv[0], main))) {
     g_warning("captype: init_progfile_dir(): %s", init_progfile_dir_error);
     g_free(init_progfile_dir_error);
   } else {
@@ -193,7 +188,7 @@ DIAG_ON(cast-qual)
       case 'h':
         printf("Captype (Wireshark) %s\n"
                "Print the file types of capture files.\n"
-               "See http://www.wireshark.org for more information.\n",
+               "See https://www.wireshark.org for more information.\n",
                get_ws_vcs_version_info());
         print_usage(stdout);
         exit(0);

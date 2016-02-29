@@ -23,6 +23,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wsutil/pint.h>
 #include <epan/etypes.h>
 #include <epan/prefs.h>
@@ -112,20 +113,17 @@ const value_string chdlc_vals[] = {
   {0,                     NULL}
 };
 
-void
-capture_chdlc( const guchar *pd, int offset, int len, packet_counts *ld ) {
-  if (!BYTES_ARE_IN_FRAME(offset, len, 4)) {
-    ld->other++;
-    return;
-  }
+gboolean
+capture_chdlc( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_ ) {
+  if (!BYTES_ARE_IN_FRAME(offset, len, 4))
+    return FALSE;
+
   switch (pntoh16(&pd[offset + 2])) {
     case ETHERTYPE_IP:
-      capture_ip(pd, offset + 4, len, ld);
-      break;
-    default:
-      ld->other++;
-      break;
+      return capture_ip(pd, offset + 4, len, cpinfo, pseudo_header);
   }
+
+  return FALSE;
 }
 
 void
@@ -160,8 +158,8 @@ chdlctype(guint16 chdlc_type, tvbuff_t *tvb, int offset_after_chdlctype,
 
 static gint chdlc_fcs_decode = 0; /* 0 = No FCS, 1 = 16 bit FCS, 2 = 32 bit FCS */
 
-static void
-dissect_chdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_chdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
   proto_tree *fh_tree = NULL;
@@ -201,6 +199,7 @@ dissect_chdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   decode_fcs(tvb, fh_tree, chdlc_fcs_decode, 2);
 
   chdlctype(proto, tvb, 4, pinfo, tree, fh_tree, hf_chdlc_proto);
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -234,7 +233,7 @@ proto_register_chdlc(void)
   /* subdissector code */
   subdissector_table = register_dissector_table("chdlc.protocol",
                                                 "Cisco HDLC protocol",
-                                                FT_UINT16, BASE_HEX);
+                                                FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   register_dissector("chdlc", dissect_chdlc, proto_chdlc);
 
@@ -261,6 +260,8 @@ proto_reg_handoff_chdlc(void)
   dissector_add_uint("wtap_encap", WTAP_ENCAP_CHDLC_WITH_PHDR, chdlc_handle);
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_CHDLC, chdlc_handle);
   dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_CHDLC, chdlc_handle);
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_CHDLC, capture_chdlc, proto_chdlc);
 }
 
 
@@ -277,11 +278,11 @@ static const value_string slarp_ptype_vals[] = {
   {0,               NULL}
 };
 
-static void
-dissect_slarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_slarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
-  proto_tree *slarp_tree = NULL;
+  proto_tree *slarp_tree;
   guint32     code;
   guint32     addr;
   guint32     mysequence;
@@ -293,10 +294,8 @@ dissect_slarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
   code = tvb_get_ntohl(tvb, 0);
 
-  if (tree) {
-    ti = proto_tree_add_item(tree, proto_slarp, tvb, 0, 14, ENC_NA);
-    slarp_tree = proto_item_add_subtree(ti, ett_slarp);
-  }
+  ti = proto_tree_add_item(tree, proto_slarp, tvb, 0, 14, ENC_NA);
+  slarp_tree = proto_item_add_subtree(ti, ett_slarp);
 
   switch (code) {
 
@@ -320,29 +319,28 @@ dissect_slarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                      "%s, outgoing sequence %u, returned sequence %u",
                      val_to_str(code, slarp_ptype_vals, "Unknown (%d)"),
                      mysequence, yoursequence);
-    if (tree) {
-      proto_tree_add_uint(slarp_tree, hf_slarp_ptype, tvb, 0, 4, code);
-      proto_tree_add_uint(slarp_tree, hf_slarp_mysequence, tvb, 4, 4,
+
+    proto_tree_add_uint(slarp_tree, hf_slarp_ptype, tvb, 0, 4, code);
+    proto_tree_add_uint(slarp_tree, hf_slarp_mysequence, tvb, 4, 4,
                           mysequence);
-      proto_tree_add_uint(slarp_tree, hf_slarp_yoursequence, tvb, 8, 4,
+    proto_tree_add_uint(slarp_tree, hf_slarp_yoursequence, tvb, 8, 4,
                           yoursequence);
-      reliability_item = proto_tree_add_item(slarp_tree, hf_slarp_reliability, tvb,
+    reliability_item = proto_tree_add_item(slarp_tree, hf_slarp_reliability, tvb,
         12, 2, ENC_BIG_ENDIAN);
-      if (tvb_get_ntohs(tvb, 12) != 0xFFFF) {
+    if (tvb_get_ntohs(tvb, 12) != 0xFFFF) {
         expert_add_info(pinfo, reliability_item, &ei_slarp_reliability);
-      }
     }
     break;
 
   default:
     col_add_fstr(pinfo->cinfo, COL_INFO, "Unknown packet type 0x%08X", code);
-    if (tree) {
-      proto_tree_add_uint(slarp_tree, hf_slarp_ptype, tvb, 0, 4, code);
-      call_dissector(data_handle, tvb_new_subset_remaining(tvb, 4), pinfo,
+
+    proto_tree_add_uint(slarp_tree, hf_slarp_ptype, tvb, 0, 4, code);
+    call_dissector(data_handle, tvb_new_subset_remaining(tvb, 4), pinfo,
                      slarp_tree);
-    }
     break;
   }
+  return tvb_captured_length(tvb);
 }
 
 void

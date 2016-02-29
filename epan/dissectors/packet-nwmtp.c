@@ -64,7 +64,7 @@ static const value_string nwmtp_data_type_vals[] = {
 	{ 0,	    NULL },
 };
 
-static void dissect_nwmtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_nwmtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	gint offset = 0;
 
@@ -114,6 +114,8 @@ static void dissect_nwmtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		DISSECTOR_ASSERT((guint64)offset + len + 12 < G_MAXINT);
 		offset += len + 12;
 	}
+
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_mwmtp(void)

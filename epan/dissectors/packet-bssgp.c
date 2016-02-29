@@ -537,7 +537,7 @@ x8f Priority Class Indicator
 */
 
 /* Macros */
-/* Defined localy here without the check of curr_len wrapping, that will be taken care of when this IEI dissecton finishes */
+/* Defined locally here without the check of curr_len wrapping, that will be taken care of when this IEI dissection finishes */
 #define ELEM_IN_ELEM_MAND_TELV(EMT_iei, EMT_pdu_type, EMT_elem_idx, EMT_elem_name_addition) \
 {\
     if ((consumed = elem_telv(tvb, tree, pinfo, (guint8) EMT_iei, EMT_pdu_type, EMT_elem_idx, curr_offset, curr_len, EMT_elem_name_addition)) > 0) \
@@ -996,7 +996,7 @@ de_bssgp_llc_frames_disc(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_
 /* Octets 3-n contain either the IMSI, IMEISV or IMEI coded as the
  * value part (starting with octet 3) of the Mobile Identity IE defined in
  * 3GPP TS 24.008, not including 3GPP TS 24.008 IEI and
- * 3GPP TS 24.008 length indcator
+ * 3GPP TS 24.008 length indicator
  */
 /*
  * 11.3.21  MS Bucket Size
@@ -6383,8 +6383,8 @@ static void get_bssgp_msg_params(guint8 oct, const gchar **msg_str, int *ett_tre
     return;
 }
 
-static void
-dissect_bssgp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_bssgp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
     proto_item  *ti;
@@ -6422,7 +6422,7 @@ dissect_bssgp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         col_add_fstr(pinfo->cinfo, COL_INFO, "%s", msg_str);
     }else{
         expert_add_info_format(pinfo, ti, &ei_bssgp_msg_type, "Unknown message 0x%x", g_pdu_type);
-        return;
+        return 1;
     }
 
     /*
@@ -6443,6 +6443,7 @@ dissect_bssgp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
         (*msg_fcn_p)(tvb, bssgp_tree, pinfo, offset, len - offset);
     }
+    return tvb_captured_length(tvb);
 }
 
 void

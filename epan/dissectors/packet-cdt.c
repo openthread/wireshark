@@ -278,7 +278,7 @@ dissect_cdt_CompressedContent(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int 
      dissect_unknown_ber (actx->pinfo, next_tvb, 0, top_tree);
      break;
    case CDT_P1:
-     dissect_p1_mts_apdu (next_tvb, actx->pinfo, top_tree);
+     dissect_p1_mts_apdu (next_tvb, actx->pinfo, top_tree, NULL);
      break;
    default:
      call_dissector (data_handle, next_tvb, actx->pinfo, top_tree);
@@ -451,7 +451,7 @@ void proto_reg_handoff_cdt (void) {
 
 /*--- Included file: packet-cdt-dis-tab.c ---*/
 #line 1 "../../asn1/cdt/packet-cdt-dis-tab.c"
-  new_register_ber_oid_dissector("1.3.26.0.4406.0.4.2", dissect_CompressedData_PDU, proto_cdt, "cdt");
+  register_ber_oid_dissector("1.3.26.0.4406.0.4.2", dissect_CompressedData_PDU, proto_cdt, "cdt");
 
 
 /*--- End of included file: packet-cdt-dis-tab.c ---*/

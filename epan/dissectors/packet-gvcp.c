@@ -487,6 +487,8 @@ static int ett_gvcp_payload_cmd_subtree = -1;
 static int ett_gvcp_payload_ack_subtree = -1;
 static int ett_gvcp_bootstrap_fields = -1;
 
+static dissector_handle_t gvcp_handle;
+
 
 /*Device Mode*/
 static const value_string devicemodenames_class[] = {
@@ -1513,13 +1515,8 @@ static void dissect_writereg_cmd(proto_tree *gvcp_telegram_tree, tvbuff_t *tvb, 
 	/* Automatically learn messaging channel port. Dissect as GVCP. */
 	if (addr == GVCP_MC_DESTINATION_PORT)
 	{
-		dissector_handle_t gvcp_handle;
-		gvcp_handle = find_dissector("gvcp");
-		if (gvcp_handle != NULL)
-		{
-			/* For now we simply (always) add ports. Maybe we should remove when the dissector gets unloaded? */
-			dissector_add_uint("udp.port", value, gvcp_handle);
-		}
+		/* XXX For now we simply (always) add ports. Maybe we should remove when the dissector gets unloaded? */
+		dissector_add_uint("udp.port", value, gvcp_handle);
 	}
 
 	if (num_registers > 1)
@@ -1955,7 +1952,14 @@ static void dissect_readreg_ack(proto_tree *gvcp_telegram_tree, tvbuff_t *tvb, p
 				address_string = get_register_name_from_address(*((guint32*)wmem_array_index(gvcp_trans->addr_list, 0)), &is_custom_register);
 			}
 
-			col_append_fstr(pinfo->cinfo, COL_INFO, "%s Value=0x%08X", address_string, tvb_get_ntohl(tvb, offset));
+			if (num_registers)
+			{
+				col_append_fstr(pinfo->cinfo, COL_INFO, "%s Value=0x%08X", address_string, tvb_get_ntohl(tvb, offset));
+			}
+			else
+			{
+				col_append_fstr(pinfo->cinfo, COL_INFO, "%s", address_string);
+			}
 		}
 	}
 
@@ -2282,7 +2286,7 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 		{
 			/* This is a request */
 			gvcp_trans = (gvcp_transaction_t*)wmem_alloc(wmem_packet_scope(), sizeof(gvcp_transaction_t));
-			gvcp_trans->req_frame = pinfo->fd->num;
+			gvcp_trans->req_frame = pinfo->num;
 			gvcp_trans->rep_frame = 0;
 			gvcp_trans->addr_list = 0;
 			gvcp_trans->addr_count = 0;
@@ -2302,7 +2306,7 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 					{
 						gvcp_trans = (gvcp_transaction_t*)wmem_array_index(gvcp_trans_array, i);
 
-						if (gvcp_trans && (gvcp_trans->req_frame < pinfo->fd->num))
+						if (gvcp_trans && (gvcp_trans->req_frame < pinfo->num))
 						{
 							if (gvcp_trans->rep_frame != 0)
 							{
@@ -2310,7 +2314,7 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 							}
 							else
 							{
-								gvcp_trans->rep_frame = pinfo->fd->num;
+								gvcp_trans->rep_frame = pinfo->num;
 							}
 
 							break;
@@ -2334,7 +2338,7 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 			for (i = 0; i < array_size; ++i)
 			{
 				gvcp_trans = (gvcp_transaction_t*)wmem_array_index(gvcp_trans_array, i);
-				if (gvcp_trans && (pinfo->fd->num == gvcp_trans->req_frame || pinfo->fd->num == gvcp_trans->rep_frame))
+				if (gvcp_trans && (pinfo->num == gvcp_trans->req_frame || pinfo->num == gvcp_trans->rep_frame))
 				{
 					break;
 				}
@@ -2763,7 +2767,7 @@ void proto_register_gvcp(void)
 		/* GVCP_devicemode */
 
 		{ &hf_gvcp_devicemode_endianess,
-		{ "Endianess", "gvcp.bootstrap.devicemode.endianess",
+		{ "Endianness", "gvcp.bootstrap.devicemode.endianess",
 		FT_BOOLEAN, 32, NULL, 0x80000000,
 		NULL, HFILL
 		}},
@@ -3807,7 +3811,7 @@ void proto_register_gvcp(void)
 
 	proto_gvcp = proto_register_protocol("GigE Vision Control Protocol", "GVCP", "gvcp");
 
-	new_register_dissector("gvcp", dissect_gvcp, proto_gvcp);
+	gvcp_handle = register_dissector("gvcp", dissect_gvcp, proto_gvcp);
 
 	proto_register_field_array(proto_gvcp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
@@ -3817,9 +3821,7 @@ void proto_register_gvcp(void)
 
 void proto_reg_handoff_gvcp(void)
 {
-		static dissector_handle_t gvcp_handle;
-		gvcp_handle = new_create_dissector_handle((new_dissector_t)dissect_gvcp, proto_gvcp);
-		dissector_add_uint("udp.port", global_gvcp_port, gvcp_handle);
+	dissector_add_uint("udp.port", global_gvcp_port, gvcp_handle);
 }
 
 /*

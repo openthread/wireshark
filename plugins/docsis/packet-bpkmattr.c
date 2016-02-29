@@ -339,8 +339,8 @@ dissect_attrs (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
     }                           /* while */
 }
 
-static void
-dissect_bpkmattr (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_bpkmattr (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
 
   proto_item *it;
@@ -354,6 +354,7 @@ dissect_bpkmattr (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
       bpkmattr_tree = proto_item_add_subtree (it, ett_docsis_bpkmattr);
       dissect_attrs (tvb, pinfo, bpkmattr_tree);
     }
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -431,7 +432,7 @@ proto_register_docsis_bpkmattr (void)
     },
 #endif
     {&hf_docsis_bpkmattr_cbc_iv,
-     {"14 CBC IV", "docsis_bpkmattr.cbciv",
+     {"15 CBC IV", "docsis_bpkmattr.cbciv",
       FT_BYTES, BASE_NONE, NULL, 0x0,
       "Cypher Block Chaining", HFILL}
     },

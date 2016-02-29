@@ -457,7 +457,7 @@ tvb_captured_length_remaining(const tvbuff_t *tvb, const gint offset)
 guint
 tvb_ensure_captured_length_remaining(const tvbuff_t *tvb, const gint offset)
 {
-	guint abs_offset, rem_length;
+	guint abs_offset = 0, rem_length = 0;
 	int   exception;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -682,7 +682,7 @@ tvb_offset_from_real_beginning(const tvbuff_t *tvb)
 static inline const guint8*
 ensure_contiguous_no_exception(tvbuff_t *tvb, const gint offset, const gint length, int *pexception)
 {
-	guint abs_offset, abs_length;
+	guint abs_offset = 0, abs_length = 0;
 	int   exception;
 
 	exception = check_offset_length_no_exception(tvb, offset, length, &abs_offset, &abs_length);
@@ -761,7 +761,7 @@ fast_ensure_contiguous(tvbuff_t *tvb, const gint offset, const guint length)
 void *
 tvb_memcpy(tvbuff_t *tvb, void *target, const gint offset, size_t length)
 {
-	guint	abs_offset, abs_length;
+	guint	abs_offset = 0, abs_length = 0;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
 
@@ -819,7 +819,7 @@ tvb_memcpy(tvbuff_t *tvb, void *target, const gint offset, size_t length)
 void *
 tvb_memdup(wmem_allocator_t *scope, tvbuff_t *tvb, const gint offset, size_t length)
 {
-	guint  abs_offset, abs_length;
+	guint  abs_offset = 0, abs_length = 0;
 	void  *duped;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -1859,8 +1859,8 @@ gint
 tvb_find_guint8(tvbuff_t *tvb, const gint offset, const gint maxlength, const guint8 needle)
 {
 	const guint8 *result;
-	guint	      abs_offset;
-	guint	      limit;
+	guint	      abs_offset = 0;
+	guint	      limit = 0;
 	int           exception;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -1870,10 +1870,10 @@ tvb_find_guint8(tvbuff_t *tvb, const gint offset, const gint maxlength, const gu
 		THROW(exception);
 
 	/* Only search to end of tvbuff, w/o throwing exception. */
-	if (limit > (guint) maxlength) {
+	if (maxlength >= 0 && limit > (guint) maxlength) {
 		/* Maximum length doesn't go past end of tvbuff; search
 		   to that value. */
-		limit = maxlength;
+		limit = (guint) maxlength;
 	}
 
 	/* If we have real data, perform our search now. */
@@ -1921,8 +1921,8 @@ tvb_ws_mempbrk_pattern_guint8(tvbuff_t *tvb, const gint offset, const gint maxle
 			const ws_mempbrk_pattern* pattern, guchar *found_needle)
 {
 	const guint8 *result;
-	guint	      abs_offset;
-	guint	      limit;
+	guint	      abs_offset = 0;
+	guint	      limit = 0;
 	int           exception;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -1963,7 +1963,7 @@ tvb_ws_mempbrk_pattern_guint8(tvbuff_t *tvb, const gint offset, const gint maxle
 guint
 tvb_strsize(tvbuff_t *tvb, const gint offset)
 {
-	guint abs_offset, junk_length;
+	guint abs_offset = 0, junk_length;
 	gint  nul_offset;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -2021,7 +2021,7 @@ gint
 tvb_strnlen(tvbuff_t *tvb, const gint offset, const guint maxlength)
 {
 	gint  result_offset;
-	guint abs_offset, junk_length;
+	guint abs_offset = 0, junk_length;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
 
@@ -2929,8 +2929,8 @@ static gint
 _tvb_get_nstringz(tvbuff_t *tvb, const gint offset, const guint bufsize, guint8* buffer, gint *bytes_copied)
 {
 	gint     stringlen;
-	guint    abs_offset;
-	gint     limit, len;
+	guint    abs_offset = 0;
+	gint     limit, len = 0;
 	gboolean decreased_max = FALSE;
 
 	/* Only read to end of tvbuff, w/o throwing exception. */
@@ -3407,7 +3407,7 @@ tvb_skip_guint8(tvbuff_t *tvb, int offset, const int maxlength, const guint8 ch)
 gchar *
 tvb_bytes_to_str_punct(wmem_allocator_t *scope, tvbuff_t *tvb, const gint offset, const gint len, const gchar punct)
 {
-	return (gchar*)bytestring_to_str(scope, ensure_contiguous(tvb, offset, len), len, punct);
+	return bytestring_to_str(scope, ensure_contiguous(tvb, offset, len), len, punct);
 }
 
 
@@ -3465,8 +3465,15 @@ tvb_bcd_dig_to_wmem_packet_str(tvbuff_t *tvb, const gint offset, const gint len,
 		 */
 		octet = octet >> 4;
 
-		if (octet == 0x0f)	/* odd number bytes - hit filler */
+		if (t_offset == length - 1 && octet == 0x0f) {
+			/*
+			 * This is the last octet, and the low-order
+			 * nibble is 0xf, so we have an odd number of
+			 * digits, and this is a filler digit.  Ignore
+			 * it.
+			 */
 			break;
+		}
 
 		digit_str[i] = dgt->out[octet & 0x0f];
 		i++;
@@ -3492,7 +3499,7 @@ gchar *tvb_bytes_to_str(wmem_allocator_t *allocator, tvbuff_t *tvb,
 gint
 tvb_find_tvb(tvbuff_t *haystack_tvb, tvbuff_t *needle_tvb, const gint haystack_offset)
 {
-	guint	      haystack_abs_offset, haystack_abs_length;
+	guint	      haystack_abs_offset = 0, haystack_abs_length = 0;
 	const guint8 *haystack_data;
 	const guint8 *needle_data;
 	const guint   needle_len = needle_tvb->length;

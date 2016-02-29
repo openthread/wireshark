@@ -51,7 +51,7 @@ typedef struct
     wmem_tree_t * session_tree;
 } lbttcp_transport_conv_data_t;
 
-static const address lbttcp_null_address = { AT_NONE, 0, NULL };
+static const address lbttcp_null_address = ADDRESS_INIT_NONE;
 
 lbttcp_transport_t * lbttcp_transport_find(const address * source_address, guint16 source_port, guint32 session_id, guint32 frame)
 {
@@ -76,7 +76,7 @@ static lbttcp_transport_t * lbttcp_transport_create(const address * source_addre
     lbttcp_transport_t * transport = NULL;
 
     transport = wmem_new(wmem_file_scope(), lbttcp_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(transport->source_address), source_address);
+    copy_address_wmem(wmem_file_scope(), &(transport->source_address), source_address);
     transport->source_port = source_port;
     transport->session_id = session_id;
     transport->channel = lbm_channel_assign(LBM_CHANNEL_TRANSPORT_LBTTCP);
@@ -154,7 +154,7 @@ static lbttcp_client_transport_t * lbttcp_client_transport_add(lbttcp_transport_
         return (entry);
     }
     entry = wmem_new(wmem_file_scope(), lbttcp_client_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->receiver_address), receiver_address);
+    copy_address_wmem(wmem_file_scope(), &(entry->receiver_address), receiver_address);
     entry->receiver_port = receiver_port;
     entry->id = transport->next_client_id++;
 
@@ -533,37 +533,37 @@ static int dissect_lbttcp_pdu(tvbuff_t * tvb, packet_info * pinfo, proto_tree * 
 
         if (from_source)
         {
-            COPY_ADDRESS_SHALLOW(&source_address, &(pinfo->src));
+            copy_address_shallow(&source_address, &(pinfo->src));
             srcport = pinfo->srcport;
-            COPY_ADDRESS_SHALLOW(&client_address, &(pinfo->dst));
+            copy_address_shallow(&client_address, &(pinfo->dst));
             clntport = pinfo->destport;
         }
         else
         {
-            COPY_ADDRESS_SHALLOW(&source_address, &(pinfo->dst));
+            copy_address_shallow(&source_address, &(pinfo->dst));
             srcport = pinfo->destport;
-            COPY_ADDRESS_SHALLOW(&client_address, &(pinfo->src));
+            copy_address_shallow(&client_address, &(pinfo->src));
             clntport = pinfo->srcport;
         }
         /* See if we have a matching transport with no session ID. */
-        transport = lbttcp_transport_find(&source_address, srcport, sid, pinfo->fd->num);
+        transport = lbttcp_transport_find(&source_address, srcport, sid, pinfo->num);
         if (transport == NULL)
         {
             /* See if we know about a SID */
-            if (lbttcp_transport_sid_find(&source_address, srcport, pinfo->fd->num, &sid))
+            if (lbttcp_transport_sid_find(&source_address, srcport, pinfo->num, &sid))
             {
-                transport = lbttcp_transport_find(&source_address, srcport, sid, pinfo->fd->num);
+                transport = lbttcp_transport_find(&source_address, srcport, sid, pinfo->num);
             }
         }
         if (transport != NULL)
         {
             channel = transport->channel;
             /* See if we already know about this client */
-            client = lbttcp_client_transport_find(transport, &client_address, clntport, pinfo->fd->num);
+            client = lbttcp_client_transport_find(transport, &client_address, clntport, pinfo->num);
             if (client == NULL)
             {
                 /* No - add it. */
-                client = lbttcp_client_transport_add(transport, &client_address, clntport, pinfo->fd->num);
+                client = lbttcp_client_transport_add(transport, &client_address, clntport, pinfo->num);
             }
             if (client != NULL)
             {
@@ -575,11 +575,11 @@ static int dissect_lbttcp_pdu(tvbuff_t * tvb, packet_info * pinfo, proto_tree * 
             if (PINFO_FD_VISITED(pinfo))
             {
                 /* No TIR and no session ID seen, so create the transport */
-                transport = lbttcp_transport_add(&source_address, srcport, 0, pinfo->fd->num);
+                transport = lbttcp_transport_add(&source_address, srcport, 0, pinfo->num);
                 if (transport != NULL)
                 {
                     channel = transport->channel;
-                    client = lbttcp_client_transport_add(transport, &client_address, clntport, pinfo->fd->num);
+                    client = lbttcp_client_transport_add(transport, &client_address, clntport, pinfo->num);
                     if (client != NULL)
                     {
                         client_id = client->id;
@@ -801,7 +801,7 @@ void proto_reg_handoff_lbttcp(void)
 
     if (!already_registered)
     {
-        lbttcp_dissector_handle = new_create_dissector_handle(dissect_lbttcp, proto_lbttcp);
+        lbttcp_dissector_handle = create_dissector_handle(dissect_lbttcp, proto_lbttcp);
         dissector_add_for_decode_as("tcp.port", lbttcp_dissector_handle);
         heur_dissector_add("tcp", test_lbttcp_packet, "LBT over TCP", "lbttcp_tcp", proto_lbttcp, HEURISTIC_ENABLE);
     }

@@ -1,4 +1,6 @@
--- 3GPP TS 25.331 V12.6.0 (2015-06)
+-- 3GPP TS 25.331 V13.1.0 (2015-12)
+--
+-- 11.1	General message structure
 --
 Class-definitions DEFINITIONS AUTOMATIC TAGS ::=
 
@@ -70,6 +72,7 @@ IMPORTS
 	SignallingConnectionRelease,
 	SignallingConnectionReleaseIndication,
 	SystemInformation-BCH,
+	SystemInformation2-BCH,
 	SystemInformation-FACH,
 	SystemInformationChangeIndication,
 	TransportChannelReconfiguration,
@@ -335,6 +338,16 @@ BCCH-FACH-MessageType ::= CHOICE {
 
 BCCH-BCH-Message ::= SEQUENCE {
 	message				SystemInformation-BCH
+}
+
+--**************************************************************
+--
+-- BCCH messages sent on BCH2
+--
+--**************************************************************
+
+BCCH-BCH2-Message ::= SEQUENCE {
+	message				SystemInformation2-BCH
 }
 
 --**************************************************************

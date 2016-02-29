@@ -863,8 +863,8 @@ static const value_string op_mode_vals[] = {
 static const value_string link_param_qos_vals[] = {
 {0, "Max no of differentiable classes"},
 {1, "Min Packet transfer delay"},
-{2, "Avg packet ransfer delay"},
-{3, "Max packet ransfer delay"},
+{2, "Avg packet transfer delay"},
+{3, "Max packet transfer delay"},
 {4, "delay jitter"},
 {5, "Packet loss"},
 {0, NULL}
@@ -1220,7 +1220,7 @@ static gint16 dissect_link_poa(tvbuff_t *tvb, gint16 offset, proto_tree *tlv_tre
 static gint16 dissect_rq_result(tvbuff_t *tvb, gint16 offset, proto_tree *tlv_tree)
 {
         proto_tree *subtree;
-        subtree = proto_tree_add_subtree(tlv_tree, tvb, offset, 1, ett_list_prefer_link, NULL, "List of preffered links");
+        subtree = proto_tree_add_subtree(tlv_tree, tvb, offset, 1, ett_list_prefer_link, NULL, "List of preferred links");
         offset = dissect_link_poa(tvb, offset, subtree);
         offset = dissect_qos_list(tvb, offset, tlv_tree);
         offset++;
@@ -1986,7 +1986,7 @@ static void dissect_mih_tlv(tvbuff_t *tvb,int offset, proto_tree *tlv_tree, guin
         return;
 }
 
-static void dissect_mih(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mih(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
         proto_item *ti = NULL;
         int offset = 0;
@@ -2065,23 +2065,19 @@ static void dissect_mih(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         switch (service)
         {
         case 1 :/*for Service Management..*/
-                if(mid_tree)
-                        proto_tree_add_item(mid_tree, hf_mih_serv_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(mid_tree, hf_mih_serv_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
                 col_append_fstr(pinfo->cinfo, COL_INFO, "\"%s\"", val_to_str(action, serv_act_id_values, "Unknown"));
                 break;
         case 2 :/*for event services..*/
-                if(mid_tree)
-                        proto_tree_add_item(mid_tree, hf_mih_event_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(mid_tree, hf_mih_event_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
                 col_append_fstr(pinfo->cinfo, COL_INFO, "\"%s\"", val_to_str(action, event_act_id_values, "Unknown"));
                 break;
         case 3 :/*for Command Services..*/
-                if(mid_tree)
-                        proto_tree_add_item(mid_tree, hf_mih_command_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(mid_tree, hf_mih_command_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
                 col_append_fstr(pinfo->cinfo, COL_INFO, "\"%s\"", val_to_str(action, command_act_id_values, "Unknown"));
                 break;
         case 4 :/*for Information Services..*/
-                if(mid_tree)
-                        proto_tree_add_item(mid_tree, hf_mih_info_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(mid_tree, hf_mih_info_actionid, tvb, offset, 2, ENC_BIG_ENDIAN);
                 col_append_fstr(pinfo->cinfo, COL_INFO, "\"%s\"", val_to_str(action, info_act_id_values, "Unknown"));
                 break;
         }
@@ -2191,7 +2187,7 @@ static void dissect_mih(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                                 offset += (guint32)len;
                                 payload_length -= (1 + len_of_len + (guint32)len);
                         }else{
-                            return;
+                            return offset;
                         }
                 }
                 else
@@ -2202,9 +2198,11 @@ static void dissect_mih(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
         if(fragment!=0)
                 proto_tree_add_item(mih_tree, hf_fragmented_tlv, tvb, offset, -1, ENC_NA);
+
+        return tvb_captured_length(tvb);
 }
 
-/*dissector initialistaion*/
+/*dissector initialisation*/
 void proto_register_mih(void)
 {
         static hf_register_info hf[] =
@@ -2417,7 +2415,7 @@ void proto_register_mih(void)
                         &hf_mih_type_length_ext,
                         {
                                 "MIH TLV length",
-                                "mih.tlv_length",
+                                "mih.tlv_length_ext",
                                 FT_UINT64,
                                 BASE_DEC,
                                 NULL,
@@ -2441,7 +2439,7 @@ void proto_register_mih(void)
                         &hf_mihf_id_mac,
                         {
                                 "MIHF_ID",
-                                "mih.mihf_id",
+                                "mih.mihf_id.mac",
                                 FT_ETHER,
                                 BASE_NONE,
                                 NULL,
@@ -2453,7 +2451,7 @@ void proto_register_mih(void)
                         &hf_mihf_id_ipv4,
                         {
                                 "MIHF_ID",
-                                "mih.mihf_id",
+                                "mih.mihf_id.ipv4",
                                 FT_IPv4,
                                 BASE_NONE,
                                 NULL,
@@ -2465,7 +2463,7 @@ void proto_register_mih(void)
                         &hf_mihf_id_ipv6,
                         {
                                 "MIHF_ID",
-                                "mih.mihf_id",
+                                "mih.mihf_id.ipv6",
                                 FT_IPv6,
                                 BASE_NONE,
                                 NULL,

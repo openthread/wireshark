@@ -154,8 +154,8 @@ void proto_register_cms(void) {
   proto_register_field_array(proto_cms, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  new_register_ber_syntax_dissector("ContentInfo", proto_cms, dissect_ContentInfo_PDU);
-  new_register_ber_syntax_dissector("SignedData", proto_cms, dissect_SignedData_PDU);
+  register_ber_syntax_dissector("ContentInfo", proto_cms, dissect_ContentInfo_PDU);
+  register_ber_syntax_dissector("SignedData", proto_cms, dissect_SignedData_PDU);
   register_ber_oid_syntax(".p7s", NULL, "ContentInfo");
   register_ber_oid_syntax(".p7m", NULL, "ContentInfo");
   register_ber_oid_syntax(".p7c", NULL, "ContentInfo");
@@ -173,7 +173,7 @@ void proto_reg_handoff_cms(void) {
   oid_add_from_string("id-alg-des-ede3-cbc","1.2.840.113549.3.7");
   oid_add_from_string("id-alg-des-cbc","1.3.14.3.2.7");
 
-  content_info_handle = new_create_dissector_handle (dissect_ContentInfo_PDU, proto_cms);
+  content_info_handle = create_dissector_handle (dissect_ContentInfo_PDU, proto_cms);
   dissector_add_string("media_type", "application/pkcs7-mime", content_info_handle);
   dissector_add_string("media_type", "application/pkcs7-signature", content_info_handle);
 }

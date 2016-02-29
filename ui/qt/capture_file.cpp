@@ -84,9 +84,8 @@ const QString CaptureFile::fileName()
     if (isValid()) {
         QFileInfo cfi(QString::fromUtf8(cap_file_->filename));
         file_name_ = cfi.baseName();
-    } else {
-        file_name_ = no_capture_file_;
     }
+
     return file_name_;
 }
 
@@ -200,6 +199,8 @@ void CaptureFile::captureFileEvent(int event, gpointer data)
         break;
     case(cf_cb_file_retap_finished):
         g_log(LOG_DOMAIN_MAIN, G_LOG_LEVEL_DEBUG, "Callback: Retap finished");
+        /* Flush any pending tapped packet before emitting captureFileRetapFinished() */
+        emit captureFileFlushTapsData();
         emit captureFileRetapFinished();
         break;
 

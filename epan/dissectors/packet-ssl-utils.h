@@ -37,30 +37,15 @@
 #ifdef HAVE_LIBGNUTLS
 #include <gnutls/x509.h>
 #include <gnutls/pkcs12.h>
-
-#include "ws_symbol_export.h"
-
-#define SSL_DECRYPT_DEBUG
 #endif /* HAVE_LIBGNUTLS */
 
 #ifdef HAVE_LIBGCRYPT
 #define SSL_CIPHER_CTX gcry_cipher_hd_t
+#define SSL_DECRYPT_DEBUG
 #else  /* HAVE_LIBGCRYPT */
 #define SSL_CIPHER_CTX void*
 #endif /* HAVE_LIBGCRYPT */
 
-
-/* version state tables */
-#define SSL_VER_UNKNOWN                   0
-#define SSL_VER_SSLv2                     1
-#define SSL_VER_SSLv3                     2
-#define SSL_VER_TLS                       3
-#define SSL_VER_TLSv1DOT1                 4
-#define SSL_VER_DTLS                      5
-#define SSL_VER_DTLS1DOT2                 8
-#define SSL_VER_DTLS_OPENSSL              9
-#define SSL_VER_PCT                       6
-#define SSL_VER_TLSv1DOT2                 7
 
 /* other defines */
 typedef enum {
@@ -222,13 +207,18 @@ typedef struct _StringInfo {
 
 #define SSL_WRITE_KEY           1
 
+#define SSL_VER_UNKNOWN         0
+#define PCT_VERSION             0x8001 /* PCT_VERSION_1 from http://graphcomp.com/info/specs/ms/pct.htm */
+#define SSLV2_VERSION           0x0002 /* not in record layer, SSL_CLIENT_SERVER from
+                                          http://www-archive.mozilla.org/projects/security/pki/nss/ssl/draft02.html */
 #define SSLV3_VERSION          0x300
 #define TLSV1_VERSION          0x301
 #define TLSV1DOT1_VERSION      0x302
 #define TLSV1DOT2_VERSION      0x303
 #define DTLSV1DOT0_VERSION     0xfeff
-#define DTLSV1DOT0_VERSION_NOT 0x100
+#define DTLSV1DOT0_OPENSSL_VERSION 0x100
 #define DTLSV1DOT2_VERSION     0xfefd
+
 
 #define SSL_CLIENT_RANDOM       (1<<0)
 #define SSL_SERVER_RANDOM       (1<<1)
@@ -239,6 +229,8 @@ typedef struct _StringInfo {
 #define SSL_PRE_MASTER_SECRET   (1<<6)
 #define SSL_CLIENT_EXTENDED_MASTER_SECRET (1<<7)
 #define SSL_SERVER_EXTENDED_MASTER_SECRET (1<<8)
+#define SSL_SERVER_HELLO_DONE   (1<<9)
+#define SSL_NEW_SESSION_TICKET  (1<<10)
 
 #define SSL_EXTENDED_MASTER_SECRET_MASK (SSL_CLIENT_EXTENDED_MASTER_SECRET|SSL_SERVER_EXTENDED_MASTER_SECRET)
 
@@ -309,6 +301,7 @@ typedef struct _SslDecoder {
 #define KEX_SRP_SHA     0x20
 #define KEX_SRP_SHA_DSS 0x21
 #define KEX_SRP_SHA_RSA 0x22
+#define KEX_IS_DH(n)    ((n) >= KEX_DHE_DSS && (n) <= KEX_ECDH_RSA)
 
 #define ENC_DES         0x30
 #define ENC_3DES        0x31
@@ -357,7 +350,7 @@ typedef struct {
 typedef struct _SslSession {
     gint cipher;
     gint compression;
-    guint32 version;
+    guint16 version;
     gint8 client_cert_type;
     gint8 server_cert_type;
 
@@ -370,6 +363,7 @@ typedef struct _SslSession {
     /* The Application layer protocol if known (for STARTTLS support) */
     dissector_handle_t   app_handle;
     guint32              last_nontls_frame;
+    gboolean             is_session_resumed;
 } SslSession;
 
 /* RFC 5246, section 8.1 says that the master secret is always 48 bytes */
@@ -404,19 +398,16 @@ typedef struct _SslDecryptSession {
     gcry_sexp_t private_key;
 #endif
     StringInfo psk;
-    guint16 version_netorder;
     StringInfo app_data_segment;
     SslSession session;
 
 } SslDecryptSession;
 
-typedef struct _SslAssociation {
-    gboolean tcp;
-    guint ssl_port;
-    dissector_handle_t handle;
-    gchar* info;
-    gboolean from_key_list;
-} SslAssociation;
+typedef struct {
+    gboolean   is_from_server;
+    guint32 packet_num;
+    StringInfo data;
+} SslDecryptedRecord;
 
 /* User Access Table */
 typedef struct _ssldecrypt_assoc_t {
@@ -434,9 +425,8 @@ typedef struct ssl_common_options {
 
 /** Map from something to a (pre-)master secret */
 typedef struct {
-    GHashTable *session;    /* Session ID/Ticket to master secret. It uses the
-                               observation that Session IDs are 1-32 bytes and
-                               tickets are much longer */
+    GHashTable *session;    /* Session ID (1-32 bytes) to master secret. */
+    GHashTable *tickets;    /* Session Ticket to master secret. */
     GHashTable *crandom;    /* Client Random to master secret */
     GHashTable *pre_master; /* First 8 bytes of encrypted pre-master secret to
                                pre-master secret */
@@ -447,13 +437,9 @@ gint ssl_get_keyex_alg(gint cipher);
 
 gboolean ssldecrypt_uat_fld_ip_chk_cb(void*, const char*, unsigned, const void*, const void*, char** err);
 gboolean ssldecrypt_uat_fld_port_chk_cb(void*, const char*, unsigned, const void*, const void*, char** err);
-gboolean ssldecrypt_uat_fld_protocol_chk_cb(void*, const char*, unsigned, const void*, const void*, char** err);
 gboolean ssldecrypt_uat_fld_fileopen_chk_cb(void*, const char*, unsigned, const void*, const void*, char** err);
 gboolean ssldecrypt_uat_fld_password_chk_cb(void*, const char*, unsigned, const void*, const void*, char** err);
-
-/** Initialize decryption engine/ssl layer. To be called once per execution */
-extern void
-ssl_lib_init(void);
+gchar* ssl_association_info(const char* dissector_table_name, const char* table_protocol);
 
 /** Retrieve a SslSession, creating it if it did not already exist.
  * @param conversation The SSL conversation.
@@ -529,12 +515,7 @@ ssl_decrypt_record(SslDecryptSession* ssl,SslDecoder* decoder, gint ct,
 
 
 /* Common part bitween SSL and DTLS dissectors */
-/* Hash Functions for TLS/DTLS sessions table and private keys table */
-extern gint
-ssl_equal (gconstpointer v, gconstpointer v2);
-
-extern guint
-ssl_hash  (gconstpointer v);
+/* Hash Functions for RSA private keys table */
 
 extern gboolean
 ssl_private_key_equal (gconstpointer v, gconstpointer v2);
@@ -547,24 +528,16 @@ ssl_private_key_hash  (gconstpointer v);
 extern void
 ssl_private_key_free(gpointer key);
 
+
 /* handling of association between tls/dtls ports and clear text protocol */
 extern void
-ssl_association_add(GTree* associations, dissector_handle_t handle, guint port, const gchar *protocol, gboolean tcp, gboolean from_key_list);
+ssl_association_add(const char* dissector_table_name, dissector_handle_t main_handle, dissector_handle_t subdissector_handle, guint port, gboolean tcp);
 
 extern void
-ssl_association_remove(GTree* associations, SslAssociation *assoc);
+ssl_association_remove(const char* dissector_table_name, dissector_handle_t main_handle, dissector_handle_t subdissector_handle, guint port, gboolean tcp);
 
 extern gint
-ssl_association_cmp(gconstpointer a, gconstpointer b);
-
-extern SslAssociation*
-ssl_association_find(GTree * associations, guint port, gboolean tcp);
-
-extern gint
-ssl_assoc_from_key_list(gpointer key _U_, gpointer data, gpointer user_data);
-
-extern gint
-ssl_packet_from_server(SslSession *session, GTree *associations, packet_info *pinfo);
+ssl_packet_from_server(SslSession *session, dissector_table_t table, packet_info *pinfo);
 
 /* add to packet data a copy of the specified real data */
 extern void
@@ -595,14 +568,21 @@ ssl_load_keyfile(const gchar *ssl_keylog_filename, FILE **keylog_file,
 
 /* parse ssl related preferences (private keys and ports association strings) */
 extern void
-ssl_parse_key_list(const ssldecrypt_assoc_t * uats, GHashTable *key_hash, GTree* associations, dissector_handle_t handle, gboolean tcp);
+ssl_parse_key_list(const ssldecrypt_assoc_t * uats, GHashTable *key_hash, const char* dissector_table_name, dissector_handle_t main_handle, gboolean tcp);
 
 /* store master secret into session data cache */
 extern void
 ssl_save_session(SslDecryptSession* ssl, GHashTable *session_hash);
 
+#ifdef  HAVE_LIBGCRYPT
 extern void
 ssl_finalize_decryption(SslDecryptSession *ssl, ssl_master_key_map_t *mk_map);
+#else /* ! HAVE_LIBGCRYPT */
+static inline void
+ssl_finalize_decryption(SslDecryptSession *ssl _U_, ssl_master_key_map_t *mk_map _U_)
+{
+}
+#endif /* ! HAVE_LIBGCRYPT */
 
 extern gboolean
 ssl_is_valid_content_type(guint8 type);
@@ -611,11 +591,17 @@ extern gboolean
 ssl_is_valid_handshake_type(guint8 hs_type, gboolean is_dtls);
 
 extern void
+ssl_try_set_version(SslSession *session, SslDecryptSession *ssl,
+                    guint8 content_type, guint8 handshake_type,
+                    gboolean is_dtls, guint16 version);
+
+extern void
 ssl_calculate_handshake_hash(SslDecryptSession *ssl_session, tvbuff_t *tvb, guint32 offset, guint32 length);
 
 /* common header fields, subtrees and expert info for SSL and DTLS dissectors */
 typedef struct ssl_common_dissect {
     struct {
+        gint change_cipher_spec;
         gint hs_exts_len;
         gint hs_ext_alpn_len;
         gint hs_ext_alpn_list;
@@ -747,6 +733,7 @@ typedef struct ssl_common_dissect {
         expert_field hs_sig_hash_alg_len_bad;
         expert_field hs_cipher_suites_len_bad;
         expert_field hs_sig_hash_algs_bad;
+        expert_field resumed;
 
         /* do not forget to update SSL_COMMON_LIST_T and SSL_COMMON_EI_LIST! */
     } ei;
@@ -768,6 +755,13 @@ typedef struct {
     /* Do not forget to initialize ssl_hfs to -1 in packet-ssl.c! */
 } ssl_hfs_t;
 
+void
+ssl_dissect_change_cipher_spec(ssl_common_dissect_t *hf, tvbuff_t *tvb,
+                               packet_info *pinfo, proto_tree *tree,
+                               guint32 offset, SslSession *session,
+                               gboolean is_from_server,
+                               const SslDecryptSession *ssl);
+
 extern void
 ssl_dissect_hnd_cli_hello(ssl_common_dissect_t *hf, tvbuff_t *tvb,
                           packet_info *pinfo, proto_tree *tree, guint32 offset,
@@ -778,7 +772,8 @@ ssl_dissect_hnd_cli_hello(ssl_common_dissect_t *hf, tvbuff_t *tvb,
 extern void
 ssl_dissect_hnd_srv_hello(ssl_common_dissect_t *hf, tvbuff_t *tvb, packet_info* pinfo,
                           proto_tree *tree, guint32 offset, guint32 length,
-                          SslSession *session, SslDecryptSession *ssl);
+                          SslSession *session, SslDecryptSession *ssl,
+                          gboolean is_dtls);
 
 extern void
 ssl_dissect_hnd_new_ses_ticket(ssl_common_dissect_t *hf, tvbuff_t *tvb,
@@ -830,20 +825,25 @@ ssl_common_dissect_t name = {   \
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
-        -1, -1, -1                                                      \
+        -1, -1, -1, -1,                                                 \
     },                                                                  \
     /* ett */ {                                                         \
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
         -1, -1, -1, -1,                                                 \
     },                                                                  \
     /* ei */ {                                                          \
-        EI_INIT, EI_INIT, EI_INIT, EI_INIT,                             \
+        EI_INIT, EI_INIT, EI_INIT, EI_INIT, EI_INIT,                    \
     },                                                                  \
 }
 /* }}} */
 
 /* {{{ */
 #define SSL_COMMON_HF_LIST(name, prefix)                                \
+    { & name .hf.change_cipher_spec,                                    \
+      { "Change Cipher Spec Message", prefix ".change_cipher_spec",     \
+        FT_NONE, BASE_NONE, NULL, 0x0,                                  \
+        "Signals a change in cipher specifications", HFILL }            \
+    },                                                                  \
     { & name .hf.hs_exts_len,                                           \
       { "Extensions Length", prefix ".handshake.extensions_length",     \
         FT_UINT16, BASE_DEC, NULL, 0x0,                                 \
@@ -1000,7 +1000,7 @@ ssl_common_dissect_t name = {   \
         NULL, HFILL }                                                   \
     },                                                                  \
     { & name .hf.hs_ext_cert_url_url,                                   \
-      { "URL", prefix ".handshake.cert_url.url_hash_len",               \
+      { "URL", prefix ".handshake.cert_url.url",                        \
         FT_STRING, BASE_NONE, NULL, 0x0,                                \
         "URL used to fetch the certificate(s)", HFILL }                 \
     },                                                                  \
@@ -1383,6 +1383,10 @@ ssl_common_dissect_t name = {   \
     { & name .ei.hs_sig_hash_algs_bad, \
         { prefix ".handshake.sig_hash_algs.mult2", PI_MALFORMED, PI_ERROR, \
         "Hash Algorithm length must be a multiple of 2", EXPFILL } \
+    }, \
+    { & name .ei.resumed, \
+        { prefix ".resumed", PI_SEQUENCE, PI_NOTE, \
+        "This session reuses previously negotiated keys (Session resumption)", EXPFILL } \
     }
 /* }}} */
 

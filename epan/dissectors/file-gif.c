@@ -37,8 +37,9 @@
 
 #include "config.h"
 
-
 #include <epan/packet.h>
+
+#include <wsutil/str_util.h>
 
 void proto_register_gif(void);
 void proto_reg_handoff_gif(void);
@@ -693,7 +694,7 @@ proto_register_gif(void)
     proto_register_fields(proto_gif, hfi, array_length(hfi));
     proto_register_subtree_array(ett, array_length(ett));
 
-    gif_handle = new_register_dissector(IMG_GIF, dissect_gif, proto_gif);
+    gif_handle = register_dissector(IMG_GIF, dissect_gif, proto_gif);
 }
 
 

@@ -1206,7 +1206,7 @@ proto_register_dsmcc(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_dsmcc = expert_register_protocol(proto_dsmcc);
     expert_register_field_array(expert_dsmcc, ei, array_length(ei));
-    new_register_dissector("mp2t-dsmcc", dissect_dsmcc_ts, proto_dsmcc);
+    register_dissector("mp2t-dsmcc", dissect_dsmcc_ts, proto_dsmcc);
 
     dsmcc_module = prefs_register_protocol(proto_dsmcc, NULL);
 
@@ -1222,8 +1222,8 @@ proto_reg_handoff_dsmcc(void)
 {
     dissector_handle_t dsmcc_ts_handle, dsmcc_tcp_handle;
 
-    dsmcc_ts_handle = new_create_dissector_handle(dissect_dsmcc_ts, proto_dsmcc);
-    dsmcc_tcp_handle = new_create_dissector_handle(dissect_dsmcc_tcp, proto_dsmcc);
+    dsmcc_ts_handle = create_dissector_handle(dissect_dsmcc_ts, proto_dsmcc);
+    dsmcc_tcp_handle = create_dissector_handle(dissect_dsmcc_tcp, proto_dsmcc);
 
     dissector_add_uint("mpeg_sect.tid", DSMCC_TID_LLCSNAP, dsmcc_ts_handle);
     dissector_add_uint("mpeg_sect.tid", DSMCC_TID_UN_MSG, dsmcc_ts_handle);

@@ -45,7 +45,7 @@ gint	mac_sdu_length = 49; /* default SDU size is 49 bytes (11.13.16) */
 extern	guint global_cid_max_basic;
 extern	gboolean include_cor2_changes;
 
-address bs_address = {AT_NONE, 0, NULL};
+address bs_address = ADDRESS_INIT_NONE;
 
 
 static int hf_tlv_type = -1;
@@ -254,12 +254,14 @@ proto_tree *add_protocol_subtree(tlv_info_t *self, gint idx, proto_tree *tree, i
 
 
 /* WiMax protocol dissector */
-static void dissect_wimax(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree *tree _U_)
+static int dissect_wimax(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree *tree _U_, void* data _U_)
 {
 	/* display the WiMax protocol name */
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "WiMax");
 	/* Clear out stuff in the info column */
 	col_clear(pinfo->cinfo, COL_INFO);
+
+	return tvb_captured_length(tvb);
 }
 
 gboolean is_down_link(packet_info *pinfo)
@@ -267,7 +269,7 @@ gboolean is_down_link(packet_info *pinfo)
 	if (pinfo->p2p_dir == P2P_DIR_RECV)
 		return TRUE;
 	if (pinfo->p2p_dir == P2P_DIR_UNKNOWN)
-		if(bs_address.len && !CMP_ADDRESS(&bs_address, &pinfo->src))
+		if(bs_address.len && !cmp_address(&bs_address, &pinfo->src))
 			return TRUE;
 	return FALSE;
 }

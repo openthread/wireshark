@@ -693,24 +693,24 @@ typedef struct _Kind {
 } kind_t;
 
 static kind_t predefined_kinds[] = {
-  {(gchar *)"INVALID"                        ,DATAKINDID_INVALID,                     -1},
-  {(gchar *)"SIP-REGISTRATION"               ,DATAKINDID_SIP_REGISTRATION,            DATAMODEL_DICTIONARY},
-  {(gchar *)"TURN-SERVICE"                   ,DATAKINDID_TURNSERVICE,                 DATAMODEL_SINGLE},
-  {(gchar *)"CERTIFICATE_BY_NODE"            ,DATAKINDID_CERTIFICATE_BY_NODE,         DATAMODEL_ARRAY},
-  {(gchar *)"RESERVED_ROUTING_TABLE_SIZE"    ,DATAKINDID_RESERVED_ROUTING_TABLE_SIZE, -1},
-  {(gchar *)"RESERVED_SOFTWARE_VERSION"      ,DATAKINDID_RESERVED_SOFTWARE_VERSION,   -1},
-  {(gchar *)"RESERVED_MACHINE_UPTIME"        ,DATAKINDID_RESERVED_MACHINE_UPTIME,     -1},
-  {(gchar *)"DATAKINDID_RESERVED_APP_UPTIME" ,DATAKINDID_RESERVED_APP_UPTIME,         -1},
-  {(gchar *)"RESERVED_MEMORY_FOOTPRINT"      ,DATAKINDID_RESERVED_MEMORY_FOOTPRINT,   -1},
-  {(gchar *)"RESERVED_DATASIZE_STORED"       ,DATAKINDID_RESERVED_DATASIZE_STORED,    -1},
-  {(gchar *)"RESERVED_INSTANCES_STORED"      ,DATAKINDID_RESERVED_INSTANCES_STORED,   -1},
-  {(gchar *)"RESERVED_MESSAGES_SENT_RCVD"    ,DATAKINDID_RESERVED_MESSAGES_SENT_RCVD, -1},
-  {(gchar *)"RESERVED_EWMA_BYTES_SENT"       ,DATAKINDID_RESERVED_EWMA_BYTES_SENT,    -1},
-  {(gchar *)"RESERVED_EWMA_BYTES_RCVD"       ,DATAKINDID_RESERVED_EWMA_BYTES_RCVD,    -1},
-  {(gchar *)"RESERVED_LAST_CONTACT"          ,DATAKINDID_RESERVED_LAST_CONTACT,       -1},
-  {(gchar *)"RESERVED_RTT"                   ,DATAKINDID_RESERVED_RTT,                -1},
-  {(gchar *)"CERTIFICATE_BY_USER"            ,DATAKINDID_CERTIFICATE_BY_USER,         DATAMODEL_ARRAY},
-  {(gchar *)"REDIR"                          ,DATAKINDID_REDIR,                       DATAMODEL_DICTIONARY},
+  {"INVALID"                        ,DATAKINDID_INVALID,                     -1},
+  {"SIP-REGISTRATION"               ,DATAKINDID_SIP_REGISTRATION,            DATAMODEL_DICTIONARY},
+  {"TURN-SERVICE"                   ,DATAKINDID_TURNSERVICE,                 DATAMODEL_SINGLE},
+  {"CERTIFICATE_BY_NODE"            ,DATAKINDID_CERTIFICATE_BY_NODE,         DATAMODEL_ARRAY},
+  {"RESERVED_ROUTING_TABLE_SIZE"    ,DATAKINDID_RESERVED_ROUTING_TABLE_SIZE, -1},
+  {"RESERVED_SOFTWARE_VERSION"      ,DATAKINDID_RESERVED_SOFTWARE_VERSION,   -1},
+  {"RESERVED_MACHINE_UPTIME"        ,DATAKINDID_RESERVED_MACHINE_UPTIME,     -1},
+  {"DATAKINDID_RESERVED_APP_UPTIME" ,DATAKINDID_RESERVED_APP_UPTIME,         -1},
+  {"RESERVED_MEMORY_FOOTPRINT"      ,DATAKINDID_RESERVED_MEMORY_FOOTPRINT,   -1},
+  {"RESERVED_DATASIZE_STORED"       ,DATAKINDID_RESERVED_DATASIZE_STORED,    -1},
+  {"RESERVED_INSTANCES_STORED"      ,DATAKINDID_RESERVED_INSTANCES_STORED,   -1},
+  {"RESERVED_MESSAGES_SENT_RCVD"    ,DATAKINDID_RESERVED_MESSAGES_SENT_RCVD, -1},
+  {"RESERVED_EWMA_BYTES_SENT"       ,DATAKINDID_RESERVED_EWMA_BYTES_SENT,    -1},
+  {"RESERVED_EWMA_BYTES_RCVD"       ,DATAKINDID_RESERVED_EWMA_BYTES_RCVD,    -1},
+  {"RESERVED_LAST_CONTACT"          ,DATAKINDID_RESERVED_LAST_CONTACT,       -1},
+  {"RESERVED_RTT"                   ,DATAKINDID_RESERVED_RTT,                -1},
+  {"CERTIFICATE_BY_USER"            ,DATAKINDID_CERTIFICATE_BY_USER,         DATAMODEL_ARRAY},
+  {"REDIR"                          ,DATAKINDID_REDIR,                       DATAMODEL_DICTIONARY},
 };
 
 
@@ -3907,7 +3907,7 @@ extern gint dissect_reload_messagecontents(tvbuff_t *tvb, packet_info *pinfo, pr
 }
 
 static int
-dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item           *ti;
   proto_tree           *reload_tree;
@@ -4145,7 +4145,7 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       /* Just show this as a fragment. */
       col_add_fstr(pinfo->cinfo, COL_INFO, "Fragmented RELOAD protocol (trans id=%x%x off=%u",
                    transaction_id[0],transaction_id[1], fragment);
-      if (reload_fd_head && reload_fd_head->reassembled_in != pinfo->fd->num) {
+      if (reload_fd_head && reload_fd_head->reassembled_in != pinfo->num) {
         col_append_fstr(pinfo->cinfo, COL_INFO, " [Reassembled in #%u]",
                         reload_fd_head->reassembled_in);
       }
@@ -4178,7 +4178,7 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       reload_trans = wmem_new(wmem_file_scope(), reload_transaction_t);
       reload_trans->req_frame = 0;
       reload_trans->rep_frame = 0;
-      reload_trans->req_time = pinfo->fd->abs_ts;
+      reload_trans->req_time = pinfo->abs_ts;
       wmem_tree_insert32_array(reload_info->transaction_pdus, transaction_id_key, (void *)reload_trans);
     }
 
@@ -4187,13 +4187,13 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (IS_REQUEST(message_code) && (message_code != RELOAD_ERROR)) {
       /* This is a request */
       if (reload_trans->req_frame == 0) {
-        reload_trans->req_frame = pinfo->fd->num;
+        reload_trans->req_frame = pinfo->num;
       }
     }
     else {
       /* This is a catch-all for all non-request messages */
       if (reload_trans->rep_frame == 0) {
-        reload_trans->rep_frame = pinfo->fd->num;
+        reload_trans->rep_frame = pinfo->num;
       }
     }
   }
@@ -4206,12 +4206,12 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     reload_trans = wmem_new(wmem_packet_scope(), reload_transaction_t);
     reload_trans->req_frame = 0;
     reload_trans->rep_frame = 0;
-    reload_trans->req_time = pinfo->fd->abs_ts;
+    reload_trans->req_time = pinfo->abs_ts;
   }
 
   /* Retransmission control */
   if (IS_REQUEST(message_code) && (message_code != RELOAD_ERROR)) {
-    if (reload_trans->req_frame != pinfo->fd->num) {
+    if (reload_trans->req_frame != pinfo->num) {
       proto_item *it;
       it = proto_tree_add_uint(reload_tree, hf_reload_duplicate, tvb, 0, 0, reload_trans->req_frame);
       PROTO_ITEM_SET_GENERATED(it);
@@ -4224,7 +4224,7 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   }
   else {
     /* This is a response */
-    if (reload_trans->rep_frame != pinfo->fd->num) {
+    if (reload_trans->rep_frame != pinfo->num) {
       proto_item *it;
       it = proto_tree_add_uint(reload_tree, hf_reload_duplicate, tvb, 0, 0, reload_trans->rep_frame);
       PROTO_ITEM_SET_GENERATED(it);
@@ -4237,7 +4237,7 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       it = proto_tree_add_uint(reload_tree, hf_reload_response_to, tvb, 0, 0, reload_trans->req_frame);
       PROTO_ITEM_SET_GENERATED(it);
 
-      nstime_delta(&ns, &pinfo->fd->abs_ts, &reload_trans->req_time);
+      nstime_delta(&ns, &pinfo->abs_ts, &reload_trans->req_time);
       it = proto_tree_add_time(reload_tree, hf_reload_time, tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED(it);
     }
@@ -4353,16 +4353,10 @@ dissect_reload_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   return dgram_msg_length;
 }
 
-static void
-dissect_reload_message_no_return(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
-{
-  dissect_reload_message(tvb, pinfo, tree);
-}
-
 static gboolean
 dissect_reload_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-  if (dissect_reload_message(tvb, pinfo, tree) == 0) {
+  if (dissect_reload_message(tvb, pinfo, tree, data) == 0) {
     /*
      * It wasn't a valid RELOAD message, and wasn't
      * dissected as such.
@@ -5894,7 +5888,7 @@ proto_register_reload(void)
 
   /* Register the protocol name and description */
   proto_reload = proto_register_protocol("REsource LOcation And Discovery", "RELOAD", "reload");
-  register_dissector("reload", dissect_reload_message_no_return, proto_reload);
+  register_dissector("reload", dissect_reload_message, proto_reload);
   /* Required function calls to register the header fields and subtrees used */
   proto_register_field_array(proto_reload, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

@@ -58,7 +58,7 @@ static void lbmtcp_order_key(lbmtcp_transport_t * transport)
     int compare;
 
     /* Order the key so that addr1:port1 <= addr2:port2 */
-    compare = CMP_ADDRESS(&(transport->addr1), &(transport->addr2));
+    compare = cmp_address(&(transport->addr1), &(transport->addr2));
     if (compare > 0)
     {
         swap = TRUE;
@@ -75,9 +75,9 @@ static void lbmtcp_order_key(lbmtcp_transport_t * transport)
         address addr;
         guint16 port;
 
-        COPY_ADDRESS_SHALLOW(&addr, &(transport->addr1));
-        COPY_ADDRESS_SHALLOW(&(transport->addr2), &(transport->addr1));
-        COPY_ADDRESS_SHALLOW(&(transport->addr1), &addr);
+        copy_address_shallow(&addr, &(transport->addr1));
+        copy_address_shallow(&(transport->addr2), &(transport->addr1));
+        copy_address_shallow(&(transport->addr1), &addr);
         port = transport->port2;
         transport->port2 = transport->port1;
         transport->port1 = port;
@@ -100,9 +100,9 @@ static lbmtcp_transport_t * lbmtcp_transport_add(const address * address1, guint
         return (entry);
     }
     entry = wmem_new(wmem_file_scope(), lbmtcp_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->addr1), address1);
+    copy_address_wmem(wmem_file_scope(), &(entry->addr1), address1);
     entry->port1 = port1;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->addr2), address2);
+    copy_address_wmem(wmem_file_scope(), &(entry->addr2), address2);
     entry->port2 = port2;
     lbmtcp_order_key(entry);
     entry->channel = lbm_channel_assign(LBM_CHANNEL_TCP);
@@ -282,7 +282,7 @@ static int dissect_lbmpdm_tcp_pdu(tvbuff_t * tvb, packet_info * pinfo, proto_tre
     }
     lbmpdm_tcp_tree = proto_item_add_subtree(ti, ett_lbmpdm_tcp);
 
-    transport = lbmtcp_transport_add(&(pinfo->src), pinfo->srcport, &(pinfo->dst), pinfo->destport, pinfo->fd->num);
+    transport = lbmtcp_transport_add(&(pinfo->src), pinfo->srcport, &(pinfo->dst), pinfo->destport, pinfo->num);
     if (transport != NULL)
     {
         channel = transport->channel;
@@ -307,7 +307,7 @@ static int dissect_lbmpdm_tcp_pdu(tvbuff_t * tvb, packet_info * pinfo, proto_tre
 /*
  * dissect_lbmpdm_tcp - The dissector for LBMPDM over TCP
  */
-static void dissect_lbmpdm_tcp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int dissect_lbmpdm_tcp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
     char * tag_name = NULL;
 
@@ -324,6 +324,7 @@ static void dissect_lbmpdm_tcp(tvbuff_t * tvb, packet_info * pinfo, proto_tree *
     col_set_fence(pinfo->cinfo, COL_INFO);
     tcp_dissect_pdus(tvb, pinfo, tree, TRUE, lbmpdm_get_minimum_length(), /* Need at least the msglen */
         get_lbmpdm_tcp_pdu_length, dissect_lbmpdm_tcp_pdu, NULL);
+    return tvb_captured_length(tvb);
 }
 
 static gboolean test_lbmpdm_tcp_packet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * user_data _U_)
@@ -349,7 +350,7 @@ static gboolean test_lbmpdm_tcp_packet(tvbuff_t * tvb, packet_info * pinfo, prot
     {
         if (lbmpdm_tcp_tag_find(pinfo) != NULL)
         {
-            dissect_lbmpdm_tcp(tvb, pinfo, tree);
+            dissect_lbmpdm_tcp(tvb, pinfo, tree, user_data);
             return (TRUE);
         }
         else
@@ -365,7 +366,7 @@ static gboolean test_lbmpdm_tcp_packet(tvbuff_t * tvb, packet_info * pinfo, prot
         return (FALSE);
     }
     /* One of ours. Probably. */
-    dissect_lbmpdm_tcp(tvb, pinfo, tree);
+    dissect_lbmpdm_tcp(tvb, pinfo, tree, user_data);
     return (TRUE);
 }
 

@@ -210,7 +210,7 @@ static gint ett_ismacryp_message = -1;
 */
 
 /* dissect_ismacryp_v11 gets called if rtp_dyn_payload_type = "enc-mpeg4-generic" i.e. is set via SDP */
-static void dissect_ismacryp_v11(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_ismacryp_v11(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	/* display ISMACryp version */
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, PROTO_TAG_ISMACRYP_11);
@@ -219,10 +219,11 @@ static void dissect_ismacryp_v11(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 	col_set_str(pinfo->cinfo, COL_INFO, "(PT=enc-mpeg4-generic)");
 
 	dissect_ismacryp_common( tvb, pinfo, tree, V11);
+	return tvb_captured_length(tvb);
 }
 
 /* dissect_ismacryp_v20 gets called if rtp_dyn_payload_type = "enc-isoff-generic" i.e. is set via SDP */
-static void dissect_ismacryp_v20(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_ismacryp_v20(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	/* display ISMACryp version */
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, PROTO_TAG_ISMACRYP_20);
@@ -231,12 +232,14 @@ static void dissect_ismacryp_v20(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 	col_set_str(pinfo->cinfo, COL_INFO, "(PT=enc-isoff-generic)");
 
 	dissect_ismacryp_common( tvb, pinfo, tree, V20);
+	return tvb_captured_length(tvb);
 }
 
-static void dissect_ismacryp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_ismacryp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	col_set_str(pinfo->cinfo, COL_INFO, "Manual version");
 	dissect_ismacryp_common( tvb, pinfo, tree, version_type);   /* Unknown version type: Use preference */
+	return tvb_captured_length(tvb);
 }
 
 static void dissect_ismacryp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint ismacryp_version)
@@ -321,7 +324,7 @@ static void dissect_ismacryp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 	{
 		guint16 au_headers_length;     /* total length of AU headers */
 		guint16 totalbits;             /* keeps track of total number of AU header bits treated (used to determine end of AU headers) */
-		int deltabits;                 /* keeps track of extra bits per AU header treated (used to determine end of AU heafers ) */
+		int deltabits;                 /* keeps track of extra bits per AU header treated (used to determine end of AU headers ) */
 		offset_struct s_offset;
 		offset_struct* poffset;
 		guint16 nbmessage_bytes;       /*nb of message data bytes */

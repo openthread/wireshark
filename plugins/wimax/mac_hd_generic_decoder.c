@@ -696,7 +696,7 @@ static guint decode_packing_subheader(tvbuff_t *payload_tvb, packet_info *pinfo,
 }
 
 
-static void dissect_mac_header_generic_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_header_generic_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint payload_offset;
@@ -743,7 +743,7 @@ static void dissect_mac_header_generic_decoder(tvbuff_t *tvb, packet_info *pinfo
 		generic_tree = proto_item_add_subtree(generic_item, ett_mac_header_generic_decoder);
 		/* display the Generic MAC Header in Hex */
 		proto_tree_add_item(generic_tree, hf_mac_header_generic_value_bytes, tvb, offset, tvb_len, ENC_NA);
-		return;
+		return tvb_captured_length(tvb);
 	}
 	/* get the parent */
 	parent_item = proto_tree_get_parent(tree);
@@ -985,7 +985,7 @@ static void dissect_mac_header_generic_decoder(tvbuff_t *tvb, packet_info *pinfo
 		if (length < (gint)sizeof(mac_crc))
 		{	/* display error message */
 			proto_tree_add_protocol_format(tree, proto_mac_header_generic_decoder, tvb, offset, length, "Error - the frame is too short (%u bytes)", length);
-			return;
+			return tvb_captured_length(tvb);
 		}
 		length -= (int)sizeof(mac_crc);
 	}
@@ -1027,7 +1027,7 @@ static void dissect_mac_header_generic_decoder(tvbuff_t *tvb, packet_info *pinfo
 				}
 			}
 			cid_index = i;
-			while (pinfo->fd->num > cid_adj_array_size)
+			while (pinfo->num > cid_adj_array_size)
 			{
 				cid_adj_array_size += 1024;
 				cid_adj_array = (guint *)g_realloc(cid_adj_array, (int)sizeof(guint) * cid_adj_array_size);
@@ -1048,36 +1048,36 @@ static void dissect_mac_header_generic_decoder(tvbuff_t *tvb, packet_info *pinfo
 			{
 				frag_number[cid_index] = 0;
 			}
-			if (cid_adj_array[pinfo->fd->num])
+			if (cid_adj_array[pinfo->num])
 			{
 				/* We apparently just clicked on the packet again. */
-				cid_adjust[cid_index] = cid_adj_array[pinfo->fd->num];
+				cid_adjust[cid_index] = cid_adj_array[pinfo->num];
 				/* Set the frag_number at start of packet. */
 				if (first_gmh)
 				{
-					frag_number[cid_index] = frag_num_array[pinfo->fd->num];
+					frag_number[cid_index] = frag_num_array[pinfo->num];
 				}
 			} else {
 				/* Save for next time we click on this packet. */
-				cid_adj_array[pinfo->fd->num] = cid_adjust[cid_index];
+				cid_adj_array[pinfo->num] = cid_adjust[cid_index];
 				if (first_gmh)
 				{
-					frag_num_array[pinfo->fd->num] = frag_number[cid_index];
+					frag_num_array[pinfo->num] = frag_number[cid_index];
 				}
 			}
 			/* Reset in case we stay in this while() loop to finish the packet. */
 			first_gmh = FALSE;
 			cid = cid_base + cid_adjust[cid_index] + cid_vernier[cid_index];
 			/* Save address pointers. */
-			save_src = pinfo->src;
-			save_dst = pinfo->dst;
+			copy_address_shallow(&save_src, &pinfo->src);
+			copy_address_shallow(&save_dst, &pinfo->dst);
 			/* Use dl_src and dl_dst in defragmentation. */
-			pinfo->src = pinfo->dl_src;
-			pinfo->dst = pinfo->dl_dst;
+			copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+			copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 			payload_frag = fragment_add_seq(&payload_reassembly_table, tvb, offset, pinfo, cid, NULL, frag_number[cid_index], frag_len, ((frag_type==LAST_FRAG)?0:1), 0);
 			/* Restore address pointers. */
-			pinfo->src = save_src;
-			pinfo->dst = save_dst;
+			copy_address_shallow(&pinfo->src, &save_src);
+			copy_address_shallow(&pinfo->dst, &save_dst);
 			if (frag_type == LAST_FRAG)
 			{
 				/* Make sure fragment_add_seq() sees next one as a new frame. */
@@ -1240,6 +1240,7 @@ check_crc:
 		/* display message */
 		expert_add_info(pinfo, tree, &ei_mac_crc_missing);
 	}
+	return tvb_captured_length(tvb);
 }
 
 static gint extended_subheader_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)

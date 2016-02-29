@@ -527,7 +527,7 @@ draw_tsn_graph(struct sctp_udata *u_data)
 	GList *list=NULL, *tlist;
 	guint8 type;
 	guint32 tsnumber=0;
-	guint32 min_secs=0, diff;
+	guint32 diff;
 	gint xvalue, yvalue;
 	cairo_t *cr = NULL;
 	GdkRGBA black_color  =  {0.0, 0.0, 0.0, 1.0};
@@ -571,7 +571,7 @@ draw_tsn_graph(struct sctp_udata *u_data)
 			type = ((struct chunk_header *)tlist->data)->type;
 			if (type == SCTP_DATA_CHUNK_ID || type == SCTP_I_DATA_CHUNK_ID || type == SCTP_FORWARD_TSN_CHUNK_ID)
 				tsnumber = g_ntohl(((struct data_chunk_header *)tlist->data)->tsn);
-			if (tsnumber >= min_tsn && tsnumber <= max_tsn && tsn->secs >= min_secs)
+			if (tsnumber >= min_tsn && tsnumber <= max_tsn)
 			{
 				if (u_data->io->uoff) {
 					diff = tsn->secs - u_data->io->min_x;
@@ -1416,8 +1416,8 @@ on_button_release_event (GtkWidget *widget _U_, GdkEventButton *event, gpointer 
 	PangoLayout  *layout;
 	cairo_t *cr;
 
-	g_snprintf(label_string, 15, "%d", 0);
-	memcpy(label_string,(gchar *)g_locale_to_utf8(label_string, -1 , NULL, NULL, NULL), 15);
+	g_snprintf(label_string, sizeof(label_string), "%d", 0);
+	memcpy(label_string,(gchar *)g_locale_to_utf8(label_string, -1 , NULL, NULL, NULL), sizeof(label_string));
 	layout = gtk_widget_create_pango_layout(u_data->io->draw_area, label_string);
 	pango_layout_get_pixel_size(layout, &label_width, &label_height);
 
@@ -1542,7 +1542,7 @@ on_button_release_event (GtkWidget *widget _U_, GdkEventButton *event, gpointer 
 				sacklist = u_data->assoc->sort_sack2;
 				s_size = u_data->assoc->n_sack_chunks_ep2;
 			}
-			x_tolerance = (gdouble)((u_data->io->tmp_width / u_data->io->axis_width*1.0))*5/1000000.0;
+			x_tolerance = (gdouble)(u_data->io->tmp_width / u_data->io->axis_width*1.0)*5/1000000.0;
 			y_tolerance = (guint32)(((u_data->io->max_y - u_data->io->min_y) / (u_data->io->surface_height-TOP_BORDER-BOTTOM_BORDER-u_data->io->offset)) * 2.0);
 			if (y_tolerance==0)
 				y_tolerance = 2;
@@ -1623,7 +1623,7 @@ on_button_release_event (GtkWidget *widget _U_, GdkEventButton *event, gpointer 
 				position = event->x + 5;
 
 
-			memcpy(label_string,(gchar *)g_locale_to_utf8(label_string, -1 , NULL, NULL, NULL), 15);
+			memcpy(label_string,(gchar *)g_locale_to_utf8(label_string, -1 , NULL, NULL, NULL), sizeof(label_string));
 			pango_layout_set_text(layout, label_string, -1);
 			pango_layout_get_pixel_size(layout, &lwidth, NULL);
 

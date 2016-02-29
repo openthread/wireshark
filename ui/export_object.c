@@ -26,19 +26,14 @@
 
 #include <string.h>
 
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <errno.h>
 
+#include <glib.h>
+
 #include <epan/packet_info.h>
-#include <wiretap/wtap.h>
 #include <epan/tap.h>
+
+#include <wiretap/wtap.h>
 
 #include <wsutil/file_util.h>
 

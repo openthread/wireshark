@@ -60,7 +60,6 @@ static dissector_handle_t rpcordma_handler;
 static int proto_ib = -1;
 
 /* RPCoRDMA Header */
-static int hf_rpcordma = -1;
 static int hf_rpcordma_xid = -1;
 static int hf_rpcordma_vers = -1;
 static int hf_rpcordma_flow_control = -1;
@@ -303,7 +302,7 @@ dissect_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     if (tree) {
         /* create display subtree for the protocol */
-        ti = proto_tree_add_item(tree, hf_rpcordma, tvb, 0, MIN_RPCRDMA_HDR_SZ, ENC_NA);
+        ti = proto_tree_add_item(tree, proto_rpcordma, tvb, 0, MIN_RPCRDMA_HDR_SZ, ENC_NA);
 
         rpcordma_tree = proto_item_add_subtree(ti, ett_rpcordma);
 
@@ -399,12 +398,12 @@ dissect_rpcordma_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     if (gPREF_MAN_EN) {
         /* If the manual settings are enabled see if this fits - in which case we can skip
            the following checks entirely and go straight to dissecting */
-        if (    (ADDRESSES_EQUAL(&pinfo->src, &manual_addr[0]) &&
-                 ADDRESSES_EQUAL(&pinfo->dst, &manual_addr[1]) &&
+        if (    (addresses_equal(&pinfo->src, &manual_addr[0]) &&
+                 addresses_equal(&pinfo->dst, &manual_addr[1]) &&
                  (pinfo->srcport == 0xffffffff /* is unknown */ || pinfo->srcport == gPREF_QP[0]) &&
                  (pinfo->destport == 0xffffffff /* is unknown */ || pinfo->destport == gPREF_QP[1]))    ||
-                (ADDRESSES_EQUAL(&pinfo->src, &manual_addr[1]) &&
-                 ADDRESSES_EQUAL(&pinfo->dst, &manual_addr[0]) &&
+                (addresses_equal(&pinfo->src, &manual_addr[1]) &&
+                 addresses_equal(&pinfo->dst, &manual_addr[0]) &&
                  (pinfo->srcport == 0xffffffff /* is unknown */ || pinfo->srcport == gPREF_QP[1]) &&
                  (pinfo->destport == 0xffffffff /* is unknown */ || pinfo->destport == gPREF_QP[0]))    )
             return (dissect_packet(tvb, pinfo, tree) != 0);
@@ -413,14 +412,14 @@ dissect_rpcordma_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     /* first try to find a conversation between the two current hosts. in most cases this
        will not work since we do not have the source QP. this WILL succeed when we're still
        in the process of CM negotiations */
-    conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                              PT_IBQP, pinfo->srcport, pinfo->destport, 0);
 
     if (!conv) {
         /* if not, try to find an established RC channel. recall Infiniband conversations are
            registered with one side of the channel. since the packet is only guaranteed to
            contain the qpn of the destination, we'll use this */
-        conv = find_conversation(pinfo->fd->num, &pinfo->dst, &pinfo->dst,
+        conv = find_conversation(pinfo->num, &pinfo->dst, &pinfo->dst,
                                  PT_IBQP, pinfo->destport, pinfo->destport, NO_ADDR_B|NO_PORT_B);
 
         if (!conv)
@@ -449,11 +448,6 @@ proto_register_rpcordma(void)
 {
     module_t *rpcordma_module;
     static hf_register_info hf[] = {
-        { &hf_rpcordma,
-          { "RPCoRDMA", "rpcordma",
-            FT_NONE, BASE_NONE,
-            NULL, 0x0, NULL, HFILL}
-        },
         { &hf_rpcordma_xid,
           { "XID", "rpcordma.xid",
             FT_UINT32, BASE_HEX,
@@ -590,7 +584,7 @@ proto_reg_handoff_rpcordma(void)
     static gboolean initialized = FALSE;
 
     if (!initialized) {
-        rpcordma_handler = new_create_dissector_handle(dissect_rpcordma, proto_rpcordma);
+        rpcordma_handler = create_dissector_handle(dissect_rpcordma, proto_rpcordma);
         heur_dissector_add("infiniband.payload", dissect_rpcordma_heur, "Infiniband RPC over RDMA", "rpcordma_infiniband", proto_rpcordma, HEURISTIC_ENABLE);
         heur_dissector_add("infiniband.mad.cm.private", dissect_rpcordma_heur, "RPC over RDMA in PrivateData of CM packets", "rpcordma_ib_private", proto_rpcordma, HEURISTIC_ENABLE);
 
@@ -619,13 +613,13 @@ proto_reg_handoff_rpcordma(void)
                 if (errno || *not_parsed != '\0') {
                     error_occured = TRUE;
                 } else {
-                    SET_ADDRESS(&manual_addr[i], AT_IB, sizeof(guint16), manual_addr_data[i]);
+                    set_address(&manual_addr[i], AT_IB, sizeof(guint16), manual_addr_data[i]);
                 }
             } else {    /* GID */
                 if (!str_to_ip6(gPREF_ID[i], manual_addr_data[i]) ) {
                     error_occured = TRUE;
                 } else {
-                    SET_ADDRESS(&manual_addr[i], AT_IB, GID_SIZE, manual_addr_data[i]);
+                    set_address(&manual_addr[i], AT_IB, GID_SIZE, manual_addr_data[i]);
                 }
             }
 

@@ -40,8 +40,8 @@ static dissector_handle_t docsis_tlv_handle;
 static gint ett_docsis_dsdreq = -1;
 
 /* Dissection */
-static void
-dissect_dsdreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_dsdreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *dsdreq_tree = NULL;
@@ -69,6 +69,7 @@ dissect_dsdreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
     /* Call Dissector for Appendix C TLV's */
     next_tvb = tvb_new_subset_remaining (tvb, 8);
     call_dissector (docsis_tlv_handle, next_tvb, pinfo, dsdreq_tree);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

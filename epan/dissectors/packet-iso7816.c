@@ -569,8 +569,8 @@ dissect_iso7816_cmd_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     if (PINFO_FD_VISITED(pinfo)) {
         iso7816_trans = (iso7816_transaction_t *)wmem_tree_lookup32(
-                transactions, PINFO_FD_NUM(pinfo));
-        if (iso7816_trans && iso7816_trans->cmd_frame==PINFO_FD_NUM(pinfo) &&
+                transactions, pinfo->num);
+        if (iso7816_trans && iso7816_trans->cmd_frame==pinfo->num &&
                 iso7816_trans->resp_frame!=0) {
             trans_ti = proto_tree_add_uint_format(tree, hf_iso7816_resp_in,
                            NULL, 0, 0, iso7816_trans->resp_frame,
@@ -581,7 +581,7 @@ dissect_iso7816_cmd_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     else {
         if (transactions) {
             iso7816_trans = wmem_new(wmem_file_scope(), iso7816_transaction_t);
-            iso7816_trans->cmd_frame = PINFO_FD_NUM(pinfo);
+            iso7816_trans->cmd_frame = pinfo->num;
             iso7816_trans->resp_frame = 0;
             iso7816_trans->cmd_ins = INS_INVALID;
 
@@ -654,14 +654,14 @@ dissect_iso7816_resp_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         /* receive the largest key that is less than or equal to our frame
            number */
         iso7816_trans = (iso7816_transaction_t *)wmem_tree_lookup32_le(
-                transactions, PINFO_FD_NUM(pinfo));
+                transactions, pinfo->num);
         if (iso7816_trans) {
             if (iso7816_trans->resp_frame==0) {
                 /* there's a pending request, this packet is the response */
-                iso7816_trans->resp_frame = PINFO_FD_NUM(pinfo);
+                iso7816_trans->resp_frame = pinfo->num;
             }
 
-            if (iso7816_trans->resp_frame== PINFO_FD_NUM(pinfo)) {
+            if (iso7816_trans->resp_frame== pinfo->num) {
                 /* we found the request that corresponds to our response */
                 cmd_ins_str = val_to_str_const(iso7816_trans->cmd_ins,
                         iso7816_ins, "Unknown instruction");
@@ -701,10 +701,10 @@ dissect_iso7816_resp_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 static int
 dissect_iso7816(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-    gint        offset       = 0;
-    proto_item *tree_ti      = NULL;
-    proto_tree *iso7816_tree = NULL;
-    gboolean    is_atr       = FALSE;
+    gint        offset = 0;
+    proto_item *tree_ti;
+    proto_tree *iso7816_tree;
+    gboolean    is_atr = FALSE;
 
     if (pinfo->p2p_dir!=P2P_DIR_SENT && pinfo->p2p_dir!=P2P_DIR_RECV)
         return 0;
@@ -719,17 +719,17 @@ dissect_iso7816(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
     /* per our definition, sent/received is from the perspective of the interface
        i.e sent is from interface to card, received is from card to interface */
     if (pinfo->p2p_dir==P2P_DIR_SENT) {
-        SET_ADDRESS(&pinfo->src, AT_STRINGZ,
+        set_address(&pinfo->src, AT_STRINGZ,
                 (int)strlen(ADDR_INTF)+1, ADDR_INTF);
-        SET_ADDRESS(&pinfo->dst, AT_STRINGZ,
+        set_address(&pinfo->dst, AT_STRINGZ,
                 (int)strlen(ADDR_CARD)+1, ADDR_CARD);
         proto_item_append_text(tree_ti, " Command APDU");
         offset = dissect_iso7816_cmd_apdu(tvb, pinfo, iso7816_tree);
     }
     else if (pinfo->p2p_dir==P2P_DIR_RECV) {
-        SET_ADDRESS(&pinfo->src, AT_STRINGZ,
+        set_address(&pinfo->src, AT_STRINGZ,
                 (int)strlen(ADDR_CARD)+1, ADDR_CARD);
-        SET_ADDRESS(&pinfo->dst, AT_STRINGZ,
+        set_address(&pinfo->dst, AT_STRINGZ,
                 (int)strlen(ADDR_INTF)+1, ADDR_INTF);
 
         if (iso7816_atr_handle) {
@@ -925,13 +925,13 @@ proto_register_iso7816(void)
     expert_iso7816 = expert_register_protocol(proto_iso7816);
     expert_register_field_array(expert_iso7816, ei, array_length(ei));
 
-    new_register_dissector("iso7816", dissect_iso7816, proto_iso7816);
+    register_dissector("iso7816", dissect_iso7816, proto_iso7816);
 
     transactions = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
     proto_iso7816_atr = proto_register_protocol(
             "ISO/IEC 7816-3", "ISO 7816-3", "iso7816.atr");
-    new_register_dissector("iso7816.atr", dissect_iso7816_atr, proto_iso7816_atr);
+    register_dissector("iso7816.atr", dissect_iso7816_atr, proto_iso7816_atr);
 }
 
 void

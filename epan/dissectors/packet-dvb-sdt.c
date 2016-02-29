@@ -90,8 +90,8 @@ static const value_string dvb_sdt_free_ca_mode_vals[] = {
     { 0, NULL }
 };
 
-static void
-dissect_dvb_sdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dvb_sdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
     guint       offset = 0, length = 0;
@@ -134,7 +134,7 @@ dissect_dvb_sdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 
     if (offset >= length)
-        return;
+        return offset;
 
     /* Parse all the services */
     while (offset < length) {
@@ -162,6 +162,7 @@ dissect_dvb_sdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     offset += packet_mpeg_sect_crc(tvb, pinfo, dvb_sdt_tree, 0, offset);
     proto_item_set_len(ti, offset);
+    return tvb_captured_length(tvb);
 }
 
 

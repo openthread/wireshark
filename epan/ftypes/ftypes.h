@@ -38,7 +38,7 @@ enum ftenum {
 	FT_BOOLEAN,	/* TRUE and FALSE come from <glib.h> */
 	FT_UINT8,
 	FT_UINT16,
-	FT_UINT24,	/* really a UINT32, but displayed as 3 hex-digits if FD_HEX*/
+	FT_UINT24,	/* really a UINT32, but displayed as 6 hex-digits if FD_HEX*/
 	FT_UINT32,
 	FT_UINT40,	/* really a UINT64, but displayed as 10 hex-digits if FD_HEX*/
 	FT_UINT48,	/* really a UINT64, but displayed as 12 hex-digits if FD_HEX*/
@@ -52,6 +52,8 @@ enum ftenum {
 	FT_INT48, /* same as for UINT48 */
 	FT_INT56, /* same as for UINT56 */
 	FT_INT64,
+	FT_IEEE_11073_SFLOAT,
+	FT_IEEE_11073_FLOAT,
 	FT_FLOAT,
 	FT_DOUBLE,
 	FT_ABSOLUTE_TIME,
@@ -102,7 +104,8 @@ enum ft_framenum_type {
     FT_FRAMENUM_REQUEST,
     FT_FRAMENUM_RESPONSE,
     FT_FRAMENUM_ACK,
-    FT_FRAMENUM_DUP_ACK
+    FT_FRAMENUM_DUP_ACK,
+    FT_FRAMENUM_NUM_TYPES /* last item number plus one */
 };
 
 typedef enum ft_framenum_type ft_framenum_type_t;
@@ -187,7 +190,7 @@ ftype_can_matches(enum ftenum ftype);
 /* ---------------- FVALUE ----------------- */
 
 #include <epan/ipv4.h>
-#include <epan/ipv6-utils.h>
+#include <epan/ipv6.h>
 #include <epan/guid-utils.h>
 
 #include <epan/tvbuff.h>
@@ -198,21 +201,23 @@ typedef struct _fvalue_t {
 	ftype_t	*ftype;
 	union {
 		/* Put a few basic types in here */
-		guint32		uinteger;
-		gint32		sinteger;
-		guint64		integer64;
-		guint64		uinteger64;
-		gint64		sinteger64;
-		gdouble		floating;
-		gchar		*string;
-		guchar		*ustring;
-		GByteArray	*bytes;
-		ipv4_addr	ipv4;
-		ipv6_addr	ipv6;
-		e_guid_t	guid;
-		nstime_t	time;
-		tvbuff_t	*tvb;
-		GRegex	        *re;
+		guint32			uinteger;
+		gint32			sinteger;
+		guint64			integer64;
+		guint64			uinteger64;
+		gint64			sinteger64;
+		gdouble			floating;
+		gchar			*string;
+		guchar			*ustring;
+		GByteArray		*bytes;
+		ipv4_addr_and_mask	ipv4;
+		ipv6_addr_and_prefix	ipv6;
+		e_guid_t		guid;
+		nstime_t		time;
+		tvbuff_t		*tvb;
+		GRegex			*re;
+		guint16			sfloat_ieee_11073;
+		guint32			float_ieee_11073;
 	} value;
 
 	/* The following is provided for private use

@@ -45,9 +45,7 @@ CaptureFilePropertiesDialog::CaptureFilePropertiesDialog(QWidget &parent, Captur
     ui(new Ui::CaptureFilePropertiesDialog)
 {
     ui->setupUi(this);
-
-    // XXX Use recent settings instead
-    resize(parent.width() * 2 / 3, parent.height());
+    loadGeometry(parent.width() * 2 / 3, parent.height());
 
     ui->detailsTextEdit->setAcceptRichText(true);
 
@@ -86,7 +84,7 @@ void CaptureFilePropertiesDialog::updateWidgets()
     QPushButton *refresh_bt = ui->buttonBox->button(QDialogButtonBox::Reset);
     QPushButton *save_bt = ui->buttonBox->button(QDialogButtonBox::Save);
 
-    if (file_closed_) {
+    if (file_closed_ || !cap_file_.isValid()) {
         if (refresh_bt) {
             refresh_bt->setEnabled(false);
         }
@@ -94,6 +92,7 @@ void CaptureFilePropertiesDialog::updateWidgets()
         if (save_bt) {
             save_bt->setEnabled(false);
         }
+        WiresharkDialog::updateWidgets();
         return;
     }
 
@@ -103,6 +102,8 @@ void CaptureFilePropertiesDialog::updateWidgets()
 
     fillDetails();
     ui->commentsTextEdit->setText(cf_read_shb_comment(cap_file_.capFile()));
+
+    WiresharkDialog::updateWidgets();
 }
 
 static const QString section_tmpl_ = "<p><strong>%1</strong></p>\n";

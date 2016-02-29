@@ -30,6 +30,7 @@
 #include <epan/prefs.h>    /* req'd for packet-zbee-security.h */
 #include <epan/expert.h>
 #include <epan/reassemble.h>
+#include <epan/proto_data.h>
 
 #include "packet-zbee.h"
 #include "packet-zbee-nwk.h"
@@ -55,6 +56,8 @@ static guint   dissect_zbee_aps_switch_key     (tvbuff_t *tvb, packet_info *pinf
 static guint   dissect_zbee_aps_auth_challenge (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
 static guint   dissect_zbee_aps_auth_data      (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
 static guint   dissect_zbee_aps_tunnel         (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset, void *data);
+static guint   dissect_zbee_aps_verify_key     (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
+static guint   dissect_zbee_aps_confirm_key    (tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset);
 static guint   dissect_zbee_t2                 (tvbuff_t *tvb, proto_tree *tree, guint16 cluster_id);
 
 /* Helper routine. */
@@ -105,12 +108,14 @@ static int hf_zbee_aps_cmd_device = -1;
 static int hf_zbee_aps_cmd_challenge = -1;
 static int hf_zbee_aps_cmd_mac = -1;
 static int hf_zbee_aps_cmd_key = -1;
+static int hf_zbee_aps_cmd_key_hash = -1;
 static int hf_zbee_aps_cmd_key_type = -1;
 static int hf_zbee_aps_cmd_dst = -1;
 static int hf_zbee_aps_cmd_src = -1;
 static int hf_zbee_aps_cmd_seqno = -1;
 static int hf_zbee_aps_cmd_short_addr = -1;
 static int hf_zbee_aps_cmd_device_status = -1;
+static int hf_zbee_aps_cmd_status = -1;
 static int hf_zbee_aps_cmd_ea_key_type = -1;
 static int hf_zbee_aps_cmd_ea_data = -1;
 
@@ -240,6 +245,8 @@ static const value_string zbee_aps_cmd_names[] = {
     { ZBEE_APS_CMD_EA_INIT_MAC_DATA,"EA Initiator MAC" },
     { ZBEE_APS_CMD_EA_RESP_MAC_DATA,"EA Responder MAC" },
     { ZBEE_APS_CMD_TUNNEL,          "Tunnel" },
+    { ZBEE_APS_CMD_VERIFY_KEY,      "Verify Key" },
+    { ZBEE_APS_CMD_CONFIRM_KEY,     "Confirm Key" },
     { 0, NULL }
 };
 
@@ -272,6 +279,31 @@ static const value_string zbee_aps_update_status_names[] = {
     { ZBEE_APS_CMD_UPDATE_HIGH_UNSEC_REJOIN,    "High security, unsecured rejoin" },
     { 0, NULL }
 };
+
+
+/* Update Device Status Names */
+static const value_string zbee_aps_status_names[] = {
+    { ZBEE_APP_STATUS_SUCCESS,               "SUCCESS" },
+    { ZBEE_APP_STATUS_ASDU_TOO_LONG,         "ASDU_TOO_LONG" },
+    { ZBEE_APP_STATUS_DEFRAG_DEFERRED,       "DEFRAG_DEFERRED" },
+    { ZBEE_APP_STATUS_DEFRAG_UNSUPPORTED,    "DEFRAG_UNSUPPORTED" },
+    { ZBEE_APP_STATUS_ILLEGAL_REQUEST,       "ILLEGAL_REQUEST" },
+    { ZBEE_APP_STATUS_INVALID_BINDING,       "INVALID_BINDING" },
+    { ZBEE_APP_STATUS_INVALID_GROUP,         "INVALID_GROUP" },
+    { ZBEE_APP_STATUS_INVALID_PARAMETER,     "INVALID_PARAMETER" },
+    { ZBEE_APP_STATUS_NO_ACK,                "NO_ACK" },
+    { ZBEE_APP_STATUS_NO_BOUND_DEVICE,       "NO_BOUND_DEVICE" },
+    { ZBEE_APP_STATUS_NO_SHORT_ADDRESS,      "NO_SHORT_ADDRESS" },
+    { ZBEE_APP_STATUS_NOT_SUPPORTED,         "NOT_SUPPORTED" },
+    { ZBEE_APP_STATUS_SECURED_LINK_KEY,      "SECURED_LINK_KEY" },
+    { ZBEE_APP_STATUS_SECURED_NWK_KEY,       "SECURED_NWK_KEY" },
+    { ZBEE_APP_STATUS_SECURITY_FAIL,         "SECURITY_FAIL" },
+    { ZBEE_APP_STATUS_TABLE_FULL,            "TABLE_FULL" },
+    { ZBEE_APP_STATUS_UNSECURED,             "UNSECURED" },
+    { ZBEE_APP_STATUS_UNSUPPORTED_ATTRIBUTE, "UNSUPPORTED_ATTRIBUTE" },
+    { 0, NULL }
+};
+
 
 /* Outdated ZigBee 2004 Value Strings. */
 static const value_string zbee_apf_type_names[] = {
@@ -641,7 +673,7 @@ const value_string zbee_aps_t2_cid_names[] = {
     { ZBEE_APS_T2_CID_RDREQ,      "Route Discovery Request"},
     { ZBEE_APS_T2_CID_RDRES,      "Route Discovery Response"},
     { ZBEE_APS_T2_CID_RESPC,      "Reset Packet Count"},
-    { ZBEE_APS_T2_CID_RETPC,      "Retreive Packet Count"},
+    { ZBEE_APS_T2_CID_RETPC,      "Retrieve Packet Count"},
     { ZBEE_APS_T2_CID_TCP,        "Transmit Counted Packets"},
 
     { 0, NULL }
@@ -665,19 +697,13 @@ const value_string zbee_aps_t2_btres_status_names[] = {
 #define ZBEE_APS_FRAG_BLOCK7_ACK    0x40
 #define ZBEE_APS_FRAG_BLOCK8_ACK    0x80
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps
- *  DESCRIPTION
- *      ZigBee Application Support Sublayer dissector for wireshark.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee Application Support Sublayer dissector for wireshark.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+*/
 static int
 dissect_zbee_aps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
@@ -1067,21 +1093,15 @@ dissect_zbee_aps_no_endpt:
     return tvb_captured_length(tvb);
 } /* dissect_zbee_aps */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_cmd
- *  DESCRIPTION
- *      ZigBee APS sub-dissector for APS Command frames
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *      proto_item *proto_root - pointer to the root of the APS tree
- *      data                - raw packet private data.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee APS sub-dissector for APS Command frames
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param proto_root pointer to the root of the APS tree
+ *@param data raw packet private data.
+*/
 static void dissect_zbee_aps_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint8 version, void *data)
 {
     proto_item  *cmd_root;
@@ -1155,6 +1175,16 @@ static void dissect_zbee_aps_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             offset = dissect_zbee_aps_tunnel(tvb, pinfo, cmd_tree, offset, data);
             break;
 
+        case ZBEE_APS_CMD_VERIFY_KEY:
+            /* Verify Key Command. */
+            offset = dissect_zbee_aps_verify_key(tvb, pinfo, cmd_tree, offset);
+            break;
+
+        case ZBEE_APS_CMD_CONFIRM_KEY:
+            /* Confirm Key  Command. */
+            offset = dissect_zbee_aps_confirm_key(tvb, pinfo, cmd_tree, offset);
+            break;
+
         default:
             break;
     } /* switch */
@@ -1176,21 +1206,15 @@ static void dissect_zbee_aps_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
 } /* dissect_zbee_aps_cmd */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_skke_challenge
- *  DESCRIPTION
- *      Helper dissector for the SKKE Challenge commands (SKKE1 and
- *      SKKE2).
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the SKKE Challenge commands (SKKE1 and
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_skke_challenge(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1210,21 +1234,15 @@ dissect_zbee_aps_skke_challenge(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
     return offset;
 } /* dissect_zbee_aps_skke_challenge */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_skke_data
- *  DESCRIPTION
- *      Helper dissector for the SKKE Data commands (SKKE3 and
- *      SKKE4).
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the SKKE Data commands (SKKE3 and
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_skke_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1244,20 +1262,15 @@ dissect_zbee_aps_skke_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
     return offset;
 } /* dissect_zbee_aps_skke_data */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_transport_key
- *  DESCRIPTION
- *      Helper dissector for the Transport Key command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Transport Key command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1298,7 +1311,7 @@ dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
                     memcmp( ((key_record_t *)((GSList *)(*nwk_keyring))->data)->key, &key,
                         ZBEE_APS_CMD_KEY_LENGTH) ) {
                 /* Store a new or different key in the key ring */
-                key_record.frame_num = pinfo->fd->num;
+                key_record.frame_num = pinfo->num;
                 key_record.label = NULL;
                 memcpy(&key_record.key, &key, ZBEE_APS_CMD_KEY_LENGTH);
                 *nwk_keyring = g_slist_prepend(*nwk_keyring, g_memdup(&key_record, sizeof(key_record_t)));
@@ -1369,20 +1382,76 @@ dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
     return offset;
 } /* dissect_zbee_aps_transport_key */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_update_device
- *  DESCRIPTION
- *      Helper dissector for the Update Device command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+
+/**
+ *Helper dissector for the Verify Key Command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
+static guint
+dissect_zbee_aps_verify_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
+{
+    /* display the key type. */
+    proto_tree_add_item(tree, hf_zbee_aps_cmd_key_type, tvb, offset, 1, ENC_NA);
+    offset += 1;
+
+    /* Get and display the source address. */
+    proto_tree_add_item(tree, hf_zbee_aps_cmd_src, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+    offset += 8;
+
+    /* This value is the outcome of executing the specialized keyed hash
+     * function specified in section B.1.4 using a key with the 1-octet string
+     * 03 as the input string.
+     */
+    proto_tree_add_item(tree, hf_zbee_aps_cmd_key_hash, tvb, offset, ZBEE_APS_CMD_KEY_LENGTH, ENC_NA);
+    offset += ZBEE_APS_CMD_KEY_LENGTH;
+
+    /* Done */
+    return offset;
+} /* dissect_zbee_aps_verify_key */
+
+
+/**
+ *Helper dissector for the Confirm Key command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
+static guint
+dissect_zbee_aps_confirm_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
+{
+    /* display status. */
+    guint status = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(tree, hf_zbee_aps_cmd_status, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+    offset += 1;
+    /* display the key type. */
+    proto_tree_add_item(tree, hf_zbee_aps_cmd_key_type, tvb, offset, 1, ENC_NA);
+    offset += 1;
+    proto_tree_add_item(tree, hf_zbee_aps_cmd_dst, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+    offset += 8;
+
+    proto_item_append_text(tree, ", %s", val_to_str_const(status, zbee_aps_status_names, "Unknown Status"));
+    col_append_fstr(pinfo->cinfo, COL_INFO, ", %s", val_to_str_const(status, zbee_aps_status_names, "Unknown Status"));
+    /* Done */
+    return offset;
+} /* dissect_zbee_aps_confirm_key */
+
+/**
+ *Helper dissector for the Update Device command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_update_device(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset, guint8 version)
 {
@@ -1404,20 +1473,15 @@ dissect_zbee_aps_update_device(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
     return offset;
 } /* dissect_zbee_aps_update_device */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_remove_device
- *  DESCRIPTION
- *      Helper dissector for the Remove Device command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Remove Device command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_remove_device(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1429,20 +1493,15 @@ dissect_zbee_aps_remove_device(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
     return offset;
 } /* dissect_zbee_aps_remove_device */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_request_key
- *  DESCRIPTION
- *      Helper dissector for the Request Key command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Request Key command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_request_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1463,20 +1522,15 @@ dissect_zbee_aps_request_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
     return offset;
 } /* dissect_zbee_aps_request_key */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_switch_key
- *  DESCRIPTION
- *      Helper dissector for the Switch Key command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Switch Key command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_switch_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1491,21 +1545,15 @@ dissect_zbee_aps_switch_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
     return offset;
 } /* dissect_zbee_aps_switch_key */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_auth_challenge
- *  DESCRIPTION
- *      Helper dissector for the Entity-Authentication Initiator
- *      or Responder challenge commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Entity-Authentication Initiator
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_auth_challenge(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1540,21 +1588,15 @@ dissect_zbee_aps_auth_challenge(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
     return offset;
 } /* dissect_zbee_aps_auth_challenge */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_auth_data
- *  DESCRIPTION
- *      Helper dissector for the Entity-Authentication Initiator
- *      or Responder data commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Entity-Authentication Initiator
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_auth_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint offset)
 {
@@ -1583,21 +1625,16 @@ dissect_zbee_aps_auth_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
     return offset;
 } /* dissect_zbee_aps_auth_data */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_aps_tunnel
- *  DESCRIPTION
- *      Helper dissector for the Tunnel command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *      data                - raw packet private data.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Tunnel command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param offset into the tvb to begin dissection.
+ *@param data raw packet private data.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_aps_tunnel(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset, void *data)
 {
@@ -1618,21 +1655,13 @@ dissect_zbee_aps_tunnel(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
     return offset;
 } /* dissect_zbee_aps_tunnel */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_apf
- *  DESCRIPTION
- *      ZigBee Application Framework dissector for Wireshark. Note
- *      that the Application Framework is deprecated as of ZigBee
- *      2006.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee Application Framework dissector for Wireshark. Note
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree.
+*/
 static int dissect_zbee_apf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     proto_tree  *apf_tree;
@@ -1693,19 +1722,13 @@ dissect_app_end:
     return tvb_captured_length(tvb);
 } /* dissect_zbee_apf */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_t2
- *  DESCRIPTION
- *      ZigBee Test Profile #2 dissector for Wireshark.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      guint16 clisuer_id  - ZigBee Test Profile #2 cluster ID.
- *  RETURNS
- *      guint
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee Test Profile #2 dissector for Wireshark.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to the command subtree.
+ *@param cluster_id ZigBee Test Profile #2 cluster ID.
+*/
 static guint
 dissect_zbee_t2(tvbuff_t *tvb, proto_tree *tree, guint16 cluster_id)
 {
@@ -1737,21 +1760,13 @@ dissect_zbee_t2(tvbuff_t *tvb, proto_tree *tree, guint16 cluster_id)
     return offset;
 } /* dissect_zbee_t2 */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_apf_transaction_len
- *  DESCRIPTION
- *      Peeks into the application framework, and determines the
- *      length of the transaction. Used only with the kludge that is
- *      the ZigBee 2004 & earlier application framework.
- *  PARAMETERS
- *      tvbuff_t *tvb       - packet buffer.
- *      guint    offset     - offset into the buffer.
- *      guint    type       - message type: KVP or MSG.
- *  RETURNS
- *      guint
- *---------------------------------------------------------------
- */
+/**
+ *Peeks into the application framework, and determines the
+ *
+ *@param tvb packet buffer.
+ *@param offset offset into the buffer.
+ *@param type message type: KVP or MSG.
+*/
 static guint
 zbee_apf_transaction_len(tvbuff_t *tvb, guint offset, guint8 type)
 {
@@ -1827,17 +1842,10 @@ zbee_apf_transaction_len(tvbuff_t *tvb, guint offset, guint8 type)
     }
 } /* zbee_apf_transaction_len */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_register_zbee_aps
- *  DESCRIPTION
- *      ZigBee APS protocol registration routine.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee APS protocol registration routine.
+ *
+*/
 void proto_register_zbee_aps(void)
 {
     static hf_register_info hf[] = {
@@ -1955,7 +1963,7 @@ void proto_register_zbee_aps(void)
 
             { &hf_zbee_aps_cmd_initiator_flag,
             { "Initiator",              "zbee_aps.cmd.init_flag", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-                "Inidicates the destination of the transport-key command requested this key.", HFILL }},
+                "Indicates the destination of the transport-key command requested this key.", HFILL }},
 
             { &hf_zbee_aps_cmd_device,
             { "Device Address",         "zbee_aps.cmd.device", FT_EUI64, BASE_NONE, NULL, 0x0,
@@ -1971,6 +1979,10 @@ void proto_register_zbee_aps(void)
 
             { &hf_zbee_aps_cmd_key,
             { "Key",                    "zbee_aps.cmd.key", FT_BYTES, BASE_NONE, NULL, 0x0,
+                NULL, HFILL }},
+
+            { &hf_zbee_aps_cmd_key_hash,
+            { "Key Hash",                    "zbee_aps.cmd.key_hash", FT_BYTES, BASE_NONE, NULL, 0x0,
                 NULL, HFILL }},
 
             { &hf_zbee_aps_cmd_key_type,
@@ -1994,9 +2006,14 @@ void proto_register_zbee_aps(void)
                 "The device whose status is being updated.", HFILL }},
 
             { &hf_zbee_aps_cmd_device_status,
-            { "Device Status",          "zbee_aps.cmd.status", FT_UINT8, BASE_HEX,
+            { "Device Status",          "zbee_aps.cmd.update_status", FT_UINT8, BASE_HEX,
                     VALS(zbee_aps_update_status_names), 0x0,
                 "Update device status.", HFILL }},
+
+            { &hf_zbee_aps_cmd_status,
+            { "Status",          "zbee_aps.cmd.status", FT_UINT8, BASE_HEX,
+                    VALS(zbee_aps_status_names), 0x0,
+                "APS status.", HFILL }},
 
             { &hf_zbee_aps_cmd_ea_key_type,
             { "Key Type",               "zbee_aps.cmd.ea.key_type", FT_UINT8, BASE_HEX,
@@ -2114,8 +2131,8 @@ void proto_register_zbee_aps(void)
     expert_register_field_array(expert_zbee_aps, ei, array_length(ei));
 
     /* Register the APS dissector and subdissector list. */
-    zbee_aps_dissector_table = register_dissector_table("zbee.profile", "ZigBee Profile ID", FT_UINT16, BASE_HEX);
-    zbee_aps_handle = new_register_dissector(ZBEE_PROTOABBREV_APS, dissect_zbee_aps, proto_zbee_aps);
+    zbee_aps_dissector_table = register_dissector_table("zbee.profile", "ZigBee Profile ID", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    zbee_aps_handle = register_dissector(ZBEE_PROTOABBREV_APS, dissect_zbee_aps, proto_zbee_aps);
 
     /* Register the init routine. */
     register_init_routine(proto_init_zbee_aps);
@@ -2127,38 +2144,23 @@ void proto_register_zbee_aps(void)
     proto_register_subtree_array(ett_apf, array_length(ett_apf));
 
     /* Register the App dissector. */
-    zbee_apf_handle = new_register_dissector("zbee_apf", dissect_zbee_apf, proto_zbee_apf);
+    zbee_apf_handle = register_dissector("zbee_apf", dissect_zbee_apf, proto_zbee_apf);
 } /* proto_register_zbee_aps */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_reg_handoff_zbee_aps
- *  DESCRIPTION
- *      Registers the zigbee APS dissector with Wireshark.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Registers the zigbee APS dissector with Wireshark.
+ *
+*/
 void proto_reg_handoff_zbee_aps(void)
 {
     /* Find the other dissectors we need. */
     data_handle     = find_dissector("data");
 } /* proto_reg_handoff_zbee_aps */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_init_zbee_aps
- *  DESCRIPTION
- *      Initializes the APS dissectors prior to beginning protocol
- *      dissection.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Initializes the APS dissectors prior to beginning protocol
+ *
+*/
 static void proto_init_zbee_aps(void)
 {
     reassembly_table_init(&zbee_aps_reassembly_table,

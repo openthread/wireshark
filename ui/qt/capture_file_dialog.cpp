@@ -133,8 +133,6 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
     return win32_check_save_as_with_comments((HWND)parent->effectiveWinId(), cf, file_type);
 #else // Q_OS_WIN
     guint32 comment_types;
-    QMessageBox msg_dialog;
-    int response;
 
     /* What types of comments do we have? */
     comment_types = cf_comment_types(cf);
@@ -146,41 +144,45 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
         return SAVE;
     }
 
+    QMessageBox msg_dialog;
+    QPushButton *save_button;
+    QPushButton *discard_button;
+
+    msg_dialog.setIcon(QMessageBox::Question);
+    msg_dialog.setText(tr("This capture file contains comments."));
+    msg_dialog.setStandardButtons(QMessageBox::Cancel);
+
     /* No. Are there formats in which we can write this file that
        supports all the comments in this file? */
     if (wtap_dump_can_write(cf->linktypes, comment_types)) {
-        QPushButton *default_button;
         /* Yes.  Offer the user a choice of "Save in a format that
            supports comments", "Discard comments and save in the
            format you selected", or "Cancel", meaning "don't bother
            saving the file at all". */
-        msg_dialog.setIcon(QMessageBox::Question);
-        msg_dialog.setText(tr("This capture file contains comments."));
         msg_dialog.setInformativeText(tr("The file format you chose doesn't support comments. "
-                                      "Do you want to save the capture in a format that supports comments "
-                                      "or discard the comments and save in the format you chose?"));
-        msg_dialog.setStandardButtons(QMessageBox::Cancel);
+                                         "Do you want to save the capture in a format that supports comments "
+                                         "or discard the comments and save in the format you chose?"));
         // The predefined roles don't really match the tasks at hand...
-        msg_dialog.addButton(tr("Discard comments and save"), QMessageBox::DestructiveRole);
-        default_button = msg_dialog.addButton(tr("Save in another format"), QMessageBox::AcceptRole);
-        msg_dialog.setDefaultButton(default_button);
+        discard_button = msg_dialog.addButton(tr("Discard comments and save"), QMessageBox::DestructiveRole);
+        save_button = msg_dialog.addButton(tr("Save in another format"), QMessageBox::AcceptRole);
+        msg_dialog.setDefaultButton(save_button);
     } else {
         /* No.  Offer the user a choice of "Discard comments and
            save in the format you selected" or "Cancel". */
-        msg_dialog.setIcon(QMessageBox::Question);
-        msg_dialog.setText(tr("This capture file contains comments."));
         msg_dialog.setInformativeText(tr("No file format in which it can be saved supports comments. "
-                                      "Do you want to discard the comments and save in the format you chose?"));
-        msg_dialog.setStandardButtons(QMessageBox::Cancel);
-        msg_dialog.addButton(tr("Discard comments and save"), QMessageBox::DestructiveRole);
+                                         "Do you want to discard the comments and save in the format you chose?"));
+        save_button = NULL;
+        discard_button = msg_dialog.addButton(tr("Discard comments and save"), QMessageBox::DestructiveRole);
         msg_dialog.setDefaultButton(QMessageBox::Cancel);
     }
 
-    response = msg_dialog.exec();
+    msg_dialog.exec();
+    /* According to the Qt doc:
+     * when using QMessageBox with custom buttons, exec() function returns an opaque value.
+     *
+     * Therefore we should use clickedButton() to determine which button was clicked. */
 
-    switch (response) {
-
-    case QMessageBox::Save:
+    if (msg_dialog.clickedButton() == save_button) {
       /* OK, the only other format we support is pcap-ng.  Make that
          the one and only format in the combo box, and return to
          let the user continue with the dialog.
@@ -195,16 +197,13 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
       /* XXX - need a compressed checkbox here! */
       return SAVE_IN_ANOTHER_FORMAT;
 
-    case QMessageBox::Discard:
+    } else if (msg_dialog.clickedButton() == discard_button) {
       /* Save without the comments and, if that succeeds, delete the
          comments. */
       return SAVE_WITHOUT_COMMENTS;
-
-    case QMessageBox::Cancel:
-    default:
-      /* Just give up. */
-      break;
     }
+
+    /* Just give up. */
     return CANCELLED;
 #endif // Q_OS_WIN
 }
@@ -219,6 +218,7 @@ int CaptureFileDialog::exec() {
 
 
 // Windows
+// We use native file dialogs here, rather than the Qt dialog
 #ifdef Q_OS_WIN
 int CaptureFileDialog::selectedFileType() {
     return file_type_;
@@ -296,6 +296,8 @@ int CaptureFileDialog::mergeType() {
 }
 
 #else // not Q_OS_WINDOWS
+// Not Windows
+// We use the Qt dialogs here
 QString CaptureFileDialog::fileExtensionType(int et, bool extension_globs)
 {
     QString filter;
@@ -342,13 +344,11 @@ QString CaptureFileDialog::fileType(int ft, bool extension_globs)
     extensions_list = wtap_get_file_extensions_list(ft, TRUE);
     if (extensions_list == NULL) {
         /* This file type doesn't have any particular extension
-           conventionally used for it, so we'll just use "*.*"
-           as the pattern; on Windows, that matches all file names
-           - even those with no extension -  so we don't need to
-           worry about compressed file extensions.  (It does not
-           do so on UN*X; the right pattern on UN*X would just
-           be "*".) */
-           filter += "*.*";
+           conventionally used for it, so we'll just use "*"
+           as the pattern, as this is UN*X, where "*.*" only
+           matches files that have an extension. (On Windows,
+           it matches all files, but this isn't Windows.) */
+           filter += "*";
     } else {
         GSList *extension;
         /* Construct the list of patterns. */
@@ -388,8 +388,10 @@ QStringList CaptureFileDialog::buildFileOpenTypeList() {
      * the filter will be a bit long, so it *really* shouldn't be shown.
      * What about other platforms?
      */
-    /* Add the "All Files" entry. */
-    filters << QString(tr("All Files (*.*)"));
+    /*
+     * Add the "All Files" entry.  As per the above, we use *, not *.*.
+     */
+    filters << QString(tr("All Files (*)"));
 
     /*
      * Add an "All Capture Files" entry, with all the extensions we
@@ -488,9 +490,9 @@ bool CaptureFileDialog::isCompressed() {
 void CaptureFileDialog::addDisplayFilterEdit() {
     QGridLayout *fd_grid = qobject_cast<QGridLayout*>(layout());
 
-    fd_grid->addWidget(new QLabel(tr("Display Filter:")), last_row_, 0);
+    fd_grid->addWidget(new QLabel(tr("Read filter:")), last_row_, 0);
 
-    display_filter_edit_ = new DisplayFilterEdit(this);
+    display_filter_edit_ = new DisplayFilterEdit(this, ReadFilterToApply);
     display_filter_edit_->setText(display_filter_);
     fd_grid->addWidget(display_filter_edit_, last_row_, 1);
     last_row_++;
@@ -791,7 +793,7 @@ void CaptureFileDialog::preview(const QString & path)
     preview_size_.setText(QString(tr("%1 bytes")).arg(wtap_file_size(wth, &err)));
 
     time(&time_preview);
-    while ( (wtap_read(wth, &err, &err_info, &data_offset)) ) {
+    while ((wtap_read(wth, &err, &err_info, &data_offset))) {
         phdr = wtap_phdr(wth);
         cur_time = nstime_to_sec(&phdr->ts);
         if(packets == 0) {
@@ -830,7 +832,7 @@ void CaptureFileDialog::preview(const QString & path)
 
     // First packet
     ti_time = (long)start_time;
-    ti_tm = localtime( &ti_time );
+    ti_tm = localtime(&ti_time);
     if(ti_tm) {
         preview_first_.setText(QString().sprintf(
                  "%04d-%02d-%02d %02d:%02d:%02d",

@@ -581,11 +581,11 @@ netlogon_auth_equal (gconstpointer k1, gconstpointer k2)
     const netlogon_auth_key *key1 = (const netlogon_auth_key *)k1;
     const netlogon_auth_key *key2 = (const netlogon_auth_key *)k2;
     if(key1->name == NULL || key2->name ==NULL)
-        return ((key1->srcport == key2->srcport) && (key1->dstport == key2->dstport) && ADDRESSES_EQUAL(&key1->src,&key2->src) &&
-                ADDRESSES_EQUAL(&key1->dst,&key2->dst));
+        return ((key1->srcport == key2->srcport) && (key1->dstport == key2->dstport) && addresses_equal(&key1->src,&key2->src) &&
+                addresses_equal(&key1->dst,&key2->dst));
     else
-        return ((strcmp(key1->name,key2->name)==0) && ADDRESSES_EQUAL(&key1->src,&key2->src) &&
-                ADDRESSES_EQUAL(&key1->dst,&key2->dst));
+        return ((strcmp(key1->name,key2->name)==0) && addresses_equal(&key1->src,&key2->src) &&
+                addresses_equal(&key1->dst,&key2->dst));
 }
 
 static guint
@@ -605,8 +605,8 @@ netlogon_auth_hash (gconstpointer k)
         }
     }
 
-    ADD_ADDRESS_TO_HASH(hash_val1, &key1->src);
-    ADD_ADDRESS_TO_HASH(hash_val1, &key1->dst);
+    hash_val1 = add_address_to_hash(hash_val1, &key1->src);
+    hash_val1 = add_address_to_hash(hash_val1, &key1->dst);
     return hash_val1;
 }
 static int
@@ -2392,14 +2392,14 @@ static void generate_hash_key(packet_info *pinfo,unsigned char is_server,netlogo
     if(is_server) {
         key->dstport = pinfo->srcport;
         key->srcport = pinfo->destport;
-        COPY_ADDRESS(&key->dst,&pinfo->src);
-        COPY_ADDRESS(&key->src,&pinfo->dst);
+        copy_address(&key->dst,&pinfo->src);
+        copy_address(&key->src,&pinfo->dst);
         /* name has been durably allocated */
         key->name = name;
     }
     else {
-        COPY_ADDRESS(&key->dst,&pinfo->dst);
-        COPY_ADDRESS(&key->src,&pinfo->src);
+        copy_address(&key->dst,&pinfo->dst);
+        copy_address(&key->src,&pinfo->src);
         key->dstport = pinfo->destport;
         key->srcport = pinfo->srcport;
         /* name has been durably allocated */
@@ -2444,7 +2444,7 @@ netlogon_dissect_netrserverreqchallenge_rqst(tvbuff_t *tvb, int offset,
                                    hf_client_challenge,&vars->client_challenge);
     memcpy(tab,&vars->client_challenge,8);
 
-    vars->start = pinfo->fd->num;
+    vars->start = pinfo->num;
     vars->next_start = -1;
     vars->next = NULL;
 
@@ -2466,7 +2466,7 @@ netlogon_dissect_netrserverreqchallenge_rqst(tvbuff_t *tvb, int offset,
         }
         else {
             debugprintf("Adding a new entry with this start packet = %d\n",vars->start);
-            existing_vars->next_start = pinfo->fd->num;
+            existing_vars->next_start = pinfo->num;
             existing_vars->next = vars;
         }
     }
@@ -2488,7 +2488,7 @@ netlogon_dissect_netrserverreqchallenge_rqst(tvbuff_t *tvb, int offset,
             debugprintf("It seems that I already record this vars (schannel hash)%d\n",vars->start);
         }
         else {
-            existing_vars->next_start = pinfo->fd->num;
+            existing_vars->next_start = pinfo->num;
             existing_vars->next = vars;
         }
 #endif
@@ -2515,10 +2515,10 @@ netlogon_dissect_netrserverreqchallenge_reply(tvbuff_t *tvb, int offset,
     offset = dissect_ntstatus(tvb, offset, pinfo, tree, di, drep,
                               hf_netlogon_rc, NULL);
     if(vars != NULL) {
-        while(vars !=NULL && vars->next_start != -1 && vars->next_start < (int)pinfo->fd->num )
+        while(vars !=NULL && vars->next_start != -1 && vars->next_start < (int)pinfo->num )
         {
             vars = vars->next;
-            debugprintf("looping challenge reply... %d %d \n", vars->next_start, pinfo->fd->num);
+            debugprintf("looping challenge reply... %d %d \n", vars->next_start, pinfo->num);
         }
         if(vars == NULL)
         {
@@ -6642,7 +6642,7 @@ netlogon_dissect_netrserverauthenticate23_reply(tvbuff_t *tvb, int offset,
     vars = (netlogon_auth_vars *)g_hash_table_lookup(netlogon_auths, &key);
     if(vars != NULL) {
         debugprintf("Found some vars (ie. server/client challenges), let's see if I can get a session key\n");
-        while(vars != NULL && vars->next_start != -1 && vars->next_start < (int) pinfo->fd->num ) {
+        while(vars != NULL && vars->next_start != -1 && vars->next_start < (int) pinfo->num ) {
             debugprintf("looping auth reply...\n");
             vars = vars->next;
         }
@@ -7383,7 +7383,8 @@ static int dissect_secchan_nl_auth_message(tvbuff_t *tvb, int offset,
 {
     proto_item *item = NULL;
     proto_tree *subtree = NULL;
-    guint32 messagetype, messageflags;
+    guint32 messagetype;
+    guint64 messageflags;
     static const int *flag_fields[] = {
         &hf_netlogon_secchan_nl_message_flags_nb_domain,
         &hf_netlogon_secchan_nl_message_flags_nb_host,
@@ -7410,10 +7411,14 @@ static int dissect_secchan_nl_auth_message(tvbuff_t *tvb, int offset,
         hf_netlogon_secchan_nl_message_type, &messagetype);
 
     /* Flags */
-    proto_tree_add_bitmask(subtree, tvb, offset, hf_netlogon_secchan_nl_message_flags, ett_secchan_nl_auth_message_flags, flag_fields, (drep[0] & DREP_LITTLE_ENDIAN));
-    messageflags = ((drep[0] & DREP_LITTLE_ENDIAN)
-                    ? tvb_get_letohl (tvb, offset)
-                    : tvb_get_ntohl (tvb, offset));
+    proto_tree_add_bitmask_ret_uint64(subtree, tvb, offset,
+                                      hf_netlogon_secchan_nl_message_flags,
+                                      ett_secchan_nl_auth_message_flags,
+                                      flag_fields,
+                                      (drep[0] & DREP_LITTLE_ENDIAN) ?
+                                          ENC_LITTLE_ENDIAN :
+                                          ENC_BIG_ENDIAN,
+                                      &messageflags);
     offset += 4;
 
 
@@ -7685,13 +7690,13 @@ dissect_packet_data(tvbuff_t *tvb ,tvbuff_t *auth_tvb _U_,
     guint8* decrypted;
     netlogon_auth_vars *vars;
     netlogon_auth_key key;
-    /*debugprintf("Dissection of request data offset %d len=%d on packet %d\n",offset,tvb_length_remaining(tvb,offset),pinfo->fd->num);*/
+    /*debugprintf("Dissection of request data offset %d len=%d on packet %d\n",offset,tvb_length_remaining(tvb,offset),pinfo->num);*/
 
     generate_hash_key(pinfo,is_server,&key,NULL);
     vars = (netlogon_auth_vars *)g_hash_table_lookup(netlogon_auths, &key);
 
     if(vars != NULL  ) {
-        while(vars != NULL && vars->next_start != -1 && vars->next_start < (int) pinfo->fd->num ) {
+        while(vars != NULL && vars->next_start != -1 && vars->next_start < (int) pinfo->num ) {
             vars = vars->next;
         }
         if(vars == NULL ) {
@@ -7756,7 +7761,7 @@ dissect_secchan_verf(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 
     generate_hash_key(pinfo,is_server,&key,NULL);
     vars = (netlogon_auth_vars *)g_hash_table_lookup(netlogon_auths,(gconstpointer*) &key);
-    if(  ! (seen.isseen && seen.num == pinfo->fd->num) ) {
+    if(  ! (seen.isseen && seen.num == pinfo->num) ) {
         /*
          * Create a new tree, and split into x components ...
          */
@@ -7788,7 +7793,7 @@ dissect_secchan_verf(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         update_vars = 1;
     }
     if( vars != NULL ) {
-        while(vars != NULL && vars->next_start != -1 && vars->next_start <  (int)pinfo->fd->num ) {
+        while(vars != NULL && vars->next_start != -1 && vars->next_start <  (int)pinfo->num ) {
             vars = vars->next;
         }
         if(vars == NULL ) {
@@ -7815,9 +7820,9 @@ dissect_secchan_verf(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     {
         debugprintf("Vars not found (is null %d) %d (dissect_verf)\n",vars==NULL,g_hash_table_size(netlogon_auths));
     }
-    /*debugprintf("Setting isseen to true, old packet %d new %d\n",seen.num,pinfo->fd->num);*/
+    /*debugprintf("Setting isseen to true, old packet %d new %d\n",seen.num,pinfo->num);*/
     seen.isseen = TRUE;
-    seen.num = pinfo->fd->num;
+    seen.num = pinfo->num;
 
     return offset;
 }

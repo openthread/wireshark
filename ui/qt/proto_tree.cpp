@@ -209,6 +209,7 @@ ProtoTree::ProtoTree(QWidget *parent) :
         submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowTCPStream"));
         submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowUDPStream"));
         submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowSSLStream"));
+        submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowHTTPStream"));
         ctx_menu_.addSeparator();
 
         main_menu_item = window()->findChild<QMenu *>("menuEditCopy");
@@ -240,6 +241,8 @@ ProtoTree::ProtoTree(QWidget *parent) :
         submenu->addAction(action);
         copy_actions_ << action;
 
+        action = window()->findChild<QAction *>("actionContextShowPacketBytes");
+        ctx_menu_.addAction(action);
         action = window()->findChild<QAction *>("actionFileExportPacketBytes");
         ctx_menu_.addAction(action);
 
@@ -282,6 +285,7 @@ void ProtoTree::closeContextMenu()
 void ProtoTree::clear() {
     updateSelectionStatus(NULL);
     QTreeWidget::clear();
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::contextMenuEvent(QContextMenuEvent *event)
@@ -332,6 +336,7 @@ void ProtoTree::fillProtocolTree(proto_tree *protocol_tree) {
     setFont(mono_font_);
 
     proto_tree_children_foreach(protocol_tree, proto_tree_draw_node, invisibleRootItem());
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::emitRelatedFrame(int related_frame, ft_framenum_type_t framenum_type)
@@ -439,6 +444,8 @@ void ProtoTree::expand(const QModelIndex & index) {
                  fi->tree_type < num_tree_types);
         tree_expanded_set(fi->tree_type, TRUE);
     }
+
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::collapse(const QModelIndex & index) {
@@ -456,6 +463,7 @@ void ProtoTree::collapse(const QModelIndex & index) {
                  fi->tree_type < num_tree_types);
         tree_expanded_set(fi->tree_type, FALSE);
     }
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::expandSubtrees()
@@ -485,6 +493,7 @@ void ProtoTree::expandSubtrees()
         (*iter)->setExpanded(true);
         iter++;
     }
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::expandAll()
@@ -494,6 +503,7 @@ void ProtoTree::expandAll()
         tree_expanded_set(i, TRUE);
     }
     QTreeWidget::expandAll();
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::collapseAll()
@@ -503,6 +513,7 @@ void ProtoTree::collapseAll()
         tree_expanded_set(i, FALSE);
     }
     QTreeWidget::collapseAll();
+    resizeColumnToContents(0);
 }
 
 void ProtoTree::itemDoubleClick(QTreeWidgetItem *item, int) {
@@ -531,6 +542,19 @@ void ProtoTree::itemDoubleClick(QTreeWidgetItem *item, int) {
             QDesktopServices::openUrl(QUrl(url));
             g_free(url);
         }
+    }
+}
+
+void ProtoTree::selectField(field_info *fi)
+{
+    QTreeWidgetItemIterator iter(this);
+    while (*iter) {
+        if (fi == (*iter)->data(0, Qt::UserRole).value<field_info *>()) {
+            setCurrentItem(*iter);
+            scrollToItem(*iter);
+            break;
+        }
+        iter++;
     }
 }
 

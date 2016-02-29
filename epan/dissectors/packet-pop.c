@@ -33,6 +33,9 @@
 #include <epan/conversation.h>
 #include <epan/prefs.h>
 #include <epan/reassemble.h>
+#include <epan/proto_data.h>
+
+#include <wsutil/str_util.h>
 #include "packet-ssl.h"
 #include "packet-ssl-utils.h"
 
@@ -120,8 +123,8 @@ struct pop_data_val {
 
 static gboolean response_is_continuation(const guchar *data);
 
-static void
-dissect_pop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   struct pop_proto_data  *frame_data_p;
   gboolean               is_request;
@@ -244,7 +247,7 @@ dissect_pop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       call_dissector(data_handle,tvb, pinfo, pop_tree);
 
     }
-    return;
+    return tvb_captured_length(tvb);
   }
 
   /*
@@ -348,6 +351,7 @@ dissect_pop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       offset = next_offset;
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 static gboolean response_is_continuation(const guchar *data)
@@ -467,7 +471,7 @@ proto_reg_handoff_pop(void)
 {
   pop_handle = find_dissector("pop");
   dissector_add_uint("tcp.port", TCP_PORT_POP, pop_handle);
-  ssl_dissector_add(TCP_PORT_SSL_POP, "pop", TRUE);
+  ssl_dissector_add(TCP_PORT_SSL_POP, pop_handle);
   data_handle = find_dissector("data");
 
   /* find the IMF dissector */

@@ -691,11 +691,11 @@ dissect_pim_addr(proto_tree* tree, tvbuff_t *tvb, int offset, enum pimv2_addrtyp
             if (label)
             {
                 ti = proto_tree_add_ipv6_format(tree, hf_ip6, tvb, offset, 2 + len,
-                        (guint8 *)&ipv6, "%s: %s", label, tvb_ip6_to_str(tvb, offset + 2));
+                        &ipv6, "%s: %s", label, tvb_ip6_to_str(tvb, offset + 2));
             }
             else
             {
-                ti = proto_tree_add_ipv6(tree, hf_ip6, tvb, offset, 2 + len, (guint8 *)&ipv6);
+                ti = proto_tree_add_ipv6(tree, hf_ip6, tvb, offset, 2 + len, &ipv6);
             }
             break;
         }
@@ -727,11 +727,11 @@ dissect_pim_addr(proto_tree* tree, tvbuff_t *tvb, int offset, enum pimv2_addrtyp
             if (label)
             {
                 ti = proto_tree_add_ipv6_format(tree, hf_ip6, tvb, offset, 4 + len,
-                        (guint8 *)&ipv6, "%s: %s", label, tvb_ip6_to_str(tvb, offset + 4));
+                        &ipv6, "%s: %s", label, tvb_ip6_to_str(tvb, offset + 4));
             }
             else
             {
-                ti = proto_tree_add_ipv6(tree, hf_ip6, tvb, offset, 4 + len, (guint8 *)&ipv6);
+                ti = proto_tree_add_ipv6(tree, hf_ip6, tvb, offset, 4 + len, &ipv6);
             }
             proto_item_append_text(ti, "/%u", mask_len);
             break;
@@ -765,11 +765,11 @@ dissect_pim_addr(proto_tree* tree, tvbuff_t *tvb, int offset, enum pimv2_addrtyp
             if (label)
             {
                 ti = proto_tree_add_ipv6_format(tree, hf_ip6, tvb, offset, 4 + len,
-                        (guint8 *)&ipv6, "%s: %s", label, tvb_ip6_to_str(tvb, offset + 4));
+                        &ipv6, "%s: %s", label, tvb_ip6_to_str(tvb, offset + 4));
             }
             else
             {
-                ti = proto_tree_add_ipv6_format_value(tree, hf_ip6, tvb, offset, 4 + len, (guint8 *)&ipv6,
+                ti = proto_tree_add_ipv6_format_value(tree, hf_ip6, tvb, offset, 4 + len, &ipv6,
                                                       "%s", tvb_ip6_to_str(tvb, offset + 4));
             }
             proto_item_append_text(ti, "/%u", mask_len);
@@ -799,8 +799,8 @@ dissect_pim_addr(proto_tree* tree, tvbuff_t *tvb, int offset, enum pimv2_addrtyp
  * (when PIM is run over IPv6, the rules for computing the PIM checksum
  * from the draft in question, not from RFC 2362, should be used).
  */
-static void
-dissect_pim(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_pim(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
     int offset = 0;
     guint8 pim_typever;
     guint8 pim_bidir_subtype = 0;
@@ -1411,7 +1411,8 @@ dissect_pim(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     default:
         break;
     }
-done:;
+done:
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -1614,7 +1615,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_source_ip6,
-              { "Source", "pim.source",
+              { "Source", "pim.source_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1629,7 +1630,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_group_ip6,
-              { "Group", "pim.group",
+              { "Group", "pim.group_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1639,7 +1640,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_upstream_neighbor_ip6,
-              { "Upstream-neighbor", "pim.upstream_neighbor",
+              { "Upstream-neighbor", "pim.upstream_neighbor_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1649,7 +1650,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_join_ip6,
-              { "IP address", "pim.join_ip",
+              { "IP address", "pim.join_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1659,7 +1660,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_prune_ip6,
-              { "IP address", "pim.prune_ip",
+              { "IP address", "pim.prune_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1669,7 +1670,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_address_list_ip6,
-              { "Address", "pim.address_list",
+              { "Address", "pim.address_list_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1679,7 +1680,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_bsr_ip6,
-              { "BSR", "pim.bsr",
+              { "BSR", "pim.bsr_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1689,7 +1690,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_rp_ip6,
-              { "RP", "pim.rp",
+              { "RP", "pim.rp_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1699,7 +1700,7 @@ proto_register_pim(void)
                 NULL, HFILL }
             },
             { &hf_pim_originator_ip6,
-              { "Originator", "pim.originator",
+              { "Originator", "pim.originator_ip6",
                 FT_IPv6, BASE_NONE, NULL, 0,
                 NULL, HFILL }
             },
@@ -1864,7 +1865,7 @@ proto_reg_handoff_pim(void)
     pim_handle = create_dissector_handle(dissect_pim, proto_pim);
     dissector_add_uint("ip.proto", IP_PROTO_PIM, pim_handle);
 
-    pimv1_handle = new_create_dissector_handle(dissect_pimv1, proto_pim);
+    pimv1_handle = create_dissector_handle(dissect_pimv1, proto_pim);
     dissector_add_uint("igmp.type", IGMP_V1_PIM_ROUTING_MESSAGE, pimv1_handle);
 
     /*

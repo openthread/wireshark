@@ -23,8 +23,6 @@
 
 #include "config.h"
 
-#include <stdio.h>
-
 #include <epan/packet.h>
 #include <epan/epan_dissect.h>
 #include <epan/tap.h>
@@ -59,36 +57,20 @@ static gboolean lsa_policy_information_tap_installed = FALSE;
 static gboolean samr_query_dispinfo_tap_installed = FALSE;
 
 
-char *
+const char *
 find_sid_name(const char *sid)
 {
-	sid_name *sn;
-	sid_name  old_sn;
-
-	old_sn.sid=(char*)sid;
-	sn=(sid_name *)g_hash_table_lookup(sid_name_table, &old_sn);
-	if(!sn){
-		return NULL;
-	}
-	return sn->name;
+	return (const char *)g_hash_table_lookup(sid_name_table, sid);
 }
 
 static void
-add_sid_name_mapping(char *sid, char *name)
+add_sid_name_mapping(const char *sid, const char *name)
 {
-	sid_name *sn;
-	sid_name  old_sn;
-
-	old_sn.sid=sid;
-	sn=(sid_name *)g_hash_table_lookup(sid_name_table, &old_sn);
-	if(sn){
+	if (find_sid_name(sid)) {
 		return;
 	}
 
-	sn=wmem_new(wmem_file_scope(), sid_name);
-	sn->sid=g_strdup(sid);
-	sn->name=g_strdup(name);
-	g_hash_table_insert(sid_name_table, sn, sn);
+	g_hash_table_insert(sid_name_table, g_strdup(sid), g_strdup(name));
 }
 
 
@@ -140,14 +122,14 @@ samr_query_dispinfo(void *dummy _U_, packet_info *pinfo, epan_dissect_t *edt, co
 		}
 		fi=(field_info *)gp->pdata[0];
 
-		old_ctx=g_hash_table_lookup(ctx_handle_table, GINT_TO_POINTER(pinfo->fd->num));
+		old_ctx=g_hash_table_lookup(ctx_handle_table, GINT_TO_POINTER(pinfo->num));
 		if(old_ctx){
-			g_hash_table_remove(ctx_handle_table, GINT_TO_POINTER(pinfo->fd->num));
+			g_hash_table_remove(ctx_handle_table, GINT_TO_POINTER(pinfo->num));
 		}
 		if(!old_ctx){
 			old_ctx=wmem_memdup(wmem_file_scope(), fi->value.value.bytes->data, 20);
 		}
-		g_hash_table_insert(ctx_handle_table, GINT_TO_POINTER(pinfo->fd->num), old_ctx);
+		g_hash_table_insert(ctx_handle_table, GINT_TO_POINTER(pinfo->num), old_ctx);
 
 		return 0;
 	}
@@ -259,37 +241,6 @@ lsa_policy_information(void *dummy _U_, packet_info *pinfo _U_, epan_dissect_t *
 	return 0;
 }
 
-static void
-sid_name_key_destroy(gpointer key_arg)
-{
-	sid_name *sn = (sid_name *)key_arg;
-
-	g_free((gpointer)sn->sid);
-	g_free((gpointer)sn->name);
-}
-
-static gint
-sid_name_equal(gconstpointer k1, gconstpointer k2)
-{
-	const sid_name *sn1 = (const sid_name *)k1;
-	const sid_name *sn2 = (const sid_name *)k2;
-
-	return !strcmp(sn1->sid, sn2->sid);
-}
-
-static guint
-sid_name_hash(gconstpointer k)
-{
-	const sid_name *sn = (const sid_name *)k;
-	int i, sum;
-
-	for(sum=0,i=(int)strlen(sn->sid)-1;i>=0;i--){
-		sum+=sn->sid[i];
-	}
-
-	return sum;
-}
-
 
 static gint
 ctx_handle_equal(gconstpointer k1, gconstpointer k2)
@@ -323,8 +274,8 @@ sid_snooping_init(void)
 		samr_query_dispinfo_tap_installed=FALSE;
 	}
 
-	sid_name_table = g_hash_table_new_full(sid_name_hash, sid_name_equal,
-		sid_name_key_destroy, NULL);
+	sid_name_table = g_hash_table_new_full(g_str_hash, g_str_equal,
+		g_free, g_free);
 	ctx_handle_table = g_hash_table_new(ctx_handle_hash, ctx_handle_equal);
 /* TODO this code needs to be rewritten from scratch
    disabling it now so that it won't cause wireshark to abort due to

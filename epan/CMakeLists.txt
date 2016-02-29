@@ -149,26 +149,20 @@ ADD_CUSTOM_COMMAND(
 		${CMAKE_SOURCE_DIR}/tools/ncp2222.py
 )
 
-ADD_CUSTOM_COMMAND(
-	OUTPUT
-		x11-dissector
-#		x11-declarations.h
-#		x11-enum.h
-#		x11-extension-errors.h
-#		x11-extension-implementation.h
-#		x11-fields
-#		x11-glx-render-enum.h
-#		x11-register-info.h
+add_custom_target(x11-dissector
 	COMMAND ${PERL_EXECUTABLE}
-		${CMAKE_SOURCE_DIR}/tools/process-x11-fields.pl
-		<dissectors/x11-fields
+		${CMAKE_SOURCE_DIR}/tools/process-x11-fields.pl ${CMAKE_CURRENT_SOURCE_DIR}/dissectors
+		< ${CMAKE_CURRENT_SOURCE_DIR}/dissectors/x11-fields
 	COMMAND ${PERL_EXECUTABLE}
-		${CMAKE_SOURCE_DIR}/tools/process-x11-xcb.pl
+		${CMAKE_SOURCE_DIR}/tools/process-x11-xcb.pl ${CMAKE_CURRENT_SOURCE_DIR}/dissectors
 	DEPENDS
 		dissectors/x11-fields
 		${CMAKE_SOURCE_DIR}/tools/process-x11-fields.pl
 		${CMAKE_SOURCE_DIR}/tools/process-x11-xcb.pl
+		${CMAKE_CURRENT_SOURCE_DIR}/dissectors/xcbproto
+		${CMAKE_CURRENT_SOURCE_DIR}/dissectors/mesa
 )
+set_target_properties(x11-dissector PROPERTIES FOLDER "Generated Dissectors/X11")
 
 # Note that some dissectors are added in dissectors/dcerpc/CMakeLists.txt
 set(PIDL_DISSECTOR_SRC
@@ -191,6 +185,7 @@ set(PIDL_DISSECTOR_SRC
 	dissectors/packet-dcerpc-rfr.c
 	dissectors/packet-dcerpc-srvsvc.c
 	dissectors/packet-dcerpc-winreg.c
+	dissectors/packet-dcerpc-witness.c
 	dissectors/packet-dcerpc-wkssvc.c
 	dissectors/packet-dcerpc-wzcsvc.c
 )
@@ -258,6 +253,7 @@ set(ASN1_DISSECTOR_SRC
 	dissectors/packet-p7.c
 	dissectors/packet-p772.c
 	dissectors/packet-pcap.c
+	dissectors/packet-pcap_pktdata.c
 	dissectors/packet-pkcs1.c
 	dissectors/packet-pkcs12.c
 	dissectors/packet-pkinit.c
@@ -283,11 +279,13 @@ set(ASN1_DISSECTOR_SRC
 	dissectors/packet-sabp.c
 	dissectors/packet-sbc-ap.c
 	dissectors/packet-smrse.c
+	dissectors/packet-snmp.c
 	dissectors/packet-spnego.c
 	dissectors/packet-sv.c
 	dissectors/packet-t124.c
 	dissectors/packet-t125.c
 	dissectors/packet-t38.c
+	dissectors/packet-tcap.c
 	dissectors/packet-tetra.c
 	dissectors/packet-ulp.c
 	dissectors/packet-wlancertextn.c
@@ -299,8 +297,6 @@ set(ASN1_DISSECTOR_SRC
 )
 
 set(DIRTY_ASN1_DISSECTOR_SRC
-	dissectors/packet-snmp.c
-	dissectors/packet-tcap.c
 )
 
 set(DIRTY_CORBA_IDL_DISSECTOR_SRC
@@ -457,7 +453,6 @@ set(DISSECTOR_SRC
 	dissectors/packet-btle_rf.c
 	dissectors/packet-btl2cap.c
 	dissectors/packet-btmcap.c
-	dissectors/packet-btobex.c
 	dissectors/packet-btrfcomm.c
 	dissectors/packet-btsap.c
 	dissectors/packet-btsdp.c
@@ -490,6 +485,8 @@ set(DISSECTOR_SRC
 	dissectors/packet-cipmotion.c
 	dissectors/packet-cipsafety.c
 	dissectors/packet-cisco-erspan.c
+	dissectors/packet-cisco-fp-mim.c
+	dissectors/packet-cisco-marker.c
 	dissectors/packet-cisco-metadata.c
 	dissectors/packet-cisco-oui.c
 	dissectors/packet-cisco-sm.c
@@ -605,10 +602,6 @@ set(DISSECTOR_SRC
 	dissectors/packet-dlm3.c
 	dissectors/packet-dlsw.c
 	dissectors/packet-dmp.c
-	dissectors/packet-dmx-chan.c
-	dissectors/packet-dmx-sip.c
-	dissectors/packet-dmx-test.c
-	dissectors/packet-dmx-text.c
 	dissectors/packet-dmx.c
 	dissectors/packet-dnp.c
 	dissectors/packet-dns.c
@@ -642,6 +635,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-eap.c
 	dissectors/packet-eapol.c
 	dissectors/packet-echo.c
+	dissectors/packet-ecmp.c
 	dissectors/packet-ecp-oui.c
 	dissectors/packet-edonkey.c
 	dissectors/packet-egd.c
@@ -696,6 +690,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-fip.c
 	dissectors/packet-fix.c
 	dissectors/packet-flexnet.c
+	dissectors/packet-flexray.c
 	dissectors/packet-flip.c
 	dissectors/packet-fmp.c
 	dissectors/packet-fmp_notify.c
@@ -717,6 +712,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-ged125.c
 	dissectors/packet-geneve.c
 	dissectors/packet-gift.c
+	dissectors/packet-gfp.c
 	dissectors/packet-giop.c
 	dissectors/packet-git.c
 	dissectors/packet-glbp.c
@@ -822,7 +818,6 @@ set(DISSECTOR_SRC
 	dissectors/packet-ieee1722.c
 	dissectors/packet-ieee1722a.c
 	dissectors/packet-ieee17221.c
-	dissectors/packet-ieee80211-airopeek.c
 	dissectors/packet-ieee80211-netmon.c
 	dissectors/packet-ieee80211-prism.c
 	dissectors/packet-ieee80211-radio.c
@@ -863,6 +858,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-ipmi-vita.c
 	dissectors/packet-ipnet.c
 	dissectors/packet-ipoib.c
+	dissectors/packet-ipos.c
 	dissectors/packet-ipp.c
 	dissectors/packet-ipsec-tcp.c
 	dissectors/packet-ipsec-udp.c
@@ -877,6 +873,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-iscsi.c
 	dissectors/packet-isdn.c
 	dissectors/packet-iser.c
+	dissectors/packet-isi.c
 	dissectors/packet-isis-clv.c
 	dissectors/packet-isis-hello.c
 	dissectors/packet-isis-lsp.c
@@ -886,6 +883,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-ismacryp.c
 	dissectors/packet-ismp.c
 	dissectors/packet-isns.c
+	dissectors/packet-iso14443.c
 	dissectors/packet-iso7816.c
 	dissectors/packet-isup.c
 	dissectors/packet-itdm.c
@@ -925,6 +923,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-lapdm.c
 	dissectors/packet-laplink.c
 	dissectors/packet-lapsat.c
+	dissectors/packet-lat.c
 	dissectors/packet-lbm.c
 	dissectors/packet-lbmc.c
 	dissectors/packet-lbmpdm.c
@@ -984,7 +983,6 @@ set(DISSECTOR_SRC
 	dissectors/packet-mgcp.c
 	dissectors/packet-mih.c
 	dissectors/packet-mikey.c
-	dissectors/packet-mim.c
 	dissectors/packet-mime-encap.c
 	dissectors/packet-mint.c
 	dissectors/packet-miop.c
@@ -1080,6 +1078,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-nntp.c
 	dissectors/packet-noe.c
 	dissectors/packet-nsip.c
+	dissectors/packet-nsh.c
 	dissectors/packet-nsrp.c
 	dissectors/packet-nstrace.c
 	dissectors/packet-nt-oui.c
@@ -1090,6 +1089,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-nwmtp.c
 	dissectors/packet-nwp.c
 	dissectors/packet-oampdu.c
+	dissectors/packet-obex.c
 	dissectors/packet-ocfs2.c
 	dissectors/packet-oicq.c
 	dissectors/packet-oipf.c
@@ -1223,6 +1223,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-rtacser.c
 	dissectors/packet-rtcdc.c
 	dissectors/packet-rtcp.c
+	dissectors/packet-rtitcp.c
 	dissectors/packet-rtmpt.c
 	dissectors/packet-rtnet.c
 	dissectors/packet-rtp-events.c
@@ -1265,6 +1266,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-sflow.c
 	dissectors/packet-sgsap.c
 	dissectors/packet-sigcomp.c
+	dissectors/packet-simple.c
 	dissectors/packet-simulcrypt.c
 	dissectors/packet-sip.c
 	dissectors/packet-sipfrag.c
@@ -1320,6 +1322,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-sync.c
 	dissectors/packet-synergy.c
 	dissectors/packet-synphasor.c
+	dissectors/packet-sysdig-event.c
 	dissectors/packet-sysex.c
 	dissectors/packet-syslog.c
 	dissectors/packet-t30.c
@@ -1365,6 +1368,7 @@ set(DISSECTOR_SRC
 	dissectors/packet-turnchannel.c
 	dissectors/packet-tuxedo.c
 	dissectors/packet-tzsp.c
+	dissectors/packet-u3v.c
 	dissectors/packet-ua.c
 	dissectors/packet-ua3g.c
 	dissectors/packet-uasip.c
@@ -1387,7 +1391,9 @@ set(DISSECTOR_SRC
 	dissectors/packet-usb-masstorage.c
 	dissectors/packet-usb-video.c
 	dissectors/packet-usb.c
+	dissectors/packet-usbip.c
 	dissectors/packet-user_encap.c
+	dissectors/packet-userlog.c
 	dissectors/packet-uts.c
 	dissectors/packet-v120.c
 	dissectors/packet-v150fw.c
@@ -1436,7 +1442,6 @@ set(DISSECTOR_SRC
 	dissectors/packet-wtls.c
 	dissectors/packet-wtp.c
 	dissectors/packet-x11.c
-	dissectors/packet-x224.c
 	dissectors/packet-x25.c
 	dissectors/packet-x29.c
 	dissectors/packet-xcsl.c
@@ -1467,11 +1472,15 @@ set(DISSECTOR_SRC
 	dissectors/packet-zbee-nwk-gp.c
 	dissectors/packet-zbee-security.c
 	dissectors/packet-zbee-zcl.c
+	dissectors/packet-zbee-zcl-closures.c
+	dissectors/packet-zbee-zcl-lighting.c
+	dissectors/packet-zbee-zcl-hvac.c
 	dissectors/packet-zbee-zcl-general.c
 	dissectors/packet-zbee-zcl-ha.c
 	dissectors/packet-zbee-zcl-meas-sensing.c
 	dissectors/packet-zbee-zcl-misc.c
 	dissectors/packet-zbee-zcl-se.c
+	dissectors/packet-zbee-zcl-sas.c
 	dissectors/packet-zbee-zdp-binding.c
 	dissectors/packet-zbee-zdp-discovery.c
 	dissectors/packet-zbee-zdp-management.c
@@ -1526,6 +1535,7 @@ set(FTYPE_FILES
 	ftypes/ftypes.c
 	ftypes/ftype-bytes.c
 	ftypes/ftype-double.c
+	ftypes/ftype-ieee-11073-float.c
 	ftypes/ftype-integer.c
 	ftypes/ftype-ipv4.c
 	ftypes/ftype-ipv6.c
@@ -1545,6 +1555,7 @@ set(WMEM_FILES
 	wmem/wmem_allocator_block_fast.c
 	wmem/wmem_allocator_simple.c
 	wmem/wmem_allocator_strict.c
+	wmem/wmem_interval_tree.c
 	wmem/wmem_list.c
 	wmem/wmem_map.c
 	wmem/wmem_miscutl.c
@@ -1567,7 +1578,7 @@ set(NGHTTP2_FILES
 )
 source_group(nghttp2 FILES ${NGHTTP2_FILES})
 
-ADD_CUSTOM_TARGET(
+add_custom_target(
 	update-sminmpec
 	COMMAND ${PERL_EXECUTABLE}
 		${CMAKE_SOURCE_DIR}/tools/make-sminmpec.pl
@@ -1577,9 +1588,9 @@ ADD_CUSTOM_TARGET(
 )
 set_target_properties(update-sminmpec PROPERTIES FOLDER "tools")
 
-ADD_CUSTOM_COMMAND(
-	OUTPUT	ps.c
-	COMMAND	${PYTHON_EXECUTABLE}
+add_custom_command(
+	OUTPUT ps.c
+	COMMAND ${PYTHON_EXECUTABLE}
 		${CMAKE_SOURCE_DIR}/tools/rdps.py
 		${CMAKE_CURRENT_SOURCE_DIR}/print.ps
 		ps.c
@@ -1596,11 +1607,12 @@ set(LIBWIRESHARK_FILES
 	aftypes.c
 	app_mem_usage.c
 	asn1.c
+	capture_dissectors.c
 	charsets.c
 	circuit.c
+	color_filters.c
 	column.c
 	column-utils.c
-	color_dissector_filters.c
 	conversation.c
 	conversation_table.c
 	crc10-tvb.c
@@ -1642,6 +1654,7 @@ set(LIBWIRESHARK_FILES
 	print_stream.c
 	prefs.c
 	proto.c
+	proto_data.c
 	ps.c
 	range.c
 	reassemble.c
@@ -1692,15 +1705,11 @@ add_lemon_files(LIBWIRESHARK_FILES
 set(epan_LIBS
 	wiretap
 	wsutil
-#	@SSL_LIBS@
 	${GLIB2_LIBRARIES}
 	${PCAP_LIBRARIES}
-#	@SOCKET_LIBS@
-#	@NSL_LIBS@
 	${CARES_LIBRARIES}
 	${ADNS_LIBRARIES}
 	${KERBEROS_LIBRARIES}
-#	@FRAMEWORKS@
 	${GEOIP_LIBRARIES}
 	${GCRYPT_LIBRARIES}
 	${GNUTLS_LIBRARIES}
@@ -1731,11 +1740,11 @@ set(CLEAN_FILES
 	${WSLUA_FILES}
 )
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${CLEAN_FILES}
 		PROPERTIES
-		COMPILE_FLAGS -Werror
+		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
 	)
 endif()
 
@@ -1771,7 +1780,7 @@ endif()
 
 ABICHECK(libwireshark)
 
-set(TOP_LEVEL_HEADERS ${CMAKE_BINARY_DIR}/config.h ${CMAKE_SOURCE_DIR}/color.h ${CMAKE_SOURCE_DIR}/register.h)
+set(TOP_LEVEL_HEADERS ${CMAKE_BINARY_DIR}/config.h ${CMAKE_SOURCE_DIR}/register.h)
 file(GLOB CRYPT_HEADERS crypt/*.h)
 file(GLOB COMPRESS_HEADERS compress/*.h)
 file(GLOB DFILTER_HEADERS dfilter/*.h ../tools/lemon/cppmagic.h)
@@ -1820,7 +1829,7 @@ add_custom_command(OUTPUT libwireshark.abi.tar.gz
 
 # By default the name for a library with target name epan will be libepan,
 # but Ethereal is now named Wireshark
-SET_TARGET_PROPERTIES(epan PROPERTIES
+set_target_properties(epan PROPERTIES
 	OUTPUT_NAME "wireshark"
 	PREFIX "lib"
 	FOLDER "DLLs"

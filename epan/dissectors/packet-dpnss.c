@@ -1453,8 +1453,8 @@ dissect_dpnss_cc_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     return offset;
 }
 /* Code to actually dissect the packets */
-static void
-dissect_dpnss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dpnss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int         offset = 0;
     proto_item *item, *group_item;
@@ -1485,6 +1485,7 @@ dissect_dpnss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         expert_add_info(pinfo, group_item, &ei_dpnss_msg_grp_id);
         break;
     }
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -1623,7 +1624,7 @@ proto_register_dpnss(void)
       { &hf_dpnss_selection_field, { "Selection Field", "dpnss.selection_field", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_dpnss_user_information, { "User Information", "dpnss.user_information", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_dpnss_sup_str, { "Sup str", "dpnss.sup_str", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_dpnss_parameter, { "Paramter", "dpnss.parameter", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_dpnss_parameter, { "Parameter", "dpnss.parameter", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
 
     };
 

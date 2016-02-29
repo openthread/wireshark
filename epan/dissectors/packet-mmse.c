@@ -64,7 +64,7 @@ void proto_reg_handoff_mmse(void);
 /*
  * Forward declarations
  */
-static void dissect_mmse_standalone(tvbuff_t *, packet_info *, proto_tree *);
+static int dissect_mmse_standalone(tvbuff_t *, packet_info *, proto_tree *, void*);
 static void dissect_mmse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         guint8 pdut, const char *message_type);
 
@@ -126,7 +126,7 @@ static void dissect_mmse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 #define MM_CONTENT_HDR          0xAE    /* Content                      */
 #define MM_START_HDR            0xAF    /* X-Mms-Start                  */
 #define MM_ADDITIONAL_HDR       0xB0    /* Additional-headers           */
-#define MM_DISTRIBUION_IND_HDR  0xB1    /* X-Mms-Distribution-Indcator  */
+#define MM_DISTRIBUION_IND_HDR  0xB1    /* X-Mms-Distribution-Indicator */
 #define MM_ELEMENT_DESCR_HDR    0xB2    /* X-Mms-Element-Descriptor     */
 #define MM_LIMIT_HDR            0xB3    /* X-Mms-Limit                  */
 
@@ -648,18 +648,18 @@ dissect_mmse_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     if ((tvb_get_guint8(tvb, 2) != MM_TID_HDR) &&
         (tvb_get_guint8(tvb, 2) != MM_VERSION_HDR))
         return FALSE;
-    dissect_mmse_standalone(tvb, pinfo, tree);
+    dissect_mmse_standalone(tvb, pinfo, tree, data);
     return TRUE;
 }
 
-static void
-dissect_mmse_standalone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mmse_standalone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8       pdut;
     const char   *message_type;
 
     DebugLog(("dissect_mmse_standalone() - START (Packet %u)\n",
-                pinfo->fd->num));
+                pinfo->num));
 
     pdut = tvb_get_guint8(tvb, 1);
     message_type = val_to_str(pdut, vals_message_type, "Unknown type %u");
@@ -670,16 +670,17 @@ dissect_mmse_standalone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         col_add_fstr(pinfo->cinfo, COL_INFO, "MMS %s", message_type);
 
     dissect_mmse(tvb, pinfo, tree, pdut, message_type);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_mmse_encapsulated(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mmse_encapsulated(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8       pdut;
     const char   *message_type;
 
     DebugLog(("dissect_mmse_encapsulated() - START (Packet %u)\n",
-                pinfo->fd->num));
+                pinfo->num));
 
     pdut = tvb_get_guint8(tvb, 1);
     message_type = val_to_str(pdut, vals_message_type, "Unknown type %u");
@@ -689,6 +690,7 @@ dissect_mmse_encapsulated(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 message_type);
 
     dissect_mmse(tvb, pinfo, tree, pdut, message_type);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -706,7 +708,7 @@ dissect_mmse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint8 pdut,
     proto_item  *ti = NULL;
     proto_tree  *mmse_tree = NULL;
 
-    DebugLog(("dissect_mmse() - START (Packet %u)\n", pinfo->fd->num));
+    DebugLog(("dissect_mmse() - START (Packet %u)\n", pinfo->num));
 
     /* If tree == NULL then we are only interested in protocol dissection
      * up to reassembly and handoff to subdissectors if applicable; the

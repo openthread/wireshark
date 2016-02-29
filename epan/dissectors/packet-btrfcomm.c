@@ -36,6 +36,7 @@
 #include <epan/expert.h>
 #include <epan/uat.h>
 #include <epan/decode_as.h>
+#include <epan/proto_data.h>
 
 #include "packet-bluetooth.h"
 #include "packet-btsdp.h"
@@ -97,7 +98,7 @@ static int hf_address = -1;
 static int hf_control = -1;
 
 /* Initialize the protocol and registered fields */
-static int proto_btrfcomm = -1;
+int proto_btrfcomm = -1;
 static int proto_btdun = -1;
 static int proto_btspp = -1;
 static int proto_btgnss = -1;
@@ -648,7 +649,7 @@ dissect_btrfcomm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
         k_chandle         = l2cap_data->chandle;
         k_psm             = l2cap_data->psm;
         k_channel         = dlci >> 1;
-        k_frame_number    = pinfo->fd->num;
+        k_frame_number    = pinfo->num;
         k_dlci            = dlci;
 
         key[0].length = 1;
@@ -1129,7 +1130,7 @@ proto_register_btrfcomm(void)
 
     /* Register the protocol name and description */
     proto_btrfcomm = proto_register_protocol("Bluetooth RFCOMM Protocol", "BT RFCOMM", "btrfcomm");
-    btrfcomm_handle = new_register_dissector("btrfcomm", dissect_btrfcomm, proto_btrfcomm);
+    btrfcomm_handle = register_dissector("btrfcomm", dissect_btrfcomm, proto_btrfcomm);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_btrfcomm, hf, array_length(hf));
@@ -1139,7 +1140,7 @@ proto_register_btrfcomm(void)
 
     service_directions = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    rfcomm_dlci_dissector_table = register_dissector_table("btrfcomm.dlci", "BT RFCOMM Directed Channel", FT_UINT16, BASE_DEC);
+    rfcomm_dlci_dissector_table = register_dissector_table("btrfcomm.dlci", "BT RFCOMM Directed Channel", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     module = prefs_register_protocol(proto_btrfcomm, NULL);
     prefs_register_static_text_preference(module, "rfcomm.version",
@@ -1244,7 +1245,7 @@ proto_register_btdun(void)
     };
 
     proto_btdun = proto_register_protocol("Bluetooth DUN Packet", "BT DUN", "btdun");
-    btdun_handle = new_register_dissector("btdun", dissect_btdun, proto_btdun);
+    btdun_handle = register_dissector("btdun", dissect_btdun, proto_btdun);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_btdun, hf, array_length(hf));
@@ -1311,7 +1312,7 @@ proto_register_btspp(void)
     };
 
     proto_btspp = proto_register_protocol("Bluetooth SPP Packet", "BT SPP", "btspp");
-    btspp_handle = new_register_dissector("btspp", dissect_btspp, proto_btspp);
+    btspp_handle = register_dissector("btspp", dissect_btspp, proto_btspp);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_btspp, hf, array_length(hf));
@@ -1365,7 +1366,7 @@ proto_register_btgnss(void)
     };
 
     proto_btgnss = proto_register_protocol("Bluetooth GNSS Profile", "BT GNSS", "btgnss");
-    btgnss_handle = new_register_dissector("btgnss", dissect_btgnss, proto_btgnss);
+    btgnss_handle = register_dissector("btgnss", dissect_btgnss, proto_btgnss);
 
     proto_register_field_array(proto_btgnss, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

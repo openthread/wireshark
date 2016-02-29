@@ -67,6 +67,7 @@ StatsTreeDialog::StatsTreeDialog(QWidget &parent, CaptureFile &cf, const char *c
     st_(NULL),
     st_cfg_(NULL)
 {
+    loadGeometry(800, height(), cfg_abbr);
     st_cfg_ = stats_tree_get_cfg_by_abbr(cfg_abbr);
     memset(&cfg_pr_, 0, sizeof(struct _tree_cfg_pres));
 
@@ -135,7 +136,6 @@ void StatsTreeDialog::fillTree()
     }
     statsTreeWidget()->setColumnCount(header_labels.count());
     statsTreeWidget()->setHeaderLabels(header_labels);
-    resize(st_->num_columns*80+80, height());
     statsTreeWidget()->setSortingEnabled(false);
 
     if (!registerTapListener(st_cfg_->tapname,
@@ -183,8 +183,8 @@ void StatsTreeDialog::drawTreeItems(void *st_ptr)
                 (*iter)->setText(count,valstrs[count]);
                 g_free(valstrs[count]);
             }
-            (*iter)->setExpanded( (node->parent==(&st->root)) &&
-                                  (!(node->st_flags&ST_FLG_DEF_NOEXPAND)) );
+            (*iter)->setExpanded((node->parent==(&st->root)) &&
+                                 (!(node->st_flags&ST_FLG_DEF_NOEXPAND)));
             g_free(valstrs);
         }
         node_count++;

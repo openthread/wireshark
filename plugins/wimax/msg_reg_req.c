@@ -491,7 +491,7 @@ void dissect_extended_tlv(proto_tree *reg_req_tree, gint tlv_type, tvbuff_t *tvb
 
 
 /* Decode REG-REQ messages. */
-static void dissect_mac_mgmt_msg_reg_req_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_reg_req_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint tlv_offset;
@@ -623,6 +623,7 @@ static void dissect_mac_mgmt_msg_reg_req_decoder(tvbuff_t *tvb, packet_info *pin
 		if (!hmac_found)
 			proto_item_append_text(reg_req_tree, " (HMAC Tuple is missing !)");
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax Mac Payload Protocol and Dissector */

@@ -78,8 +78,8 @@ static gint ett_marker = -1;
  *    Dominique Bastien (dbastien@accedian.com)
  *      + add support for MARKER and MARKER Response PDUs.
  */
-static void
-dissect_marker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_marker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int     offset = 0;
     guint8  raw_octet;
@@ -138,6 +138,7 @@ dissect_marker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             offset += 2;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

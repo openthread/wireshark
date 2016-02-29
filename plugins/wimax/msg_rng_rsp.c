@@ -262,7 +262,7 @@ static const value_string vals_rng_rsp_location_update_response[] = {
 
 
 /* Decode RNG-RSP messages. */
-static void dissect_mac_mgmt_msg_rng_rsp_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_rng_rsp_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
         proto_item *ranging_status_item = NULL;
 	proto_item *dl_freq_override_item = NULL;
@@ -528,6 +528,7 @@ static void dissect_mac_mgmt_msg_rng_rsp_decoder(tvbuff_t *tvb, packet_info *pin
 			proto_item_append_text(rng_rsp_tree, " (Ranging status is missing!)");
 
 	}
+	return tvb_captured_length(tvb);
 }
 
 

@@ -31,10 +31,6 @@
 #include <string.h>
 #include <errno.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <glib.h>
 #include <gmodule.h>
 
@@ -176,7 +172,7 @@ plugins_scan_dir(const char *dirname)
 
             g_snprintf(filename, FILENAME_LEN, "%s" G_DIR_SEPARATOR_S "%s",
                        dirname, name);
-            if ((handle = g_module_open(filename, (GModuleFlags)0)) == NULL)
+            if ((handle = g_module_open(filename, G_MODULE_BIND_LOCAL)) == NULL)
             {
                 report_failure("Couldn't load module %s: %s", filename,
                                g_module_error());
@@ -225,8 +221,8 @@ plugins_scan_dir(const char *dirname)
             if (cr != 0)
             {
                 g_assert(cr == EEXIST);
-                fprintf(stderr, "The plugin %s, version %s\n"
-                        "was found in multiple directories\n",
+                fprintf(stderr, "The plugin '%s' version %s "
+                        "was found in multiple directories.\n",
                         new_plug->name, new_plug->version);
                 g_module_close(handle);
                 g_free(new_plug->name);

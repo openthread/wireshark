@@ -25,7 +25,7 @@
 
 #include <glib.h>
 
-#include <ui/filters.h>
+#include <filter_files.h>
 
 #include <wsutil/filesystem.h>
 
@@ -52,7 +52,7 @@ enum {
 };
 
 FilterDialog::FilterDialog(QWidget *parent, FilterType filter_type, const QString new_filter) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     ui(new Ui::FilterDialog),
     filter_type_(filter_type),
 //    syntax_worker_(NULL),
@@ -60,10 +60,8 @@ FilterDialog::FilterDialog(QWidget *parent, FilterType filter_type, const QStrin
     new_filter_(new_filter)
 {
     ui->setupUi(this);
+    if (parent) loadGeometry(parent->width() * 2 / 3, parent->height() * 2 / 3);
     setWindowIcon(wsApp->normalIcon());
-
-    // XXX Use recent settings instead
-    resize(parent->width() * 2 / 3, parent->height() * 2 / 3);
 
     ui->filterTreeWidget->setDragEnabled(true);
     ui->filterTreeWidget->viewport()->setAcceptDrops(true);
@@ -238,6 +236,12 @@ void FilterDialog::on_buttonBox_accepted()
         QMessageBox::warning(this, warning_title, warning_msg, QMessageBox::Ok);
         g_free(f_path);
     }
+
+    if (filter_type_ == CaptureFilter) {
+        wsApp->emitAppSignal(WiresharkApplication::CaptureFilterListChanged);
+    } else {
+        wsApp->emitAppSignal(WiresharkApplication::DisplayFilterListChanged);
+    }
 }
 
 void FilterDialog::on_buttonBox_helpRequested()
@@ -265,7 +269,7 @@ QWidget *FilterTreeDelegate::createEditor(QWidget *parent, const QStyleOptionVie
     if (filter_type_ == FilterDialog::CaptureFilter) {
         w = new CaptureFilterEdit(parent, true);
     } else {
-        w = new DisplayFilterEdit(parent, true);
+        w = new DisplayFilterEdit(parent, DisplayFilterToEnter);
     }
 
     return w;

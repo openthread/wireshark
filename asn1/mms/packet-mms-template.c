@@ -57,8 +57,8 @@ static expert_field ei_mms_zero_pdu = EI_INIT;
 /*
 * Dissect MMS PDUs inside a PPDU.
 */
-static void
-dissect_mms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_mms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	int offset = 0;
 	int old_offset;
@@ -72,7 +72,7 @@ dissect_mms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 		tree = proto_item_add_subtree(item, ett_mms);
 	}
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "MMS");
-  	col_clear(pinfo->cinfo, COL_INFO);
+	col_clear(pinfo->cinfo, COL_INFO);
 
 	while (tvb_reported_length_remaining(tvb, offset) > 0){
 		old_offset=offset;
@@ -82,6 +82,7 @@ dissect_mms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 			break;
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 
@@ -164,7 +165,7 @@ dissect_mms_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, voi
 	if (!tvb_bytes_exist(tvb, offset, length))
 		return FALSE;
 
-	dissect_mms(tvb, pinfo, parent_tree);
+	dissect_mms(tvb, pinfo, parent_tree, data);
 	return TRUE;
 }
 

@@ -106,8 +106,8 @@ static expert_field ei_fcoe_crc = EI_INIT;
 static dissector_handle_t data_handle;
 static dissector_handle_t fc_handle;
 
-static void
-dissect_fcoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_fcoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gint        crc_offset;
     gint        eof_offset;
@@ -272,6 +272,7 @@ dissect_fcoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     } else if (data_handle) {
         call_dissector(data_handle, next_tvb, pinfo, tree);
     }
+    return tvb_captured_length(tvb);
 }
 
 void

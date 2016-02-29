@@ -64,7 +64,7 @@ static gint ett_wimax_pdu_decoder = -1;
 
 static int hf_wimax_value_bytes = -1;
 
-static void dissect_wimax_pdu_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_wimax_pdu_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset;
 	guint mac_ht, mac_ec;
@@ -212,6 +212,7 @@ static void dissect_wimax_pdu_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_t
 		}
 		offset += length;
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax PDU Burst Protocol */

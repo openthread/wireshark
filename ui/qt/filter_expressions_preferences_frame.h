@@ -51,7 +51,7 @@ private:
     QLineEdit *cur_line_edit_;
     QString saved_col_string_;
 
-    void addExpression(bool enabled, const char *label, char *expression);
+    void addExpression(bool enabled, const QString label, const QString expression);
 
 private slots:
     void updateWidgets(void);
@@ -60,8 +60,10 @@ private slots:
     void lineEditDestroyed();
     void labelEditingFinished();
     void expressionEditingFinished();
+    void on_expressionTreeWidget_itemSelectionChanged();
     void on_newToolButton_clicked();
     void on_deleteToolButton_clicked();
+    void on_copyToolButton_clicked();
 };
 
 #endif // FILTER_EXPRESSIONS_PREFERENCES_FRAME_H

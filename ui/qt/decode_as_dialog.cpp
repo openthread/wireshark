@@ -27,6 +27,7 @@
 #include "epan/epan_dissect.h"
 
 #include "ui/decode_as_utils.h"
+#include "ui/simple_dialog.h"
 #include <wsutil/utf8_entities.h>
 
 #include "qt_ui_utils.h"
@@ -70,7 +71,7 @@ typedef struct _table_item_t {
 Q_DECLARE_METATYPE(table_item_t)
 
 DecodeAsDialog::DecodeAsDialog(QWidget *parent, capture_file *cf, bool create_new) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     ui(new Ui::DecodeAsDialog),
     cap_file_(cf),
     table_names_combo_box_(NULL),
@@ -78,6 +79,8 @@ DecodeAsDialog::DecodeAsDialog(QWidget *parent, capture_file *cf, bool create_ne
     cur_proto_combo_box_(NULL)
 {
     ui->setupUi(this);
+    loadGeometry();
+
     setWindowTitle(wsApp->windowTitleString(tr("Decode As" UTF8_HORIZONTAL_ELLIPSIS)));
     ui->deleteToolButton->setEnabled(false);
 
@@ -161,6 +164,10 @@ QString DecodeAsDialog::entryString(const gchar *table_name, gpointer value)
     case FT_UINT_STRING:
     case FT_STRINGZPAD:
         entry_str = (char *)value;
+        break;
+
+    case FT_GUID:
+        //TODO: DCE/RPC dissector table
         break;
 
     default:
@@ -357,6 +364,12 @@ void DecodeAsDialog::addRecord(bool copy_from_current)
     }
 
     activateLastItem();
+
+    if (ui->decodeAsTreeWidget->topLevelItemCount() > 0) {
+        for (int i = 0; i < ui->decodeAsTreeWidget->columnCount(); i++) {
+            ui->decodeAsTreeWidget->resizeColumnToContents(i);
+        }
+    }
 }
 
 void DecodeAsDialog::fillTypeColumn(QTreeWidgetItem *item)
@@ -630,8 +643,15 @@ void DecodeAsDialog::on_buttonBox_clicked(QAbstractButton *button)
         applyChanges();
         break;
     case QDialogButtonBox::Save:
+        {
+        gchar* err = NULL;
+
         applyChanges();
-        save_decode_as_entries();
+        if (save_decode_as_entries(&err) < 0) {
+            simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err);
+            g_free(err);
+        }
+        }
         break;
     case QDialogButtonBox::Help:
         wsApp->helpTopicAction(HELP_DECODE_AS_SHOW_DIALOG);

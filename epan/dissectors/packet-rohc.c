@@ -36,6 +36,7 @@
 #include <epan/addr_resolv.h>
 #include <epan/rtp_pt.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 #include "packet-rohc.h"
 
 void proto_register_rohc(void);
@@ -1864,7 +1865,7 @@ dissect_rohc_ir_packet(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo,
             rohc_cid_context = wmem_new(wmem_file_scope(), rohc_cid_context_t);
             rohc_cid_context->profile = profile;
             rohc_cid_context->prev_ir_frame_number = tmp_prev_ir_frame_number;
-            rohc_cid_context->ir_frame_number = pinfo->fd->num;
+            rohc_cid_context->ir_frame_number = pinfo->num;
             rohc_cid_context->rohc_ip_version = tmp_prev_rohc_ip_version;
             rohc_cid_context->mode = (enum rohc_mode)tmp_prev_mode;
             rohc_cid_context->rnd = tmp_prev_rnd;
@@ -1882,7 +1883,7 @@ dissect_rohc_ir_packet(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo,
             rohc_cid_context->udp_checksum_present = FALSE;
             rohc_cid_context->profile = profile;
             rohc_cid_context->prev_ir_frame_number = -1;
-            rohc_cid_context->ir_frame_number = pinfo->fd->num;
+            rohc_cid_context->ir_frame_number = pinfo->num;
             rohc_cid_context->rohc_ip_version = p_rohc_info->rohc_ip_version;
             rohc_cid_context->mode = p_rohc_info->mode;
 
@@ -1985,7 +1986,7 @@ dissect_rohc_ir_dyn_packet(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo,
             rohc_cid_context = wmem_new(wmem_file_scope(), rohc_cid_context_t);
             rohc_cid_context->profile = profile;
             rohc_cid_context->prev_ir_frame_number = tmp_prev_ir_frame_number;
-            rohc_cid_context->ir_frame_number = pinfo->fd->num;
+            rohc_cid_context->ir_frame_number = pinfo->num;
             rohc_cid_context->rohc_ip_version = tmp_prev_rohc_ip_version;
             rohc_cid_context->mode = (enum rohc_mode)tmp_prev_mode;
             rohc_cid_context->rnd = tmp_prev_rnd;
@@ -2004,7 +2005,7 @@ dissect_rohc_ir_dyn_packet(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo,
             rohc_cid_context->udp_checksum_present = FALSE;
             rohc_cid_context->profile = profile;
             rohc_cid_context->prev_ir_frame_number = -1;
-            rohc_cid_context->ir_frame_number = pinfo->fd->num;
+            rohc_cid_context->ir_frame_number = pinfo->num;
             rohc_cid_context->mode = p_rohc_info->mode;
 
             /*g_warning("IR pkt New CID %u",cid);*/
@@ -2030,7 +2031,9 @@ dissect_rohc_ir_dyn_packet(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo,
     }
 
     /* Set length of IR-DYN header */
-    proto_item_set_len(ir_item, offset-ir_item_start);
+    if (offset != -1) {
+        proto_item_set_len(ir_item, offset-ir_item_start);
+    }
 
     return offset;
 }
@@ -2380,7 +2383,7 @@ proto_register_rohc(void)
     static hf_register_info hf[] =
         {
             { &hf_rohc_padding,
-              { "Padding","rohc.pading",
+              { "Padding","rohc.padding",
                 FT_BYTES, BASE_NONE, NULL, 0x0,
                 NULL , HFILL
               }
@@ -2977,7 +2980,7 @@ proto_register_rohc(void)
     /* Register the protocol name and description */
     proto_rohc = proto_register_protocol("RObust Header Compression (ROHC)", "ROHC", "rohc");
 
-    rohc_handle = new_register_dissector("rohc", dissect_rohc, proto_rohc);
+    rohc_handle = register_dissector("rohc", dissect_rohc, proto_rohc);
 
     register_init_routine(&rohc_init_protocol);
     register_cleanup_routine(&rohc_cleanup_protocol);

@@ -34,7 +34,7 @@
 
 #include <epan/address.h>
 #include <epan/tvbuff.h>
-#include <epan/ipv6-utils.h>
+#include <epan/ipv6.h>
 #include <epan/to_str.h>
 #include <wiretap/wtap.h>
 #include "ws_symbol_export.h"
@@ -77,31 +77,20 @@ typedef struct serv_port {
   gchar            *tcp_name;
   gchar            *sctp_name;
   gchar            *dccp_name;
+  gchar            *numeric;
 } serv_port_t;
 
 /*
- *
+ * Flags for various IPv4/IPv6 hash table entries.
  */
-#define DUMMY_ADDRESS_ENTRY      (1U<<0)
-#define TRIED_RESOLVE_ADDRESS    (1U<<1)
-#define RESOLVED_ADDRESS_USED    (1U<<2)
+#define DUMMY_ADDRESS_ENTRY      (1U<<0)  /* XXX - what does this bit *really* mean? */
+#define TRIED_RESOLVE_ADDRESS    (1U<<1)  /* XXX - what does this bit *really* mean? */
+#define RESOLVED_ADDRESS_USED    (1U<<2)  /* a get_hostname* call returned the host name */
+#define NAME_RESOLVED            (1U<<3)  /* the name field contains a host name, not a printable address */
 
 #define DUMMY_AND_RESOLVE_FLGS   (DUMMY_ADDRESS_ENTRY | TRIED_RESOLVE_ADDRESS)
 #define USED_AND_RESOLVED_MASK   (DUMMY_ADDRESS_ENTRY | RESOLVED_ADDRESS_USED)
-typedef struct hashipv4 {
-    guint             addr;
-    guint8            flags;          /* B0 dummy_entry, B1 resolve, B2 If the address is used in the trace */
-    gchar             ip[16];
-    gchar             name[MAXNAMELEN];
-} hashipv4_t;
 
-
-typedef struct hashipv6 {
-    struct e_in6_addr addr;
-    guint8            flags;          /* B0 dummy_entry, B1 resolve, B2 If the address is used in the trace */
-    gchar             ip6[MAX_IP6_STR_LEN]; /* XX */
-    gchar             name[MAXNAMELEN];
-} hashipv6_t;
 /*
  * Flag controlling what names to resolve.
  */
@@ -141,11 +130,30 @@ extern gchar *dccp_port_to_display(wmem_allocator_t *allocator, guint port);
 WS_DLL_PUBLIC gchar *sctp_port_to_display(wmem_allocator_t *allocator, guint port);
 
 /*
+ * serv_name_lookup() returns the well known service name string, or numeric
+ * representation if one doesn't exist.
+ */
+WS_DLL_PUBLIC const gchar *serv_name_lookup(port_type proto, guint port);
+
+/*
+ * try_serv_name_lookup() returns the well known service name string, or NULL if
+ * one doesn't exist.
+ */
+WS_DLL_PUBLIC const gchar *try_serv_name_lookup(port_type proto, guint port);
+
+/*
+ * port_with_resolution_to_str() prints the "<resolved> (<numerical>)" port
+ * string.
+ */
+WS_DLL_PUBLIC gchar *port_with_resolution_to_str(wmem_allocator_t *scope,
+                                        port_type proto, guint port);
+
+/*
  * port_with_resolution_to_str_buf() prints the "<resolved> (<numerical>)" port
  * string to 'buf'. Return value is the same as g_snprintf().
  */
 WS_DLL_PUBLIC int port_with_resolution_to_str_buf(gchar *buf, gulong buf_size,
-                                        port_type port_typ, guint16 port_num);
+                                        port_type proto, guint port);
 
 /*
  * Asynchronous host name lookup initialization, processing, and cleanup
@@ -173,19 +181,18 @@ WS_DLL_PUBLIC gboolean host_name_lookup_process(void);
 WS_DLL_PUBLIC const gchar *get_hostname(const guint addr);
 
 /* get_hostname6 returns the host name, or numeric addr if not found */
-struct e_in6_addr;
-WS_DLL_PUBLIC const gchar* get_hostname6(const struct e_in6_addr *ad);
+WS_DLL_PUBLIC const gchar *get_hostname6(const struct e_in6_addr *ad);
 
 /* get_ether_name returns the logical name if found in ethers files else
    "<vendor>_%02x:%02x:%02x" if the vendor code is known else
    "%02x:%02x:%02x:%02x:%02x:%02x" */
-WS_DLL_PUBLIC gchar *get_ether_name(const guint8 *addr);
+WS_DLL_PUBLIC const gchar *get_ether_name(const guint8 *addr);
 
 /* Same as get_ether_name with tvb support */
-WS_DLL_PUBLIC gchar *tvb_get_ether_name(tvbuff_t *tvb, gint offset);
+WS_DLL_PUBLIC const gchar *tvb_get_ether_name(tvbuff_t *tvb, gint offset);
 
 /* get_ether_name returns the logical name if found in ethers files else NULL */
-gchar *get_ether_name_if_known(const guint8 *addr);
+const gchar *get_ether_name_if_known(const guint8 *addr);
 
 /*
  * Given a sequence of 3 octets containing an OID, get_manuf_name()
@@ -227,11 +234,11 @@ WS_DLL_PUBLIC const gchar *tvb_get_manuf_name_if_known(tvbuff_t *tvb, gint offse
 
 /* eui64_to_display returns "<vendor>_%02x:%02x:%02x:%02x:%02x:%02x" if the vendor code is known
    "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x" */
-extern const gchar *eui64_to_display(wmem_allocator_t *allocator, const guint64 addr);
+extern gchar *eui64_to_display(wmem_allocator_t *allocator, const guint64 addr);
 
 /* get_ipxnet_name returns the logical name if found in an ipxnets file,
  * or a string formatted with "%X" if not */
-extern const gchar *get_ipxnet_name(wmem_allocator_t *allocator, const guint32 addr);
+extern gchar *get_ipxnet_name(wmem_allocator_t *allocator, const guint32 addr);
 
 WS_DLL_PUBLIC guint get_hash_ether_status(hashether_t* ether);
 WS_DLL_PUBLIC char* get_hash_ether_hexaddr(hashether_t* ether);
@@ -363,7 +370,10 @@ void addr_resolv_cleanup(void);
 WS_DLL_PUBLIC
 void manually_resolve_cleanup(void);
 
+WS_DLL_PUBLIC
 gboolean str_to_ip(const char *str, void *dst);
+
+WS_DLL_PUBLIC
 gboolean str_to_ip6(const char *str, void *dst);
 
 #ifdef __cplusplus

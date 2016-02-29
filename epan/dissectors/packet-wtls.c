@@ -315,8 +315,8 @@ static value_string_ext wtls_vals_alert_description_ext = VALUE_STRING_EXT_INIT(
 static void dissect_wtls_handshake (proto_tree *, tvbuff_t *, guint, guint);
 
 /* Code to actually dissect the packets */
-static void
-dissect_wtls(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wtls(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int offset = 0;
 
@@ -422,6 +422,7 @@ dissect_wtls(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 static int

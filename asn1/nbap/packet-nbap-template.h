@@ -35,52 +35,9 @@
 extern guint8 lchId_type_table[];
 
 /* Mapping logicalchannel id to RLC_MODE */
-static const guint8 lchId_rlc_map[] = {
-	0,
-	RLC_UM,	/* Logical channel id = 1 is SRB1 which uses RLC_UM*/
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,
-	RLC_TM,	/*5 to 7 Conv CS Speech*/
-	RLC_TM,
-	RLC_TM, /*...*/
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,
-	RLC_AM,	/* This is CCCH which is UM?, probably not */
-	};
+extern guint8 lchId_rlc_map[];
 
-/* 1 to 8*/
-static const guint8 hsdsch_macdflow_id_rlc_map[] = {
-	RLC_UM,	           /*1 SRB */
-	RLC_AM,            /*2 Interactive PS*/
-	RLC_AM,	           /*3 Interatcive PS*/
-	RLC_UNKNOWN_MODE, /*4 ???*/
-	RLC_AM,	          /*5 Streaming PS*/
-	RLC_UNKNOWN_MODE,
-	RLC_UNKNOWN_MODE
-	};
-
-/* Mapping hsdsch MACd-FlowId to MAC_CONTENT, basically flowid = 1 (0) => SRB*/
-/* 1 to 8*/
-static const guint8 hsdsch_macdflow_id_mac_content_map[] = {
-	MAC_CONTENT_DCCH,	/*1 SRB */
-	MAC_CONTENT_PS_DTCH, /*2 Interactive PS*/
-	MAC_CONTENT_PS_DTCH,	/*3 Interatcive PS*/
-	RLC_UNKNOWN_MODE, /*4 ???*/
-	MAC_CONTENT_PS_DTCH,	/*5 Streaming PS*/
-	RLC_UNKNOWN_MODE,
-	RLC_UNKNOWN_MODE,
-	RLC_UNKNOWN_MODE
-	};
-
-/* Make fake logical channel id's based on MACdFlow-ID's*/
-static const guint8 fake_lchid_macd_flow[] = {1,9,14,11,0,12};
-
+#if 0
 static const value_string lchid_name_resolve[] = {
 	{1,"DCCH"},	/* 1 to 4 SRB => DCCH*/
 	{2,"DCCH"},
@@ -96,4 +53,5 @@ static const value_string lchid_name_resolve[] = {
 	{15,"MAC_CONTENT_UNKNOWN"},
 	{0, NULL}	/* This is CCCH? */
 };
+#endif
 #endif

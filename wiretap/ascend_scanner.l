@@ -1,7 +1,12 @@
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
+
+/*
+ * We want to stop processing when we get to the end of the input.
+ */
+%option noyywrap
 
 /*
  * Prefix scanner routines with "ascend" rather than "yy", so this scanner
@@ -32,13 +37,8 @@
 
 #include "config.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef HAVE_IO_H
-#include <io.h>		/* for isatty() on win32 */
-#endif
 
 #include "wtap-int.h"
 #include "ascendtext.h"
@@ -48,13 +48,8 @@
 #include "ascend_scanner_lex.h"
 
 FILE_T yy_fh;
-extern char *ascend_ra_ptr;
-extern char *ascend_ra_last;
 #define YY_INPUT(buf,result,max_size) { int c = file_getc(yy_fh);  \
 result = (c==EOF) ? YY_NULL : (buf[0] = c, 1); }
-
-int at_eof;
-int mul, scratch;
 
 #define NO_USER "<none>"
 
@@ -332,7 +327,7 @@ WDD_TYPE    "type "[^\n\r\t ]+
 
 task:|task|at|time:|octets { return KEYWORD; }
 
-<<EOF>> { at_eof++; yyterminate(); }
+<<EOF>> { yyterminate(); }
 
 (.|\n) ;
 
@@ -343,15 +338,4 @@ void ascend_init_lexer(FILE_T fh)
   yyrestart(0);
   yy_fh = fh;
   BEGIN(INITIAL);
-}
-
-/*
- * We want to stop processing when we get to the end of the input.
- * (%option noyywrap is not used because if used then
- * some flex versions (eg: 2.5.35) generate code which causes
- * warnings by the Windows VC compiler).
- */
-
-int yywrap(void) {
-    return 1;
 }

@@ -63,13 +63,16 @@ set(WIRESHARK_QT_HEADERS
 	filter_action.h
 	filter_dialog.h
 	filter_dialog.h
+	filter_expression_frame.h
 	filter_expressions_preferences_frame.h
+	find_line_edit.h
 	follow_stream_dialog.h
 	follow_stream_text.h
 	font_color_preferences_frame.h
 	funnel_string_dialog.h
 	funnel_text_dialog.h
 	funnel_statistics.h
+	geometry_state_dialog.h
 	gsm_map_summary_dialog.h
 	iax2_analysis_dialog.h
 	import_text_dialog.h
@@ -81,6 +84,7 @@ set(WIRESHARK_QT_HEADERS
 	lbm_lbtru_transport_dialog.h
 	lbm_stream_dialog.h
 	lbm_uimflow_dialog.h
+	lte_rlc_graph_dialog.h
 	lte_mac_statistics_dialog.h
 	lte_rlc_statistics_dialog.h
 	main_status_bar.h
@@ -126,6 +130,7 @@ set(WIRESHARK_QT_HEADERS
 	search_frame.h
 	sequence_diagram.h
 	sequence_dialog.h
+	show_packet_bytes_dialog.h
 	simple_dialog.h
 	splash_overlay.h
 	stats_tree_dialog.h
@@ -159,6 +164,7 @@ if(ENABLE_EXTCAP)
 		${WIRESHARK_QT_HEADERS}
 		extcap_argument.h
 		extcap_argument_file.h
+		extcap_argument_multiselect.h
 		extcap_options_dialog.h
 	)
 endif()
@@ -209,12 +215,15 @@ set(WIRESHARK_QT_SRC
 	file_set_dialog.cpp
 	filter_action.cpp
 	filter_dialog.cpp
+	filter_expression_frame.cpp
 	filter_expressions_preferences_frame.cpp
+	find_line_edit.cpp
 	follow_stream_dialog.cpp
 	follow_stream_text.cpp
 	font_color_preferences_frame.cpp
 	funnel_string_dialog.cpp
 	funnel_text_dialog.cpp
+	geometry_state_dialog.cpp
 	iax2_analysis_dialog.cpp
 	import_text_dialog.cpp
 	interface_tree.cpp
@@ -224,6 +233,7 @@ set(WIRESHARK_QT_SRC
 	lbm_lbtru_transport_dialog.cpp
 	lbm_stream_dialog.cpp
 	lbm_uimflow_dialog.cpp
+	lte_rlc_graph_dialog.cpp
 	lte_mac_statistics_dialog.cpp
 	lte_rlc_statistics_dialog.cpp
 	main_status_bar.cpp
@@ -273,6 +283,7 @@ set(WIRESHARK_QT_SRC
 	service_response_time_dialog.cpp
 	simple_dialog.cpp
 	simple_statistics_dialog.cpp
+	show_packet_bytes_dialog.cpp
 	splash_overlay.cpp
 	sparkline_delegate.cpp
 	stock_icon.cpp
@@ -303,6 +314,7 @@ if(ENABLE_EXTCAP)
 		${WIRESHARK_QT_SRC}
 		extcap_argument.cpp
 		extcap_argument_file.cpp
+		extcap_argument_multiselect.cpp
 		extcap_options_dialog.cpp
 	)
 endif()
@@ -351,6 +363,7 @@ set(WIRESHARK_QT_UI
 	export_pdu_dialog.ui
 	file_set_dialog.ui
 	filter_dialog.ui
+	filter_expression_frame.ui
 	filter_expressions_preferences_frame.ui
 	follow_stream_dialog.ui
 	font_color_preferences_frame.ui
@@ -365,6 +378,7 @@ set(WIRESHARK_QT_UI
 	lbm_lbtru_transport_dialog.ui
 	lbm_stream_dialog.ui
 	lbm_uimflow_dialog.ui
+	lte_rlc_graph_dialog.ui
 	main_welcome.ui
 	main_window.ui
 	main_window_preferences_frame.ui
@@ -393,6 +407,7 @@ set(WIRESHARK_QT_UI
 	sctp_graph_byte_dialog.ui
 	search_frame.ui
 	sequence_dialog.ui
+	show_packet_bytes_dialog.ui
 	splash_overlay.ui
 	supported_protocols_dialog.ui
 	tap_parameter_dialog.ui
@@ -423,7 +438,6 @@ set(WIRESHARK_QT_QRC
 	../../image/about.qrc
 	../../image/languages/languages.qrc
 	../../image/layout.qrc
-	../../image/status.qrc
 	../../image/toolbar.qrc
 	../../image/wsicon.qrc
 	i18n.qrc
@@ -449,7 +463,8 @@ if (QT_VERSION EQUAL 5)
 	QT5_ADD_RESOURCES(WIRESHARK_QT_QRC_SRC ${WIRESHARK_QT_QRC})
 	QT5_WRAP_UI(WIRESHARK_QT_UI_SRC ${WIRESHARK_QT_UI})
 	# For now, do the moc stuff manually
-	QT5_WRAP_CPP(WIRESHARK_QT_MOC_SRC ${WIRESHARK_QT_HEADERS})
+	QT5_WRAP_CPP(WIRESHARK_QT_MOC_SRC ${WIRESHARK_QT_HEADERS}
+		OPTIONS ${MOC_OPTIONS})
 	# Starting with cmake 2.8.6, we may also use
 	# set(CMAKE_AUTOMOC TRUE)
 	# or
@@ -459,33 +474,26 @@ else()
 	QT4_ADD_RESOURCES(WIRESHARK_QT_QRC_SRC ${WIRESHARK_QT_QRC})
 	QT4_WRAP_UI(WIRESHARK_QT_UI_SRC ${WIRESHARK_QT_UI})
 	# For now, do the moc stuff manually
-	QT4_WRAP_CPP(WIRESHARK_QT_MOC_SRC ${WIRESHARK_QT_HEADERS})
+	QT4_WRAP_CPP(WIRESHARK_QT_MOC_SRC ${WIRESHARK_QT_HEADERS}
+		OPTIONS ${MOC_OPTIONS})
 	# Starting with cmake 2.8.6, we may also use
 	# set(CMAKE_AUTOMOC TRUE)
 	# or
 	# set_target_properties(${some-source-files} PROPERTIES AUTOMOC TRUE)
 endif()
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${WIRESHARK_QT_FILES}
 		PROPERTIES
-		COMPILE_FLAGS -Werror
+		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
 	)
-	# The Qt headers generate a ton of shortening errors on 64-bit systems.
-	if (CMAKE_SIZEOF_VOID_P EQUAL 8)
-		set_source_files_properties(
-			${WIRESHARK_QT_FILES}
-			PROPERTIES
-			COMPILE_FLAGS -Wno-shorten-64-to-32
-		)
-	endif()
 endif()
 
 add_definitions(${QT_DEFINITIONS})
 
 register_tap_files(wireshark-tap-register.c
-        taps
+	taps
 	${WIRESHARK_QT_TAP_SRC}
 )
 
@@ -500,3 +508,16 @@ add_library(qtui STATIC
 )
 set_target_properties(qtui PROPERTIES LINK_FLAGS "${WS_LINK_FLAGS}")
 set_target_properties(qtui PROPERTIES FOLDER "UI")
+
+#
+# Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+#
+# Local variables:
+# c-basic-offset: 8
+# tab-width: 8
+# indent-tabs-mode: t
+# End:
+#
+# vi: set shiftwidth=8 tabstop=8 noexpandtab:
+# :indentSize=8:tabSize=8:noTabs=false:
+#

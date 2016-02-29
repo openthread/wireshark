@@ -139,7 +139,9 @@ dissector_table_t etsi_arg_local_dissector_table;
 dissector_table_t etsi_res_local_dissector_table;
 dissector_table_t etsi_err_local_dissector_table;
 
-static gint g_facility_encoding = 0; /* Default to QSIG */
+#define FACILITY_QSIG	0
+#define FACILITY_ETSI	1
+static gint g_facility_encoding = FACILITY_QSIG;
 
 void proto_reg_handoff_q932(void);
 /* Subdissectors */
@@ -300,6 +302,17 @@ dissect_q932_PrivatePartyNumber(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, in
 }
 
 
+const value_string q932_PartyNumber_vals[] = {
+  {   0, "unknownPartyNumber" },
+  {   1, "publicPartyNumber" },
+  {   2, "nsapEncodedNumber" },
+  {   3, "dataPartyNumber" },
+  {   4, "telexPartyNumber" },
+  {   5, "privatePartyNumber" },
+  {   8, "nationalStandardPartyNumber" },
+  { 0, NULL }
+};
+
 static const ber_choice_t PartyNumber_choice[] = {
   {   0, &hf_q932_unknownPartyNumber, BER_CLASS_CON, 0, BER_FLAGS_IMPLTAG, dissect_q932_NumberDigits },
   {   1, &hf_q932_publicPartyNumber, BER_CLASS_CON, 1, BER_FLAGS_IMPLTAG, dissect_q932_PublicPartyNumber },
@@ -320,6 +333,14 @@ dissect_q932_PartyNumber(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offse
   return offset;
 }
 
+
+const value_string q932_ScreeningIndicator_vals[] = {
+  {   0, "userProvidedNotScreened" },
+  {   1, "userProvidedVerifiedAndPassed" },
+  {   2, "userProvidedVerifiedAndFailed" },
+  {   3, "networkProvided" },
+  { 0, NULL }
+};
 
 
 int
@@ -375,6 +396,12 @@ dissect_q932_NSAPSubaddress(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int of
 }
 
 
+const value_string q932_PartySubaddress_vals[] = {
+  {   0, "userSpecifiedSubaddress" },
+  {   1, "nSAPSubaddress" },
+  { 0, NULL }
+};
+
 static const ber_choice_t PartySubaddress_choice[] = {
   {   0, &hf_q932_userSpecifiedSubaddress, BER_CLASS_UNI, BER_UNI_TAG_SEQUENCE, BER_FLAGS_NOOWNTAG, dissect_q932_UserSpecifiedSubaddress },
   {   1, &hf_q932_nSAPSubaddress , BER_CLASS_UNI, BER_UNI_TAG_OCTETSTRING, BER_FLAGS_NOOWNTAG, dissect_q932_NSAPSubaddress },
@@ -416,6 +443,14 @@ dissect_q932_NULL(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, 
 }
 
 
+const value_string q932_PresentedAddressScreened_vals[] = {
+  {   0, "presentationAlIowedAddress" },
+  {   1, "presentationRestricted" },
+  {   2, "numberNotAvailableDueTolnterworking" },
+  {   3, "presentationRestrictedAddress" },
+  { 0, NULL }
+};
+
 static const ber_choice_t PresentedAddressScreened_choice[] = {
   {   0, &hf_q932_presentationAlIowedAddress, BER_CLASS_CON, 0, BER_FLAGS_IMPLTAG, dissect_q932_AddressScreened },
   {   1, &hf_q932_presentationRestricted, BER_CLASS_CON, 1, BER_FLAGS_IMPLTAG, dissect_q932_NULL },
@@ -448,6 +483,14 @@ dissect_q932_Address(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U
   return offset;
 }
 
+
+const value_string q932_PresentedAddressUnscreened_vals[] = {
+  {   0, "presentationAllowedAddress" },
+  {   1, "presentationRestricted" },
+  {   2, "numberNotAvailableDueTolnterworking" },
+  {   3, "presentationRestrictedAddress" },
+  { 0, NULL }
+};
 
 static const ber_choice_t PresentedAddressUnscreened_choice[] = {
   {   0, &hf_q932_presentationAllowedAddress, BER_CLASS_CON, 0, BER_FLAGS_IMPLTAG, dissect_q932_Address },
@@ -482,6 +525,14 @@ dissect_q932_NumberScreened(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int of
 }
 
 
+const value_string q932_PresentedNumberScreened_vals[] = {
+  {   0, "presentationAllowedNumber" },
+  {   1, "presentationRestricted" },
+  {   2, "numberNotAvailableDueToInterworking" },
+  {   3, "presentationRestrictedNumber" },
+  { 0, NULL }
+};
+
 static const ber_choice_t PresentedNumberScreened_choice[] = {
   {   0, &hf_q932_presentationAllowedNumberScreened, BER_CLASS_CON, 0, BER_FLAGS_IMPLTAG, dissect_q932_NumberScreened },
   {   1, &hf_q932_presentationRestricted, BER_CLASS_CON, 1, BER_FLAGS_IMPLTAG, dissect_q932_NULL },
@@ -499,6 +550,14 @@ dissect_q932_PresentedNumberScreened(gboolean implicit_tag _U_, tvbuff_t *tvb _U
   return offset;
 }
 
+
+const value_string q932_PresentedNumberUnscreened_vals[] = {
+  {   0, "presentationAllowedNumber" },
+  {   1, "presentationRestricted" },
+  {   2, "numberNotAvailableDueToInterworking" },
+  {   3, "presentationRestrictedNumber" },
+  { 0, NULL }
+};
 
 static const ber_choice_t PresentedNumberUnscreened_choice[] = {
   {   0, &hf_q932_presentationAllowedNumber, BER_CLASS_CON, 0, 0, dissect_q932_PartyNumber },
@@ -657,7 +716,7 @@ static int dissect_InterpretationComponent_PDU(tvbuff_t *tvb _U_, packet_info *p
 
 
 /*--- End of included file: packet-q932-fn.c ---*/
-#line 141 "../../asn1/q932/packet-q932-template.c"
+#line 143 "../../asn1/q932/packet-q932-template.c"
 
 /*--- dissect_q932_facility_ie -------------------------------------------------------*/
 static void
@@ -763,8 +822,8 @@ dissect_q932_ni_ie(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tr
 }
 
 /*--- dissect_q932_ie -------------------------------------------------------*/
-static void
-dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   gint offset;
   proto_item *ti;
   proto_tree *ie_tree;
@@ -785,7 +844,7 @@ dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
   proto_tree_add_item(ie_tree, hf_q932_ie_len, tvb, offset + 1, 1, ENC_BIG_ENDIAN);
   offset += 2;
   if (tvb_reported_length_remaining(tvb, offset) <= 0)
-    return;
+    return offset;
   switch (ie_type) {
     case Q932_IE_FACILITY :
       dissect_q932_facility_ie(tvb, offset, pinfo, ie_tree, ie_len);
@@ -798,12 +857,13 @@ dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
         proto_tree_add_item(ie_tree, hf_q932_ie_data, tvb, offset, ie_len, ENC_NA);
       }
   }
+  return tvb_captured_length(tvb);
 }
 
 /*--- dissect_q932_apdu -----------------------------------------------------*/
-static void
-dissect_q932_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
-  call_dissector(q932_ros_handle, tvb, pinfo, tree);
+static int
+dissect_q932_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
+  return call_dissector(q932_ros_handle, tvb, pinfo, tree);
 }
 
 /*--- proto_register_q932 ---------------------------------------------------*/
@@ -979,7 +1039,7 @@ void proto_register_q932(void) {
         "AddressInformation", HFILL }},
 
 /*--- End of included file: packet-q932-hfarr.c ---*/
-#line 310 "../../asn1/q932/packet-q932-template.c"
+#line 313 "../../asn1/q932/packet-q932-template.c"
   };
 
   /* List of subtrees */
@@ -1004,7 +1064,7 @@ void proto_register_q932(void) {
     &ett_q932_NetworkFacilityExtension_U,
 
 /*--- End of included file: packet-q932-ettarr.c ---*/
-#line 317 "../../asn1/q932/packet-q932-template.c"
+#line 320 "../../asn1/q932/packet-q932-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -1018,8 +1078,8 @@ void proto_register_q932(void) {
   expert_module_t* expert_q932;
 
   static const enum_val_t facility_encoding[] = {
-    {"Facility as QSIG", "Dissect facility as QSIG", 0},
-    {"Facility as ETSI", "Dissect facility as ETSI", 1},
+    {"Facility as QSIG", "Dissect facility as QSIG", FACILITY_QSIG},
+    {"Facility as ETSI", "Dissect facility as ETSI", FACILITY_ETSI},
     {NULL, NULL, -1}
   };
 
@@ -1036,17 +1096,17 @@ void proto_register_q932(void) {
   rose_ctx_init(&q932_rose_ctx);
 
   /* Register dissector tables */
-  q932_rose_ctx.arg_global_dissector_table = register_dissector_table("q932.ros.global.arg", "Q.932 Operation Argument (global opcode)", FT_STRING, BASE_NONE);
-  q932_rose_ctx.res_global_dissector_table = register_dissector_table("q932.ros.global.res", "Q.932 Operation Result (global opcode)", FT_STRING, BASE_NONE);
-  q932_rose_ctx.err_global_dissector_table = register_dissector_table("q932.ros.global.err", "Q.932 Error (global opcode)", FT_STRING, BASE_NONE);
+  q932_rose_ctx.arg_global_dissector_table = register_dissector_table("q932.ros.global.arg", "Q.932 Operation Argument (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.res_global_dissector_table = register_dissector_table("q932.ros.global.res", "Q.932 Operation Result (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.err_global_dissector_table = register_dissector_table("q932.ros.global.err", "Q.932 Error (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-  qsig_arg_local_dissector_table = register_dissector_table("q932.ros.local.arg", "Q.932 Operation Argument (local opcode)", FT_UINT32, BASE_HEX);
-  qsig_res_local_dissector_table = register_dissector_table("q932.ros.local.res", "Q.932 Operation Result (local opcode)", FT_UINT32, BASE_HEX);
-  qsig_err_local_dissector_table = register_dissector_table("q932.ros.local.err", "Q.932 Error (local opcode)", FT_UINT32, BASE_HEX);
+  qsig_arg_local_dissector_table = register_dissector_table("q932.ros.local.arg", "Q.932 Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_res_local_dissector_table = register_dissector_table("q932.ros.local.res", "Q.932 Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_err_local_dissector_table = register_dissector_table("q932.ros.local.err", "Q.932 Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-  etsi_arg_local_dissector_table = register_dissector_table("q932.ros.etsi.local.arg", "Q.932 ETSI Operation Argument (local opcode)", FT_UINT32, BASE_HEX);
-  etsi_res_local_dissector_table = register_dissector_table("q932.ros.etsi.local.res", "Q.932 ETSI Operation Result (local opcode)", FT_UINT32, BASE_HEX);
-  etsi_err_local_dissector_table = register_dissector_table("q932.ros.etsi.local.err", "Q.932 ETSI Error (local opcode)", FT_UINT32, BASE_HEX);
+  etsi_arg_local_dissector_table = register_dissector_table("q932.ros.etsi.local.arg", "Q.932 ETSI Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_res_local_dissector_table = register_dissector_table("q932.ros.etsi.local.res", "Q.932 ETSI Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_err_local_dissector_table = register_dissector_table("q932.ros.etsi.local.err", "Q.932 ETSI Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   q932_module = prefs_register_protocol(proto_q932, proto_reg_handoff_q932);
 
@@ -1071,7 +1131,7 @@ void proto_reg_handoff_q932(void) {
     q932_ros_handle = find_dissector("q932.ros");
   }
 
-  if(g_facility_encoding == 0){
+  if(g_facility_encoding == FACILITY_QSIG){
     q932_rose_ctx.arg_local_dissector_table = qsig_arg_local_dissector_table;
     q932_rose_ctx.res_local_dissector_table = qsig_res_local_dissector_table;
     q932_rose_ctx.err_local_dissector_table = qsig_err_local_dissector_table;

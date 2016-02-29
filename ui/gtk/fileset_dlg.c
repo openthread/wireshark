@@ -24,16 +24,12 @@
 
 #include <string.h>
 
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
 #include <gtk/gtk.h>
 
-#include "file.h"
 #include <wsutil/filesystem.h>
+#include <wsutil/str_util.h>
 
-#include "../fileset.h"
+#include "../../fileset.h"
 
 #include "ui/gtk/gui_utils.h"
 #include "ui/gtk/dlg_utils.h"

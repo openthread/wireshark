@@ -129,8 +129,8 @@ static const value_string eof_vals[] = {
     {0,                          NULL},
 };
 
-static void
-dissect_mdshdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mdshdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
 /* Set up structures needed to add the protocol subtree and manage it */
@@ -244,6 +244,7 @@ dissect_mdshdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     else {
         call_dissector(data_handle, next_tvb, pinfo, tree);
     }
+    return tvb_captured_length(tvb);
 }
 
 

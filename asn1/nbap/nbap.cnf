@@ -9,7 +9,7 @@ PER
 ALIGNED
 #.END
 
-#.PDU_NEW
+#.PDU
 NBAP-PDU
 
 #.MAKE_DEFINES
@@ -740,17 +740,17 @@ transportFormatSet_type = NBAP_CPCH;
         {
             return offset;
         }
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
-	SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+        set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
-        conversation = find_conversation(actx->pinfo->fd->num,&dst_addr,
+        conversation = find_conversation(actx->pinfo->num,&dst_addr,
             &null_addr, PT_UDP, BindingID_port,
             0, NO_ADDR_B|NO_PORT_B);
 
         if (conversation == NULL) {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(actx->pinfo->fd->num, &dst_addr,
+            conversation = conversation_new(actx->pinfo->num, &dst_addr,
                 &null_addr, PT_UDP,BindingID_port ,
                 0, NO_ADDR2|NO_PORT2);
 
@@ -763,8 +763,8 @@ transportFormatSet_type = NBAP_CPCH;
                 umts_fp_conversation_info->division          = Division_FDD;
                 umts_fp_conversation_info->channel           = CHANNEL_RACH_FDD;
                 umts_fp_conversation_info->dl_frame_number   = 0;
-                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
+                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
                 umts_fp_conversation_info->crnc_port         = BindingID_port;
                 umts_fp_conversation_info->rlc_mode          = FP_RLC_MODE_UNKNOWN;
 
@@ -833,17 +833,17 @@ num_items = 1;
         {
             return offset;
         }
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
-	SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+        set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
-        conversation = find_conversation(actx->pinfo->fd->num,&dst_addr,
+        conversation = find_conversation(actx->pinfo->num,&dst_addr,
             &null_addr, PT_UDP, BindingID_port,
             0, NO_ADDR_B|NO_PORT_B);
 
         if (conversation == NULL) {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(actx->pinfo->fd->num, &dst_addr,
+            conversation = conversation_new(actx->pinfo->num, &dst_addr,
                 &null_addr, PT_UDP,BindingID_port ,
                 0, NO_ADDR2|NO_PORT2);
 
@@ -856,8 +856,8 @@ num_items = 1;
                 umts_fp_conversation_info->division           = Division_FDD;
                 umts_fp_conversation_info->channel            = CHANNEL_PCH;
                 umts_fp_conversation_info->dl_frame_number    = 0;
-                umts_fp_conversation_info->ul_frame_number    = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
+                umts_fp_conversation_info->ul_frame_number    = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
                 umts_fp_conversation_info->crnc_port          = BindingID_port;
                 umts_fp_conversation_info->paging_indications = paging_indications;
                 umts_fp_conversation_info->rlc_mode           = FP_RLC_MODE_UNKNOWN;
@@ -868,7 +868,7 @@ num_items = 1;
                 umts_fp_conversation_info->fp_dch_channel_info[0].num_ul_chans = num_tf = nbap_dch_chnl_info[commontransportchannelid].num_ul_chans;
 
                 nbap_debug("Frame %%u PCH-ParametersItem-CTCH-SetupRqstFDD Start: num_tf %%u",
-                        actx->pinfo->fd->num,
+                        actx->pinfo->num,
                         num_tf);
 
                 for (j = 0; j < num_tf; j++) {
@@ -917,7 +917,7 @@ num_items = 1;
                 set_umts_fp_conv_data(conversation, umts_fp_conversation_info);
 
                 nbap_debug("Frame %%u PCH-ParametersItem-CTCH-SetupRqstFDD End",
-                        actx->pinfo->fd->num);
+                        actx->pinfo->num);
 
             }
 
@@ -942,17 +942,17 @@ transportFormatSet_type = NBAP_CPCH;
         {
             return offset;
         }
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
-	SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+        set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
-        conversation = find_conversation(actx->pinfo->fd->num,&dst_addr,
+        conversation = find_conversation(actx->pinfo->num,&dst_addr,
             &null_addr, PT_UDP, BindingID_port,
             0, NO_ADDR_B|NO_PORT_B);
 
         if (conversation == NULL) {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(actx->pinfo->fd->num, &dst_addr,
+            conversation = conversation_new(actx->pinfo->num, &dst_addr,
                 &null_addr, PT_UDP,BindingID_port ,
                 0, NO_ADDR2|NO_PORT2);
 
@@ -965,8 +965,8 @@ transportFormatSet_type = NBAP_CPCH;
                 umts_fp_conversation_info->division          = Division_FDD;
                 umts_fp_conversation_info->channel           = CHANNEL_FACH_FDD;
                 umts_fp_conversation_info->dl_frame_number   = 0;
-                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
+                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
                 umts_fp_conversation_info->crnc_port         = BindingID_port;
                 umts_fp_conversation_info->rlc_mode          = FP_RLC_MODE_UNKNOWN;
                 /*Save unique UE-identifier */
@@ -1148,17 +1148,17 @@ dch_id = 0xFFFFFFFF;
                 return offset;
         }
 
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
-	SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+        set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
-        conversation = find_conversation(actx->pinfo->fd->num,&dst_addr,
+        conversation = find_conversation(actx->pinfo->num,&dst_addr,
             &null_addr, PT_UDP, BindingID_port,
             0, NO_ADDR_B|NO_PORT_B);
 
         if (conversation == NULL) {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(actx->pinfo->fd->num, &dst_addr,
+            conversation = conversation_new(actx->pinfo->num, &dst_addr,
                 &null_addr, PT_UDP,BindingID_port ,
                 0, NO_ADDR2|NO_PORT2);
 
@@ -1172,8 +1172,8 @@ dch_id = 0xFFFFFFFF;
                 umts_fp_conversation_info->division          = Division_FDD;
                 umts_fp_conversation_info->channel           = CHANNEL_DCH;
                 umts_fp_conversation_info->dl_frame_number   = 0;
-                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
+                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
                 umts_fp_conversation_info->crnc_port         = BindingID_port;
                 umts_fp_conversation_info->rlc_mode          = FP_RLC_MODE_UNKNOWN;
 
@@ -1229,9 +1229,9 @@ dch_id = 0xFFFFFFFF;
                 set_umts_fp_conv_data(conversation, umts_fp_conversation_info);
             }
 
-            nbap_debug("Frame %%u RL-Specific-DCH-Info-Item Start", actx->pinfo->fd->num);
+            nbap_debug("Frame %%u RL-Specific-DCH-Info-Item Start", actx->pinfo->num);
             nbap_debug("    Total no of ch in flow will be: %%d", umts_fp_conversation_info->num_dch_in_flow);
-            nbap_debug("Frame %%u RL-Specific-DCH-Info-Item End", actx->pinfo->fd->num);
+            nbap_debug("Frame %%u RL-Specific-DCH-Info-Item End", actx->pinfo->num);
 
         }
 
@@ -1243,7 +1243,7 @@ dch_id = 0xFFFFFFFF;
 #.FN_BODY RL-Specific-E-DCH-Information-Item
 address     dst_addr, null_addr;
 conversation_t *conversation;
-umts_fp_conversation_info_t *umts_fp_conversation_info;
+umts_fp_conversation_info_t *umts_fp_conversation_info = NULL;
 nbap_edch_port_info_t *old_info = NULL;
 
 transportLayerAddress_ipv4 = 0;
@@ -1256,23 +1256,26 @@ BindingID_port = 0;
         {
             return offset;
         }
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
-	SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+        set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
-        conversation = find_conversation(actx->pinfo->fd->num,&dst_addr,
+        conversation = find_conversation(actx->pinfo->num,&dst_addr,
             &null_addr, PT_UDP, BindingID_port,
             0, NO_ADDR_B|NO_PORT_B);
+        if (conversation) {
+            umts_fp_conversation_info = (umts_fp_conversation_info_t*)conversation_get_proto_data(conversation, proto_fp);
+        }
 
         /* We must also check if this port is about to be overriden, if that's the case we
          * might already have a DCH entry on this port which should be overwritten
          */
-        if (conversation == NULL || ((umts_fp_conversation_info_t*)conversation_get_proto_data(conversation, proto_fp))->channel == CHANNEL_DCH) {
+        if ((conversation == NULL) || (umts_fp_conversation_info && umts_fp_conversation_info->channel == CHANNEL_DCH)) {
 
 
 
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(actx->pinfo->fd->num, &dst_addr,
+            conversation = conversation_new(actx->pinfo->num, &dst_addr,
                 &null_addr, PT_UDP,BindingID_port ,
                 0, NO_ADDR2|NO_PORT2);
 
@@ -1285,8 +1288,8 @@ BindingID_port = 0;
                 umts_fp_conversation_info->division          = Division_FDD;
                 umts_fp_conversation_info->channel           = CHANNEL_EDCH;
                 umts_fp_conversation_info->dl_frame_number   = 0;
-                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
+                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
                 umts_fp_conversation_info->crnc_port         = BindingID_port;
 
 
@@ -1317,7 +1320,7 @@ BindingID_port = 0;
                     nbap_edch_port_info->crnc_address = transportLayerAddress_ipv4;
 
                     nbap_debug("Frame %%u RL-Specific-E-DCH-Information-Item Start",
-                        actx->pinfo->fd->num);
+                        actx->pinfo->num);
 
                     nbap_debug("    g_tree_insert(edch_flow_port_map) com_context_id %%u e_dch_macdflow_id %%u IP %%s Port %%u",
                         umts_fp_conversation_info->com_context_id,
@@ -1339,12 +1342,12 @@ BindingID_port = 0;
                 }
 
                 /* Set address for collection of DDI entries */
-                COPY_ADDRESS(&(nbap_edch_channel_info[e_dch_macdflow_id].crnc_address),&dst_addr);
+                copy_address(&(nbap_edch_channel_info[e_dch_macdflow_id].crnc_address),&dst_addr);
                 nbap_edch_channel_info[e_dch_macdflow_id].crnc_port = BindingID_port;
 
                 set_umts_fp_conv_data(conversation, umts_fp_conversation_info);
 
-                nbap_debug("Frame %%u RL-Specific-E-DCH-Information-Item End", actx->pinfo->fd->num);
+                nbap_debug("Frame %%u RL-Specific-E-DCH-Information-Item End", actx->pinfo->num);
             }
     }
 
@@ -1362,8 +1365,8 @@ guint32 no_ddi_entries, i;
     }
 
     /* Check if we have conversation info */
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
-    p_conv = find_conversation(actx->pinfo->fd->num, &nbap_edch_channel_info[e_dch_macdflow_id].crnc_address, &null_addr,
+    clear_address(&null_addr);
+    p_conv = find_conversation(actx->pinfo->num, &nbap_edch_channel_info[e_dch_macdflow_id].crnc_address, &null_addr,
                                PT_UDP,
                                nbap_edch_channel_info[e_dch_macdflow_id].crnc_port, 0, NO_ADDR_B);
     if(!p_conv)
@@ -1387,7 +1390,7 @@ guint32 no_ddi_entries, i;
         );*/
     }
 
-/*  COPY_ADDRESS(&(nbap_edch_port_info->crnc_address[e_dch_macdflow_id]),&dst_addr);*/
+/*  copy_address(&(nbap_edch_port_info->crnc_address[e_dch_macdflow_id]),&dst_addr);*/
     p_conv_data->dch_crc_present = g_nbap_msg_info_for_fp.dch_crc_present;
 
     /* Figure out which type of E-DCH frame, based on DDI value (DDI = 0 => type 2)*/
@@ -1407,6 +1410,7 @@ guint32 no_ddi_entries, i;
 address     dst_addr, null_addr;
 conversation_t *conversation,*old_conversation = NULL;
 umts_fp_conversation_info_t *umts_fp_conversation_info _U_;
+void *conv_proto_data = NULL;
 
 transportLayerAddress_ipv4 = 0;
 BindingID_port = 0;
@@ -1421,28 +1425,28 @@ BindingID_port = 0;
          * Basically the idea here is that we create a new converation (Which is ok? maybe?)
          * And then hijack the old conversation and let lower tree items configure that hijacked data.
          * */
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
-	SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+        set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
-        old_conversation = find_conversation(actx->pinfo->fd->num,&dst_addr,
+        old_conversation = find_conversation(actx->pinfo->num,&dst_addr,
             &null_addr, PT_UDP, BindingID_port,
             0, NO_ADDR_B|NO_PORT_B);
 
         if(old_conversation){
             nbap_debug("Frame %%u E-DCH-FDD-Information-to-Modify: found old conv on IP %%s Port %%u",
-                actx->pinfo->fd->num,
+                actx->pinfo->num,
                 address_to_str(wmem_packet_scope(), &dst_addr),
                 BindingID_port);
         }else{
             nbap_debug("Frame %%u E-DCH-FDD-Information-to-Modify: Did not find old conv on IP %%s Port %%u",
-                actx->pinfo->fd->num,
+                actx->pinfo->num,
                 address_to_str(wmem_packet_scope(), &dst_addr),
                 BindingID_port);
         }
 
         /* It's not part of any conversation - create a new one. */
-        conversation = conversation_new(actx->pinfo->fd->num, &dst_addr,
+        conversation = conversation_new(actx->pinfo->num, &dst_addr,
                 &null_addr, PT_UDP,BindingID_port ,
                 0, NO_ADDR2|NO_PORT2);
 
@@ -1450,16 +1454,19 @@ BindingID_port = 0;
             conversation_set_dissector(conversation, fp_handle);
             if(actx->pinfo->link_dir==P2P_DIR_DL){
                 umts_fp_conversation_info = wmem_new0(wmem_file_scope(), umts_fp_conversation_info_t);
-                /*Steal the old informatoin*/
-                memcpy(umts_fp_conversation_info,conversation_get_proto_data(old_conversation, proto_fp),sizeof(umts_fp_conversation_info_t));
-
+                /* Steal the old information */
+                if (old_conversation) {
+                    conv_proto_data = conversation_get_proto_data(old_conversation, proto_fp);
+                    if (conv_proto_data)
+                        memcpy(umts_fp_conversation_info,conv_proto_data,sizeof(umts_fp_conversation_info_t));
+                }
                 /* Overwrite the data */
                 umts_fp_conversation_info->iface_type        = IuB_Interface;
                 umts_fp_conversation_info->division          = Division_FDD;
                 umts_fp_conversation_info->channel           = CHANNEL_EDCH;
                 umts_fp_conversation_info->dl_frame_number   = 0;
-                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
+                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &dst_addr);
                 umts_fp_conversation_info->crnc_port         = BindingID_port;
 
 
@@ -1478,7 +1485,7 @@ BindingID_port = 0;
                 }
 
                 /* Set address for collection of DDI entries */
-                COPY_ADDRESS(&(nbap_edch_channel_info[e_dch_macdflow_id].crnc_address),&dst_addr);
+                copy_address(&(nbap_edch_channel_info[e_dch_macdflow_id].crnc_address),&dst_addr);
                 nbap_edch_channel_info[e_dch_macdflow_id].crnc_port = BindingID_port;
 
 
@@ -1506,7 +1513,7 @@ num_items = 1;
     }
 
     nbap_debug("Frame %%u E-DCH-MACdFlow-Specific-InfoItem-to-Modify",
-        actx->pinfo->fd->num);
+        actx->pinfo->num);
 
     /****** Look up old port and ip information since this is not included in this message ******/
     /*Find proper communication context ID*/
@@ -1540,8 +1547,8 @@ num_items = 1;
 
     /*Do the configurations*/
     /* Check if we have conversation info */
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
-    p_conv = find_conversation(actx->pinfo->fd->num, &nbap_edch_channel_info[e_dch_macdflow_id].crnc_address, &null_addr,
+    clear_address(&null_addr);
+    p_conv = find_conversation(actx->pinfo->num, &nbap_edch_channel_info[e_dch_macdflow_id].crnc_address, &null_addr,
                                PT_UDP,
                                nbap_edch_channel_info[e_dch_macdflow_id].crnc_port, 0, NO_ADDR_B);
     if(!p_conv)
@@ -1565,7 +1572,7 @@ num_items = 1;
         );*/
     }
 
-/*  COPY_ADDRESS(&(nbap_edch_port_info->crnc_address[e_dch_macdflow_id]),&dst_addr);*/
+/*  copy_address(&(nbap_edch_port_info->crnc_address[e_dch_macdflow_id]),&dst_addr);*/
     p_conv_data->dch_crc_present = g_nbap_msg_info_for_fp.dch_crc_present;
 
     /* Figure out which type of E-DCH frame, based on DDI value (DDI = 0 => type 2)*/
@@ -1605,7 +1612,8 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
     {
         return offset;
     }
-    nbap_edch_channel_info[e_dch_macdflow_id].edch_ddi[num_items-1] = e_dch_ddi_value;
+    if(num_items>0)
+        nbap_edch_channel_info[e_dch_macdflow_id].edch_ddi[num_items-1] = e_dch_ddi_value;
 
 #.FN_BODY MACdPDU-Size VAL_PTR = &MACdPDU_Size
 %(DEFAULT_BODY)s
@@ -1614,15 +1622,15 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
     {
         return offset;
     }
-    nbap_edch_channel_info[e_dch_macdflow_id].edch_macd_pdu_size[num_items-1] = MACdPDU_Size;
+    if(num_items>0)
+        nbap_edch_channel_info[e_dch_macdflow_id].edch_macd_pdu_size[num_items-1] = MACdPDU_Size;
 
 #.FN_BODY LogicalChannelID VAL_PTR = &logical_channel_id
     /* Set logical channel id for this entry*/
 %(DEFAULT_BODY)s
 
-
-    nbap_edch_channel_info[e_dch_macdflow_id].lchId[num_items-1] = logical_channel_id;
-
+    if(num_items>0)
+        nbap_edch_channel_info[e_dch_macdflow_id].lchId[num_items-1] = logical_channel_id;
 
 #.FN_BODY RLC-Mode VAL_PTR = &rlc_mode
     guint32 rlc_mode;
@@ -1712,10 +1720,10 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
         return offset;
     }
 
-    SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+    set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
     /* Set address for collection of HSDSCH entries */
-    COPY_ADDRESS(&(nbap_hsdsch_channel_info[hsdsch_macdflow_id].crnc_address),&dst_addr);
+    copy_address(&(nbap_hsdsch_channel_info[hsdsch_macdflow_id].crnc_address),&dst_addr);
     nbap_hsdsch_channel_info[hsdsch_macdflow_id].crnc_port = BindingID_port;
 
 
@@ -1775,23 +1783,23 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
     }
 
     /* Set port to zero use that as an indication of whether we have data or not */
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
     for (i = 0; i < maxNrOfMACdFlows; i++) {
         if (nbap_hsdsch_channel_info[i].crnc_port != 0){
             nbap_debug("Frame %%u HSDSCH-MACdFlows-Information:hsdsch_macdflow_id %%u Look for conv on IP %%s Port %%u",
-                        actx->pinfo->fd->num,
+                        actx->pinfo->num,
                         i,
                         address_to_str (wmem_packet_scope(), &(nbap_hsdsch_channel_info[i].crnc_address)),
                         nbap_hsdsch_channel_info[i].crnc_port);
-            conversation = find_conversation(actx->pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
+            conversation = find_conversation(actx->pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
                                PT_UDP,
                                nbap_hsdsch_channel_info[i].crnc_port, 0, NO_ADDR_B);
 
 
             if (conversation == NULL) {
                 /* It's not part of any conversation - create a new one. */
-                nbap_debug("Frame %%u HSDSCH-MACdFlows-Information: Set up conv on Port %%u", actx->pinfo->fd->num, nbap_hsdsch_channel_info[i].crnc_port);
-                conversation = conversation_new(actx->pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address),
+                nbap_debug("Frame %%u HSDSCH-MACdFlows-Information: Set up conv on Port %%u", actx->pinfo->num, nbap_hsdsch_channel_info[i].crnc_port);
+                conversation = conversation_new(actx->pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address),
                     &null_addr, PT_UDP, nbap_hsdsch_channel_info[i].crnc_port,
                     0, NO_ADDR2|NO_PORT2);
 
@@ -1806,8 +1814,8 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
                     umts_fp_conversation_info->division          = Division_FDD;
                     umts_fp_conversation_info->channel           = CHANNEL_HSDSCH;
                     umts_fp_conversation_info->dl_frame_number   = 0;
-                    umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                    WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_hsdsch_channel_info[i].crnc_address);
+                    umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                    copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_hsdsch_channel_info[i].crnc_address);
                     umts_fp_conversation_info->crnc_port         = nbap_hsdsch_channel_info[i].crnc_port;
 
                     /*Added june 3, normally just the iterator variable*/
@@ -1851,10 +1859,10 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
         return offset;
     }
 
-    SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+    set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
     /* Set address for collection of HSDSCH entries */
-    COPY_ADDRESS(&(nbap_hsdsch_channel_info[hsdsch_macdflow_id].crnc_address),&dst_addr);
+    copy_address(&(nbap_hsdsch_channel_info[hsdsch_macdflow_id].crnc_address),&dst_addr);
     nbap_hsdsch_channel_info[hsdsch_macdflow_id].crnc_port = BindingID_port;
 
 
@@ -1888,10 +1896,10 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
     }
 
     /* Set port to zero use that as an indication of whether we have data or not */
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
 
     nbap_debug("Frame %%u HSDSCH-MACdFlows-Information Start",
-        actx->pinfo->fd->num);
+        actx->pinfo->num);
 
     for (i = 0; i < maxNrOfMACdFlows; i++) {
         if (nbap_hsdsch_channel_info[i].crnc_port != 0){
@@ -1899,7 +1907,7 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
                         i,
                         address_to_str (wmem_packet_scope(), &(nbap_hsdsch_channel_info[i].crnc_address)),
                         nbap_hsdsch_channel_info[i].crnc_port);
-            conversation = find_conversation(actx->pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
+            conversation = find_conversation(actx->pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
                                PT_UDP,
                                nbap_hsdsch_channel_info[i].crnc_port, 0, NO_ADDR_B);
 
@@ -1908,7 +1916,7 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
                 /* It's not part of any conversation - create a new one. */
                 nbap_debug("    Set up conv on Port %%u", nbap_hsdsch_channel_info[i].crnc_port);
 
-                conversation = conversation_new(actx->pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address),
+                conversation = conversation_new(actx->pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address),
                     &null_addr, PT_UDP, nbap_hsdsch_channel_info[i].crnc_port,
                     0, NO_ADDR2|NO_PORT2);
 
@@ -1923,8 +1931,8 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
                     umts_fp_conversation_info->division          = Division_FDD;
                     umts_fp_conversation_info->channel           = CHANNEL_HSDSCH;
                     umts_fp_conversation_info->dl_frame_number   = 0;
-                    umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                    WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_hsdsch_channel_info[i].crnc_address);
+                    umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                    copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_hsdsch_channel_info[i].crnc_address);
                     umts_fp_conversation_info->crnc_port         = nbap_hsdsch_channel_info[i].crnc_port;
 
                     /*Added june 3, normally just the iterator variable*/
@@ -1959,7 +1967,7 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
             }
         }
         nbap_debug("Frame %%u HSDSCH-MACdFlows-Information End",
-            actx->pinfo->fd->num);
+            actx->pinfo->num);
 
     }
 
@@ -1983,10 +1991,10 @@ nbap_edch_channel_info[e_dch_macdflow_id].no_ddi_entries = num_items;
         return offset;
     }
 
-    SET_ADDRESS(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
+    set_address(&dst_addr, AT_IPv4, 4, &transportLayerAddress_ipv4);
 
     /* Set address for collection of common entries */
-    COPY_ADDRESS(&(nbap_common_channel_info[common_macdflow_id].crnc_address),&dst_addr);
+    copy_address(&(nbap_common_channel_info[common_macdflow_id].crnc_address),&dst_addr);
     nbap_common_channel_info[common_macdflow_id].crnc_port = BindingID_port;
 
 
@@ -2022,16 +2030,16 @@ int i;
         return offset;
     }
     /* Set port to zero use that as an indication of whether we have data or not */
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
     for (i = 0; i < maxNrOfCommonMACFlows; i++) {
         if (nbap_common_channel_info[i].crnc_port != 0){
 
-            conversation = find_conversation(actx->pinfo->fd->num, &(nbap_common_channel_info[i].crnc_address), &null_addr,
+            conversation = find_conversation(actx->pinfo->num, &(nbap_common_channel_info[i].crnc_address), &null_addr,
                                PT_UDP,
                                nbap_common_channel_info[i].crnc_port, 0, NO_ADDR_B);
 
             if (conversation == NULL) {
-                conversation = conversation_new(actx->pinfo->fd->num, &(nbap_common_channel_info[i].crnc_address),
+                conversation = conversation_new(actx->pinfo->num, &(nbap_common_channel_info[i].crnc_address),
                     &null_addr, PT_UDP, nbap_common_channel_info[i].crnc_port,
                     0, NO_ADDR2|NO_PORT2);
 
@@ -2046,8 +2054,8 @@ int i;
                 umts_fp_conversation_info->division          = Division_FDD;
 
                 umts_fp_conversation_info->dl_frame_number   = 0;
-                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->fd->num;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_common_channel_info[i].crnc_address);
+                umts_fp_conversation_info->ul_frame_number   = actx->pinfo->num;
+                copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_common_channel_info[i].crnc_address);
                 umts_fp_conversation_info->crnc_port         = nbap_common_channel_info[i].crnc_port;
 
                 /*umts_fp_conversation_info->hsdsch_macdflow_id = i ;*/ /*hsdsch_macdflow_ids[i];*/ /* hsdsch_macdflow_id;*/
@@ -2098,7 +2106,7 @@ if(crcn_context_present){
 
             cur_val = g_new(nbap_com_context_id_t,1);
             cur_val->crnc_context = com_context_id;
-            cur_val->frame_num = actx->pinfo->fd->num;
+            cur_val->frame_num = actx->pinfo->num;
             g_tree_insert(com_context_map, GINT_TO_POINTER((gint)node_b_com_context_id), cur_val);
             com_context_id = -1;
         }
@@ -2117,10 +2125,10 @@ int i;
     }
 
     /*Find the conversations assoicated with the HS-DSCH flows in this packet and set proper H-RNTI*/
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
     for (i = 0; i < maxNrOfMACdFlows; i++) {
         if (nbap_hsdsch_channel_info[i].crnc_port != 0){
-            conversation = find_conversation(actx->pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
+            conversation = find_conversation(actx->pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
                                PT_UDP,
                                nbap_hsdsch_channel_info[i].crnc_port, 0, NO_ADDR_B);
             if(conversation != NULL){
@@ -2142,7 +2150,7 @@ int i;
 #.FN_BODY CFN VAL_PTR = &cfn
 %(DEFAULT_BODY)s
 
-#.REGISTER_NEW
+#.REGISTER
 
 #NBAP-PROTOCOL-IES
 TUTRANGPSMeasurementValueInformation N nbap.ies id-TUTRANGPSMeasurementValueInformation

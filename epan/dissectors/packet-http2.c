@@ -38,10 +38,10 @@
 
 #include "config.h"
 
-#include <stdio.h>
-
 #include <epan/packet.h>
+#include <epan/expert.h>
 #include <epan/prefs.h>
+#include <epan/proto_data.h>
 
 #include <epan/nghttp2/nghttp2.h>
 
@@ -104,8 +104,14 @@ typedef struct {
        http2_header_t */
     wmem_list_t *header_list;
     /* This points to the list frame containing current decompressed
-       header for dessecting later. */
+       header for dissecting later. */
     wmem_list_frame_t *current;
+    /* Bytes decompressed if we exceeded MAX_HTTP2_HEADER_SIZE */
+    guint header_size_reached;
+    /* Bytes decompressed if we had not exceeded MAX_HTTP2_HEADER_SIZE */
+    guint header_size_attempted;
+    /* TRUE if we found >= MAX_HTTP2_HEADER_LINES */
+    gboolean header_lines_exceeded;
 } http2_header_data_t;
 
 /* In-flight SETTINGS data. */
@@ -153,7 +159,7 @@ static int st_node_http2_type = -1;
 
 /* Packet Header */
 static int proto_http2 = -1;
-static int hf_http2 = -1;
+static int hf_http2_stream = -1;
 static int hf_http2_length = -1;
 static int hf_http2_type = -1;
 static int hf_http2_r = -1;
@@ -192,6 +198,7 @@ static int hf_http2_headers = -1;
 static int hf_http2_headers_padding = -1;
 static int hf_http2_header = -1;
 static int hf_http2_header_length = -1;
+static int hf_http2_header_count = -1;
 static int hf_http2_header_name_length = -1;
 static int hf_http2_header_name = -1;
 static int hf_http2_header_value_length = -1;
@@ -241,12 +248,41 @@ static int hf_http2_altsvc_host = -1;
 static int hf_http2_altsvc_origin = -1;
 /* Blocked */
 
+/*
+ * These values *should* be large enough to handle most use cases while
+ * keeping hostile traffic from consuming too many resources. If that's
+ * not the case we can convert them to preferences. Current (Feb 2016)
+ * client and server limits:
+ *
+ * Apache: 8K (LimitRequestFieldSize), 100 lines (LimitRequestFields)
+ * Chrome: 256K?
+ * Firefox: Unknown
+ * IIS: 16K (MaxRequestBytes)
+ * Nginx: 8K (large_client_header_buffers)
+ * Safari: Unknown
+ * Tomcat: 8K (maxHttpHeaderSize)
+ */
+#define MAX_HTTP2_HEADER_SIZE (256 * 1024)
+#define MAX_HTTP2_HEADER_LINES 200
+static expert_field ei_http2_header_size = EI_INIT;
+static expert_field ei_http2_header_lines = EI_INIT;
 
 static gint ett_http2 = -1;
 static gint ett_http2_header = -1;
 static gint ett_http2_headers = -1;
 static gint ett_http2_flags = -1;
 static gint ett_http2_settings = -1;
+
+/* Due to HPACK compression, we may get lots of relatively large
+   header fields (e.g., 4KiB).  Allocating each of them requires lots
+   of memory.  The maximum compression is achieved in HPACK by
+   referencing header field stored in dynamic table by one or two
+   bytes.  We reduce memory usage by caching header field in this
+   wmem_map_t to reuse its memory region when we see the same header
+   field next time. */
+static wmem_map_t *http2_hdrcache_map = NULL;
+/* Header name_length + name + value_length + value */
+static char *http2_header_pstr = NULL;
 
 static dissector_handle_t data_handle;
 static dissector_handle_t http2_handle;
@@ -376,6 +412,8 @@ static gboolean
 hd_inflate_del_cb(wmem_allocator_t *allocator _U_, wmem_cb_event_t event _U_, void *user_data)
 {
     nghttp2_hd_inflate_del((nghttp2_hd_inflater*)user_data);
+    http2_hdrcache_map = NULL;
+    http2_header_pstr = NULL;
 
     return FALSE;
 }
@@ -613,6 +651,32 @@ process_http2_header_repr_info(wmem_array_t *headers,
     return start;
 }
 
+static size_t http2_hdrcache_length(gconstpointer vv)
+{
+    const guint8 *v = (const guint8 *)vv;
+    guint32 namelen, valuelen;
+
+    namelen = pntoh32(v);
+    valuelen = pntoh32(v + sizeof(namelen) + namelen);
+
+    return namelen + valuelen + sizeof(namelen) + sizeof(valuelen);
+}
+
+static guint http2_hdrcache_hash(gconstpointer key)
+{
+    return wmem_strong_hash((const guint8 *)key, http2_hdrcache_length(key));
+}
+
+static gboolean http2_hdrcache_equal(gconstpointer lhs, gconstpointer rhs)
+{
+    const guint8 *a = (const guint8 *)lhs;
+    const guint8 *b = (const guint8 *)rhs;
+    size_t alen = http2_hdrcache_length(a);
+    size_t blen = http2_hdrcache_length(b);
+
+    return alen == blen && memcmp(a, b, alen) == 0;
+}
+
 static void
 inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
                            proto_tree *tree, size_t headlen,
@@ -638,6 +702,10 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
     wmem_array_t *headers;
     guint i;
 
+    if (!http2_hdrcache_map) {
+        http2_hdrcache_map = wmem_map_new(wmem_file_scope(), http2_hdrcache_hash, http2_hdrcache_equal);
+    }
+
     header_data = (http2_header_data_t*)p_get_proto_data(wmem_file_scope(), pinfo, proto_http2, 0);
     header_list = header_data->header_list;
 
@@ -648,6 +716,7 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
            cache, already processed data will be fed into decompressor
            again and again since dissector will be called randomly.
            This makes context out-of-sync. */
+        int decompressed_bytes = 0;
 
         headbuf = (guint8*)wmem_alloc(wmem_packet_scope(), headlen);
         tvb_memcpy(tvb, headbuf, offset, headlen);
@@ -664,6 +733,11 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
             nghttp2_nv nv;
             int inflate_flags = 0;
 
+            if (wmem_array_get_count(headers) >= MAX_HTTP2_HEADER_LINES) {
+                header_data->header_lines_exceeded = TRUE;
+                break;
+            }
+
             rv = (int)nghttp2_hd_inflate_hd(hd_inflater, &nv,
                                             &inflate_flags, headbuf, headlen, final);
 
@@ -677,9 +751,16 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
             rv -= process_http2_header_repr_info(headers, header_repr_info, headbuf - rv, rv);
 
             if(inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
-                char *str;
+                char *cached_pstr;
                 guint32 len;
+                guint datalen = (guint)(4 + nv.namelen + 4 + nv.valuelen);
                 http2_header_t *out;
+
+                if (decompressed_bytes + datalen >= MAX_HTTP2_HEADER_SIZE) {
+                    header_data->header_size_reached = decompressed_bytes;
+                    header_data->header_size_attempted = decompressed_bytes + datalen;
+                    break;
+                }
 
                 out = wmem_new(wmem_file_scope(), http2_header_t);
 
@@ -687,7 +768,8 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
                 out->length = rv;
                 out->table.data.idx = header_repr_info->integer;
 
-                out->table.data.datalen = (guint)(4 + nv.namelen + 4 + nv.valuelen);
+                out->table.data.datalen = datalen;
+                decompressed_bytes += datalen;
 
                 /* Prepare buffer... with the following format
                    name length (uint32)
@@ -695,20 +777,27 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
                    value length (uint32)
                    value (string)
                 */
-                str = wmem_alloc_array(wmem_file_scope(), char, out->table.data.datalen);
+                http2_header_pstr = (char *)wmem_realloc(wmem_file_scope(), http2_header_pstr, out->table.data.datalen);
 
                 /* nv.namelen and nv.valuelen are of size_t.  In order
                    to get length in 4 bytes, we have to copy it to
                    guint32. */
                 len = (guint32)nv.namelen;
-                phton32(&str[0], len);
-                memcpy(&str[4], nv.name, nv.namelen);
+                phton32(&http2_header_pstr[0], len);
+                memcpy(&http2_header_pstr[4], nv.name, nv.namelen);
 
                 len = (guint32)nv.valuelen;
-                phton32(&str[4 + nv.namelen], len);
-                memcpy(&str[4 + nv.namelen + 4], nv.value, nv.valuelen);
+                phton32(&http2_header_pstr[4 + nv.namelen], len);
+                memcpy(&http2_header_pstr[4 + nv.namelen + 4], nv.value, nv.valuelen);
 
-                out->table.data.data = str;
+                cached_pstr = (char *)wmem_map_lookup(http2_hdrcache_map, http2_header_pstr);
+                if (cached_pstr) {
+                    out->table.data.data = cached_pstr;
+                } else {
+                    wmem_map_insert(http2_hdrcache_map, http2_header_pstr, http2_header_pstr);
+                    out->table.data.data = http2_header_pstr;
+                    http2_header_pstr = NULL;
+                }
 
                 wmem_array_append(headers, out, 1);
 
@@ -747,7 +836,6 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
     for(i = 0; i < wmem_array_get_count(headers); ++i) {
         http2_header_t *in;
         tvbuff_t *next_tvb;
-        char *str;
 
         in = (http2_header_t*)wmem_array_index(headers, i);
 
@@ -755,14 +843,10 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
             continue;
         }
 
-        str = (char *)g_malloc(in->table.data.datalen);
-        memcpy(str, in->table.data.data, in->table.data.datalen);
-
         header_len += in->table.data.datalen;
 
         /* Now setup the tvb buffer to have the new data */
-        next_tvb = tvb_new_child_real_data(tvb, str, in->table.data.datalen, in->table.data.datalen);
-        tvb_set_free_cb(next_tvb, g_free);
+        next_tvb = tvb_new_child_real_data(tvb, in->table.data.data, in->table.data.datalen, in->table.data.datalen);
         tvb_composite_append(header_tvb, next_tvb);
     }
 
@@ -771,6 +855,20 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
 
     ti = proto_tree_add_uint(tree, hf_http2_header_length, header_tvb, hoffset, 1, header_len);
     PROTO_ITEM_SET_GENERATED(ti);
+
+    if (header_data->header_size_attempted > 0) {
+        expert_add_info_format(pinfo, ti, &ei_http2_header_size,
+                               "Decompression stopped after %u bytes (%u attempted).",
+                               header_data->header_size_reached,
+                               header_data->header_size_attempted);
+    }
+
+    ti = proto_tree_add_uint(tree, hf_http2_header_count, header_tvb, hoffset, 1, wmem_array_get_count(headers));
+    PROTO_ITEM_SET_GENERATED(ti);
+
+    if (header_data->header_lines_exceeded) {
+        expert_add_info(pinfo, ti, &ei_http2_header_lines);
+    }
 
     for(i = 0; i < wmem_array_get_count(headers); ++i) {
         http2_header_t *in = (http2_header_t*)wmem_array_index(headers, i);
@@ -955,7 +1053,7 @@ dissect_http2_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree
 
 /* Headers */
 static int
-dissect_http2_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree,
+dissect_http2_headers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree,
                       guint offset, guint8 flags)
 {
     guint16 padding;
@@ -1249,9 +1347,8 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     if(!p_get_proto_data(wmem_file_scope(), pinfo, proto_http2, 0)) {
         http2_header_data_t *header_data;
 
-        header_data = wmem_new(wmem_file_scope(), http2_header_data_t);
+        header_data = wmem_new0(wmem_file_scope(), http2_header_data_t);
         header_data->header_list = wmem_list_new(wmem_file_scope());
-        header_data->current = NULL;
 
         p_add_proto_data(wmem_file_scope(), pinfo, proto_http2, 0, header_data);
     }
@@ -1270,7 +1367,7 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
         |                   Frame Payload (0...)                      ...
         +---------------------------------------------------------------+
     */
-    ti = proto_tree_add_item(tree, hf_http2, tvb, 0, -1, ENC_NA);
+    ti = proto_tree_add_item(tree, hf_http2_stream, tvb, 0, -1, ENC_NA);
 
     http2_tree = proto_item_add_subtree(ti, ett_http2_header);
 
@@ -1441,14 +1538,25 @@ dissect_http2_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
     return (TRUE);
 }
 
+static gboolean
+dissect_http2_heur_ssl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+    dissector_handle_t *app_handle = (dissector_handle_t *) data;
+    if (dissect_http2_heur(tvb, pinfo, tree, NULL)) {
+        *app_handle = http2_handle;
+        return TRUE;
+    }
+    return FALSE;
+}
+
 void
 proto_register_http2(void)
 {
 
     static hf_register_info hf[] = {
         /* Packet Header */
-        { &hf_http2,
-            { "Stream", "http2",
+        { &hf_http2_stream,
+            { "Stream", "http2.stream",
                FT_NONE, BASE_NONE, NULL, 0x0,
               NULL, HFILL }
         },
@@ -1616,6 +1724,11 @@ proto_register_http2(void)
         },
         { &hf_http2_header_length,
             { "Header Length", "http2.header.length",
+               FT_UINT32, BASE_DEC, NULL, 0x0,
+               NULL, HFILL }
+        },
+        { &hf_http2_header_count,
+            { "Header Count", "http2.header.count",
                FT_UINT32, BASE_DEC, NULL, 0x0,
                NULL, HFILL }
         },
@@ -1843,7 +1956,24 @@ proto_register_http2(void)
         &ett_http2_settings
     };
 
+    /* Setup protocol expert items */
+    /*
+     * Excessive header size or lines could mean a decompression bomb. Should
+     * these be PI_SECURITY instead?
+     */
+    static ei_register_info ei[] = {
+        { &ei_http2_header_size,
+          { "http2.header_size_exceeded", PI_UNDECODED, PI_ERROR,
+            "Decompression stopped.", EXPFILL }
+        },
+        { &ei_http2_header_lines,
+          { "http2.header_lines_exceeded", PI_UNDECODED, PI_ERROR,
+            "Decompression stopped after " G_STRINGIFY(MAX_HTTP2_HEADER_LINES) " header lines.", EXPFILL }
+        }
+    };
+
     module_t *http2_module;
+    expert_module_t *expert_http2;
 
     proto_http2 = proto_register_protocol("HyperText Transfer Protocol 2", "HTTP2", "http2");
 
@@ -1852,9 +1982,12 @@ proto_register_http2(void)
 
     http2_module = prefs_register_protocol(proto_http2, NULL);
 
+    expert_http2 = expert_register_protocol(proto_http2);
+    expert_register_field_array(expert_http2, ei, array_length(ei));
+
     prefs_register_obsolete_preference(http2_module, "heuristic_http2");
 
-    new_register_dissector("http2", dissect_http2, proto_http2);
+    http2_handle = register_dissector("http2", dissect_http2, proto_http2);
 
     http2_tap = register_tap("http2");
 }
@@ -1868,7 +2001,7 @@ static void http2_stats_tree_init(stats_tree* st)
 
 static int http2_stats_tree_packet(stats_tree* st, packet_info* pinfo _U_, epan_dissect_t* edt _U_, const void* p)
 {
-    struct HTTP2Tap *pi = (struct HTTP2Tap *)p;
+    const struct HTTP2Tap *pi = (const struct HTTP2Tap *)p;
     tick_stat_node(st, st_str_http2, 0, FALSE);
     stats_tree_tick_pivot(st, st_node_http2_type,
             val_to_str(pi->type, http2_type_vals, "Unknown type (%d)"));
@@ -1881,10 +2014,9 @@ proto_reg_handoff_http2(void)
 {
     data_handle = find_dissector("data");
 
-    http2_handle = new_create_dissector_handle(dissect_http2, proto_http2);
     dissector_add_for_decode_as("tcp.port", http2_handle);
 
-    heur_dissector_add("ssl", dissect_http2_heur, "HTTP2 over SSL", "http2_ssl", proto_http2, HEURISTIC_ENABLE);
+    heur_dissector_add("ssl", dissect_http2_heur_ssl, "HTTP2 over SSL", "http2_ssl", proto_http2, HEURISTIC_ENABLE);
     heur_dissector_add("http", dissect_http2_heur, "HTTP2 over TCP", "http2_tcp", proto_http2, HEURISTIC_ENABLE);
 
     stats_tree_register("http2", "http2", "HTTP2", 0, http2_stats_tree_packet, http2_stats_tree_init, NULL);

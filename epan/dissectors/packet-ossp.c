@@ -33,6 +33,8 @@
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
 
+#include <wsutil/str_util.h>
+
 /* General declarations */
 void proto_register_ossp(void);
 void proto_reg_handoff_ossp(void);
@@ -221,8 +223,8 @@ dissect_itu_ossp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
  * Notes:
  *    Roberto Morro (roberto.morro[AT]tilab.com)
  */
-static void
-dissect_ossp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ossp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gint          offset = 0;
     const gchar  *str;
@@ -270,6 +272,7 @@ dissect_ossp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
         proto_item_append_text(oui_item, " (Unknown OSSP organization)");
     }
+    return tvb_captured_length(tvb);
 }
 
 /*

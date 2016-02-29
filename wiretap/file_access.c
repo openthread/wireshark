@@ -23,17 +23,10 @@
 #include <string.h>
 #include <stdlib.h>
 
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <errno.h>
 
 #include <wsutil/file_util.h>
+#include <wsutil/tempfile.h>
 
 #include "wtap-int.h"
 #include "file_wrappers.h"
@@ -97,9 +90,9 @@
  */
 static GSList *
 add_extensions(GSList *extensions, const gchar *extension,
-    GSList *compressed_file_extensions)
+    const char **compressed_file_extensions)
 {
-	GSList *compressed_file_extension;
+	const char **compressed_file_extensionp;
 
 	/*
 	 * Add the specified extension.
@@ -110,12 +103,12 @@ add_extensions(GSList *extensions, const gchar *extension,
 	 * Now add the extensions for compressed-file versions of
 	 * that extension.
 	 */
-	for (compressed_file_extension = compressed_file_extensions;
-	    compressed_file_extension != NULL;
-	    compressed_file_extension = g_slist_next(compressed_file_extension)) {
+	for (compressed_file_extensionp = compressed_file_extensions;
+	    *compressed_file_extensionp != NULL;
+	    compressed_file_extensionp++) {
 		extensions = g_slist_append(extensions,
 		    g_strdup_printf("%s.%s", extension,
-		      (gchar *)compressed_file_extension->data));
+		      *compressed_file_extensionp));
 	}
 
 	return extensions;
@@ -205,7 +198,7 @@ wtap_get_file_extension_type_name(int extension_type)
 
 static GSList *
 add_extensions_for_file_extensions_type(int extension_type,
-    GSList *extensions, GSList *compressed_file_extensions)
+    GSList *extensions, const char **compressed_file_extensions)
 {
 	gchar **extensions_set, **extensionp, *extension;
 
@@ -241,7 +234,6 @@ add_extensions_for_file_extensions_type(int extension_type,
 GSList *
 wtap_get_file_extension_type_extensions(guint extension_type)
 {
-	GSList *compressed_file_extensions;
 	GSList *extensions;
 
 	if (extension_type >= file_type_extensions_arr->len)
@@ -250,18 +242,12 @@ wtap_get_file_extension_type_extensions(guint extension_type)
 	extensions = NULL;	/* empty list, to start with */
 
 	/*
-	 * Get the list of compressed-file extensions.
-	 */
-	compressed_file_extensions = wtap_get_compressed_file_extensions();
-
-	/*
 	 * Add all this file extension type's extensions, with compressed
 	 * variants.
 	 */
 	extensions = add_extensions_for_file_extensions_type(extension_type,
-	    extensions, compressed_file_extensions);
+	    extensions, compressed_file_extension_table);
 
-	g_slist_free(compressed_file_extensions);
 	return extensions;
 }
 
@@ -274,7 +260,6 @@ wtap_get_file_extension_type_extensions(guint extension_type)
 GSList *
 wtap_get_all_file_extensions_list(void)
 {
-	GSList *compressed_file_extensions;
 	GSList *extensions;
 	unsigned int i;
 
@@ -282,21 +267,15 @@ wtap_get_all_file_extensions_list(void)
 
 	extensions = NULL;	/* empty list, to start with */
 
-	/*
-	 * Get the list of compressed-file extensions.
-	 */
-	compressed_file_extensions = wtap_get_compressed_file_extensions();
-
 	for (i = 0; i < file_type_extensions_arr->len; i++) {
 		/*
 		 * Add all this file extension type's extensions, with
 		 * compressed variants.
 		 */
 		extensions = add_extensions_for_file_extensions_type(i,
-		    extensions, compressed_file_extensions);
+		    extensions, compressed_file_extension_table);
 	}
 
-	g_slist_free(compressed_file_extensions);
 	return extensions;
 }
 
@@ -597,7 +576,7 @@ get_file_extension(const char *pathname)
 	gchar *filename;
 	gchar **components;
 	size_t ncomponents;
-	GSList *compressed_file_extensions, *compressed_file_extension;
+	const char **compressed_file_extensionp;
 	gchar *extensionp;
 
 	/*
@@ -644,21 +623,11 @@ get_file_extension(const char *pathname)
 	 * Is the last component one of the extensions used for compressed
 	 * files?
 	 */
-	compressed_file_extensions = wtap_get_compressed_file_extensions();
-	if (compressed_file_extensions == NULL) {
-		/*
-		 * We don't support reading compressed files, so just
-		 * return a copy of whatever extension we did find.
-		 */
-		extensionp = g_strdup(components[ncomponents - 1]);
-		g_strfreev(components);
-		return extensionp;
-	}
 	extensionp = components[ncomponents - 1];
-	for (compressed_file_extension = compressed_file_extensions;
-	    compressed_file_extension != NULL;
-	    compressed_file_extension = g_slist_next(compressed_file_extension)) {
-		if (strcmp(extensionp, (char *)compressed_file_extension->data) == 0) {
+	for (compressed_file_extensionp = compressed_file_extension_table;
+	    *compressed_file_extensionp != NULL;
+	    compressed_file_extensionp++) {
+		if (strcmp(extensionp, *compressed_file_extensionp) == 0) {
 			/*
 			 * Yes, it's one of the compressed-file extensions.
 			 * Is there an extension before that?
@@ -849,11 +818,12 @@ wtap_open_offline(const char *filename, unsigned int type, int *err, char **err_
 	wth->file_tsprec = WTAP_TSPREC_USEC;
 	wth->priv = NULL;
 	wth->wslua_data = NULL;
+	wth->shb_hdr = wtap_optionblock_create(WTAP_OPTION_BLOCK_NG_SECTION);
 
 	/* Initialize the array containing a list of interfaces. pcapng_open and
 	 * erf_open needs this (and libpcap_open for ERF encapsulation types).
 	 * Always initing it here saves checking for a NULL ptr later. */
-	wth->interface_data = g_array_new(FALSE, FALSE, sizeof(wtapng_if_descr_t));
+	wth->interface_data = g_array_new(FALSE, FALSE, sizeof(wtap_optionblock_t));
 
 	if (wth->random_fh) {
 		wth->fast_seek = g_ptr_array_new();
@@ -1114,31 +1084,24 @@ success:
 	if ((wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP) ||
 		(wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP_NSEC)) {
 
-		wtapng_if_descr_t descr;
+		wtap_optionblock_t descr = wtap_optionblock_create(WTAP_OPTION_BLOCK_IF_DESCR);
+		wtapng_if_descr_mandatory_t* descr_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(descr);
 
-		descr.wtap_encap = wth->file_encap;
+		descr_mand->wtap_encap = wth->file_encap;
 		if (wth->file_type_subtype == WTAP_FILE_TYPE_SUBTYPE_PCAP_NSEC) {
-			descr.time_units_per_second = 1000000000; /* nanosecond resolution */
-			descr.if_tsresol = 9;
-			descr.tsprecision = WTAP_TSPREC_NSEC;
+			descr_mand->time_units_per_second = 1000000000; /* nanosecond resolution */
+			wtap_optionblock_set_option_uint8(descr, OPT_IDB_TSRESOL, 9);
+			descr_mand->tsprecision = WTAP_TSPREC_NSEC;
 		} else {
-			descr.time_units_per_second = 1000000; /* default microsecond resolution */
-			descr.if_tsresol = 6;
-			descr.tsprecision = WTAP_TSPREC_USEC;
+			descr_mand->time_units_per_second = 1000000; /* default microsecond resolution */
+			wtap_optionblock_set_option_uint8(descr, OPT_IDB_TSRESOL, 6);
+			descr_mand->tsprecision = WTAP_TSPREC_USEC;
 		}
-		descr.link_type = wtap_wtap_encap_to_pcap_encap(wth->file_encap);
-		descr.snap_len = wth->snapshot_length;
-		descr.opt_comment = NULL;
-		descr.if_name = NULL;
-		descr.if_description = NULL;
-		descr.if_speed = 0;
-		descr.if_filter_str= NULL;
-		descr.bpf_filter_len= 0;
-		descr.if_filter_bpf_bytes= NULL;
-		descr.if_os = NULL;
-		descr.if_fcslen = -1;
-		descr.num_stat_entries = 0;          /* Number of ISB:s */
-		descr.interface_statistics = NULL;
+		descr_mand->link_type = wtap_wtap_encap_to_pcap_encap(wth->file_encap);
+		descr_mand->snap_len = wth->snapshot_length;
+
+		descr_mand->num_stat_entries = 0;          /* Number of ISB:s */
+		descr_mand->interface_statistics = NULL;
 		g_array_append_val(wth->interface_data, descr);
 
 	}
@@ -1207,12 +1170,17 @@ wtap_fdreopen(wtap *wth, const char *filename, int *err)
 	return TRUE;
 }
 
-/* Table of the file types and subtypes we know about.
+/* Table of the file types and subtypes for which we have built-in support.
    Entries must be sorted by WTAP_FILE_TYPE_SUBTYPE_xxx values in ascending
    order.
 
    These are used to report what type and subtype a given file is and
-   to let the user select a format when writing out packets. */
+   to let the user select a format when writing out packets.
+
+   This table is what we start with, but it can be modified.
+   If we need to modify it, we allocate a GArray, copy the entries
+   in the above table to that GArray, use the copy as the table, and
+   make all changes to the copy. */
 static const struct file_type_subtype_info dump_open_table_base[] = {
 	/* WTAP_FILE_TYPE_SUBTYPE_UNKNOWN (only used internally for initialization) */
 	{ NULL, NULL, NULL, NULL,
@@ -1616,16 +1584,31 @@ static const struct file_type_subtype_info dump_open_table_base[] = {
 	  NULL, NULL, NULL },
 };
 
-gint wtap_num_file_types_subtypes = sizeof(dump_open_table_base) / sizeof(struct file_type_subtype_info);
-
-static GArray*  dump_open_table_arr = NULL;
+/*
+ * Pointer to the table we're currently using.  It's initialized to point
+ * to the static table, but, if we have to allocate the GArray, it's
+ * changed to point to the data in the GArray.
+ */
 static const struct file_type_subtype_info* dump_open_table = dump_open_table_base;
 
-/* initialize the file types array if it has not being initialized yet */
-static void
-init_file_types_subtypes(void)
-{
+/*
+ * Number of elements in the table we're currently using.  It's initialized
+ * to the number of elements in the static table, but, if we have to
+ * allocate the GArray, it's changed to have the size of the GArray.
+ */
+gint wtap_num_file_types_subtypes = sizeof(dump_open_table_base) / sizeof(struct file_type_subtype_info);
 
+/*
+ * Pointer to the GArray; NULL until it's needed.
+ */
+static GArray*  dump_open_table_arr = NULL;
+
+/*
+ * Create the GArray from the static table if it hasn't already been created.
+ */
+static void
+init_file_types_subtypes_garray(void)
+{
 	if (dump_open_table_arr) return;
 
 	dump_open_table_arr = g_array_new(FALSE,TRUE,sizeof(struct file_type_subtype_info));
@@ -1641,7 +1624,6 @@ int
 wtap_register_file_type_subtypes(const struct file_type_subtype_info* fi, const int subtype)
 {
 	struct file_type_subtype_info* finfo;
-	init_file_types_subtypes();
 
 	if (!fi || !fi->name || !fi->short_name || subtype > wtap_num_file_types_subtypes) {
 		g_error("no file type info or invalid file type to register");
@@ -1656,6 +1638,11 @@ wtap_register_file_type_subtypes(const struct file_type_subtype_info* fi, const 
 			return subtype;
 		}
 
+		/*
+		 * Create the GArray if it hasn't already been created.
+		 */
+		init_file_types_subtypes_garray();
+
 		g_array_append_val(dump_open_table_arr,*fi);
 
 		dump_open_table = (const struct file_type_subtype_info*)(void *)dump_open_table_arr->data;
@@ -1669,8 +1656,16 @@ wtap_register_file_type_subtypes(const struct file_type_subtype_info* fi, const 
 		return subtype;
 	}
 
-	/* yes, we're going to cast to change its const-ness */
-	finfo = (struct file_type_subtype_info*)(&dump_open_table[subtype]);
+	/*
+	 * Create the GArray if it hasn't already been created.
+	 */
+	init_file_types_subtypes_garray();
+
+	/*
+	 * Get the pointer from the GArray, so that we get a non-const
+	 * pointer.
+	 */
+	finfo = &g_array_index(dump_open_table_arr, struct file_type_subtype_info, subtype);
 	/*finfo->name = fi->name;*/
 	/*finfo->short_name = fi->short_name;*/
 	finfo->default_file_extension     = fi->default_file_extension;
@@ -1697,8 +1692,16 @@ wtap_deregister_file_type_subtype(const int subtype)
 		return;
 	}
 
-	/* yes, we're going to cast to change its const-ness */
-	finfo = (struct file_type_subtype_info*)(&dump_open_table[subtype]);
+	/*
+	 * Create the GArray if it hasn't already been created.
+	 */
+	init_file_types_subtypes_garray();
+
+	/*
+	 * Get the pointer from the GArray, so that we get a non-const
+	 * pointer.
+	 */
+	finfo = &g_array_index(dump_open_table_arr, struct file_type_subtype_info, subtype);
 	/* unfortunately, it's not safe to null-out the name or short_name; bunch of other code doesn't guard aainst that, afaict */
 	/*finfo->name = NULL;*/
 	/*finfo->short_name = NULL;*/
@@ -1962,7 +1965,7 @@ wtap_short_string_to_file_type_subtype(const char *short_name)
 
 static GSList *
 add_extensions_for_file_type_subtype(int file_type_subtype, GSList *extensions,
-    GSList *compressed_file_extensions)
+    const char **compressed_file_extensions)
 {
 	gchar **extensions_set, **extensionp;
 	gchar *extension;
@@ -2016,8 +2019,10 @@ add_extensions_for_file_type_subtype(int file_type_subtype, GSList *extensions,
 GSList *
 wtap_get_file_extensions_list(int file_type_subtype, gboolean include_compressed)
 {
-	GSList *compressed_file_extensions;
 	GSList *extensions;
+	static const char *no_compressed_extensions[] = {
+		NULL
+	};
 
 	if (file_type_subtype < 0 || file_type_subtype >= wtap_num_file_types_subtypes)
 		return NULL;	/* not a valid file type */
@@ -2028,22 +2033,12 @@ wtap_get_file_extensions_list(int file_type_subtype, gboolean include_compressed
 	extensions = NULL;	/* empty list, to start with */
 
 	/*
-	 * If include_compressions is true, get the list of compressed-file
-	 * extensions.
-	 */
-	if (include_compressed)
-		compressed_file_extensions = wtap_get_compressed_file_extensions();
-	else
-		compressed_file_extensions = NULL;
-
-	/*
 	 * Add all this file type's extensions, with compressed
-	 * variants.
+	 * variants if include_compressed is true.
 	 */
 	extensions = add_extensions_for_file_type_subtype(file_type_subtype, extensions,
-	    compressed_file_extensions);
+	    include_compressed ? compressed_file_extension_table : no_compressed_extensions);
 
-	g_slist_free(compressed_file_extensions);
 	return extensions;
 }
 
@@ -2141,20 +2136,19 @@ static WFILE_T wtap_dump_file_open(wtap_dumper *wdh, const char *filename);
 static WFILE_T wtap_dump_file_fdopen(wtap_dumper *wdh, int fd);
 static int wtap_dump_file_close(wtap_dumper *wdh);
 
-wtap_dumper *
-wtap_dump_open(const char *filename, int file_type_subtype, int encap,
-	       int snaplen, gboolean compressed, int *err)
-{
-	return wtap_dump_open_ng(filename, file_type_subtype, encap,snaplen, compressed, NULL, NULL, NULL, err);
-}
-
 static wtap_dumper *
 wtap_dump_init_dumper(int file_type_subtype, int encap, int snaplen, gboolean compressed,
-                      wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
-                      wtapng_name_res_t *nrb_hdr, int *err)
+                      wtap_optionblock_t shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+                      wtap_optionblock_t nrb_hdr, int *err)
 {
 	wtap_dumper *wdh;
-	wtapng_if_descr_t descr, *file_int_data;
+	wtap_optionblock_t descr, file_int_data;
+	wtapng_if_descr_mandatory_t *descr_mand, *file_int_data_mand;
+
+	/* Check whether we can open a capture file with that file type
+	   and that encapsulation. */
+	if (!wtap_dump_open_check(file_type_subtype, encap, compressed, err))
+		return NULL;
 
 	/* Allocate a data structure for the output stream. */
 	wdh = wtap_dump_alloc_wdh(file_type_subtype, encap, snaplen, compressed, err);
@@ -2170,54 +2164,50 @@ wtap_dump_init_dumper(int file_type_subtype, int encap, int snaplen, gboolean co
 		guint itf_count;
 
 		/* XXX: what free's this stuff? */
-		wdh->interface_data = g_array_new(FALSE, FALSE, sizeof(wtapng_if_descr_t));
+		wdh->interface_data = g_array_new(FALSE, FALSE, sizeof(wtap_optionblock_t));
 		for (itf_count = 0; itf_count < idb_inf->interface_data->len; itf_count++) {
-			file_int_data = &g_array_index(idb_inf->interface_data, wtapng_if_descr_t, itf_count);
-			if ((encap != WTAP_ENCAP_PER_PACKET) && (encap != file_int_data->wtap_encap)) {
-				/* XXX: this does a shallow copy, not a true clone; e.g., comments are not duped */
-				memcpy(&descr, file_int_data, sizeof(wtapng_if_descr_t));
-				descr.wtap_encap = encap;
-				descr.link_type = wtap_wtap_encap_to_pcap_encap(encap);
-				g_array_append_val(wdh->interface_data, descr);
-			} else {
-				g_array_append_val(wdh->interface_data, *file_int_data);
+			file_int_data = g_array_index(idb_inf->interface_data, wtap_optionblock_t, itf_count);
+			file_int_data_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(file_int_data);
+			descr = wtap_optionblock_create(WTAP_OPTION_BLOCK_IF_DESCR);
+			wtap_optionblock_copy_options(descr, file_int_data);
+			if ((encap != WTAP_ENCAP_PER_PACKET) && (encap != file_int_data_mand->wtap_encap)) {
+				descr_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(descr);
+				descr_mand->wtap_encap = encap;
+				descr_mand->link_type = wtap_wtap_encap_to_pcap_encap(encap);
 			}
+			g_array_append_val(wdh->interface_data, descr);
 		}
 	} else {
-		descr.wtap_encap = encap;
-		descr.time_units_per_second = 1000000; /* default microsecond resolution */
-		descr.link_type = wtap_wtap_encap_to_pcap_encap(encap);
-		descr.snap_len = snaplen;
-		descr.opt_comment = NULL;
-		descr.if_name = g_strdup("Unknown/not available in original file format(libpcap)");
-		descr.if_description = NULL;
-		descr.if_speed = 0;
-		descr.if_tsresol = 6;
-		descr.if_filter_str= NULL;
-		descr.bpf_filter_len= 0;
-		descr.if_filter_bpf_bytes= NULL;
-		descr.if_os = NULL;
-		descr.if_fcslen = -1;
-		descr.num_stat_entries = 0;          /* Number of ISB:s */
-		descr.interface_statistics = NULL;
-		wdh->interface_data = g_array_new(FALSE, FALSE, sizeof(wtapng_if_descr_t));
+		descr = wtap_optionblock_create(WTAP_OPTION_BLOCK_IF_DESCR);
+		descr_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(descr);
+		descr_mand->wtap_encap = encap;
+		descr_mand->time_units_per_second = 1000000; /* default microsecond resolution */
+		descr_mand->link_type = wtap_wtap_encap_to_pcap_encap(encap);
+		descr_mand->snap_len = snaplen;
+		wtap_optionblock_set_option_string(descr, OPT_IDB_NAME, "Unknown/not available in original file format(libpcap)");
+
+		descr_mand->num_stat_entries = 0;          /* Number of ISB:s */
+		descr_mand->interface_statistics = NULL;
+		wdh->interface_data = g_array_new(FALSE, FALSE, sizeof(wtap_optionblock_t));
 		g_array_append_val(wdh->interface_data, descr);
 	}
 	return wdh;
 }
 
 wtap_dumper *
+wtap_dump_open(const char *filename, int file_type_subtype, int encap,
+	       int snaplen, gboolean compressed, int *err)
+{
+	return wtap_dump_open_ng(filename, file_type_subtype, encap,snaplen, compressed, NULL, NULL, NULL, err);
+}
+
+wtap_dumper *
 wtap_dump_open_ng(const char *filename, int file_type_subtype, int encap,
-		  int snaplen, gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
-		  wtapng_name_res_t *nrb_hdr, int *err)
+		  int snaplen, gboolean compressed, wtap_optionblock_t shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+		  wtap_optionblock_t nrb_hdr, int *err)
 {
 	wtap_dumper *wdh;
 	WFILE_T fh;
-
-	/* Check whether we can open a capture file with that file type
-	   and that encapsulation. */
-	if (!wtap_dump_open_check(file_type_subtype, encap, compressed, err))
-		return NULL;
 
 	/* Allocate and initialize a data structure for the output stream. */
 	wdh = wtap_dump_init_dumper(file_type_subtype, encap, snaplen, compressed,
@@ -2225,42 +2215,84 @@ wtap_dump_open_ng(const char *filename, int file_type_subtype, int encap,
 	if (wdh == NULL)
 		return NULL;
 
-	/* "-" means stdout */
-	if (strcmp(filename, "-") == 0) {
-		if (compressed) {
-			*err = EINVAL;	/* XXX - return a Wiretap error code for this */
-			g_free(wdh);
-			return NULL;	/* compress won't work on stdout */
-		}
-#ifdef _WIN32
-		if (_setmode(fileno(stdout), O_BINARY) == -1) {
-			/* "Should not happen" */
-			*err = errno;
-			g_free(wdh);
-			return NULL;	/* couldn't put standard output in binary mode */
-		}
-#endif
-		wdh->fh = stdout;
-	} else {
-		/* In case "fopen()" fails but doesn't set "errno", set "errno"
-		   to a generic "the open failed" error. */
-		errno = WTAP_ERR_CANT_OPEN;
-		fh = wtap_dump_file_open(wdh, filename);
-		if (fh == NULL) {
-			*err = errno;
-			g_free(wdh);
-			return NULL;	/* can't create file */
-		}
-		wdh->fh = fh;
+	/* In case "fopen()" fails but doesn't set "errno", set "errno"
+	   to a generic "the open failed" error. */
+	errno = WTAP_ERR_CANT_OPEN;
+	fh = wtap_dump_file_open(wdh, filename);
+	if (fh == NULL) {
+		*err = errno;
+		g_free(wdh);
+		return NULL;	/* can't create file */
 	}
+	wdh->fh = fh;
 
 	if (!wtap_dump_open_finish(wdh, file_type_subtype, compressed, err)) {
 		/* Get rid of the file we created; we couldn't finish
 		   opening it. */
-		if (wdh->fh != stdout) {
-			wtap_dump_file_close(wdh);
-			ws_unlink(filename);
-		}
+		wtap_dump_file_close(wdh);
+		ws_unlink(filename);
+		g_free(wdh);
+		return NULL;
+	}
+	return wdh;
+}
+
+wtap_dumper *
+wtap_dump_open_tempfile(char **filenamep, const char *pfx,
+			int file_type_subtype, int encap,
+			int snaplen, gboolean compressed, int *err)
+{
+	return wtap_dump_open_tempfile_ng(filenamep, pfx, file_type_subtype, encap,snaplen, compressed, NULL, NULL, NULL, err);
+}
+
+wtap_dumper *
+wtap_dump_open_tempfile_ng(char **filenamep, const char *pfx,
+			   int file_type_subtype, int encap,
+			   int snaplen, gboolean compressed,
+			   wtap_optionblock_t shb_hdr,
+			   wtapng_iface_descriptions_t *idb_inf,
+			   wtap_optionblock_t nrb_hdr, int *err)
+{
+	int fd;
+	char *tmpname;
+	wtap_dumper *wdh;
+	WFILE_T fh;
+
+	/* No path name for the temporary file yet. */
+	*filenamep = NULL;
+
+	/* Allocate and initialize a data structure for the output stream. */
+	wdh = wtap_dump_init_dumper(file_type_subtype, encap, snaplen, compressed,
+	    shb_hdr, idb_inf, nrb_hdr, err);
+	if (wdh == NULL)
+		return NULL;
+
+	/* Choose a random name for the file */
+	fd = create_tempfile(&tmpname, pfx);
+	if (fd == -1) {
+		*err = errno;
+		g_free(wdh);
+		return NULL;	/* can't create file */
+	}
+	*filenamep = tmpname;
+
+	/* In case "fopen()" fails but doesn't set "errno", set "errno"
+	   to a generic "the open failed" error. */
+	errno = WTAP_ERR_CANT_OPEN;
+	fh = wtap_dump_file_fdopen(wdh, fd);
+	if (fh == NULL) {
+		*err = errno;
+		close(fd);
+		g_free(wdh);
+		return NULL;	/* can't create file */
+	}
+	wdh->fh = fh;
+
+	if (!wtap_dump_open_finish(wdh, file_type_subtype, compressed, err)) {
+		/* Get rid of the file we created; we couldn't finish
+		   opening it. */
+		wtap_dump_file_close(wdh);
+		ws_unlink(tmpname);
 		g_free(wdh);
 		return NULL;
 	}
@@ -2276,33 +2308,17 @@ wtap_dump_fdopen(int fd, int file_type_subtype, int encap, int snaplen,
 
 wtap_dumper *
 wtap_dump_fdopen_ng(int fd, int file_type_subtype, int encap, int snaplen,
-		    gboolean compressed, wtapng_section_t *shb_hdr, wtapng_iface_descriptions_t *idb_inf,
-		    wtapng_name_res_t *nrb_hdr, int *err)
+		    gboolean compressed, wtap_optionblock_t shb_hdr, wtapng_iface_descriptions_t *idb_inf,
+		    wtap_optionblock_t nrb_hdr, int *err)
 {
 	wtap_dumper *wdh;
 	WFILE_T fh;
-
-	/* Check whether we can open a capture file with that file type
-	   and that encapsulation. */
-	if (!wtap_dump_open_check(file_type_subtype, encap, compressed, err))
-		return NULL;
 
 	/* Allocate and initialize a data structure for the output stream. */
 	wdh = wtap_dump_init_dumper(file_type_subtype, encap, snaplen, compressed,
 	    shb_hdr, idb_inf, nrb_hdr, err);
 	if (wdh == NULL)
 		return NULL;
-
-#ifdef _WIN32
-	if (fd == 1) {
-		if (_setmode(fileno(stdout), O_BINARY) == -1) {
-			/* "Should not happen" */
-			*err = errno;
-			g_free(wdh);
-			return NULL;	/* couldn't put standard output in binary mode */
-		}
-	}
-#endif
 
 	/* In case "fopen()" fails but doesn't set "errno", set "errno"
 	   to a generic "the open failed" error. */
@@ -2314,6 +2330,63 @@ wtap_dump_fdopen_ng(int fd, int file_type_subtype, int encap, int snaplen,
 		return NULL;	/* can't create standard I/O stream */
 	}
 	wdh->fh = fh;
+
+	if (!wtap_dump_open_finish(wdh, file_type_subtype, compressed, err)) {
+		wtap_dump_file_close(wdh);
+		g_free(wdh);
+		return NULL;
+	}
+	return wdh;
+}
+
+wtap_dumper *
+wtap_dump_open_stdout(int file_type_subtype, int encap, int snaplen,
+		      gboolean compressed, int *err)
+{
+	return wtap_dump_open_stdout_ng(file_type_subtype, encap, snaplen, compressed, NULL, NULL, NULL, err);
+}
+
+wtap_dumper *
+wtap_dump_open_stdout_ng(int file_type_subtype, int encap, int snaplen,
+			 gboolean compressed, wtap_optionblock_t shb_hdr,
+			 wtapng_iface_descriptions_t *idb_inf,
+			 wtap_optionblock_t nrb_hdr, int *err)
+{
+	wtap_dumper *wdh;
+	WFILE_T fh;
+
+	/* Allocate and initialize a data structure for the output stream. */
+	wdh = wtap_dump_init_dumper(file_type_subtype, encap, snaplen, compressed,
+	    shb_hdr, idb_inf, nrb_hdr, err);
+	if (wdh == NULL)
+		return NULL;
+
+#ifdef _WIN32
+	/*
+	 * Put the standard output into binary mode.
+	 *
+	 * XXX - even if the file format we're writing is a text
+	 * format?
+	 */
+	if (_setmode(1, O_BINARY) == -1) {
+		/* "Should not happen" */
+		*err = errno;
+		g_free(wdh);
+		return NULL;	/* couldn't put standard output in binary mode */
+	}
+#endif
+
+	/* In case "fopen()" fails but doesn't set "errno", set "errno"
+	   to a generic "the open failed" error. */
+	errno = WTAP_ERR_CANT_OPEN;
+	fh = wtap_dump_file_fdopen(wdh, 1);
+	if (fh == NULL) {
+		*err = errno;
+		g_free(wdh);
+		return NULL;	/* can't create standard I/O stream */
+	}
+	wdh->fh = fh;
+	wdh->is_stdout = TRUE;
 
 	if (!wtap_dump_open_finish(wdh, file_type_subtype, compressed, err)) {
 		wtap_dump_file_close(wdh);
@@ -2444,27 +2517,21 @@ wtap_dump_close(wtap_dumper *wdh, int *err)
 {
 	gboolean ret = TRUE;
 
-	if (wdh->subtype_close != NULL) {
-		/* There's a close routine for this dump stream. */
-		if (!(wdh->subtype_close)(wdh, err))
+	if (wdh->subtype_finish != NULL) {
+		/* There's a finish routine for this dump stream. */
+		if (!(wdh->subtype_finish)(wdh, err))
 			ret = FALSE;
 	}
 	errno = WTAP_ERR_CANT_CLOSE;
-	/* Don't close stdout */
-	if (wdh->fh != stdout) {
-		if (wtap_dump_file_close(wdh) == EOF) {
-			if (ret) {
-				/* The per-format close function succeeded,
-				   but the fclose didn't.  Save the reason
-				   why, if our caller asked for it. */
-				if (err != NULL)
-					*err = errno;
-			}
-			ret = FALSE;
+	if (wtap_dump_file_close(wdh) == EOF) {
+		if (ret) {
+			/* The per-format finish function succeeded,
+			   but the stream close didn't.  Save the
+			   reason why, if our caller asked for it. */
+			if (err != NULL)
+				*err = errno;
 		}
-	} else {
-		/* as we don't close stdout, at least try to flush it */
-		wtap_dump_flush(wdh);
+		ret = FALSE;
 	}
 	if (wdh->priv != NULL)
 		g_free(wdh->priv);
@@ -2521,14 +2588,14 @@ wtap_dump_file_fdopen(wtap_dumper *wdh, int fd)
 	if(wdh->compressed) {
 		return gzwfile_fdopen(fd);
 	} else {
-		return fdopen(fd, "wb");
+		return ws_fdopen(fd, "wb");
 	}
 }
 #else
 static WFILE_T
 wtap_dump_file_fdopen(wtap_dumper *wdh _U_, int fd)
 {
-	return fdopen(fd, "wb");
+	return ws_fdopen(fd, "wb");
 }
 #endif
 
@@ -2574,11 +2641,22 @@ wtap_dump_file_close(wtap_dumper *wdh)
 {
 #ifdef HAVE_LIBZ
 	if(wdh->compressed) {
-		return gzwfile_close((GZWFILE_T)wdh->fh);
+		/*
+		 * Tell gzwfile_close() whether to close the descriptor
+		 * or not.
+		 */
+		return gzwfile_close((GZWFILE_T)wdh->fh, wdh->is_stdout);
 	} else
 #endif
 	{
-		return fclose((FILE *)wdh->fh);
+		/*
+		 * Don't close the standard output.
+		 *
+		 * XXX - this really should do everything fclose() does,
+		 * including freeing all allocated data structures,
+		 * *except* for actually closing the file descriptor.
+		 */
+		return wdh->is_stdout ? fflush((FILE *)wdh->fh) : fclose((FILE *)wdh->fh);
 	}
 }
 

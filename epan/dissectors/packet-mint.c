@@ -47,7 +47,7 @@ void proto_register_mint(void);
 void proto_reg_handoff_mint(void);
 
 #define PROTO_SHORT_NAME "MiNT"
-#define PROTO_LONG_NAME "Media indepentend Network Transport"
+#define PROTO_LONG_NAME "Media independent Network Transport"
 
 /* 0x8783 ETHERTYPE_MINT */
 /* 0x6000 */
@@ -168,7 +168,7 @@ static header_field_info hfi_mint_data_vlan MINT_HF_INIT =
 		0x0, NULL, HFILL };
 
 static header_field_info hfi_mint_data_seqno MINT_HF_INIT =
-	{ "Seqence Number",	"mint.data.seqno", FT_UINT32, BASE_DEC, NULL,
+	{ "Sequence Number",	"mint.data.seqno", FT_UINT32, BASE_DEC, NULL,
 		0x0, NULL, HFILL };
 
 static header_field_info hfi_mint_data_unknown1 MINT_HF_INIT =
@@ -317,9 +317,6 @@ dissect_mint_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	guint32 message_type;
 	guint8 element_length;
 	static header_field_info *display_hfi_tlv_vals;
-
-	if (!tree)
-		return packet_length;
 
 	packet_type = tvb_get_ntohs(tvb, offset + 12);
 
@@ -721,16 +718,19 @@ proto_register_mint(void)
 		&ett_mint_data,
 	};
 
-	int proto_mint;
+	int proto_mint, proto_mint_data;
 
 	proto_mint = proto_register_protocol(PROTO_LONG_NAME, PROTO_SHORT_NAME, "mint");
+	/* Created to remove Decode As confusion */
+	proto_mint_data = proto_register_protocol("Media independent Network Transport Data", "MiNT (Data)", "mint_data");
+
 	hfi_mint = proto_registrar_get_nth(proto_mint);
 	proto_register_fields(proto_mint, hfi, array_length(hfi));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	mint_control_handle = new_create_dissector_handle(dissect_mint_control_static, proto_mint);
-	mint_data_handle = new_create_dissector_handle(dissect_mint_data_static, proto_mint);
-	mint_eth_handle = new_create_dissector_handle(dissect_mint_ethshim_static, proto_mint);
+	mint_control_handle = create_dissector_handle(dissect_mint_control_static, proto_mint);
+	mint_data_handle = create_dissector_handle(dissect_mint_data_static, proto_mint_data);
+	mint_eth_handle = create_dissector_handle(dissect_mint_ethshim_static, proto_mint);
 }
 
 void

@@ -23,7 +23,7 @@
 #include <string.h>
 
 #include <ftypes-int.h>
-#include <epan/ipv6-utils.h>
+#include <epan/ipv6.h>
 #include <epan/addr_resolv.h>
 
 static void
@@ -36,35 +36,38 @@ ipv6_fvalue_set(fvalue_t *fv, const guint8 *value)
 static gboolean
 ipv6_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value _U_, gchar **err_msg)
 {
-	const char *has_slash;
-	char *addr_str;
+	const char *slash;
+	const char *addr_str;
+	char *addr_str_to_free = NULL;
 	unsigned int nmask_bits;
 	fvalue_t *nmask_fvalue;
-	gboolean free_addr_str = FALSE;
 
 	/* Look for prefix: Is there a single slash in the string? */
-	if ((has_slash = strchr(s, '/'))) {
-		addr_str = wmem_strndup(NULL, s, has_slash-s);
-		free_addr_str = TRUE;
+	slash = strchr(s, '/');
+	if (slash) {
+		/* Make a copy of the string up to but not including the
+		 * slash; that's the address portion. */
+		addr_str_to_free = wmem_strndup(NULL, s, slash-s);
+		addr_str = addr_str_to_free;
 	}
 	else
-		addr_str = (char*)s;
+		addr_str = s;
 
 	if (!get_host_ipaddr6(addr_str, &(fv->value.ipv6.addr))) {
 		if (err_msg != NULL)
 			*err_msg = g_strdup_printf("\"%s\" is not a valid hostname or IPv6 address.", s);
-		if (free_addr_str)
-			wmem_free(NULL, addr_str);
+		if (addr_str_to_free)
+			wmem_free(NULL, addr_str_to_free);
 		return FALSE;
 	}
 
-	if (free_addr_str)
-		wmem_free(NULL, addr_str);
+	if (addr_str_to_free)
+		wmem_free(NULL, addr_str_to_free);
 
 	/* If prefix */
-	if (has_slash) {
+	if (slash) {
 		/* XXX - this is inefficient */
-		nmask_fvalue = fvalue_from_unparsed(FT_UINT32, has_slash+1, FALSE, err_msg);
+		nmask_fvalue = fvalue_from_unparsed(FT_UINT32, slash+1, FALSE, err_msg);
 		if (!nmask_fvalue) {
 			return FALSE;
 		}
@@ -114,8 +117,8 @@ static const guint8 bitmasks[9] =
 static gint
 cmp_compare(const fvalue_t *fv_a, const fvalue_t *fv_b)
 {
-	const ipv6_addr *a = &(fv_a->value.ipv6);
-	const ipv6_addr *b = &(fv_b->value.ipv6);
+	const ipv6_addr_and_prefix *a = &(fv_a->value.ipv6);
+	const ipv6_addr_and_prefix *b = &(fv_b->value.ipv6);
 	guint32	prefix;
 	int pos = 0;
 
@@ -182,8 +185,8 @@ cmp_le(const fvalue_t *fv_a, const fvalue_t *fv_b)
 static gboolean
 cmp_bitwise_and(const fvalue_t *fv_a, const fvalue_t *fv_b)
 {
-	const ipv6_addr *a = &(fv_a->value.ipv6);
-	const ipv6_addr *b = &(fv_b->value.ipv6);
+	const ipv6_addr_and_prefix *a = &(fv_a->value.ipv6);
+	const ipv6_addr_and_prefix *b = &(fv_b->value.ipv6);
 	guint32	prefix;
 	int pos = 0;
 

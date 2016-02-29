@@ -411,10 +411,13 @@ dissect_redirecttlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint of
     gint        start_offset;
     gint        length_meta, length_ilv, length_redirect;
     proto_item *ti;
-    address     src_addr     = pinfo->src,
-                src_net_addr = pinfo->net_src,
-                dst_addr     = pinfo->dst,
-                dst_net_addr = pinfo->net_dst;
+    address     src_addr, src_net_addr;
+    address     dst_addr, dst_net_addr;
+
+    copy_address_shallow(&src_addr, &pinfo->src);
+    copy_address_shallow(&src_net_addr, &pinfo->net_src);
+    copy_address_shallow(&dst_addr, &pinfo->dst);
+    copy_address_shallow(&dst_net_addr, &pinfo->net_dst);
 
     meta_data_tree = proto_tree_add_subtree(tree, tvb, offset, TLV_TL_LENGTH,
         ett_forces_redirect_tlv_meta_data_tlv, &ti, "Meta Data TLV");
@@ -476,10 +479,10 @@ dissect_redirecttlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint of
             call_dissector(ip_handle, next_tvb, pinfo, redirect_data_tree);
 
             /* Restore IP info */
-            memcpy(&(pinfo->src),     &src_addr,     sizeof(address));
-            memcpy(&(pinfo->net_src), &src_net_addr, sizeof(address));
-            memcpy(&(pinfo->dst),     &dst_addr,     sizeof(address));
-            memcpy(&(pinfo->net_dst), &dst_net_addr, sizeof(address));
+            copy_address_shallow(&pinfo->src, &src_addr);
+            copy_address_shallow(&pinfo->net_src, &src_net_addr);
+            copy_address_shallow(&pinfo->dst, &dst_addr);
+            copy_address_shallow(&pinfo->net_dst, &dst_net_addr);
         }
     }
 }
@@ -602,17 +605,19 @@ dissect_forces(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offs
 }
 
 /* Code to actually dissect the TCP packets */
-static void
-dissect_forces_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_forces_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_forces(tvb, pinfo, tree, TCP_UDP_TML_FOCES_MESSAGE_OFFSET_TCP);
+    return tvb_captured_length(tvb);
 }
 
 /* Code to actually dissect the ForCES protocol layer packets,like UDP,SCTP and others */
-static void
-dissect_forces_not_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_forces_not_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_forces(tvb, pinfo, tree, 0);
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -776,7 +781,7 @@ proto_register_forces(void)
             FT_UINT32, BASE_DEC, VALS(association_setup_result_at_vals), 0x0, NULL, HFILL }
         },
         { &hf_forces_astreason_tlv_teardown_reason,
-            { "AStreason TLV TearDonw Reason", "forces.astreason.tlv.teardonw.reason",
+            { "AStreason TLV TearDown Reason", "forces.astreason.tlv.teardown.reason",
             FT_UINT32, BASE_DEC, VALS(teardown_reason_at_vals), 0x0, NULL, HFILL }
         },
         { &hf_forces_unknown_tlv,

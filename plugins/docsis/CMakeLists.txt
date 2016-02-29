@@ -21,7 +21,7 @@
 
 include(WiresharkPlugin)
 
-# This info is from moduleinfo.nmake
+# Plugin name and version info (major minor micro extra)
 set_module_info(docsis 0 0 5 0)
 
 # The sources for the plugin
@@ -66,6 +66,7 @@ set(DISSECTOR_SRC
 	packet-tlv.c
 	packet-tlv-cmctrl.c
 	packet-type29ucd.c
+	packet-type35ucd.c
 	packet-uccreq.c
 	packet-uccrsp.c
 	packet-ucd.c
@@ -81,11 +82,11 @@ set(CLEAN_FILES
 	${PLUGIN_FILES}
 )
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${CLEAN_FILES}
 		PROPERTIES
-		COMPILE_FLAGS -Werror
+		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
 	)
 endif()
 

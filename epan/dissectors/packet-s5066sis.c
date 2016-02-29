@@ -1447,7 +1447,7 @@ proto_register_s5066(void)
 				       " This number is registered with IANA.)",
 				       10, &global_s5066_port);
 
-	s5066sis_dissector_table = register_dissector_table("s5066sis.ctl.appid", "STANAG 5066 Application Identifier", FT_UINT16, BASE_DEC);
+	s5066sis_dissector_table = register_dissector_table("s5066sis.ctl.appid", "STANAG 5066 Application Identifier", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 }
 
@@ -1459,7 +1459,7 @@ proto_reg_handoff_s5066(void)
 	static guint saved_s5066_port;
 
 	if (!Initialized) {
-		s5066_tcp_handle = new_create_dissector_handle(dissect_s5066_tcp, proto_s5066);
+		s5066_tcp_handle = create_dissector_handle(dissect_s5066_tcp, proto_s5066);
 		data_handle = find_dissector("data");
 		Initialized = TRUE;
 	} else {

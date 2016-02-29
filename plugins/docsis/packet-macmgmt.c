@@ -143,8 +143,8 @@ static const value_string mgmt_type_vals[] = {
 };
 
 /* Dissection */
-static void
-dissect_macmgmt (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_macmgmt (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   guint16 msg_len;
   proto_item *mgt_hdr_it;
@@ -156,10 +156,10 @@ dissect_macmgmt (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
 
   col_clear(pinfo->cinfo, COL_INFO);
 
-  TVB_SET_ADDRESS (&pinfo->dl_src, AT_ETHER, tvb, 6, 6);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-  TVB_SET_ADDRESS (&pinfo->dl_dst, AT_ETHER, tvb, 0, 6);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
+  set_address_tvb (&pinfo->dl_src, AT_ETHER, 6, tvb, 6);
+  copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+  set_address_tvb (&pinfo->dl_dst, AT_ETHER, 6, tvb, 0);
+  copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 
   if (tree)
     {
@@ -192,11 +192,10 @@ dissect_macmgmt (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
   msg_len = tvb_get_ntohs (tvb, 12);
   payload_tvb = tvb_new_subset_length (tvb, 20, msg_len - 6);
 
-  if (dissector_try_uint
-      (docsis_mgmt_dissector_table, type, payload_tvb, pinfo, tree))
-    return;
-  else
+  if (!dissector_try_uint(docsis_mgmt_dissector_table, type, payload_tvb, pinfo, tree))
     call_dissector (data_handle, payload_tvb, pinfo, tree);
+
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -258,7 +257,7 @@ proto_register_docsis_mgmt (void)
 
   docsis_mgmt_dissector_table = register_dissector_table ("docsis_mgmt",
                                                           "DOCSIS Mac Management",
-                                                          FT_UINT8, BASE_DEC);
+                                                          FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 
   proto_docsis_mgmt = proto_register_protocol ("DOCSIS Mac Management",

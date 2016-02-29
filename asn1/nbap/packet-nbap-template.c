@@ -221,46 +221,66 @@ enum TransportFormatSet_type_enum transportFormatSet_type;
 /* This table is used externally from FP, MAC and such, TODO: merge this with
  * lch_contents[] */
 guint8 lchId_type_table[]= {
-	MAC_CONTENT_UNKNOWN,	/*Should't happen*/
-	MAC_CONTENT_DCCH,		/* 1 to 4 SRB => DCCH*/
+	MAC_CONTENT_UNKNOWN,	/* Shouldn't happen*/
+	MAC_CONTENT_DCCH,	/* 1 to 4 SRB => DCCH*/
 	MAC_CONTENT_DCCH,
 	MAC_CONTENT_DCCH,
 	MAC_CONTENT_DCCH,
 	MAC_CONTENT_CS_DTCH,	/* 5 to 7 Conv CS speech => ?*/
 	MAC_CONTENT_CS_DTCH,
 	MAC_CONTENT_CS_DTCH,
-	MAC_CONTENT_DCCH,		/* 8 SRB => DCCH*/
+	MAC_CONTENT_DCCH,	/* 8 SRB => DCCH*/
 	MAC_CONTENT_PS_DTCH,	/* 9 maps to DTCH*/
 	MAC_CONTENT_UNKNOWN,	/* 10 Conv CS unknown*/
 	MAC_CONTENT_PS_DTCH,	/* 11 Interactive PS => DTCH*/
 	MAC_CONTENT_PS_DTCH,	/* 12 Streaming PS => DTCH*/
 	MAC_CONTENT_CS_DTCH,	/* 13 Streaming CS*/
-	MAC_CONTENT_PS_DTCH,	/* 14 Interatictive PS => DTCH*/
-	MAC_CONTENT_CCCH		/* This is CCCH? */
+	MAC_CONTENT_PS_DTCH,	/* 14 Interactive PS => DTCH*/
+	MAC_CONTENT_CCCH	/* This is CCCH? */
 };
+
+/* Mapping logicalchannel id to RLC_MODE */
+guint8 lchId_rlc_map[] = {
+        0,
+        RLC_UM, /* Logical channel id = 1 is SRB1 which uses RLC_UM*/
+        RLC_AM,
+        RLC_AM,
+        RLC_AM,
+        RLC_TM, /*5 to 7 Conv CS Speech*/
+        RLC_TM,
+        RLC_TM, /*...*/
+        RLC_AM,
+        RLC_AM,
+        RLC_AM,
+        RLC_AM,
+        RLC_AM,
+        RLC_AM,
+        RLC_AM,
+        RLC_AM, /* This is CCCH which is UM?, probably not */
+};
+
+
 /* Preference variables */
-static int lch1_content = MAC_CONTENT_DCCH;
-static int lch2_content = MAC_CONTENT_DCCH;
-static int lch3_content = MAC_CONTENT_DCCH;
-static int lch4_content = MAC_CONTENT_DCCH;
-static int lch5_content = MAC_CONTENT_CS_DTCH;
-static int lch6_content = MAC_CONTENT_CS_DTCH;
-static int lch7_content = MAC_CONTENT_CS_DTCH;
-static int lch8_content = MAC_CONTENT_DCCH;
-static int lch9_content = MAC_CONTENT_PS_DTCH;
-static int lch10_content = MAC_CONTENT_UNKNOWN;
-static int lch11_content = MAC_CONTENT_PS_DTCH;
-static int lch12_content = MAC_CONTENT_PS_DTCH;
-static int lch13_content = MAC_CONTENT_CS_DTCH;
-static int lch14_content = MAC_CONTENT_PS_DTCH;
-static int lch15_content = MAC_CONTENT_CCCH;
-static int lch16_content = MAC_CONTENT_DCCH;
 /* Array with preference variables for easy looping, TODO: merge this with
  * lchId_type_table[] */
-static int * lch_contents[] = {&lch1_content, &lch2_content, &lch3_content,
-	&lch4_content, &lch5_content, &lch6_content, &lch7_content, &lch8_content,
-	&lch9_content, &lch10_content, &lch11_content, &lch12_content, &lch13_content,
-	&lch14_content, &lch15_content, &lch16_content};
+static int lch_contents[16] = {
+	MAC_CONTENT_DCCH,
+	MAC_CONTENT_DCCH,
+	MAC_CONTENT_DCCH,
+	MAC_CONTENT_DCCH,
+	MAC_CONTENT_CS_DTCH,
+	MAC_CONTENT_CS_DTCH,
+	MAC_CONTENT_CS_DTCH,
+	MAC_CONTENT_DCCH,
+	MAC_CONTENT_PS_DTCH,
+	MAC_CONTENT_UNKNOWN,
+	MAC_CONTENT_PS_DTCH,
+	MAC_CONTENT_PS_DTCH,
+	MAC_CONTENT_CS_DTCH,
+	MAC_CONTENT_PS_DTCH,
+	MAC_CONTENT_CCCH,
+	MAC_CONTENT_DCCH
+};
 static const enum_val_t content_types[] = {
 	{"MAC_CONTENT_UNKNOWN", "MAC_CONTENT_UNKNOWN", MAC_CONTENT_UNKNOWN},
 	{"MAC_CONTENT_DCCH", "MAC_CONTENT_DCCH", MAC_CONTENT_DCCH},
@@ -348,17 +368,17 @@ static void add_hsdsch_bind(packet_info *pinfo){
 	}
 
 	/* Set port to zero use that as an indication of whether we have data or not */
-	SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+	clear_address(&null_addr);
 	for (i = 0; i < maxNrOfMACdFlows; i++) {
 		if (nbap_hsdsch_channel_info[i].crnc_port != 0){
-			conversation = find_conversation(pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
+			conversation = find_conversation(pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address), &null_addr,
                                PT_UDP,
                                nbap_hsdsch_channel_info[i].crnc_port, 0, NO_ADDR_B);
 
 
 			if (conversation == NULL) {
 				/* It's not part of any conversation - create a new one. */
-				conversation = conversation_new(pinfo->fd->num, &(nbap_hsdsch_channel_info[i].crnc_address),
+				conversation = conversation_new(pinfo->num, &(nbap_hsdsch_channel_info[i].crnc_address),
 					&null_addr, PT_UDP, nbap_hsdsch_channel_info[i].crnc_port,
 					0, NO_ADDR2|NO_PORT2);
 
@@ -373,8 +393,8 @@ static void add_hsdsch_bind(packet_info *pinfo){
 					umts_fp_conversation_info->division          = Division_FDD;
 					umts_fp_conversation_info->channel           = CHANNEL_HSDSCH;
 					umts_fp_conversation_info->dl_frame_number   = 0;
-					umts_fp_conversation_info->ul_frame_number   = pinfo->fd->num;
-					WMEM_COPY_ADDRESS(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_hsdsch_channel_info[i].crnc_address);
+					umts_fp_conversation_info->ul_frame_number   = pinfo->num;
+					copy_address_wmem(wmem_file_scope(), &(umts_fp_conversation_info->crnc_address), &nbap_hsdsch_channel_info[i].crnc_address);
 					umts_fp_conversation_info->crnc_port         = nbap_hsdsch_channel_info[i].crnc_port;
 
 					/*Added june 3, normally just the iterator variable*/
@@ -426,7 +446,7 @@ static void nbap_init(void){
                        g_free);
 
     for (i = 0; i < 15; i++) {
-        lchId_type_table[i+1] = *lch_contents[i];
+        lchId_type_table[i+1] = lch_contents[i];
     }
 }
 
@@ -507,21 +527,21 @@ void proto_register_nbap(void)
 	expert_register_field_array(expert_nbap, ei, array_length(ei));
 
 	/* Register dissector */
-	new_register_dissector("nbap", dissect_nbap, proto_nbap);
+	register_dissector("nbap", dissect_nbap, proto_nbap);
 
 	nbap_module = prefs_register_protocol(proto_nbap, NULL);
 
 	/* Register preferences for mapping logical channel IDs to MAC content types. */
 	for (i = 0; i < 16; i++) {
-		prefs_register_enum_preference(nbap_module, ch_strings[i].name, ch_strings[i].title, ch_strings[i].description, lch_contents[i], content_types, FALSE);
+		prefs_register_enum_preference(nbap_module, ch_strings[i].name, ch_strings[i].title, ch_strings[i].description, &lch_contents[i], content_types, FALSE);
 	}
 
 	/* Register dissector tables */
-	nbap_ies_dissector_table = register_dissector_table("nbap.ies", "NBAP-PROTOCOL-IES", FT_UINT32, BASE_DEC);
-	nbap_extension_dissector_table = register_dissector_table("nbap.extension", "NBAP-PROTOCOL-EXTENSION", FT_UINT32, BASE_DEC);
-	nbap_proc_imsg_dissector_table = register_dissector_table("nbap.proc.imsg", "NBAP-ELEMENTARY-PROCEDURE InitiatingMessage", FT_STRING, BASE_NONE);
-	nbap_proc_sout_dissector_table = register_dissector_table("nbap.proc.sout", "NBAP-ELEMENTARY-PROCEDURE SuccessfulOutcome", FT_STRING, BASE_NONE);
-	nbap_proc_uout_dissector_table = register_dissector_table("nbap.proc.uout", "NBAP-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", FT_STRING, BASE_NONE);
+	nbap_ies_dissector_table = register_dissector_table("nbap.ies", "NBAP-PROTOCOL-IES", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	nbap_extension_dissector_table = register_dissector_table("nbap.extension", "NBAP-PROTOCOL-EXTENSION", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	nbap_proc_imsg_dissector_table = register_dissector_table("nbap.proc.imsg", "NBAP-ELEMENTARY-PROCEDURE InitiatingMessage", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	nbap_proc_sout_dissector_table = register_dissector_table("nbap.proc.sout", "NBAP-ELEMENTARY-PROCEDURE SuccessfulOutcome", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	nbap_proc_uout_dissector_table = register_dissector_table("nbap.proc.uout", "NBAP-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 	register_init_routine(nbap_init);
 	register_cleanup_routine(nbap_cleanup);

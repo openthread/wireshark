@@ -159,8 +159,8 @@ dissect_gdb_packet(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
 }
 
 
-static void
-dissect_gdb_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_gdb_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gint      offset=0, offset_start;
     gint      pos;
@@ -189,9 +189,10 @@ dissect_gdb_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         else {
             pinfo->desegment_offset = offset;
             pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
-            return;
+            return tvb_captured_length(tvb);
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 

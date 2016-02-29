@@ -30,9 +30,6 @@
 
 #include "config.h"
 
-#include <stdio.h>
-#include <string.h>
-
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <wsutil/file_util.h>
@@ -726,11 +723,11 @@ dissect_etch_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
     gbl_pdu_counter++;
 
     /* Switch to another frame? => Clear column */
-    if (pinfo->fd->num != gbl_old_frame_num) {
+    if (pinfo->num != gbl_old_frame_num) {
       col_clear(pinfo->cinfo, COL_INFO);
       gbl_pdu_counter = 0;
     }
-    gbl_old_frame_num = pinfo->fd->num;
+    gbl_old_frame_num = pinfo->num;
 
     col_set_writable(pinfo->cinfo, TRUE);
     col_append_fstr(pinfo->cinfo, COL_INFO, "%s ", wmem_strbuf_get_str(colInfo));
@@ -947,7 +944,7 @@ void proto_register_etch(void)
 
   proto_register_field_array(proto_etch, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
-  etch_handle = new_register_dissector("etch", dissect_etch, proto_etch);
+  etch_handle = register_dissector("etch", dissect_etch, proto_etch);
 
   register_init_routine(&etch_dissector_init);
 

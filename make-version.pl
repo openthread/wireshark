@@ -45,7 +45,8 @@
 # Default configuration:
 #
 # enable: 1
-# svn_client: 1
+# git_client: 0
+# svn_client: 0
 # tortoise_svn: 0
 # format: git %Y%m%d%H%M%S
 # pkg_enable: 1
@@ -73,6 +74,7 @@ my $last_change = 0;
 my $num_commits = 0;
 my $commit_id = '';
 my $repo_branch = "unknown";
+my $git_executable = "git";
 my $git_description = undef;
 my $get_vcs = 0;
 my $set_vcs = 0;
@@ -87,7 +89,7 @@ my %version_pref = (
 
 	"enable"        => 1,
 	"git_client"    => 0,	# set if .git found and .git/svn not found
-	"svn_client"    => 1,
+	"svn_client"    => 0,	# set if .svn found
 	"tortoise_svn"  => 0,
 	"format"        => "git %Y%m%d%H%M%S",
 
@@ -101,11 +103,16 @@ my %version_pref = (
 	);
 my $srcdir = ".";
 my $info_cmd = "";
+my $verbose = 0;
 
 # Ensure we run with correct locale
 $ENV{LANG} = "C";
 $ENV{LC_ALL} = "C";
 $ENV{GIT_PAGER} = "";
+
+sub print_diag {
+	print STDERR @_ if $verbose;
+}
 
 # Attempt to get revision information from the repository.
 sub read_repo_info {
@@ -115,10 +122,14 @@ sub read_repo_info {
 	my $in_entries = 0;
 	my $svn_name;
 	my $repo_version;
-	my $repo_root = undef;
-	my $repo_url = undef;
 	my $do_hack = 1;
 	my $info_source = "Unknown";
+
+	# Make sure git is available.
+	if (!`$git_executable --version`) {
+		print STDERR "Git unavailable. Git revision will be missing from version string.\n";
+		return;
+	}
 
 	if ($version_pref{"pkg_enable"} > 0) {
 		$package_format = $version_pref{"pkg_format"};
@@ -130,9 +141,10 @@ sub read_repo_info {
 	} elsif (-d "$srcdir/.svn" or -d "$srcdir/../.svn") {
 		$info_source = "Command line (svn info)";
 		$info_cmd = "svn info $srcdir";
+		$version_pref{"svn_client"} = 1;
 	} elsif (-d "$srcdir/.git/svn") {
 		$info_source = "Command line (git-svn)";
-		$info_cmd = "(cd $srcdir; git svn info)";
+		$info_cmd = "(cd $srcdir; $git_executable svn info)";
 	}
 
 	#Git can give us:
@@ -163,13 +175,13 @@ sub read_repo_info {
 			use warnings "all";
 			no warnings "all";
 
-			chomp($line = qx{git --git-dir=$srcdir/.git log -1 --pretty=format:%at});
+			chomp($line = qx{$git_executable --git-dir="$srcdir"/.git log -1 --pretty=format:%at});
 			if ($? == 0 && length($line) > 1) {
 				$last_change = $line;
 			}
 
 			# Commits since last annotated tag.
-			chomp($line = qx{git --git-dir=$srcdir/.git describe --long --always --match "v*"});
+			chomp($line = qx{$git_executable --git-dir="$srcdir"/.git describe --long --always --match "v*"});
 			if ($? == 0 && length($line) > 1) {
 				my @parts = split(/-/, $line);
 				$git_description = $line;
@@ -177,14 +189,9 @@ sub read_repo_info {
 				$commit_id = $parts[-1];
 			}
 
-			chomp($line = qx{git --git-dir=$srcdir/.git ls-remote --get-url origin});
-			if (defined($line)) {
-				$repo_url = $line;
-			}
-
 			# This will break in some cases. Hopefully not during
 			# official package builds.
-			chomp($line = qx{git --git-dir=$srcdir/.git rev-parse --abbrev-ref --symbolic-full-name \@\{upstream\}});
+			chomp($line = qx{$git_executable --git-dir="$srcdir"/.git rev-parse --abbrev-ref --symbolic-full-name \@\{upstream\}});
 			if ($? == 0 && length($line) > 1) {
 				$repo_branch = basename($line);
 			}
@@ -192,10 +199,12 @@ sub read_repo_info {
 			1;
 		};
 
-		if ($last_change && $num_commits && $repo_url && $repo_branch) {
+		if ($last_change && $num_commits && $repo_branch) {
 			$do_hack = 0;
 		}
 	} elsif ($version_pref{"svn_client"}) {
+		my $repo_root = undef;
+		my $repo_url = undef;
 		eval {
 			use warnings "all";
 			no warnings "all";
@@ -217,6 +226,10 @@ sub read_repo_info {
 			}
 			1;
 		};
+
+		if ($repo_url && $repo_root && index($repo_url, $repo_root) == 0) {
+			$repo_branch = substr($repo_url, length($repo_root));
+		}
 
 		if ($last_change && $num_commits && $repo_url && $repo_root) {
 			$do_hack = 0;
@@ -263,21 +276,21 @@ sub read_repo_info {
 			# If someone had properly tagged 1.9.0 we could also use
 			# "git describe --abbrev=1 --tags HEAD"
 
-			$info_cmd = "(cd $srcdir; git log --format='%b' -n 1)";
+			$info_cmd = "(cd $srcdir; $git_executable log --format='%b' -n 1)";
 			$line = qx{$info_cmd};
 			if (defined($line)) {
 				if ($line =~ /svn path=.*; revision=(\d+)/) {
 					$num_commits = $1;
 				}
 			}
-			$info_cmd = "(cd $srcdir; git log --format='%ad' -n 1 --date=iso)";
+			$info_cmd = "(cd $srcdir; $git_executable log --format='%ad' -n 1 --date=iso)";
 			$line = qx{$info_cmd};
 			if (defined($line)) {
 				if ($line =~ /(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)/) {
 					$last_change = timegm($6, $5, $4, $3, $2 - 1, $1);
 				}
 			}
-			$info_cmd = "(cd $srcdir; git branch)";
+			$info_cmd = "(cd $srcdir; $git_executable branch)";
 			$line = qx{$info_cmd};
 			if (defined($line)) {
 				if ($line =~ /\* (\S+)/) {
@@ -314,7 +327,7 @@ sub read_repo_info {
 	if ($do_hack) {
 		# Start of ugly internal SVN file hack
 		if (! open (ENTRIES, "< $srcdir/.svn/entries")) {
-			print ("Unable to open $srcdir/.svn/entries\n");
+			print STDERR "Unable to open $srcdir/.svn/entries\n";
 		} else {
 			$info_source = "Prodding .svn";
 			# We need to find out whether our parser can handle the entries file
@@ -362,10 +375,6 @@ sub read_repo_info {
 		$version_format =~ s/%#/$num_commits/;
 		$package_format =~ s/%#/$num_commits-$commit_id/;
 		$package_string = strftime($package_format, gmtime($last_change));
-	}
-
-	if ($repo_url && $repo_root && index($repo_url, $repo_root) == 0) {
-		$repo_branch = substr($repo_url, length($repo_root));
 	}
 
 	if ($get_vcs) {
@@ -687,9 +696,11 @@ sub get_config {
 		   "help|h", \$show_help,
 		   "get-vcs|get-svn|g", \$get_vcs,
 		   "set-vcs|set-svn|s", \$set_vcs,
+		   "git-bin", \$git_executable,
 		   "print-vcs", \$print_vcs,
 		   "set-version|v", \$set_version,
-		   "set-release|r|package-version|p", \$set_release
+		   "set-release|r|package-version|p", \$set_release,
+		   "verbose", \$verbose
 		   ) || pod2usage(2);
 
 	if ($show_help) { pod2usage(1); }
@@ -703,8 +714,8 @@ sub get_config {
 	}
 
 	if (! open(FILE, "<$vconf_file")) {
-		print STDERR "Version configuration file $vconf_file not "
-		. "found.  Using defaults.\n";
+		print_diag "Version configuration file $vconf_file not "
+		. "found. Using defaults.\n";
 		return 1;
 	}
 
@@ -773,6 +784,7 @@ make-version.pl [options] [source directory]
     --set-release, -r          Set the release information in configure.ac
                                and config.nmake
     --package-version, -p      Deprecated. Same as --set-release.
+    --verbose                  Print diagnostic messages to STDERR.
 
 Options can be used in any combination. If none are specified B<--set-svn>
 is assumed.

@@ -46,6 +46,7 @@
 #include <epan/tap.h>
 #include <epan/to_str.h>
 #include <wiretap/wtap.h>
+#include <wsutil/str_util.h>
 #include "packet-mtp3.h"
 #include "packet-tcap.h"
 #include "packet-sccp.h"
@@ -1328,7 +1329,7 @@ get_sccp_assoc(packet_info *pinfo, guint offset, sccp_decode_context_t* value)
   guint32 opck, dpck;
   address *opc = &(pinfo->src);
   address *dpc = &(pinfo->dst);
-  guint framenum = PINFO_FD_NUM(pinfo);
+  guint framenum = pinfo->num;
 
   if (value->assoc)
     return value->assoc;
@@ -1647,9 +1648,9 @@ dissect_sccp_gt_address_information(tvbuff_t *tvb, packet_info *pinfo,
 
   if (set_addresses) {
     if (called) {
-      SET_ADDRESS(&pinfo->dst, AT_STRINGZ, 1+(int)strlen(gt_digits), gt_digits);
+      set_address(&pinfo->dst, AT_STRINGZ, 1+(int)strlen(gt_digits), gt_digits);
     } else {
-      SET_ADDRESS(&pinfo->src, AT_STRINGZ, 1+(int)strlen(gt_digits), gt_digits);
+      set_address(&pinfo->src, AT_STRINGZ, 1+(int)strlen(gt_digits), gt_digits);
     }
   }
 
@@ -2561,6 +2562,9 @@ dissect_sccp_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *sccp_tree,
     /* sccp_length = proto_item_get_len(sccp_item);
      * sccp_length -= parameter_length;
      * proto_item_set_len(sccp_item, sccp_length);
+     *
+     * except that proto_item_get_len() is *NOT* guaranteed to return
+     * a correct value - if the item has been "faked", it will be wrong
      */
     break;
 
@@ -2671,7 +2675,7 @@ static sccp_msg_info_t *
 new_ud_msg(packet_info *pinfo, guint32 msg_type _U_)
 {
   sccp_msg_info_t *m = wmem_new0(wmem_packet_scope(), sccp_msg_info_t);
-  m->framenum = PINFO_FD_NUM(pinfo);
+  m->framenum = pinfo->num;
   m->data.ud.calling_gt = NULL;
   m->data.ud.called_gt = NULL;
 
@@ -3313,7 +3317,7 @@ dissect_sccp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *sccp_tree,
         if (m->data.co.label)
           proto_item_append_text(pi," %s", m->data.co.label);
 
-        if ((m->framenum == PINFO_FD_NUM(pinfo)) && (m->offset == msg_offset) ) {
+        if ((m->framenum == pinfo->num) && (m->offset == msg_offset) ) {
           tap_queue_packet(sccp_tap, pinfo, m);
           proto_item_append_text(pi," (current)");
         }
@@ -3325,8 +3329,8 @@ dissect_sccp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *sccp_tree,
   return offset;
 }
 
-static void
-dissect_sccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *sccp_item = NULL;
   proto_tree *sccp_tree = NULL;
@@ -3399,7 +3403,7 @@ dissect_sccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
   /* dissect the message */
   dissect_sccp_message(tvb, pinfo, sccp_tree, tree);
-
+  return tvb_captured_length(tvb);
 }
 
 /*** SccpUsers Table **/
@@ -4083,7 +4087,7 @@ proto_register_sccp(void)
   expert_sccp = expert_register_protocol(proto_sccp);
   expert_register_field_array(expert_sccp, ei, array_length(ei));
 
-  sccp_ssn_dissector_table = register_dissector_table("sccp.ssn", "SCCP SSN", FT_UINT8, BASE_DEC);
+  sccp_ssn_dissector_table = register_dissector_table("sccp.ssn", "SCCP SSN", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   heur_subdissector_list = register_heur_dissector_list("sccp");
 

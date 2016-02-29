@@ -445,13 +445,13 @@ rtpproxy_add_tid(gboolean is_request, tvbuff_t *tvb, packet_info *pinfo, proto_t
     if (!PINFO_FD_VISITED(pinfo)) {
         if (is_request){
             rtpproxy_info = wmem_new0(wmem_file_scope(), rtpproxy_info_t);
-            rtpproxy_info->req_frame = PINFO_FD_NUM(pinfo);
-            rtpproxy_info->req_time = pinfo->fd->abs_ts;
+            rtpproxy_info->req_frame = pinfo->num;
+            rtpproxy_info->req_time = pinfo->abs_ts;
             wmem_tree_insert_string(rtpproxy_conv->trans, cookie, rtpproxy_info, 0);
         } else {
             rtpproxy_info = (rtpproxy_info_t *)wmem_tree_lookup_string(rtpproxy_conv->trans, cookie, 0);
             if (rtpproxy_info) {
-                rtpproxy_info->resp_frame = PINFO_FD_NUM(pinfo);
+                rtpproxy_info->resp_frame = pinfo->num;
             }
         }
     } else {
@@ -464,7 +464,7 @@ rtpproxy_add_tid(gboolean is_request, tvbuff_t *tvb, packet_info *pinfo, proto_t
 
             /* If not a request (so it's a reply) then calculate response time */
             if (!is_request){
-                nstime_delta(&ns, &pinfo->fd->abs_ts, &rtpproxy_info->req_time);
+                nstime_delta(&ns, &pinfo->abs_ts, &rtpproxy_info->req_time);
                 pi = proto_tree_add_time(rtpproxy_tree, hf_rtpproxy_response_time, tvb, 0, 0, &ns);
                 PROTO_ITEM_SET_GENERATED(pi);
                 if (nstime_cmp(&rtpproxy_timeout_ns, &ns) < 0)
@@ -496,7 +496,7 @@ rtpproxy_add_notify_addr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *rtpproxy
         /* We have ip:port */
         if(ipv6){
             if(str_to_ip6((char*)tvb_get_string_enc(wmem_packet_scope(), tvb, begin, offset - begin, ENC_ASCII), ipaddr))
-                proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_notify_ipv6, tvb, begin, offset - begin, (const guint8 *)ipaddr);
+                proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_notify_ipv6, tvb, begin, offset - begin, (const struct e_in6_addr*)ipaddr);
             else
                 proto_tree_add_expert(rtpproxy_tree, pinfo, &ei_rtpproxy_bad_ipv6, tvb, begin, offset - begin);
         }
@@ -513,9 +513,9 @@ rtpproxy_add_notify_addr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *rtpproxy
         /* Only port is supplied - take IPv4/IPv6 from  ip.src/ipv6.src respectively */
         expert_add_info(pinfo, rtpproxy_tree, &ei_rtpproxy_notify_no_ip);
         if (pinfo->src.type == AT_IPv4)
-            ti = proto_tree_add_ipv4(rtpproxy_tree, hf_rtpproxy_notify_ipv4, tvb, begin, 0, ((guint32*)(pinfo->src.data))[0]);
+            ti = proto_tree_add_ipv4(rtpproxy_tree, hf_rtpproxy_notify_ipv4, tvb, begin, 0, *(const guint32*)(pinfo->src.data));
         else
-            ti = proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_notify_ipv6, tvb, begin, 0, (const guint8 *)(pinfo->src.data));
+            ti = proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_notify_ipv6, tvb, begin, 0, (const struct e_in6_addr *)(pinfo->src.data));
         PROTO_ITEM_SET_GENERATED(ti);
         proto_tree_add_uint(rtpproxy_tree, hf_rtpproxy_notify_port, tvb, begin, end - begin,
             (guint16) g_ascii_strtoull((gchar*)tvb_get_string_enc(wmem_packet_scope(), tvb, begin, end - begin, ENC_ASCII), NULL, 10));
@@ -705,7 +705,7 @@ dissect_rtpproxy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
                 }
                 else{
                     if(str_to_ip6((char*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, new_offset - offset, ENC_ASCII), ipaddr))
-                        proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_ipv6, tvb, offset, new_offset - offset, (const guint8 *)ipaddr);
+                        proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_ipv6, tvb, offset, new_offset - offset, (const struct e_in6_addr *)ipaddr);
                     else
                         proto_tree_add_expert(rtpproxy_tree, pinfo, &ei_rtpproxy_bad_ipv6, tvb, offset, new_offset - offset);
                 }
@@ -874,7 +874,7 @@ dissect_rtpproxy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
                     addr.type = AT_IPv6;
                     addr.len  = 16;
                     addr.data = wmem_memdup(wmem_packet_scope(), ipaddr, 16);
-                    proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_ipv6, tvb, offset, tmp, (const guint8 *)ipaddr);
+                    proto_tree_add_ipv6(rtpproxy_tree, hf_rtpproxy_ipv6, tvb, offset, tmp, (const struct e_in6_addr *)ipaddr);
                 }
                 else
                     proto_tree_add_expert(rtpproxy_tree, pinfo, &ei_rtpproxy_bad_ipv6, tvb, offset, tmp);
@@ -884,11 +884,11 @@ dissect_rtpproxy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
                 if (rtp_handle) {
                     /* FIXME tell if isn't a video stream, and setup codec mapping */
                     if (addr.len)
-                        rtp_add_address(pinfo, &addr, port, 0, "RTPproxy", pinfo->fd->num, 0, NULL);
+                        rtp_add_address(pinfo, &addr, port, 0, "RTPproxy", pinfo->num, 0, NULL);
                 }
                 if (rtcp_handle) {
                     if (addr.len)
-                        rtcp_add_address(pinfo, &addr, port+1, 0, "RTPproxy", pinfo->fd->num);
+                        rtcp_add_address(pinfo, &addr, port+1, 0, "RTPproxy", pinfo->num);
                 }
             }
             break;
@@ -1492,8 +1492,8 @@ proto_reg_handoff_rtpproxy(void)
     static dissector_handle_t rtpproxy_tcp_handle, rtpproxy_udp_handle;
 
     if(!rtpproxy_initialized){
-        rtpproxy_tcp_handle = new_create_dissector_handle(dissect_rtpproxy, proto_rtpproxy);
-        rtpproxy_udp_handle = new_create_dissector_handle(dissect_rtpproxy, proto_rtpproxy);
+        rtpproxy_tcp_handle = create_dissector_handle(dissect_rtpproxy, proto_rtpproxy);
+        rtpproxy_udp_handle = create_dissector_handle(dissect_rtpproxy, proto_rtpproxy);
         rtpproxy_initialized = TRUE;
     }
 

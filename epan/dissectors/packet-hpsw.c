@@ -224,8 +224,8 @@ dissect_hpsw_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, int length,
     }
 }
 
-static void
-dissect_hpsw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_hpsw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *hp_tree;
     proto_tree *tlv_tree;
@@ -273,6 +273,7 @@ dissect_hpsw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         offset += length;
 
     }
+    return tvb_captured_length(tvb);
 }
 
 void

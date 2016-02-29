@@ -552,11 +552,11 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     }
 
     if ((opcode != FCCT_MSG_ACC) && (opcode != FCCT_MSG_RJT)) {
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          pinfo->ptype, fchdr->oxid,
                                          fchdr->rxid, NO_PORT2);
         if (!conversation) {
-            conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+            conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                             pinfo->ptype, fchdr->oxid,
                                             fchdr->rxid, NO_PORT2);
         }
@@ -587,7 +587,7 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     }
     else {
         /* Opcode is ACC or RJT */
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          pinfo->ptype, fchdr->oxid,
                                          fchdr->rxid, NO_PORT2);
         isreq = FALSE;
@@ -879,7 +879,7 @@ proto_reg_handoff_fcfzs(void)
 {
     dissector_handle_t fzs_handle;
 
-    fzs_handle = new_create_dissector_handle(dissect_fcfzs, proto_fcfzs);
+    fzs_handle = create_dissector_handle(dissect_fcfzs, proto_fcfzs);
     dissector_add_uint("fcct.server", FCCT_GSRVR_FZS, fzs_handle);
 
     data_handle = find_dissector("data");

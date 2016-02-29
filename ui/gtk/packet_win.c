@@ -50,8 +50,8 @@
 #include <epan/tvbuff-int.h>
 #include <epan/print.h>
 
-#include "../file.h"
-#include "../summary.h"
+#include "../../file.h"
+#include "../../summary.h"
 
 #include "ui/recent.h"
 #include "ui/simple_dialog.h"
@@ -509,7 +509,7 @@ finfo_ipv4_output(GtkSpinButton *spinbutton, gpointer user_data _U_)
 	adj = gtk_spin_button_get_adjustment(spinbutton);
 	value = (guint32) gtk_adjustment_get_value(adj);
 	value = GUINT32_TO_BE(value);
-	SET_ADDRESS(&addr, AT_IPv4, 4, &value);
+	set_address(&addr, AT_IPv4, 4, &value);
 	addr_str = (char*)address_to_str(NULL, &addr);
 	gtk_entry_set_text(GTK_ENTRY(spinbutton), addr_str);
 	wmem_free(NULL, addr_str);
@@ -615,7 +615,7 @@ new_finfo_window(GtkWidget *w, struct FieldinfoWinData *DataPtr)
 		g_signal_connect(fvalue_edit, "toggled", G_CALLBACK(finfo_boolean_changed), DataPtr);
 
 	} else if (finfo_type == FT_IPv4) {
-		guint32 net_addr = ipv4_get_net_order_addr((ipv4_addr *)fvalue_get(&finfo->value));
+		guint32 net_addr = ipv4_get_net_order_addr((ipv4_addr_and_mask *)fvalue_get(&finfo->value));
 #if GTK_CHECK_VERSION(3,0,0)
 		GtkAdjustment *adj;
 #else

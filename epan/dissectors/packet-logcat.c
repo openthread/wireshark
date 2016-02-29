@@ -83,7 +83,7 @@ static gint detect_version(tvbuff_t *tvb, gint offset) {
     payload_length  = tvb_get_letohs(tvb, offset);
     try_header_size = tvb_get_letohs(tvb, offset + 2);
 
-    if (try_header_size == 0 || try_header_size != 24)
+    if (try_header_size != 24)
         return 1;
 
     if (tvb_reported_length_remaining(tvb, offset + 24 + payload_length) >= 0)
@@ -158,8 +158,8 @@ dissect_logcat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     string_length = tvb_strsize(tvb, offset);
     proto_tree_add_item(maintree, hf_logcat_tag, tvb, offset, string_length, ENC_ASCII | ENC_NA);
 
-    TVB_SET_ADDRESS(&pinfo->src, AT_STRINGZ, tvb, offset, string_length + 1);
-    SET_ADDRESS(&pinfo->dst, AT_STRINGZ, 7, "Logcat");
+    set_address_tvb(&pinfo->src, AT_STRINGZ, string_length + 1, tvb, offset);
+    set_address(&pinfo->dst, AT_STRINGZ, 7, "Logcat");
 
     offset += string_length;
     check_length += string_length;
@@ -287,7 +287,7 @@ proto_register_logcat(void)
     proto_logcat = proto_register_protocol("Android Logcat", "Logcat", "logcat");
     proto_register_field_array(proto_logcat, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    logcat_handle = new_register_dissector("logcat", dissect_logcat, proto_logcat);
+    logcat_handle = register_dissector("logcat", dissect_logcat, proto_logcat);
 
     expert_module = expert_register_protocol(proto_logcat);
     expert_register_field_array(expert_module, ei, array_length(ei));

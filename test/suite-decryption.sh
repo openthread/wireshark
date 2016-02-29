@@ -81,10 +81,67 @@ decryption_step_80211_wpa_eap() {
 		-o "wlan.enable_decryption: TRUE" \
 		-r "$CAPTURE_DIR/wpa-eap-tls.pcap.gz" \
 		-Y "wlan.analysis.tk==7d9987daf5876249b6c773bf454a0da7" \
-		 | grep "Group Message" > /dev/null 2>&1
+		| grep "Group Message" > /dev/null 2>&1
 	RETURNVALUE=$?
 	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
 		test_step_failed "Failed to decrypt IEEE 802.11 WPA EAP"
+		return
+	fi
+	test_step_ok
+}
+# WPA decode with message1+2 only and secure bit set on message 2
+# Included in git sources test/captures/wpa-test-decode.pcap.gz
+decryption_step_80211_wpa_eapol_incomplete_rekeys() {
+	$TESTS_DIR/run_and_catch_crashes env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
+		-o "wlan.enable_decryption: TRUE" \
+		-r "$CAPTURE_DIR/wpa-test-decode.pcap.gz" \
+		-Y "icmp.resp_to == 4263" \
+		| grep "Echo"  > /dev/null 2>&1
+	RETURNVALUE=$?
+	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
+		test_step_failed "Not able to follow rekey with missing eapol frames"
+		return
+	fi
+	test_step_ok
+}
+
+# WPA decode management frames with MFP enabled (802.11w)
+# Included in git sources test/captures/wpa-test-decode-mgmt.pcap.gz
+decryption_step_80211_wpa_psk_mfp() {
+	local out frames
+	out=$($TESTS_DIR/run_and_catch_crashes env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
+		-o "wlan.enable_decryption: TRUE" \
+		-r "$CAPTURE_DIR/wpa-test-decode-mgmt.pcap.gz" \
+		-Y "wlan_mgt.fixed.reason_code == 2 || wlan_mgt.fixed.category_code == 3" \
+		2>&1)
+	RETURNVALUE=$?
+	frames=$(echo "$out" | wc -l)
+	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
+		test_step_failed "Error during test execution: $out"
+		return
+	elif [ $frames -ne 3 ]; then
+		test_step_failed "Not able to decode All Management frames ($frames/3)"
+		return
+	fi
+	test_step_ok
+}
+
+# WPA decode traffic in a TDLS (Tunneled Direct-Link Setup) session (802.11z)
+# Included in git sources test/captures/wpa-test-decode-tdls.pcap.gz
+decryption_step_80211_wpa_tdls() {
+	local out frames
+	out=$($TESTS_DIR/run_and_catch_crashes env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
+		-o "wlan.enable_decryption: TRUE" \
+		-r "$CAPTURE_DIR/wpa-test-decode-tdls.pcap.gz" \
+		-Y "icmp" \
+		2>&1)
+	RETURNVALUE=$?
+	frames=$(echo "$out" | wc -l)
+	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
+		test_step_failed "Error during test execution: $out"
+		return
+	elif [ $frames -ne 2 ]; then
+		test_step_failed "Not able to decode all TDLS traffic ($frames/2)"
 		return
 	fi
 	test_step_ok
@@ -239,34 +296,37 @@ decryption_step_ikev1_certs() {
 
 # HTTP2 (HPACK)
 decryption_step_http2() {
-		env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
-				-Tfields -e http2.header.value \
-				-d tcp.port==3000,http2 \
-				-r "$CAPTURE_DIR/packet-h2-14_headers.pcapng" \
-		> ./testout.txt
-		grep "nghttp2" ./testout.txt > /dev/null 2>&1
-		RETURNVALUE=$?
-		if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
-		env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
-			-V \
-			-d tcp.port==3000,http2 \
-			-r "$CAPTURE_DIR/packet-h2-14_headers.pcapng" \
-			> ./testout2.txt
-		echo
-		echo "Test output:"
-		cat ./testout.txt
-		echo "Verbose output:"
-		cat ./testout2.txt
-				test_step_failed "Failed to decode HTTP2 HPACK"
-				return
-		fi
-		test_step_ok
+	env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
+		-Tfields -e http2.header.value \
+		-d tcp.port==3000,http2 \
+		-r "$CAPTURE_DIR/packet-h2-14_headers.pcapng" \
+	> ./testout.txt
+	grep "nghttp2" ./testout.txt > /dev/null 2>&1
+	RETURNVALUE=$?
+	if [ ! $RETURNVALUE -eq $EXIT_OK ]; then
+	env $TS_DC_ENV $TSHARK $TS_DC_ARGS \
+		-V \
+		-d tcp.port==3000,http2 \
+		-r "$CAPTURE_DIR/packet-h2-14_headers.pcapng" \
+		> ./testout2.txt
+	echo
+	echo "Test output:"
+	cat ./testout.txt
+	echo "Verbose output:"
+	cat ./testout2.txt
+		test_step_failed "Failed to decode HTTP2 HPACK"
+		return
+	fi
+	test_step_ok
 }
 
 
 tshark_decryption_suite() {
 	test_step_add "IEEE 802.11 WPA PSK Decryption" decryption_step_80211_wpa_psk
+	test_step_add "IEEE 802.11 WPA PSK Decryption2 (EAPOL frames missing with a Win 10 client)" decryption_step_80211_wpa_eapol_incomplete_rekeys
+	test_step_add "IEEE 802.11 WPA PSK Decryption of Management frames (802.11w)" decryption_step_80211_wpa_psk_mfp
 	test_step_add "IEEE 802.11 WPA EAP Decryption" decryption_step_80211_wpa_eap
+	test_step_add "IEEE 802.11 WPA TDLS Decryption" decryption_step_80211_wpa_tdls
 	test_step_add "DTLS Decryption" decryption_step_dtls
 	test_step_add "SSL Decryption (private key)" decryption_step_ssl
 	test_step_add "SSL Decryption (RSA private key with p smaller than q)" decryption_step_ssl_rsa_pq
@@ -305,7 +365,7 @@ decryption_suite() {
 # Editor modelines  -  https://www.wireshark.org/tools/modelines.html
 #
 # Local variables:
-# c-basic-offset: 8
+# sh-basic-offset: 8
 # tab-width: 8
 # indent-tabs-mode: t
 # End:

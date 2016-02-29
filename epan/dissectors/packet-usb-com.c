@@ -554,11 +554,11 @@ dissect_usb_com_ntb_input_size(tvbuff_t *tvb, proto_tree *tree, gint base_offset
 }
 
 static int
-dissect_usb_com_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *setup_tree, void *data)
+dissect_usb_com_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     usb_conv_info_t *usb_conv_info = (usb_conv_info_t *)data;
     usb_trans_info_t *usb_trans_info;
-    proto_tree *tree, *subtree;
+    proto_tree *subtree;
     proto_item *ti;
     gint offset = 0;
     gboolean is_request;
@@ -569,7 +569,6 @@ dissect_usb_com_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *setup_tre
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "USBCOM");
 
-    tree = proto_tree_get_parent_tree(setup_tree);
     ti = proto_tree_add_item(tree, proto_usb_com, tvb, 0, -1, ENC_NA);
     subtree = proto_item_add_subtree(ti, ett_usb_com);
 
@@ -1078,13 +1077,13 @@ proto_reg_handoff_usb_com(void)
     dissector_handle_t usb_com_descriptor_handle, usb_com_control_handle,
                        usb_com_bulk_handle, usb_com_interrupt_handle;
 
-    usb_com_descriptor_handle = new_create_dissector_handle(dissect_usb_com_descriptor, proto_usb_com);
+    usb_com_descriptor_handle = create_dissector_handle(dissect_usb_com_descriptor, proto_usb_com);
     dissector_add_uint("usb.descriptor", IF_CLASS_COMMUNICATIONS, usb_com_descriptor_handle);
-    usb_com_control_handle = new_create_dissector_handle(dissect_usb_com_control, proto_usb_com);
+    usb_com_control_handle = create_dissector_handle(dissect_usb_com_control, proto_usb_com);
     dissector_add_uint("usb.control", IF_CLASS_COMMUNICATIONS, usb_com_control_handle);
-    usb_com_bulk_handle = new_create_dissector_handle(dissect_usb_com_bulk, proto_usb_com);
+    usb_com_bulk_handle = create_dissector_handle(dissect_usb_com_bulk, proto_usb_com);
     dissector_add_uint("usb.bulk", IF_CLASS_CDC_DATA, usb_com_bulk_handle);
-    usb_com_interrupt_handle = new_create_dissector_handle(dissect_usb_com_interrupt, proto_usb_com);
+    usb_com_interrupt_handle = create_dissector_handle(dissect_usb_com_interrupt, proto_usb_com);
     dissector_add_uint("usb.interrupt", IF_CLASS_COMMUNICATIONS, usb_com_interrupt_handle);
     mbim_control_handle = find_dissector("mbim.control");
     mbim_descriptor_handle = find_dissector("mbim.descriptor");

@@ -30,7 +30,10 @@
 #include <epan/crc16-tvb.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 #include "packet-tcp.h"
+
+#include <wsutil/utf8_entities.h>
 
 #define PROTOCOL_NAME	    "IEEE C37.118 Synchrophasor Protocol"
 #define PROTOCOL_SHORT_NAME "SYNCHROPHASOR"
@@ -493,7 +496,7 @@ static int dissect_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 
 			/* fill the config_frame */
 			config_frame *frame = config_frame_fast(tvb);
-			frame->fnum = pinfo->fd->num;
+			frame->fnum = pinfo->num;
 
 			/* find a conversation, create a new one if none exists */
 			conversation = find_or_create_conversation(pinfo);
@@ -506,7 +509,7 @@ static int dissect_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 			conversation_add_proto_data(conversation, proto_synphasor, frame);
 		}
 		else if (DATA == frame_type) {
-			conversation_t *conversation = find_conversation(pinfo->fd->num,
+			conversation_t *conversation = find_conversation(pinfo->num,
 									 &pinfo->src, &pinfo->dst,
 									 pinfo->ptype,
 									 pinfo->srcport, pinfo->destport,
@@ -947,14 +950,12 @@ static gint dissect_PHASORS(tvbuff_t *tvb, proto_tree *tree, config_block *block
 			mag = (mag * pi->conv) * 0.00001;
 
 		#define SYNP_ANGLE  "/_"
-		#define SYNP_DEGREE "\xC2\xB0" /* DEGREE signs in UTF-8 */
 
-		proto_item_append_text(temp_item, ", %10.2f%c" SYNP_ANGLE "%7.2f" SYNP_DEGREE,
+		proto_item_append_text(temp_item, ", %10.2f%c" SYNP_ANGLE "%7.2f" UTF8_DEGREE_SIGN,
 						  mag,
 						  V == pi->unit ? 'V' : 'A',
 						  phase *180.0/G_PI);
 		#undef SYNP_ANGLE
-		#undef SYNP_DEGREE
 	}
 	return offset;
 }
@@ -1130,7 +1131,7 @@ static gint dissect_DIGUNIT(tvbuff_t *tvb, proto_tree *tree, gint offset, gint c
 						  "Masks for digital status words (%u)", cnt);
 
 	/* Mask words for digital status words. Two 16-bit words for each digital word. The first
-	 * inidcates the normal status of the inputs, the second indicated the valid bits in
+	 * indicates the normal status of the inputs, the second indicated the valid bits in
 	 * the status word
 	 */
 	for (i = 0; i < cnt; i++) {
@@ -1352,7 +1353,7 @@ void proto_register_synphasor(void)
 						  PROTOCOL_ABBREV);
 
 	/* Registering protocol to be called by another dissector */
-	synphasor_udp_handle = new_register_dissector("synphasor", dissect_udp, proto_synphasor);
+	synphasor_udp_handle = register_dissector("synphasor", dissect_udp, proto_synphasor);
 
 	proto_register_field_array(proto_synphasor, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
@@ -1383,7 +1384,7 @@ void proto_reg_handoff_synphasor(void)
 	static guint		  current_tcp_port;
 
 	if (!initialized) {
-		synphasor_tcp_handle = new_create_dissector_handle(dissect_tcp, proto_synphasor);
+		synphasor_tcp_handle = create_dissector_handle(dissect_tcp, proto_synphasor);
 		dissector_add_for_decode_as("rtacser.data", synphasor_udp_handle);
 		initialized = TRUE;
 	}

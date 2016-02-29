@@ -27,7 +27,7 @@
 #include <string.h>
 
 #include "tvbuff.h"
-#include "ipv6-utils.h"
+#include "ipv6.h"
 #include "addr_and_mask.h"
 
 guint32
@@ -56,7 +56,8 @@ ip_get_subnet_mask(const guint32 mask_length)
  */
 
 int
-ipv4_addr_and_mask(tvbuff_t *tvb, int offset, guint8 *addr, guint32 prefix_len)
+tvb_get_ipv4_addr_with_prefix_len(tvbuff_t *tvb, int offset, guint8 *addr,
+    guint32 prefix_len)
 {
 	guint32 addr_len;
 
@@ -72,8 +73,8 @@ ipv4_addr_and_mask(tvbuff_t *tvb, int offset, guint8 *addr, guint32 prefix_len)
 }
 
 int
-ipv6_addr_and_mask(tvbuff_t *tvb, int offset, struct e_in6_addr *addr,
-		   guint32 prefix_len)
+tvb_get_ipv6_addr_with_prefix_len(tvbuff_t *tvb, int offset, struct e_in6_addr *addr,
+    guint32 prefix_len)
 {
 	guint32 addr_len;
 

@@ -85,8 +85,8 @@ dissect_whois(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     pinfo->desegment_offset = 0;
                     return -1;
                 } else {
-                    whois_trans->req_frame = pinfo->fd->num;
-                    whois_trans->req_time = pinfo->fd->abs_ts;
+                    whois_trans->req_frame = pinfo->num;
+                    whois_trans->req_time = pinfo->abs_ts;
                 }
             } else {
                 pinfo->desegment_len = DESEGMENT_UNTIL_FIN;
@@ -95,8 +95,8 @@ dissect_whois(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             }
         }
     } else if (is_query && (whois_trans->req_frame == 0)) {
-        whois_trans->req_frame = pinfo->fd->num;
-        whois_trans->req_time = pinfo->fd->abs_ts;
+        whois_trans->req_frame = pinfo->num;
+        whois_trans->req_time = pinfo->abs_ts;
     }
 
     if (!is_query && (whois_trans->rep_frame == 0)) {
@@ -105,10 +105,10 @@ dissect_whois(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
          * number, and if reassembly is turned off, whois_trans->rep_frame will
          * be assigned to the first frame number of the response.  This seems
          * to match other protocols' behavior.  The alternative is:
-         *      if (pinfo->fd->num > whois_trans->rep_frame)
+         *      if (pinfo->num > whois_trans->rep_frame)
          * which will give us the same frame number either way.
          */
-        whois_trans->rep_frame = pinfo->fd->num;
+        whois_trans->rep_frame = pinfo->num;
     }
 
     ti = proto_tree_add_protocol_format(tree, proto_whois, tvb, 0, -1,
@@ -138,8 +138,8 @@ dissect_whois(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 tvb, 0, 0, whois_trans->req_frame);
             PROTO_ITEM_SET_GENERATED(ti);
 
-            if (pinfo->fd->num == whois_trans->rep_frame) {
-                nstime_delta(&ns, &pinfo->fd->abs_ts, &whois_trans->req_time);
+            if (pinfo->num == whois_trans->rep_frame) {
+                nstime_delta(&ns, &pinfo->abs_ts, &whois_trans->req_time);
                 ti = proto_tree_add_time(whois_tree, hf_whois_response_time, tvb, 0, 0, &ns);
                 PROTO_ITEM_SET_GENERATED(ti);
             }
@@ -202,7 +202,7 @@ proto_reg_handoff_whois(void)
 {
     static dissector_handle_t whois_handle;
 
-    whois_handle = new_create_dissector_handle(dissect_whois, proto_whois);
+    whois_handle = create_dissector_handle(dissect_whois, proto_whois);
     dissector_add_uint("tcp.port", WHOIS_PORT, whois_handle);
 }
 

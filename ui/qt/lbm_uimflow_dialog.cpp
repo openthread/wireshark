@@ -90,7 +90,7 @@ static gboolean lbm_uimflow_add_to_graph(seq_analysis_info_t * seq_info, packet_
         {
             int compare;
 
-            compare = CMP_ADDRESS(&(stream_info->endpoint_a.stream_info.dest.addr), &(stream_info->endpoint_b.stream_info.dest.addr));
+            compare = cmp_address(&(stream_info->endpoint_a.stream_info.dest.addr), &(stream_info->endpoint_b.stream_info.dest.addr));
             if (compare < 0)
             {
                 swap_endpoints = FALSE;
@@ -123,9 +123,9 @@ static gboolean lbm_uimflow_add_to_graph(seq_analysis_info_t * seq_info, packet_
         epa = stream_info->endpoint_b;
     }
     item = (seq_analysis_item_t *)g_malloc0(sizeof(seq_analysis_item_t));
-    COPY_ADDRESS(&(item->src_addr), &(pinfo->src));
-    COPY_ADDRESS(&(item->dst_addr), &(pinfo->dst));
-    item->fd = pinfo->fd;
+    copy_address(&(item->src_addr), &(pinfo->src));
+    copy_address(&(item->dst_addr), &(pinfo->dst));
+    item->frame_number = pinfo->num;
     item->port_src = pinfo->srcport;
     item->port_dst = pinfo->destport;
     item->protocol = g_strdup(port_type_to_str(pinfo->ptype));
@@ -191,7 +191,7 @@ static void lbm_uimflow_get_analysis(capture_file * cfile, seq_analysis_info_t *
     while (list != NULL)
     {
         seq_analysis_item_t * seq_item = (seq_analysis_item_t *)list->data;
-        set_fd_time(cfile->epan, seq_item->fd, time_str);
+        set_fd_time(cfile->epan, frame_data_sequence_find(cfile->frames, seq_item->frame_number), time_str);
         seq_item->time_str = g_strdup(time_str);
         list = g_list_next(list);
     }
@@ -209,7 +209,7 @@ static void lbm_uimflow_get_analysis(capture_file * cfile, seq_analysis_info_t *
 // - Help button and text
 
 LBMUIMFlowDialog::LBMUIMFlowDialog(QWidget * parent, capture_file * cfile) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     m_ui(new Ui::LBMUIMFlowDialog),
     m_capture_file(cfile),
     m_num_items(0),
@@ -217,6 +217,8 @@ LBMUIMFlowDialog::LBMUIMFlowDialog(QWidget * parent, capture_file * cfile) :
     m_node_label_width(20)
 {
     m_ui->setupUi(this);
+    if (parent) loadGeometry(parent->width(), parent->height() * 4 / 5);
+
     QCustomPlot * sp = m_ui->sequencePlot;
 
     m_sequence_diagram = new SequenceDiagram(sp->yAxis, sp->xAxis2, sp->yAxis2);
@@ -262,12 +264,6 @@ LBMUIMFlowDialog::LBMUIMFlowDialog(QWidget * parent, capture_file * cfile) :
 
     QPushButton * save_bt = m_ui->buttonBox->button(QDialogButtonBox::Save);
     save_bt->setText(tr("Save As" UTF8_HORIZONTAL_ELLIPSIS));
-
-    // XXX Use recent settings instead
-    if (parent)
-    {
-        resize(parent->width(), parent->height() * 4 / 5);
-    }
 
     connect(m_ui->horizontalScrollBar, SIGNAL(valueChanged(int)), this, SLOT(hScrollBarChanged(int)));
     connect(m_ui->verticalScrollBar, SIGNAL(valueChanged(int)), this, SLOT(vScrollBarChanged(int)));
@@ -422,7 +418,7 @@ void LBMUIMFlowDialog::mouseMoved(QMouseEvent * event)
         seq_analysis_item_t * sai = m_sequence_diagram->itemForPosY(event->pos().y());
         if (sai)
         {
-            m_packet_num = sai->fd->num;
+            m_packet_num = sai->frame_number;
             hint = QString("Packet %1: %2").arg(m_packet_num).arg(sai->comment);
         }
     }
@@ -662,10 +658,10 @@ void LBMUIMFlowDialog::on_actionMoveDown1_triggered(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

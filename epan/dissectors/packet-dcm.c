@@ -1,6 +1,6 @@
 /* packet-dcm.c
  * Routines for DICOM dissection
- * Copyright 2003, Rich Coe <Richard.Coe@med.ge.com>
+ * Copyright 2003, Rich Coe <richcoe2@gmail.com>
  * Copyright 2008-2010, David Aggeler <david_aggeler@hispeed.ch>
  *
  * DICOM communication protocol
@@ -4019,14 +4019,14 @@ dcm_state_get(packet_info *pinfo, gboolean create)
     conversation_t  *conv=NULL;
     dcm_state_t     *dcm_data=NULL;
 
-    conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
         pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 
     if (conv == NULL) {
         /* Conversation does not exist, create one.
            Usually set for the first packet already. Probably by dissect-tcp
         */
-        conv = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
+        conv = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
             pinfo->srcport, pinfo->destport, 0);
     }
     else {                      /* conversation exists, try to get data already filled */
@@ -4595,7 +4595,7 @@ dcm_export_create_object(packet_info *pinfo, dcm_state_assoc_t *assoc, dcm_state
            Even though this should be a valid DICOM UID, apply the same filter rules
            in case of bogus data.
         */
-        filename = wmem_strdup_printf(wmem_packet_scope(), "%06d-%d-%s.dcm", pinfo->fd->num, cnt_same_pkt,
+        filename = wmem_strdup_printf(wmem_packet_scope(), "%06d-%d-%s.dcm", pinfo->num, cnt_same_pkt,
             g_strcanon(pdv_curr->sop_instance_uid, G_CSET_A_2_Z G_CSET_a_2_z G_CSET_DIGITS "-.", '-'));
     }
     else {
@@ -4603,10 +4603,10 @@ dcm_export_create_object(packet_info *pinfo, dcm_state_assoc_t *assoc, dcm_state
 
         sop_class_uid = wmem_strdup(wmem_packet_scope(), WIRESHARK_MEDIA_STORAGE_SOP_CLASS_UID);
         sop_instance_uid = wmem_strdup_printf(wmem_packet_scope(), "%s.%d.%d",
-            WIRESHARK_MEDIA_STORAGE_SOP_INSTANCE_UID_PREFIX, pinfo->fd->num, cnt_same_pkt);
+            WIRESHARK_MEDIA_STORAGE_SOP_INSTANCE_UID_PREFIX, pinfo->num, cnt_same_pkt);
 
         /* Make sure filename does not contain invalid character. Rather conservative.*/
-        filename = wmem_strdup_printf(wmem_packet_scope(), "%06d-%d-%s.dcm", pinfo->fd->num, cnt_same_pkt,
+        filename = wmem_strdup_printf(wmem_packet_scope(), "%06d-%d-%s.dcm", pinfo->num, cnt_same_pkt,
             g_strcanon(pdv->desc, G_CSET_A_2_Z G_CSET_a_2_z G_CSET_DIGITS "-.", '-'));
 
     }
@@ -5548,7 +5548,7 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     const gchar *desc_flag = NULL;      /* Flag Description in tree */
     gchar *desc_header = NULL;          /* Used for PDV description */
 
-    guint8  flags = 0;
+    guint8  flags = 0, o_flags = 0;
     guint8  pctx_id = 0;
 
     /* 1 Byte Context */
@@ -5586,13 +5586,15 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
        we need both values to uniquely identify a PDV
     */
 
-    *pdv = dcm_state_pdv_get(pctx, pinfo->fd->num, tvb_raw_offset(tvb)+offset, TRUE);
+    *pdv = dcm_state_pdv_get(pctx, pinfo->num, tvb_raw_offset(tvb)+offset, TRUE);
     if (*pdv == NULL) {
         return 0;                   /* Failed to allocate memory */
     }
 
     /* 1 Byte Flag */
-    flags = tvb_get_guint8(tvb, offset);
+    /* PS3.8 E.2  Bits 2 through 7 are always set to 0 by the sender and never checked by the receiver. */
+    o_flags = tvb_get_guint8(tvb, offset);
+    flags = 0x3 & o_flags;
 
     (*pdv)->pctx_id = pctx_id;
 
@@ -5600,7 +5602,10 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
     switch (flags) {
     case 0:     /* 00 */
-        desc_flag = "Data, More Fragments";
+        if (0 != (0xfc & o_flags))
+            desc_flag = "Data, More Fragments (Warning: Invalid)";
+        else
+            desc_flag = "Data, More Fragments";
 
         (*pdv)->is_flagvalid = TRUE;
         (*pdv)->is_command = FALSE;
@@ -5609,7 +5614,10 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         break;
 
     case 2:     /* 10 */
-        desc_flag = "Data, Last Fragment";
+        if (0 != (0xfc & o_flags))
+            desc_flag = "Data, Last Fragment (Warning: Invalid)";
+        else
+            desc_flag = "Data, Last Fragment";
 
         (*pdv)->is_flagvalid = TRUE;
         (*pdv)->is_command = FALSE;
@@ -5618,7 +5626,10 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         break;
 
     case 1:     /* 01 */
-        desc_flag = "Command, More Fragments";
+        if (0 != (0xfc & o_flags))
+            desc_flag = "Command, More Fragments (Warning: Invalid)";
+        else
+            desc_flag = "Command, More Fragments";
         g_snprintf(desc_header, MAX_BUF_LEN, "Command");                /* Will be overwritten with real command tag */
 
         (*pdv)->is_flagvalid = TRUE;
@@ -5628,7 +5639,10 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         break;
 
     case 3:     /* 11 */
-        desc_flag = "Command, Last Fragment";
+        if (0 != (0xfc & o_flags))
+            desc_flag = "Command, Last Fragment (Warning: Invalid)";
+        else
+            desc_flag = "Command, Last Fragment";
         g_snprintf(desc_header, MAX_BUF_LEN, "Command");
 
         (*pdv)->is_flagvalid = TRUE;
@@ -5679,9 +5693,9 @@ dissect_dcm_pdv_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     (*pdv)->desc = desc_header;
 
     pdv_flags_pitem = proto_tree_add_uint_format(tree, hf_dcm_pdv_flags, tvb, offset, 1,
-        flags, "Flags: 0x%02x (%s)", flags, desc_flag);
+        flags, "Flags: 0x%02x (%s)", o_flags, desc_flag);
 
-    if (flags>3) {
+    if (o_flags>3) {
         expert_add_info(pinfo, pdv_flags_pitem, &ei_dcm_pdv_flags);
     }
     offset +=1;
@@ -5988,7 +6002,7 @@ dcm_tag_lookup(guint16 grp, guint16 elm)
     static dcm_tag_t tag_grp_length      = { 0x00000000, "Group Length", "UL", "1", 0, 0 };
 
     /* Try a direct hit first before doing a masked search */
-    tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((grp << 16) | elm));
+    tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((guint32)grp << 16) | elm));
 
     if (tag_def == NULL) {
 
@@ -6006,23 +6020,23 @@ dcm_tag_lookup(guint16 grp, guint16 elm)
         /* There are a few tags that require a mask to be found */
         else if (((grp & 0xFF00) == 0x5000) || ((grp & 0xFF00) == 0x6000) || ((grp & 0xFF00) == 0x7F00)) {
             /* Do a special for groups 0x50xx, 0x60xx and 0x7Fxx */
-            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((grp & 0xFF00) << 16) | elm));
+            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((((guint32)grp & 0xFF00) << 16) | elm));
         }
         else if ((grp == 0x0020) && ((elm & 0xFF00) == 0x3100)) {
-            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((grp << 16) | (elm & 0xFF00)));
+            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((guint32)grp << 16) | (elm & 0xFF00)));
         }
         else if ((grp == 0x0028) && ((elm & 0xFF00) == 0x0400)) {
             /* This map was done to 0x041x */
-            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((grp << 16) | (elm & 0xFF0F) | 0x0010));
+            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((guint32)grp << 16) | (elm & 0xFF0F) | 0x0010));
         }
         else if ((grp == 0x0028) && ((elm & 0xFF00) == 0x0800)) {
-            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((grp << 16) | (elm & 0xFF0F)));
+            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((guint32)grp << 16) | (elm & 0xFF0F)));
         }
         else if (grp == 0x1000) {
-            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((grp << 16) | (elm & 0x000F)));
+            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((guint32)grp << 16) | (elm & 0x000F)));
         }
         else if (grp == 0x1010) {
-            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER((grp << 16) | (elm & 0x0000)));
+            tag_def = (dcm_tag_t *)g_hash_table_lookup(dcm_tag_table, GUINT_TO_POINTER(((guint32)grp << 16) | (elm & 0x0000)));
         }
 
         if (tag_def == NULL) {
@@ -6078,6 +6092,8 @@ dissect_dcm_tag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
     proto_item  *tag_pitem = NULL;
     dcm_tag_t   *tag_def   = NULL;
+
+    gint ett;
 
     const gchar *vr = NULL;
     gchar       *tag_value = NULL;      /* Tag Value converted to a string      */
@@ -6281,22 +6297,28 @@ dissect_dcm_tag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     is_sequence = (strcmp(vr, "SQ") == 0) || (vl == 0xFFFFFFFF);
     is_item = ((grp == 0xFFFE) && (elm == 0xE000));
 
+    if ((is_sequence | is_item) &&  global_dcm_seq_subtree) {
+        ett = is_sequence ? ett_dcm_data_seq : ett_dcm_data_item;
+    } else {
+        ett = ett_dcm_data_tag;
+    }
+
         if (vl == 0xFFFFFFFF) {
                 /* 'Just' mark header as the length of the item */
                 tag_ptree = proto_tree_add_subtree(tree, tvb, offset_tag, offset - offset_tag,
-                                is_item ? ett_dcm_data_item : ett_dcm_data_seq, &tag_pitem, tag_summary);
+                                ett, &tag_pitem, tag_summary);
                 vl_max = 0;         /* We don't know who long this sequence/item is */
         }
         else if (offset + vl <= endpos) {
                 /* Show real length of item */
                 tag_ptree = proto_tree_add_subtree(tree, tvb, offset_tag, offset + vl - offset_tag,
-                                is_item ? ett_dcm_data_item : ett_dcm_data_seq, &tag_pitem, tag_summary);
+                                ett, &tag_pitem, tag_summary);
                 vl_max = vl;
         }
         else {
                 /* Value is longer than what we have in the PDV, -> we do have a OPEN tag */
                 tag_ptree = proto_tree_add_subtree(tree, tvb, offset_tag, endpos - offset_tag,
-                                is_item ? ett_dcm_data_item : ett_dcm_data_seq, &tag_pitem, tag_summary);
+                                ett, &tag_pitem, tag_summary);
                 vl_max = endpos - offset;
         }
 
@@ -6306,6 +6328,8 @@ dissect_dcm_tag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         if (is_sequence | is_item) {
 
                 if (global_dcm_seq_subtree) {
+                        /* Use different ett_ for Sequences & Items, so that fold/unfold state makes sense */
+                        seq_ptree = tag_ptree;
                         if (!global_dcm_tag_subtree)
                                 tag_ptree = NULL;
                 }
@@ -6656,7 +6680,7 @@ dissect_dcm_pdv_fragmented(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     if (global_dcm_reassemble)
     {
 
-        conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                             pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 
         /* Try to create somewhat unique ID.
@@ -6686,7 +6710,7 @@ dissect_dcm_pdv_fragmented(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
                 *pdv_description = (gchar *)wmem_alloc0(wmem_file_scope(), MAX_BUF_LEN);
 
-                if (head && head->reassembled_in != pinfo->fd->num) {
+                if (head && head->reassembled_in != pinfo->num) {
 
                     if (pdv->desc) {
                         /* We know the presentation context already */
@@ -6890,7 +6914,7 @@ dissect_dcm_main(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean i
             /* we need 6 bytes at least to get PDU length */
             pinfo->desegment_offset = offset;
             pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
-            return TRUE;
+            return tvb_captured_length(tvb);
         }
     }
     else {
@@ -6951,11 +6975,7 @@ dissect_dcm_main(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean i
 
             pinfo->desegment_offset = offset;
             pinfo->desegment_len = (pdu_len+6) - (tlen-offset);
-
-            /*  Why return a Boolean for a deliberate int function? No clue, but
-                no better working example found.
-            */
-            return TRUE;
+            return tvb_captured_length(tvb);
         }
 
         /* Process a whole PDU */
@@ -6966,7 +6986,7 @@ dissect_dcm_main(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean i
         pdu_start =  pdu_start + pdu_len + 6;
         if (pdu_start <= old_pdu_start) {
             expert_add_info_format(pinfo, NULL, &ei_dcm_invalid_pdu_length, "Invalid PDU length (%u)", pdu_len);
-            THROW(ReportedBoundsError);
+            break;
         }
 
         if (pdu_start < tlen - 6) {
@@ -7030,7 +7050,7 @@ dissect_dcm_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 off
     offset += 4;
 
     /* Find previously detected association, else create a new one object*/
-    assoc = dcm_state_assoc_get(dcm_data, pinfo->fd->num, TRUE);
+    assoc = dcm_state_assoc_get(dcm_data, pinfo->num, TRUE);
 
     if (assoc == NULL) {        /* Internal error. Failed to create association structure */
         return offset;
@@ -7276,7 +7296,7 @@ proto_register_dcm(void)
     expert_register_field_array(expert_dcm, ei, array_length(ei));
 
     /* Allow other dissectors to find this one by name. */
-    new_register_dissector("dicom", dissect_dcm_static, proto_dcm);
+    dcm_handle = register_dissector("dicom", dissect_dcm_static, proto_dcm);
 
     dcm_module = prefs_register_protocol(proto_dcm, dcm_apply_settings);
 
@@ -7335,8 +7355,6 @@ proto_register_dcm(void)
 void
 proto_reg_handoff_dcm(void)
 {
-
-    dcm_handle = new_create_dissector_handle(dissect_dcm_static, proto_dcm);
 
     dcm_apply_settings();       /* Register static ports */
 

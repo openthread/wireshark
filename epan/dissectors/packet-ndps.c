@@ -30,6 +30,7 @@
 #include <epan/reassemble.h>
 #include <epan/expert.h>
 #include <epan/strutil.h>
+#include <epan/proto_data.h>
 
 #include "packet-ipx.h"
 #include "packet-tcp.h"
@@ -1358,7 +1359,7 @@ static const value_string ndps_error_types[] = {
     { 0xFFFFFB47, "Notify Unknown Session" },
     { 0xFFFFFB48, "Notify No Attribute Values" },
     { 0xFFFFFB49, "Notify DS Value Size Too Large" },
-    { 0xFFFFFB4A, "Notify Service Name Must be Fully Distiguished" },
+    { 0xFFFFFB4A, "Notify Service Name Must be Fully Distinguished" },
     { 0xFFFFFB4B, "Notify Failed Login" },
     { 0xFFFFFB4C, "Notify Failed to Create Context" },
     { 0xFFFFFB4D, "Notify Failed to Get Messages" },
@@ -1937,7 +1938,7 @@ static const value_string ndps_error_types[] = {
     { 0xffffff67, "(-153) Directory Full" },
     { 0xffffff68, "(-152) Invalid Volume" },
     { 0xffffff69, "(-151) No Spool Space" },
-    { 0xffffff6a, "(-150) No Alloc Space/Target Not a Subdirectory/Insuffficient Memory" },
+    { 0xffffff6a, "(-150) No Alloc Space/Target Not a Subdirectory/Insufficient Memory" },
     { 0xffffff6b, "(-149) File Detached" },
     { 0xffffff6c, "(-148) No Write Privilege" },
     { 0xffffff6d, "(-147) No Read Privilege" },
@@ -2238,10 +2239,6 @@ objectidentifier(tvbuff_t* tvb, proto_tree *ndps_tree, int foffset)
         }
     }
     global_attribute_name = label;
-    /* XXX - There's probably a better way to handle this */
-    if ((int) (foffset+(length%2)) < 0) {
-        THROW(ReportedBoundsError);
-    }
     return foffset+(length%2);
 }
 
@@ -2611,11 +2608,9 @@ cardinal_seq(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int foffs
         {
             proto_tree_add_item(atree, hf_ndps_attribute_value, tvb, foffset, length, ENC_BIG_ENDIAN);
         }
-        tvb_ensure_bytes_exist(tvb, foffset, length);
+        tvb_ensure_bytes_exist(tvb, foffset, length+length%2);
         foffset += length;
         foffset += (length%2);
-        if ((int) foffset <= 0)
-            THROW(ReportedBoundsError);
         proto_item_set_end(aitem, tvb, foffset);
     }
     return foffset;
@@ -3225,10 +3220,9 @@ attribute_value(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int fo
                 {
                     proto_tree_add_item(atree, hf_ndps_attribute_value, tvb, foffset, length, ENC_BIG_ENDIAN);
                 }
+                tvb_ensure_bytes_exist(tvb, foffset, length+length%2);
                 foffset += length;
                 foffset += (length%2);
-                if ((int) foffset <= 0)
-                    THROW(ReportedBoundsError);
                 proto_item_set_end(aitem, tvb, foffset);
             }
             break;
@@ -3413,8 +3407,6 @@ attribute_value(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int fo
                 }
                 foffset += length;
                 foffset += (length%2);
-                if ((int) foffset <= 0)
-                    THROW(ReportedBoundsError);
             }
             else
             {
@@ -3557,8 +3549,6 @@ attribute_value(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int fo
                 }
                 foffset += length;
                 foffset += (length%2);
-                if ((int) foffset <= 0)
-                    THROW(ReportedBoundsError);
             }
             number_of_items = tvb_get_ntohl(tvb, foffset);
             expert_item = proto_tree_add_uint(ndps_tree, hf_ndps_num_values, tvb, foffset, 4, number_of_items);
@@ -3576,10 +3566,9 @@ attribute_value(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int fo
                 {
                     proto_tree_add_item(atree, hf_ndps_attribute_value, tvb, foffset, length, ENC_BIG_ENDIAN);
                 }
+                tvb_ensure_bytes_exist(tvb, foffset, length+length%2);
                 foffset += length;
                 foffset += (length%2);
-                if ((int) foffset <= 0)
-                    THROW(ReportedBoundsError);
                 proto_item_set_end(aitem, tvb, foffset);
             }
             break;
@@ -3814,8 +3803,6 @@ attribute_value(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int fo
             }
             foffset += length;
             foffset += (length%2);
-            if ((int) foffset <= 0)
-                THROW(ReportedBoundsError);
             break;
         case 107:         /* Octet String Integer Pair */
             length = tvb_get_ntohl(tvb, foffset);
@@ -3867,8 +3854,6 @@ attribute_value(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int fo
                     }
                     foffset += length;
                     foffset += (length%2);
-                    if ((int) foffset <= 0)
-                        THROW(ReportedBoundsError);
                     break;
                 case 4:     /*DIST_NAME_STRING*/
                     foffset = ndps_string(tvb, hf_object_name, ndps_tree, foffset, NULL);
@@ -4289,7 +4274,7 @@ dissect_ndps_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
  *
  * SPX EOM not being set indicates we are inside or at the
  * beginning of a fragment. But when the end of the fragment
- * is encounterd the flag is set. So we must mark what the
+ * is encountered the flag is set. So we must mark what the
  * frame number is of the end fragment so that we will be
  * able to redissect if the user clicks on the packet
  * or resorts/filters the trace.
@@ -4321,13 +4306,13 @@ ndps_defrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, spx_info *spx_i
     if (!pinfo->fd->flags.visited)
     {
         /* Lets see if this is a new conversation */
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
             PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
 
         if (conversation == NULL)
         {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+            conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                 PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
         }
 
@@ -4357,7 +4342,7 @@ ndps_defrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, spx_info *spx_i
         request_value->ndps_frag = TRUE;
     }
     /* Now we process the fragments */
-    if (request_value->ndps_frag || (request_value->ndps_end_frag == pinfo->fd->num))
+    if (request_value->ndps_frag || (request_value->ndps_end_frag == pinfo->num))
     {
         /*
          * Fragment
@@ -4388,12 +4373,12 @@ ndps_defrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, spx_info *spx_i
                         tid++;
                     }
                     /* Remember this fragment number so we can dissect again */
-                    request_value->ndps_end_frag = pinfo->fd->num;
+                    request_value->ndps_end_frag = pinfo->num;
 
                 }
                 else
                 {
-                    /* This is either a beggining or middle fragment on second dissection */
+                    /* This is either a beginning or middle fragment on second dissection */
                     next_tvb = tvb_new_subset_remaining(tvb, 0);
                     if (!spx_info_p->eom)
                     {
@@ -4513,20 +4498,20 @@ dissect_ndps_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, g
         as being part of a single conversation so that we can
         let the user select that conversation to be displayed.) */
 
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
             PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
 
         if (conversation == NULL)
         {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+            conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                 PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
         }
 
         request_value = ndps_hash_insert(conversation, (guint32) pinfo->srcport);
         request_value->ndps_prog = ndps_prog;
         request_value->ndps_func = ndps_func;
-        request_value->ndps_frame_num = pinfo->fd->num;
+        request_value->ndps_frame_num = pinfo->num;
     }
     switch(ndps_prog)
     {
@@ -4651,8 +4636,6 @@ dissect_ndps_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, g
                         }
                         foffset += length;
                         foffset += (length%2);
-                        if ((int) foffset <= 0)
-                            THROW(ReportedBoundsError);
                     }
                     else
                     {
@@ -6769,7 +6752,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
 
     if (!pinfo->fd->flags.visited) {
         /* Find the conversation whence the request would have come. */
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
             PT_NCP, (guint32) pinfo->destport, (guint32) pinfo->destport, 0);
         if (conversation != NULL) {
             /* find the record telling us the request made that caused
@@ -9524,8 +9507,8 @@ proto_reg_handoff_ndps(void)
 {
     dissector_handle_t ndps_handle, ndps_tcp_handle;
 
-    ndps_handle = new_create_dissector_handle(dissect_ndps_ipx, proto_ndps);
-    ndps_tcp_handle = new_create_dissector_handle(dissect_ndps_tcp, proto_ndps);
+    ndps_handle = create_dissector_handle(dissect_ndps_ipx, proto_ndps);
+    ndps_tcp_handle = create_dissector_handle(dissect_ndps_tcp, proto_ndps);
 
     dissector_add_uint("spx.socket", SPX_SOCKET_PA, ndps_handle);
     dissector_add_uint("spx.socket", SPX_SOCKET_BROKER, ndps_handle);

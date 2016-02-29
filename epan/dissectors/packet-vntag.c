@@ -45,8 +45,8 @@ static int hf_vntag_trailer = -1;
 
 static gint ett_vntag = -1;
 
-static void
-dissect_vntag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_vntag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint16     encap_proto;
 	proto_tree *vntag_tree = NULL;
@@ -112,6 +112,7 @@ dissect_vntag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 #if 0
 	}
 #endif
+	return tvb_captured_length(tvb);
 }
 
 void

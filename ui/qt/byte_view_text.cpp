@@ -28,6 +28,7 @@
 
 #include "color_utils.h"
 #include "wireshark_application.h"
+#include "ui/recent.h"
 
 #include <QActionGroup>
 #include <QMouseEvent>
@@ -36,7 +37,7 @@
 
 // To do:
 // - Add recent settings and context menu items to show/hide the offset,
-//   hex/bits, and ASCII/EBCDIC.
+//   and ASCII/EBCDIC.
 // - Add a UTF-8 and possibly UTF-xx option to the ASCII display.
 // - Add "copy bytes as" context menu items.
 
@@ -53,7 +54,6 @@ ByteViewText::ByteViewText(QWidget *parent, tvbuff_t *tvb, proto_tree *tree, QTr
     tree_widget_(tree_widget),
     bold_highlight_(false),
     encoding_(encoding),
-    format_(BYTES_HEX),
     format_actions_(new QActionGroup(this)),
     p_bound_(0, 0),
     f_bound_(0, 0),
@@ -61,17 +61,22 @@ ByteViewText::ByteViewText(QWidget *parent, tvbuff_t *tvb, proto_tree *tree, QTr
     show_offset_(true),
     show_hex_(true),
     show_ascii_(true),
-    row_width_(16)
+    row_width_(recent.gui_bytes_view == BYTES_HEX ? 16 : 8)
 {
     QAction *action;
 
     action = format_actions_->addAction(tr("Show bytes as hexadecimal"));
     action->setData(qVariantFromValue(BYTES_HEX));
     action->setCheckable(true);
-    action->setChecked(true);
+    if (recent.gui_bytes_view == BYTES_HEX) {
+        action->setChecked(true);
+    }
     action = format_actions_->addAction(tr("Show bytes as bits"));
     action->setData(qVariantFromValue(BYTES_BITS));
     action->setCheckable(true);
+    if (recent.gui_bytes_view == BYTES_BITS) {
+        action->setChecked(true);
+    }
 
     ctx_menu_.addActions(format_actions_->actions());
     ctx_menu_.addSeparator();
@@ -79,6 +84,11 @@ ByteViewText::ByteViewText(QWidget *parent, tvbuff_t *tvb, proto_tree *tree, QTr
     connect(format_actions_, SIGNAL(triggered(QAction*)), this, SLOT(setHexDisplayFormat(QAction*)));
 
     setMouseTracking(true);
+}
+
+ByteViewText::~ByteViewText()
+{
+    ctx_menu_.clear();
 }
 
 void ByteViewText::setEncoding(packet_char_enc encoding)
@@ -130,8 +140,6 @@ const guint8 *ByteViewText::dataAndLength(guint *data_len_ptr)
 void ByteViewText::setMonospaceFont(const QFont &mono_font)
 {
     mono_font_ = mono_font;
-//    mono_bold_font_ = QFont(mono_font);
-//    mono_bold_font_.setBold(true);
 
     const QFontMetricsF fm(mono_font);
     font_width_  = fm.width('M');
@@ -149,6 +157,7 @@ void ByteViewText::paintEvent(QPaintEvent *)
 {
     QPainter painter(viewport());
     painter.translate(-horizontalScrollBar()->value() * font_width_, 0);
+    painter.setFont(font());
 
     // Pixel offset of this row
     int row_y = 0;
@@ -178,7 +187,7 @@ void ByteViewText::paintEvent(QPaintEvent *)
         int sep_width = (i / separator_interval_) * font_width_;
         if (show_hex_) {
             // Hittable pixels extend 1/2 space on either side of the hex digits
-            int pixels_per_byte = (format_ == BYTES_HEX ? 3 : 9) * font_width_;
+            int pixels_per_byte = (recent.gui_bytes_view == BYTES_HEX ? 3 : 9) * font_width_;
             int hex_x = offsetPixels() + margin_ + sep_width + (i * pixels_per_byte) - (font_width_ / 2);
             for (int j = 0; j <= pixels_per_byte; j++) {
                 x_pos_to_column_[hex_x + j] = i;
@@ -209,7 +218,7 @@ void ByteViewText::resizeEvent(QResizeEvent *)
 }
 
 void ByteViewText::mousePressEvent (QMouseEvent *event) {
-    if (!tvb_ || !event || event->button() != Qt::LeftButton ) {
+    if (!tvb_ || !event || event->button() != Qt::LeftButton) {
         return;
     }
 
@@ -341,7 +350,7 @@ void ByteViewText::drawOffsetLine(QPainter &painter, const guint offset, const i
                     text += ' ';
             }
 
-            switch (format_) {
+            switch (recent.gui_bytes_view) {
             case BYTES_HEX:
                 text += hexchars[(pd[tvb_pos] & 0xf0) >> 4];
                 text += hexchars[pd[tvb_pos] & 0x0f];
@@ -476,7 +485,7 @@ int ByteViewText::offsetPixels()
 int ByteViewText::hexPixels()
 {
     if (show_hex_) {
-        int digits_per_byte = format_ == BYTES_HEX ? 3 : 9;
+        int digits_per_byte = recent.gui_bytes_view == BYTES_HEX ? 3 : 9;
         return (((row_width_ * digits_per_byte) + ((row_width_ - 1) / separator_interval_)) * font_width_) + one_em_;
     }
     return 0;
@@ -531,8 +540,8 @@ void ByteViewText::setHexDisplayFormat(QAction *action)
         return;
     }
 
-    format_ = action->data().value<bytes_view_type>();
-    row_width_ = format_ == BYTES_HEX ? 16 : 8;
+    recent.gui_bytes_view = action->data().value<bytes_view_type>();
+    row_width_ = recent.gui_bytes_view == BYTES_HEX ? 16 : 8;
     viewport()->update();
 }
 

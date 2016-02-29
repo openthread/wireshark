@@ -48,7 +48,7 @@ static gint ett_mac_mgmt_msg_dsa_ack_decoder = -1;
 static gint hf_dsa_transaction_id = -1;
 static gint hf_dsa_confirmation_code = -1;
 
-static void dissect_mac_mgmt_msg_dsa_req_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_dsa_req_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	proto_item *dsa_item;
@@ -69,9 +69,10 @@ static void dissect_mac_mgmt_msg_dsa_req_decoder(tvbuff_t *tvb, packet_info *pin
 		/* process DSA-REQ message TLV Encode Information */
 		wimax_common_tlv_encoding_decoder(tvb_new_subset_remaining(tvb, offset), pinfo, dsa_tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_mgmt_msg_dsa_rsp_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_dsa_rsp_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	proto_item *dsa_item;
@@ -95,9 +96,10 @@ static void dissect_mac_mgmt_msg_dsa_rsp_decoder(tvbuff_t *tvb, packet_info *pin
 		/* process DSA RSP message TLV Encode Information */
 		wimax_common_tlv_encoding_decoder(tvb_new_subset_remaining(tvb, offset), pinfo, dsa_tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_mgmt_msg_dsa_ack_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_dsa_ack_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	proto_item *dsa_item;
@@ -121,6 +123,7 @@ static void dissect_mac_mgmt_msg_dsa_ack_decoder(tvbuff_t *tvb, packet_info *pin
 		/* process DSA-REQ message TLV Encode Information */
 		wimax_common_tlv_encoding_decoder(tvb_new_subset_remaining(tvb, offset), pinfo, dsa_tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax Mac Payload Protocol and Dissector */

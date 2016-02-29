@@ -1,9 +1,9 @@
--- 3GPP TS 29.002 V12.3.0 (2013-12)
+-- 3GPP TS 29.002 V13.2.0 (2015-12)
 -- 17.7.1	Mobile Service data types
 
 MAP-MS-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-MS-DataTypes (11) version15 (15)}
+   gsm-Network (1) modules (3) map-MS-DataTypes (11) version16 (16)}
 
 DEFINITIONS
 
@@ -14,9 +14,9 @@ IMPLICIT TAGS
 BEGIN
 
 EXPORTS
-	-- WS modification: for Ericsson proprietary extensions
+-- WS modification: for Ericsson proprietary extensions
 	RequestedEquipmentInfo,
-	-- End WS modification
+-- End WS modification
 	-- location registration types
 	UpdateLocationArg,
 	UpdateLocationRes,
@@ -159,9 +159,10 @@ NoteMM-EventArg,
 	-- VGCS / VBS types types
 GroupId, 
 Long-GroupId,
-AdditionalSubscriptions,
 -- WS adittion
-AuthenticationSetList
+AuthenticationSetList,
+AdditionalSubscriptions
+
 ;
 
 IMPORTS
@@ -174,22 +175,22 @@ IMPORTS
 	CliRestrictionOption
 FROM MAP-SS-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-SS-DataTypes (14) version15 (15)}
+   gsm-Network (1) modules (3) map-SS-DataTypes (14) version16 (16)}
 
 	SS-Code
 FROM MAP-SS-Code {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-SS-Code (15) version15 (15)}
+   gsm-Network (1) modules (3) map-SS-Code (15) version16 (16)}
 
 	Ext-BearerServiceCode
 FROM MAP-BS-Code {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-BS-Code (20) version15 (15)}
+   gsm-Network (1) modules (3) map-BS-Code (20) version16 (16)}
 
 	Ext-TeleserviceCode
 FROM MAP-TS-Code {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-TS-Code (19) version15 (15)}
+   gsm-Network (1) modules (3) map-TS-Code (19) version16 (16)}
 
 	AddressString,
 ISDN-AddressString, 
@@ -228,22 +229,22 @@ RAIdentity,
 NetworkNodeDiameterAddress
 FROM MAP-CommonDataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-CommonDataTypes (18) version15 (15)}
+   gsm-Network (1) modules (3) map-CommonDataTypes (18) version16 (16)}
 
 	ExtensionContainer
 FROM MAP-ExtensionDataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-ExtensionDataTypes (21) version15 (15)}
+   gsm-Network (1) modules (3) map-ExtensionDataTypes (21) version16 (16)}
 
 	AbsentSubscriberDiagnosticSM
 FROM MAP-ER-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-ER-DataTypes (17) version15 (15)}
+   gsm-Network (1) modules (3) map-ER-DataTypes (17) version16 (16)}
 
 	TracePropagationList
 FROM MAP-OM-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-OM-DataTypes (12) version15 (15)}
+   gsm-Network (1) modules (3) map-OM-DataTypes (12) version16 (16)}
 
 ;
 
@@ -564,7 +565,8 @@ UpdateGprsLocationArg ::= SEQUENCE {
 	removalofMMERegistrationforSMS	[22] NULL		OPTIONAL,
 	sgsn-Name		[19] DiameterIdentity	OPTIONAL,
 	sgsn-Realm	[20]	DiameterIdentity	OPTIONAL,
-	lgd-supportIndicator	[21] NULL		OPTIONAL }
+	lgd-supportIndicator	[21] NULL		OPTIONAL,
+	adjacentPLMN-List	[23] AdjacentPLMN-List	OPTIONAL }
 
 SMSRegisterRequest::= ENUMERATED {
 	sms-registration-required  (0),
@@ -661,7 +663,10 @@ SupportedFeatures::= BIT STRING {
 	ue-Reachability-Notification (30),
 	state-Location-Information-Retrieval (31),
 	partialPurge (32),
-	gddInSGSN (33)} (SIZE (26..40))
+	gddInSGSN (33),
+	sgsnCAMELCapability (34),
+	pcscf-Restoration (35),
+	dedicatedCoreNetworks (36)} (SIZE (26..40))
 	--	the definition and usage of the above features see the 3GPP TS 29.272 [144].
 
 
@@ -680,6 +685,10 @@ UpdateGprsLocationRes ::= SEQUENCE {
 
 EPLMN-List ::= SEQUENCE SIZE (1..50) OF
 			PLMN-Id
+
+AdjacentPLMN-List ::= SEQUENCE SIZE (1..50) OF
+			PLMN-Id
+
 
 -- handover types
 
@@ -704,7 +713,9 @@ ForwardAccessSignalling-Arg ::= [3] SEQUENCE {
 	alternativeChannelType	[15]	RadioResourceInformation	OPTIONAL,
 	tracePropagationList	[17]	TracePropagationList	OPTIONAL,
  	aoipSupportedCodecsListAnchor	[18] AoIPCodecsList	OPTIONAL,
- 	aoipSelectedCodecTarget	[19] AoIPCodec	OPTIONAL }
+ 	aoipSelectedCodecTarget	[19] AoIPCodec	OPTIONAL,
+	uesbi-Iu		[20]	UESBI-Iu	OPTIONAL,
+	imeisv		[21]	IMEI		OPTIONAL }
 
 AllowedGSM-Algorithms ::= OCTET STRING (SIZE (1))
 	-- internal structure is coded as Algorithm identifier octet from
@@ -1039,7 +1050,8 @@ SendAuthenticationInfoArg ::= SEQUENCE {
 	requestingNodeType	[3] RequestingNodeType	OPTIONAL,
 	requestingPLMN-Id	[4] PLMN-Id	OPTIONAL,
 	numberOfRequestedAdditional-Vectors	[5] NumberOfRequestedVectors	OPTIONAL,
-	additionalVectorsAreForEPS	[6] NULL		OPTIONAL }	
+	additionalVectorsAreForEPS	[6] NULL		OPTIONAL,
+	ueUsageTypeRequestIndication	[7] NULL		OPTIONAL }	
 
 
 NumberOfRequestedVectors ::= INTEGER (1..5)
@@ -1053,10 +1065,14 @@ SendAuthenticationInfoRes ::= [3] SEQUENCE {
 	authenticationSetList	AuthenticationSetList 	OPTIONAL,
 	extensionContainer	ExtensionContainer	OPTIONAL,
 	...,
-	eps-AuthenticationSetList	[2] EPS-AuthenticationSetList	OPTIONAL }
+	eps-AuthenticationSetList	[2] EPS-AuthenticationSetList	OPTIONAL,
+	ueUsageType	[3] UE-UsageType	OPTIONAL }
 
 EPS-AuthenticationSetList ::= SEQUENCE SIZE (1..5) OF
 				EPC-AV
+
+UE-UsageType::= OCTET STRING (SIZE (4))
+	-- octets are coded as defined in 3GPP TS 29.272 [144] 
 
 EPC-AV ::= SEQUENCE {
 	rand			RAND,
@@ -1156,9 +1172,33 @@ InsertSubscriberDataArg ::= SEQUENCE {
 	vplmn-Csg-SubscriptionDataList	[40]	VPLMN-CSG-SubscriptionDataList	OPTIONAL,
 	additionalMSISDN	[41]	ISDN-AddressString	OPTIONAL,
 	psAndSMS-OnlyServiceProvision	[42]	NULL		OPTIONAL,
-	smsInSGSNAllowed	[43]	NULL		OPTIONAL }
+	smsInSGSNAllowed	[43]	NULL		OPTIONAL,
+	cs-to-ps-SRVCC-Allowed-Indicator	[44]	NULL		OPTIONAL,
+ 	pcscf-Restoration-Request	[45]	NULL		OPTIONAL,
+	adjacentAccessRestrictionDataList	[46] AdjacentAccessRestrictionDataList	OPTIONAL,
+	imsi-Group-Id-List	[47] IMSI-GroupIdList 	OPTIONAL,
+	ueUsageType	[48] UE-UsageType	OPTIONAL }
 	-- If the Network Access Mode parameter is sent, it shall be present only in 
 	-- the first sequence if seqmentation is used
+
+Group-Service-ID ::= BIT STRING {
+	groupSpecificNASlevelCongestionControl (0)} (SIZE (1..32))
+	-- exception handling: 
+	-- bits 1 to 31 shall be ignored if received and not understood
+	
+
+Local-GroupID ::= OCTET STRING (SIZE (1..10)) 
+	-- Refers to Local group ID defined by an operator identified by the PLMN-ID.
+	--	for details see 3GPP TS 29.272 [144]
+
+IMSI-GroupIdList ::= SEQUENCE SIZE (1..50) OF
+			IMSI-GroupId
+
+IMSI-GroupId ::= SEQUENCE {
+			group-Service-Id	[0]	Group-Service-ID,
+			plmnId	[1]	PLMN-Id,
+			local-Group-ID	[2]	Local-GroupID,
+			...}
 
 SubscribedPeriodicRAUTAUtimer ::= INTEGER (0..4294967295)
 	-- This parameter carries the subscribed periodic TAU/RAU timer value in seconds as
@@ -1252,7 +1292,8 @@ APN-Configuration ::= SEQUENCE {
 	sipto-Permission	[14] SIPTO-Permission	OPTIONAL,
 	lipa-Permission	[15] LIPA-Permission	OPTIONAL,
 	restoration-Priority	[16] Restoration-Priority	OPTIONAL,
-	sipto-local-network-Permission	[17] SIPTO-Local-Network-Permission	OPTIONAL
+	sipto-local-network-Permission	[17] SIPTO-Local-Network-Permission	OPTIONAL,
+	wlan-offloadability	[18] WLAN-Offloadability	OPTIONAL
  }
 
 PDN-Type ::= OCTET STRING (SIZE (1))
@@ -1320,6 +1361,18 @@ PDN-GW-AllocationType ::= ENUMERATED {
 	dynamic	(1)}
 
 
+WLAN-Offloadability ::= SEQUENCE {
+	wlan-offloadability-EUTRAN	[0] WLAN-Offloadability-Indication  	OPTIONAL,
+	wlan-offloadability-UTRAN	[1] WLAN-Offloadability-Indication	   OPTIONAL,
+	extensionContainer	[2] ExtensionContainer		OPTIONAL,
+	... }
+
+WLAN-Offloadability-Indication ::= ENUMERATED {
+	notAllowed   (0),
+	allowed      (1)}
+
+
+
 AccessRestrictionData ::= BIT STRING {
 	utranNotAllowed (0),
 	geranNotAllowed (1),
@@ -1334,6 +1387,14 @@ AccessRestrictionData ::= BIT STRING {
 	-- 5.3.19 of TS 23.060, in subclause 7.5.3 of TS 29.060 and subclause 7.3.6 of TS 29.274.
 	-- bits 6 to 7 shall be ignored if received and not understood
 	
+
+AdjacentAccessRestrictionDataList ::= SEQUENCE SIZE (1..50) OF
+			AdjacentAccessRestrictionData
+
+AdjacentAccessRestrictionData ::= SEQUENCE {
+			plmnId	[0]	PLMN-Id,
+			accessRestrictionData	[1]	AccessRestrictionData,
+			...}
 
 CS-AllocationRetentionPriority ::= OCTET STRING (SIZE (1))
 	-- This data type encodes each priority level defined in TS 23.107 as the binary value
@@ -1972,7 +2033,9 @@ DeleteSubscriberDataArg ::= SEQUENCE {
 	subscribedPeriodicLAU-TimerWithdraw	[23]	NULL		OPTIONAL,
 	subscribed-vsrvccWithdraw	[21] NULL		OPTIONAL,
 	vplmn-Csg-SubscriptionDeleted	[24]	NULL		OPTIONAL,
-	additionalMSISDN-Withdraw	[25]	NULL		OPTIONAL }
+	additionalMSISDN-Withdraw	[25]	NULL		OPTIONAL,
+	cs-to-ps-SRVCC-Withdraw	[26]	NULL		OPTIONAL,
+	imsiGroupIdList-Withdraw	[27]	NULL		OPTIONAL }
 
 SpecificCSI-Withdraw ::= BIT STRING {
 	o-csi (0),

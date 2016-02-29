@@ -35,6 +35,7 @@
 #include <epan/prefs.h>
 #include <epan/sctpppids.h>
 #include <epan/lapd_sapi.h>
+#include <wsutil/str_util.h>
 
 void proto_register_iua(void);
 void proto_reg_handoff_iua(void);
@@ -894,8 +895,8 @@ dissect_iua_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree,
   dissect_parameters(parameters_tvb, pinfo, tree, iua_tree);
 }
 
-static void
-dissect_iua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_iua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *iua_item;
   proto_tree *iua_tree;
@@ -910,6 +911,7 @@ dissect_iua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
 
   /* dissect the message */
   dissect_iua_message(message_tvb, pinfo, tree, iua_tree);
+  return tvb_captured_length(message_tvb);
 }
 
 /* Register the protocol with Wireshark */

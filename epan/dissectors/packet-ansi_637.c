@@ -2389,8 +2389,8 @@ dissect_ansi_637_tele_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ans
     }
 }
 
-static void
-dissect_ansi_637_tele(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ansi_637_tele(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item  *ansi_637_item;
     proto_tree  *ansi_637_tree = NULL;
@@ -2495,6 +2495,7 @@ dissect_ansi_637_tele(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         dissect_ansi_637_tele_message(tvb, pinfo, ansi_637_tree, &has_private_data);
     }
+    return tvb_captured_length(tvb);
 }
 
 static gboolean
@@ -2565,8 +2566,8 @@ dissect_ansi_637_trans_param(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 }
 
 
-static void
-dissect_ansi_637_trans(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ansi_637_trans(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item  *ansi_637_item;
     proto_tree  *ansi_637_tree = NULL;
@@ -2642,16 +2643,17 @@ dissect_ansi_637_trans(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             }
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 
 /* Dissect SMS embedded in SIP */
-static void
-dissect_ansi_637_trans_app(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ansi_637_trans_app(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "/");
     col_set_fence(pinfo->cinfo, COL_INFO);
-    dissect_ansi_637_trans(tvb, pinfo, tree);
+    return dissect_ansi_637_trans(tvb, pinfo, tree, data);
 }
 
 
@@ -3344,7 +3346,7 @@ proto_register_ansi_637(void)
 
     tele_dissector_table =
         register_dissector_table("ansi_637.tele_id",
-            "ANSI IS-637-A Teleservice ID", FT_UINT8, BASE_DEC);
+            "ANSI IS-637-A Teleservice ID", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 

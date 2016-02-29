@@ -854,8 +854,8 @@ dissect_wai_data(tvbuff_t *tvb, proto_tree *tree, guint8 subtype, guint16 lenx)
     }
 }
 
-static void
-dissect_wai(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wai(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 /* Format of WAPI protocol packet in WAI authentication system
 
@@ -886,7 +886,7 @@ Figure 18 from [ref:1]
     /* quick sanity check */
     if ((length != tvb_reported_length (tvb)-WAI_MESSAGE_LENGTH) ||
         (subtype > WAI_SUB_MULTICAST_ANNOUNCE_RESP)) {
-        return;
+        return 0;
     }
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "WAI");
@@ -965,6 +965,7 @@ Figure 18 from [ref:1]
         }
     }
 
+    return tvb_captured_length(tvb);
 }
 
 static void wai_reassemble_init (void)

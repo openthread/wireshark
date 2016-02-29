@@ -1158,7 +1158,7 @@ get_uuids(packet_info *pinfo, guint32 record_handle, btl2cap_data_t *l2cap_data)
     adapter_id   = l2cap_data->adapter_id;
     chandle  = l2cap_data->chandle;
     psm  = l2cap_data->psm;
-    frame_number = pinfo->fd->num;
+    frame_number = pinfo->num;
 
     k_interface_id  = interface_id;
     k_adapter_id    = adapter_id;
@@ -1239,7 +1239,7 @@ save_channel(packet_info *pinfo, guint32 type_protocol, guint32 channel,
     k_bd_addr_id      = service_info->bd_addr_id;
     k_service_type    = service_info->type;
     k_service_channel = service_info->channel;
-    k_frame_number    = pinfo->fd->num;
+    k_frame_number    = pinfo->num;
 
     key[0].length = 1;
     key[0].key = &k_interface_id;
@@ -1367,23 +1367,12 @@ dissect_uuid(proto_tree *tree, tvbuff_t *tvb, gint offset, gint size, bluetooth_
         uuid->bt_uuid = tvb_get_ntohs(tvb, offset + 2);
         proto_item_append_text(item, " (%s)", val_to_str_ext_const(uuid->bt_uuid, &bluetooth_uuid_vals_ext, "Unknown"));
     } else {
-        guint i_uuid;
+        bluetooth_uuid_t  x_uuid;
+
         item = proto_tree_add_item(tree, hf_data_element_value_uuid, tvb, offset, size, ENC_NA);
+        x_uuid = get_uuid(tvb, offset, size);
 
-        i_uuid = 0;
-        while (bluetooth_uuid_custom[i_uuid].name) {
-            if (bluetooth_uuid_custom[i_uuid].size != size) {
-                i_uuid += 1;
-                continue;
-            }
-
-            if (tvb_memeql(tvb, offset, bluetooth_uuid_custom[i_uuid].uuid, 4) == 0) {
-                proto_item_append_text(item, " (%s)", bluetooth_uuid_custom[i_uuid].name);
-                break;
-            }
-
-            i_uuid += 1;
-        }
+        proto_item_append_text(item, " (%s)", print_uuid(&x_uuid));
 
         uuid->bt_uuid = 0;
     }
@@ -1478,7 +1467,7 @@ reassemble_continuation_state(tvbuff_t *tvb, packet_info *pinfo,
     adapter_id   = l2cap_data->adapter_id;
     chandle      = l2cap_data->chandle;
     psm          = l2cap_data->psm;
-    frame_number = pinfo->fd->num;
+    frame_number = pinfo->num;
 
     k_interface_id = interface_id;
     k_adapter_id   = adapter_id;
@@ -2004,7 +1993,7 @@ dissect_protocol_descriptor_list(proto_tree *next_tree, tvbuff_t *tvb,
     list_offset = offset;
     i_protocol = 1;
     while (list_offset - offset < size) {
-        gchar           *uuid_str;
+        const gchar     *uuid_str;
 
         feature_item = proto_tree_add_none_format(next_tree, hf_sdp_protocol_item, tvb, list_offset, 0, "Protocol #%u", i_protocol);
         feature_tree = proto_item_add_subtree(feature_item, ett_btsdp_protocol);
@@ -2160,7 +2149,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
     guint32        value;
     guint64        value_64;
     bluetooth_uuid_t uuid;
-    gchar         *uuid_str;
+    const gchar   *uuid_str;
     gint           length;
     gint           protocol_order;
     wmem_strbuf_t *info_buf;
@@ -4003,7 +3992,7 @@ dissect_sdp_service_attribute_list(proto_tree *tree, tvbuff_t *tvb, gint offset,
         k_bd_addr_id      = service_info->bd_addr_id;
         k_service_type    = service_info->type;
         k_service_channel = service_info->channel;
-        k_frame_number    = pinfo->fd->num;
+        k_frame_number    = pinfo->num;
 
         key[0].length = 1;
         key[0].key = &k_interface_id;
@@ -4207,7 +4196,7 @@ dissect_sdp_service_search_response(proto_tree *tree, tvbuff_t *tvb,
         adapter_id   = l2cap_data->adapter_id;
         chandle      = l2cap_data->chandle;
         psm          = l2cap_data->psm;
-        frame_number = pinfo->fd->num;
+        frame_number = pinfo->num;
 
         k_interface_id = interface_id;
         k_adapter_id   = adapter_id;
@@ -6519,7 +6508,7 @@ proto_register_btsdp(void)
     };
 
     proto_btsdp = proto_register_protocol("Bluetooth SDP Protocol", "BT SDP", "btsdp");
-    btsdp_handle = new_register_dissector("btsdp", dissect_btsdp, proto_btsdp);
+    btsdp_handle = register_dissector("btsdp", dissect_btsdp, proto_btsdp);
 
     proto_register_field_array(proto_btsdp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

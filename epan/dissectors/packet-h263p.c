@@ -66,8 +66,8 @@ static gint ett_h263P_data = -1;
 static guint temp_dynamic_payload_type = 0;
 
 /* RFC 4629 */
-static void
-dissect_h263P( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int
+dissect_h263P( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
     proto_item *ti                  = NULL;
     proto_item *data_item           = NULL;
@@ -192,10 +192,11 @@ dissect_h263P( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
           }else{
               /* Error */
           }
-          return;
+          return tvb_captured_length(tvb);
       }
       proto_tree_add_item( h263P_tree, hf_h263P_payload, tvb, offset, -1, ENC_NA );
     }
+    return tvb_captured_length(tvb);
 }
 
 void

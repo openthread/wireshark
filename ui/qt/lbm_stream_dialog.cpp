@@ -209,13 +209,13 @@ void LBMStreamEntry::processPacket(const packet_info * pinfo, const lbm_uim_stre
     LBMSubstreamEntry * substream = NULL;
     LBMSubstreamMapIterator it;
 
-    if (m_first_frame > pinfo->fd->num)
+    if (m_first_frame > pinfo->num)
     {
-        m_first_frame = pinfo->fd->num;
+        m_first_frame = pinfo->num;
     }
-    if (m_flast_frame < pinfo->fd->num)
+    if (m_flast_frame < pinfo->num)
     {
-        m_flast_frame = pinfo->fd->num;
+        m_flast_frame = pinfo->num;
     }
     m_bytes += stream_info->bytes;
     m_messages++;
@@ -236,7 +236,7 @@ void LBMStreamEntry::processPacket(const packet_info * pinfo, const lbm_uim_stre
         substream = it.value();
     }
     fillItem();
-    substream->processPacket(pinfo->fd->num, stream_info->bytes);
+    substream->processPacket(pinfo->num, stream_info->bytes);
 }
 
 void LBMStreamEntry::setItem(QTreeWidgetItem * item)
@@ -443,10 +443,10 @@ void LBMStreamDialog::closeDialog(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

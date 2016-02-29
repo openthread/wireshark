@@ -41,6 +41,7 @@ Laurent Deniel <laurent.deniel[AT]free.fr>
 Gerald Combs <gerald[AT]wireshark.org>
 Guy Harris <guy[AT]alum.mit.edu>
 Ulf Lamping <ulf.lamping[AT]web.de>
+Barbu Paul - Gheorghe <barbu.paul.gheorghe[AT]gmail.com>
 
 1. Setting up your protocol dissector code.
 
@@ -97,9 +98,11 @@ PROTOSHORTNAME  An abbreviated name for the protocol; this is displayed
                 and in the dialog box for filter fields when constructing
                 a filter expression.
 PROTOABBREV     A name for the protocol for use in filter expressions;
-                it shall contain only lower-case letters, digits, and hyphens.
+                it may contain only lower-case letters, digits, and hyphens,
+                underscores, and periods.
 FIELDNAME       The displayed name for the header field.
-FIELDABBREV     The abbreviated name for the header field. (NO SPACES)
+FIELDABBREV     The abbreviated name for the header field; it may contain
+                only letters, digits, hyphens, underscores, and periods.
 FIELDTYPE       FT_NONE, FT_BOOLEAN, FT_UINT8, FT_UINT16, FT_UINT24,
                 FT_UINT32, FT_UINT40, FT_UINT48, FT_UINT56, FT_UINT64,
                 FT_INT8, FT_INT16, FT_INT24, FT_INT32, FT_INT40, FT_INT48,
@@ -141,6 +144,7 @@ FIELDDISPLAY    --For FT_UINT{8,16,24,32,40,48,56,64} and
                   SEP_DOT, SEP_DASH, SEP_COLON, or SEP_SPACE to provide
                   a separator between bytes.
                   BASE_NONE has no separator between bytes
+                  BASE_ALLOW_ZERO displays <none> instead of <MISSING> for zero sized byte array
 
                 --For FT_IPv4:
 
@@ -156,9 +160,6 @@ FIELDCONVERT    VALS(x), VALS64(x), RVALS(x), TFS(x), CF_FUNC(x), NULL
 BITMASK         Used to mask a field not 8-bit aligned or with a size other
                 than a multiple of 8 bits
 FIELDDESCR      A brief description of the field, or NULL. [Please do not use ""].
-PARENT_SUBFIELD Lower level protocol field used for lookup, i.e. "tcp.port"
-ID_VALUE        Lower level protocol field value that identifies this protocol
-                For example the TCP or UDP port number
 
 If, for example, PROTONAME is "Internet Bogosity Discovery Protocol",
 PROTOSHORTNAME would be "IBDP", and PROTOABBREV would be "ibdp".  Try to
@@ -239,6 +240,33 @@ double-precision IEEE floating-point numbers:
 
 gfloat tvb_get_letohieee_float(tvbuff_t *tvb, const gint offset);
 gdouble tvb_get_letohieee_double(tvbuff_t *tvb, const gint offset);
+
+Encoding-to_host-order accessors for 16-bit integers (guint16),
+24-bit integers, 32-bit integers (guint32), 40-bit integers, 48-bit
+integers, 56-bit integers, and 64-bit integers (guint64):
+
+guint16 tvb_get_guint16(tvbuff_t *tvb, const gint offset, const guint encoding);
+guint32 tvb_get_guint24(tvbuff_t *tvb, const gint offset, const guint encoding);
+guint32 tvb_get_guint32(tvbuff_t *tvb, const gint offset, const guint encoding);
+guint64 tvb_get_guint40(tvbuff_t *tvb, const gint offset, const guint encoding);
+gint64 tvb_get_gint40(tvbuff_t *tvb, const gint offset, const guint encoding);
+guint64 tvb_get_guint48(tvbuff_t *tvb, const gint offset, const guint encoding);
+gint64 tvb_get_gint48(tvbuff_t *tvb, const gint offset, const guint encoding);
+guint64 tvb_get_guint56(tvbuff_t *tvb, const gint offset, const guint encoding);
+gint64 tvb_get_gint56(tvbuff_t *tvb, const gint offset, const guint encoding);
+guint64 tvb_get_guint64(tvbuff_t *tvb, const gint offset, const guint encoding);
+
+"encoding" should be ENC_BIG_ENDIAN for Network-to-host-order and ENC_LITTLE_ENDIAN
+for Little-Endian-to-host-order.
+
+Endian-to-host-order accessors for single-precision and
+double-precision IEEE floating-point numbers:
+
+gfloat tvb_get_ieee_float(tvbuff_t *tvb, const gint offset, const guint encoding);
+gdouble tvb_get_ieee_double(tvbuff_t *tvb, const gint offset, const guint encoding);
+
+Just as above, "encoding" should be ENC_BIG_ENDIAN for Network-to-host-order and
+ENC_LITTLE_ENDIAN for Little-Endian-to-host-order.
 
 Accessors for IPv4 and IPv6 addresses:
 
@@ -376,6 +404,16 @@ Pointer-retrieval:
  * boundaries of the buffer.  Also see the warning in the Portability section.
  */
 guint8* tvb_get_ptr(tvbuff_t *tvb, gint offset, gint length);
+
+Length query:
+Get amount of captured data in the buffer (which is *NOT* necessarily the
+length of the packet). You probably want tvb_reported_length instead:
+
+    guint tvb_captured_length(const tvbuff_t *tvb);
+
+Get reported length of buffer:
+
+    guint tvb_reported_length(const tvbuff_t *tvb);
 
 
 1.4 Functions to handle columns in the traffic summary window.
@@ -545,8 +583,7 @@ based on the time-value.
 
 For example:
 
-    nstime_delta(&ts, &pinfo->fd->abs_ts, &tcpd->ts_first);
-    col_set_time(pinfo->cinfo, COL_REL_CONV_TIME, &ts, "tcp.time_relative");
+    col_set_time(pinfo->cinfo, COL_REL_TIME, &ts, "s4607.ploc.time");
 
 
 1.5 Constructing the protocol tree.
@@ -662,28 +699,27 @@ struct header_field_info {
     .....
 };
 
-name
-----
+name (FIELDNAME)
+----------------
 A string representing the name of the field. This is the name
 that will appear in the graphical protocol tree.  It must be a non-empty
 string.
 
-abbrev
-------
-A string with an abbreviation of the field. We concatenate the
-abbreviation of the parent protocol with an abbreviation for the field,
-using a period as a separator. For example, the "src" field in an IP packet
-would have "ip.src" as an abbreviation. It is acceptable to have
-multiple levels of periods if, for example, you have fields in your
-protocol that are then subdivided into subfields. For example, TRMAC
-has multiple error fields, so the abbreviations follow this pattern:
-"trmac.errors.iso", "trmac.errors.noniso", etc.
+abbrev (FIELDABBREV)
+--------------------
+A string with an abbreviation of the field.  The abbreviation should start
+with the abbreviation of the parent protocol followed by a period as a
+separator.  For example, the "src" field in an IP packet would have "ip.src"
+as an abbreviation. It is acceptable to have multiple levels of periods if,
+for example, you have fields in your protocol that are then subdivided into
+subfields. For example, TRMAC has multiple error fields, so the abbreviations
+follow this pattern: "trmac.errors.iso", "trmac.errors.noniso", etc.
 
-The abbreviation is the identifier used in a display filter.  If it is
-an empty string then the field will not be filterable.
+The abbreviation is the identifier used in a display filter.  As such it
+cannot be an empty string.
 
-type
-----
+type (FIELDTYPE)
+----------------
 The type of value this field holds. The current field types are:
 
     FT_NONE     No field type. Used for fields that
@@ -787,8 +823,8 @@ types (i.e.. types that are _not_ FT_INT* and FT_UINT*) must use
 fields.  The reason is simply that the type itself implicitly defines the
 nature of 'display', 'strings', 'bitmask'.
 
-display
--------
+display (FIELDDISPLAY)
+----------------------
 The display field has a couple of overloaded uses. This is unfortunate,
 but since we're using C as an application programming language, this sometimes
 makes for cleaner programs. Right now I still think that overloading
@@ -860,8 +896,8 @@ no endianness is specified, such as the X11 protocol and the DCE RPC
 protocol, so it would not be possible to record the endianness of all
 integral fields.
 
-strings
--------
+strings (FIELDCONVERT)
+----------------------
 -- value_string
 Some integer fields, of type FT_UINT*, need labels to represent the true
 value of a field.  You could think of those fields as having an
@@ -993,8 +1029,8 @@ in tfs.h, included via packet.h.
 Custom fields (BASE_CUSTOM) should use CF_FUNC(&custom_format_func) for the
 'strings' field.
 
-bitmask
--------
+bitmask (BITMASK)
+-----------------
 If the field is a bitfield, then the bitmask is the mask which will
 leave only the bits needed to make the field when ANDed with a value.
 The proto_tree routines will calculate 'bitshift' automatically
@@ -1004,8 +1040,8 @@ filtering.
 
 If the field is not a bitfield, then bitmask should be set to 0.
 
-blurb
------
+blurb (FIELDDESCR)
+------------------
 This is a string giving a proper description of the field.  It should be
 at least one grammatically complete sentence, or NULL in which case the
 name field is used. (Please do not use "").
@@ -1082,13 +1118,14 @@ for protocols with variable-width header fields.
 
 Note that the formats used must all belong to the same group as defined below:
 - FT_INT8, FT_INT16, FT_INT24 and FT_INT32
-- FT_UINT8, FT_UINT16, FT_UINT24, and FT_UINT32
+- FT_UINT8, FT_UINT16, FT_UINT24, FT_UINT32, FT_IPXNET and FT_FRAMENUM
 - FT_INT40, FT_INT48, FT_INT56 and FT_INT64
-- FT_UINT40, FT_UINT48, FT_UINT56, and FT_UINT64
-- FT_STRING, FT_STRINGZ and FT_UINT_STRING
+- FT_UINT40, FT_UINT48, FT_UINT56, FT_UINT64 and FT_EUI64
+- FT_ABSOLUTE_TIME and FT_RELATIVE_TIME
+- FT_STRING, FT_STRINGZ, FT_UINT_STRING and FT_STRINGZPAD
 - FT_FLOAT and FT_DOUBLE
-- FT_BYTES and FT_UINT_BYTES
-- FT_OID and FT_REL_OID
+- FT_BYTES, FT_UINT_BYTES, FT_ETHER, FT_AX25, FT_VINES and FT_FCWWN
+- FT_OID, FT_REL_OID and FT_SYSTEM_ID
 
 Any field not in a grouping above should *NOT* be used in duplicate field
 abbrevations. The current code does not prevent it, but someday in the future
@@ -2514,10 +2551,9 @@ selected in random order once the whole file has been read.
 
 After calculating the conversation timestamps, it is time to put them in
 the appropriate columns with the function 'col_set_time' (described in
-section 1.5.9). There are two columns for conversation timestamps:
+section 1.5.9). The column used for relative timestamps is:
 
-COL_REL_CONV_TIME,  /* Relative time to beginning of conversation */
-COL_DELTA_CONV_TIME,/* Delta time to last frame in conversation */
+COL_REL_TIME, /* Delta time to last frame in conversation */
 
 Last but not least, there MUST be a preference in each dissector that
 uses conversation timestamps that makes it possible to enable and
@@ -2561,7 +2597,7 @@ my_entry_t *data_ptr;
 
 /* look up the conversation */
 
-conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
         pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 
 /* if conversation found get the data pointer that you stored */
@@ -2577,7 +2613,7 @@ else {
 
     /* create the conversation with your data pointer  */
 
-    conversation = conversation_new(pinfo->fd->num,  &pinfo->src, &pinfo->dst, pinfo->ptype,
+    conversation = conversation_new(pinfo->num,  &pinfo->src, &pinfo->dst, pinfo->ptype,
         pinfo->srcport, pinfo->destport, 0);
     conversation_add_proto_data(conversation, my_proto, (void *)data_ptr);
 }
@@ -2595,19 +2631,19 @@ Sometimes a dissector has determined that a new conversation is needed that
 starts at a specific frame number, when a capture session encompasses multiple
 conversation that reuse the same src/dest ip/port pairs. You can use the
 conversation->setup_frame returned by find_conversation with
-pinfo->fd->num to determine whether or not there already exists a conversation
+pinfo->num to determine whether or not there already exists a conversation
 that starts at the specific frame number.
 
 /* in the dissector routine */
 
-    conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
         pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
-    if (conversation == NULL || (conversation->setup_frame != pinfo->fd->num)) {
+    if (conversation == NULL || (conversation->setup_frame != pinfo->num)) {
         /* It's not part of any conversation or the returned
          * conversation->setup_frame doesn't match the current frame
          * create a new one.
          */
-        conversation = conversation_new(pinfo->fd->num, &pinfo->src,
+        conversation = conversation_new(pinfo->num, &pinfo->src,
             &pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport,
             NULL, 0);
     }
@@ -2667,7 +2703,7 @@ upon the conversation index and values inside the request packets.
 NOTE:   This sections assumes that all information is available to
     create a complete conversation, source port/address and
     destination port/address.  If either the destination port or
-    address is know, see section 2.4 Dynamic server port dissector
+    address is known, see section 2.4 Dynamic server port dissector
     registration.
 
 For protocols that negotiate a secondary port connection, for example
@@ -2712,7 +2748,7 @@ static void sub_dissector(tvbuff_t *tvb, packet_info *pinfo,
 /* First check if a conversation already exists for this
     socketpair
 */
-    conversation = find_conversation(pinfo->fd->num,
+    conversation = find_conversation(pinfo->num,
                 &pinfo->src, &pinfo->dst, protocol,
                 src_port, dst_port,  0);
 
@@ -2726,7 +2762,7 @@ static void sub_dissector(tvbuff_t *tvb, packet_info *pinfo,
         new_conv_info->data1 = value1;
 
 /* create the conversation for the dynamic port */
-            conversation = conversation_new(pinfo->fd->num,
+            conversation = conversation_new(pinfo->num,
             &pinfo->src, &pinfo->dst, protocol,
                 src_port, dst_port, new_conv_info, 0);
 
@@ -2806,7 +2842,7 @@ static dissector_handle_t sub_dissector_handle;
 /* First check if a conversation already exists for this
     IP/protocol/port
 */
-    conversation = find_conversation(pinfo->fd->num,
+    conversation = find_conversation(pinfo->num,
                 &server_src_addr, 0, protocol,
                 server_src_port, 0, NO_ADDR2 | NO_PORT_B);
 /* If there is no such conversation, or if there is one but for
@@ -2815,7 +2851,7 @@ static dissector_handle_t sub_dissector_handle;
 */
     if ( (conversation == NULL) ||
          (conversation->dissector_handle != sub_dissector_handle) ) {
-        conversation = conversation_new(pinfo->fd->num,
+        conversation = conversation_new(pinfo->num,
         &server_src_addr, 0, protocol,
         server_src_port, 0, new_conv_info, NO_ADDR2 | NO_PORT2);
 
@@ -2834,6 +2870,8 @@ The two most common use cases for p_add_proto_data/p_get_proto_data are for
 persistent data about the packet for the lifetime of the capture (file scope)
 and to exchange data between dissectors across a single packet (packet scope).
 It is also used to provide packet data for Decode As dialog (packet scope).
+
+These functions are delcared in <epan/proto_data.h>.
 
 void
 p_add_proto_data(wmem_allocator_t *scope, packet_info *pinfo, int proto, guint32 key, void *proto_data)
@@ -2947,6 +2985,8 @@ Where: module - Returned by the prefs_register_protocol routine
              menu
      max_value - The maximum allowed value for a range (0 is the minimum).
 
+These functions are declared in <epan/prefs.h>.
+
 An example from packet-beep.c -
 
    proto_beep = proto_register_protocol("Blocks Extensible Exchange Protocol",
@@ -3009,11 +3049,11 @@ example, stolen from packet-dns.c:
     dissector_handle_t dns_tcp_handle;
     dissector_handle_t mdns_udp_handle;
 
-    dns_udp_handle = new_create_dissector_handle(dissect_dns_udp,
+    dns_udp_handle = create_dissector_handle(dissect_dns_udp,
         proto_dns);
-    dns_tcp_handle = new_create_dissector_handle(dissect_dns_tcp,
+    dns_tcp_handle = create_dissector_handle(dissect_dns_tcp,
         proto_dns);
-    mdns_udp_handle = new_create_dissector_handle(dissect_mdns_udp,
+    mdns_udp_handle = create_dissector_handle(dissect_mdns_udp,
         proto_dns);
 
     dissector_add_uint("udp.port", UDP_PORT_DNS, dns_udp_handle);
@@ -3147,7 +3187,128 @@ will then be added to the protocol tree. Note that there may be more
 than one complete C string in the tvbuff, so the dissection is done in a
 loop.
 
-2.8 ptvcursors.
+2.8 Using udp_dissect_pdus().
+
+As noted in section 2.7.1, TCP has an API to dissect its PDU that can handle
+a PDU spread across multiple packets or multiple PDUs spread across a single
+packet.  This section describes a similar mechanism for UDP, but is only
+applicable for one or more PDUs in a single packet. If a protocol runs on top
+of TCP as well as UDP, a common PDU dissection function can be created for both.
+
+To register the distinct dissector functions, consider the following
+example using UDP and TCP dissection, stolen from packet-dnp.c:
+
+    #include "packet-tcp.h"
+    #include "packet-udp.h"
+
+    dissector_handle_t dnp3_tcp_handle;
+    dissector_handle_t dnp3_udp_handle;
+
+    dnp3_tcp_handle = create_dissector_handle(dissect_dnp3_tcp, proto_dnp3);
+    dnp3_udp_handle = create_dissector_handle(dissect_dnp3_udp, proto_dnp3);
+
+    dissector_add_uint("tcp.port", TCP_PORT_DNP, dnp3_tcp_handle);
+    dissector_add_uint("udp.port", UDP_PORT_DNP, dnp3_udp_handle);
+
+Both dissect_dnp3_tcp and dissect_dnp3_udp call tcp_dissect_pdus and
+udp_dissect_pdus respectively, with a reference to the same callbacks which
+are called to handle PDU data.
+
+    static int
+    dissect_dnp3_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+    {
+        return udp_dissect_pdus(tvb, pinfo, tree, DNP_HDR_LEN, dnp3_udp_check_header,
+                   get_dnp3_message_len, dissect_dnp3_message, data);
+    }
+
+    static int
+    dissect_dnp3_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+    {
+        if (!check_dnp3_header(tvb, FALSE)) {
+            return 0;
+        }
+
+        tcp_dissect_pdus(tvb, pinfo, tree, TRUE, DNP_HDR_LEN,
+                   get_dnp3_message_len, dissect_dnp3_message, data);
+
+        return tvb_captured_length(tvb);
+    }
+
+(udp_dissect_pdus has an option of a heuristic check function within it while
+tcp_dissect_pdus does not, so it's done outside)
+
+The arguments to udp_dissect_pdus are:
+
+    the tvbuff pointer, packet_info pointer, and proto_tree pointer
+    passed to the dissector;
+
+    the number of bytes of PDU data required to determine the length
+    of the PDU;
+
+    an optional routine (passing NULL is okay) that takes as arguments a
+    packet_info pointer, a tvbuff pointer and an offset value representing the
+    offset into the tvbuff at which a PDU begins, and a void pointer for user
+    data, and should return TRUE if the packet belongs to the dissector.
+    The routine must not throw exceptions (it is guaranteed that the
+    number of bytes specified by the previous argument to
+    udp_dissect_pdus is available, but more data might not be available,
+    so don't refer to any data past that);
+
+    a routine that takes as arguments a packet_info pointer, a tvbuff
+    pointer and an offset value representing the offset into the tvbuff
+    at which a PDU begins, and a void pointer for user data, and should
+    return the total length of the PDU in bytes. If return value is 0,
+    it's treated the same as a failed heuristic.
+    The routine must not throw exceptions (it is guaranteed that the
+    number of bytes specified by the previous argument to
+    tcp_dissect_pdus is available, but more data might not be available,
+    so don't refer to any data past that);
+
+    a new_dissector_t routine to dissect the pdu that's passed a tvbuff
+    pointer, packet_info pointer, proto_tree pointer and a void pointer for
+    user data, with the tvbuff containing a possibly-reassembled PDU. (The
+    "reported_length" of the tvbuff will be the length of the PDU);
+
+    a void pointer to user data that is passed to the length-determining
+    routine, and the dissector routine referenced in the previous parameter.
+
+2.9 Creating Decode As functionality.
+
+While the Decode As functionality is available through the GUI, the underlying
+functionality is controlled by dissectors themselves. To create Decode As
+functionality for a dissector, two things are required:
+    1. A dissector table
+    2. A series of structures to assist the GUI in how to present the dissector
+       table data.
+
+Consider the following example using IP dissection, stolen from packet-ip.c:
+
+    static build_valid_func ip_da_build_value[1] = {ip_value};
+    static decode_as_value_t ip_da_values = {ip_prompt, 1, ip_da_build_value};
+    static decode_as_t ip_da = {"ip", "Network", "ip.proto", 1, 0, &ip_da_values, NULL, NULL,
+                              decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
+    ...
+    ip_dissector_table = register_dissector_table("ip.proto", "IP protocol", FT_UINT8, BASE_DEC);
+    ...
+    register_decode_as(&ip_da);
+
+ip_da_build_value contains all of the function pointers (typically just 1) that
+can be used to retrieve the value(s) that go into the dissector table.  This is
+usually data saved by the dissector during packet dissector with an API like
+p_add_proto_data and retrieved in the "value" function with p_get_proto_data.
+
+ip_da_values contains all of the function pointers (typically just 1) that
+provide the text explaining the name and use of the value field that will
+be passed to the dissector table to change the dissection output.
+
+ip_da pulls everything together including the dissector (protocol) name, the
+"layer type" of the dissector, the dissector table name, the function pointer
+values as well as handlers for populating, applying and reseting the changes
+to the dissector table through Decode As GUI functionality.  For dissector
+tables that are an integer or string type, the provided "default" handling
+functions shown in the example should suffice.
+
+2.10 ptvcursors.
 
 The ptvcursor API allows a simpler approach to writing dissectors for
 simple protocols. The ptvcursor API works best for protocols whose fields
@@ -3180,7 +3341,7 @@ To use the ptvcursor API, include the "ptvcursor.h" file. The PGM dissector
 is an example of how to use it. You don't need to look at it as a guide;
 instead, the API description here should be good enough.
 
-2.8.1 ptvcursor API.
+2.10.1 ptvcursor API.
 
 ptvcursor_t*
 ptvcursor_new(proto_tree* tree, tvbuff_t* tvb, gint offset)
@@ -3236,7 +3397,7 @@ If the length is unknown, length may be defined as SUBTREE_UNDEFINED_LENGTH.
 In this case, at the next pop, the item length will be equal to the advancement
 of the cursor since the creation of the subtree.
 
-2.8.2 Miscellaneous functions.
+2.9.2 Miscellaneous functions.
 
 tvbuff_t*
 ptvcursor_tvbuff(ptvcursor_t* ptvc)
@@ -3259,7 +3420,7 @@ ptvcursor_set_subtree(ptvcursor_t* ptvc, proto_item* it, gint ett_subtree);
     Creates a subtree and adds it to the cursor as the working tree but does
 not save the old working tree.
 
-2.9 Optimizations
+2.11 Optimizations
 
 A protocol dissector may be called in 2 different ways - with, or
 without a non-null "tree" argument.

@@ -2,13 +2,13 @@
 # Q.932 conformation file
 # 2007  Tomas Kukosa
 
-#.PDU_NEW
+#.PDU
 
 InterpretationComponent
 NetworkFacilityExtension
 NetworkProtocolProfile
 
-#.EXPORTS EXTERN VALS_WITH_TABLE
+#.EXPORTS EXTERN
 
 # Addressing-Data-Elements
 PresentedAddressScreened

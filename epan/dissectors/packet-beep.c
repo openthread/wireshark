@@ -33,6 +33,7 @@
 #include <epan/prefs.h>
 #include <epan/conversation.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 
 #define TCP_PORT_BEEP 10288
 
@@ -738,8 +739,8 @@ dissect_beep_tree(tvbuff_t *tvb, int offset, packet_info *pinfo,
 
 }
 
-static void
-dissect_beep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_beep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   int offset;
   struct beep_proto_data  *beep_frame_data;
@@ -892,6 +893,7 @@ dissect_beep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
   }
 
+  return tvb_captured_length(tvb);
 }
 
 /* Register all the bits needed with the filtering engine */

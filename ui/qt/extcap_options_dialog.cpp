@@ -54,23 +54,28 @@
 
 #include "qt_ui_utils.h"
 
+#include <epan/prefs.h>
+#include <ui/preference_utils.h>
+
+#include <ui/qt/wireshark_application.h>
+
 #include <ui/qt/extcap_argument.h>
 #include <ui/qt/extcap_argument_file.h>
+#include <ui/qt/extcap_argument_multiselect.h>
 
 ExtcapOptionsDialog::ExtcapOptionsDialog(QWidget *parent) :
     QDialog(parent),
-    ui(new Ui::ExtcapOptionsDialog)
+    ui(new Ui::ExtcapOptionsDialog),
+    device_name(""),
+    device_idx(0)
 {
     ui->setupUi(this);
 
     setWindowTitle(wsApp->windowTitleString(tr("Extcap Interface Options")));
 
-    device_idx = 0;
+    ui->checkSaveOnStart->setCheckState(prefs.extcap_save_on_start ? Qt::Checked : Qt::Unchecked);
 
-    start_bt_ = ui->buttonBox->addButton(tr("Start"), QDialogButtonBox::YesRole);
-
-    start_bt_->setEnabled((global_capture_opts.num_selected > 0)? true: false);
-    connect(start_bt_, SIGNAL(clicked(bool)), this, SLOT(start_button_clicked()));
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setText(tr("Start"));
 }
 
 ExtcapOptionsDialog * ExtcapOptionsDialog::createForDevice(QString &dev_name, QWidget *parent)
@@ -99,11 +104,13 @@ ExtcapOptionsDialog * ExtcapOptionsDialog::createForDevice(QString &dev_name, QW
     resultDialog = new ExtcapOptionsDialog(parent);
     resultDialog->device_name = QString(dev_name);
     resultDialog->device_idx = if_idx;
-    resultDialog->device_defaults = device.external_cap_args_settings;
 
     resultDialog->setWindowTitle(wsApp->windowTitleString(tr("Extcap Interface Options") + ": " + device.display_name));
 
     resultDialog->updateWidgets();
+
+    /* mark required fields */
+    resultDialog->anyValueChanged();
 
     return resultDialog;
 }
@@ -114,11 +121,73 @@ ExtcapOptionsDialog::~ExtcapOptionsDialog()
     delete ui;
 }
 
-void ExtcapOptionsDialog::start_button_clicked()
+void ExtcapOptionsDialog::on_buttonBox_accepted()
 {
-    if (saveOptionsToPreferences()) {
+    if (saveOptionToCaptureInfo()) {
+        /* Starting a new capture with those values */
+        prefs.extcap_save_on_start = ui->checkSaveOnStart->checkState() == Qt::Checked;
+
+        if ( prefs.extcap_save_on_start )
+            storeValues();
+
         accept();
     }
+}
+
+void ExtcapOptionsDialog::anyValueChanged()
+{
+    bool allowStart = true;
+
+    ExtcapArgumentList::const_iterator iter;
+
+    /* All arguments are being iterated, to ensure, that any error handling catches all arguments */
+    for(iter = extcapArguments.constBegin(); iter != extcapArguments.constEnd(); ++iter)
+    {
+        /* The dynamic casts are necessary, because we come here using the Signal/Slot system
+         * of Qt, and -in short- Q_OBJECT classes cannot be multiple inherited. Another possibility
+         * would be to use Q_INTERFACE, but this causes way more nightmares, and we really just
+         * need here an explicit cast for the check functionality */
+        if ( dynamic_cast<ExtArgBool *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtArgBool *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else if ( dynamic_cast<ExtArgRadio *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtArgRadio *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else if ( dynamic_cast<ExtArgSelector *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtArgSelector *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else if ( dynamic_cast<ExtArgMultiSelect *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtArgMultiSelect *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else if ( dynamic_cast<ExtcapArgumentFileSelection *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtcapArgumentFileSelection *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else if ( dynamic_cast<ExtArgNumber *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtArgNumber *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else if ( dynamic_cast<ExtArgText *>((*iter)) != NULL)
+        {
+            if ( ! ((ExtArgText *)*iter)->isValid() )
+                allowStart = false;
+        }
+        else
+            if ( ! (*iter)->isValid() )
+                allowStart = false;
+    }
+
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(allowStart);
 }
 
 void ExtcapOptionsDialog::updateWidgets()
@@ -126,6 +195,7 @@ void ExtcapOptionsDialog::updateWidgets()
     GList * arguments = NULL, * walker = NULL, * item = NULL;
     QWidget * lblWidget = NULL, *editWidget = NULL;
     ExtcapArgument * argument = NULL;
+    bool allowStart = true;
 
     unsigned int counter = 0;
 
@@ -137,38 +207,68 @@ void ExtcapOptionsDialog::updateWidgets()
 
     QGridLayout * layout = new QGridLayout();
 
+    ExtcapArgumentList required;
+    ExtcapArgumentList optional;
+
     while ( walker != NULL )
     {
         item = g_list_first((GList *)(walker->data));
         while ( item != NULL )
         {
-            argument = ExtcapArgument::create((extcap_arg *)(item->data), device_defaults);
+            argument = ExtcapArgument::create((extcap_arg *)(item->data));
             if ( argument != NULL )
             {
-                extcapArguments << argument;
+                if ( argument->isRequired() )
+                    required << argument;
+                else
+                    optional << argument;
 
-                lblWidget = argument->createLabel((QWidget *)this);
-                if ( lblWidget != NULL )
-                {
-                    layout->addWidget(lblWidget, counter, 0, Qt::AlignTop);
-                    editWidget = argument->createEditor((QWidget *) this);
-                    if ( editWidget != NULL )
-                    {
-                        layout->addWidget(editWidget, counter, 1, Qt::AlignTop);
-                    }
-                    counter++;
-                }
             }
-
             item = item->next;
         }
         walker = walker->next;
     }
 
-    if ( counter > 0 ) {
+    if ( required.length() > 0 )
+        extcapArguments << required;
+
+    if ( optional.length() > 0 )
+        extcapArguments << optional;
+
+    ExtcapArgumentList::iterator iter = extcapArguments.begin();
+    while ( iter != extcapArguments.end() )
+    {
+        lblWidget = (*iter)->createLabel((QWidget *)this);
+        if ( lblWidget != NULL )
+        {
+            layout->addWidget(lblWidget, counter, 0, Qt::AlignVCenter);
+            editWidget = (*iter)->createEditor((QWidget *) this);
+            if ( editWidget != NULL )
+            {
+                layout->addWidget(editWidget, counter, 1, Qt::AlignVCenter);
+            }
+
+            if ( (*iter)->isRequired() && ! (*iter)->isValid() )
+                allowStart = false;
+
+            connect((*iter), SIGNAL(valueChanged()), this, SLOT(anyValueChanged()));
+
+            counter++;
+        }
+        ++iter;
+    }
+
+    if ( counter > 0 )
+    {
+        setStyleSheet ( "QLabel[isRequired=\"true\"] { font-weight: bold; } ");
+
+        ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(allowStart);
+
         ui->verticalLayout->addLayout(layout);
         ui->verticalLayout->addSpacerItem(new QSpacerItem(20, 100, QSizePolicy::Minimum, QSizePolicy::Expanding));
-    } else {
+    }
+    else
+    {
         delete layout;
     }
 }
@@ -176,9 +276,7 @@ void ExtcapOptionsDialog::updateWidgets()
 // Not sure why we have to do this manually.
 void ExtcapOptionsDialog::on_buttonBox_rejected()
 {
-    if (saveOptionsToPreferences()) {
-        reject();
-    }
+    reject();
 }
 
 void ExtcapOptionsDialog::on_buttonBox_helpRequested()
@@ -187,7 +285,7 @@ void ExtcapOptionsDialog::on_buttonBox_helpRequested()
     wsApp->helpTopicAction(HELP_EXTCAP_OPTIONS_DIALOG);
 }
 
-bool ExtcapOptionsDialog::saveOptionsToPreferences()
+bool ExtcapOptionsDialog::saveOptionToCaptureInfo()
 {
     GHashTable * ret_args;
     interface_t device;
@@ -195,7 +293,7 @@ bool ExtcapOptionsDialog::saveOptionsToPreferences()
     device = g_array_index(global_capture_opts.all_ifaces, interface_t, device_idx);
     global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, device_idx);
 
-    ret_args = g_hash_table_new(g_str_hash, g_str_equal);
+    ret_args = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
     ExtcapArgumentList::const_iterator iter;
 
@@ -227,6 +325,76 @@ bool ExtcapOptionsDialog::saveOptionsToPreferences()
 
     return true;
 }
+
+void ExtcapOptionsDialog::storeValues()
+{
+    GHashTable * entries = g_hash_table_new(g_str_hash, g_str_equal);
+    ExtcapArgumentList::const_iterator iter;
+
+    QString value;
+
+    /* All arguments are being iterated, to ensure, that any error handling catches all arguments */
+    for(iter = extcapArguments.constBegin(); iter != extcapArguments.constEnd(); ++iter)
+    {
+        ExtcapArgument * argument = (ExtcapArgument *)(*iter);
+
+        /* The dynamic casts are necessary, because we come here using the Signal/Slot system
+         * of Qt, and -in short- Q_OBJECT classes cannot be multiple inherited. Another possibility
+         * would be to use Q_INTERFACE, but this causes way more nightmares, and we really just
+         * need here an explicit cast for the check functionality */
+        if ( dynamic_cast<ExtArgBool *>((*iter)) != NULL)
+        {
+            value = ((ExtArgBool *)*iter)->prefValue();
+        }
+        else if ( dynamic_cast<ExtArgRadio *>((*iter)) != NULL)
+        {
+            value = ((ExtArgRadio *)*iter)->prefValue();
+        }
+        else if ( dynamic_cast<ExtArgSelector *>((*iter)) != NULL)
+        {
+            value = ((ExtArgSelector *)*iter)->prefValue();
+        }
+        else if ( dynamic_cast<ExtArgMultiSelect *>((*iter)) != NULL)
+        {
+            value = ((ExtArgMultiSelect *)*iter)->prefValue();
+        }
+        else if ( dynamic_cast<ExtcapArgumentFileSelection *>((*iter)) != NULL)
+        {
+            value = ((ExtcapArgumentFileSelection *)*iter)->prefValue();
+        }
+        else if ( dynamic_cast<ExtArgNumber *>((*iter)) != NULL)
+        {
+            value = ((ExtArgNumber *)*iter)->prefValue();
+        }
+        else if ( dynamic_cast<ExtArgText *>((*iter)) != NULL)
+        {
+            value = ((ExtArgText *)*iter)->prefValue();
+        }
+        else
+            value = (*iter)->prefValue();
+
+        QString key = argument->prefKey(device_name);
+        if (key.length() > 0)
+        {
+            gchar * val = g_strdup(value.length() == 0 ? " " : value.toStdString().c_str());
+
+            /* Setting the internally stored value for the preference to the new value */
+            (*iter)->argument()->storeval = g_strdup(val);
+
+            g_hash_table_insert(entries, g_strdup(key.toStdString().c_str()), val);
+        }
+    }
+
+    if ( g_hash_table_size(entries) > 0 )
+    {
+        if ( prefs_store_ext_multiple("extcap", entries) )
+        {
+            wsApp->emitAppSignal(WiresharkApplication::PacketDissectionChanged);
+            wsApp->emitAppSignal(WiresharkApplication::PreferencesChanged);
+        }
+    }
+}
+
 
 #endif /* HAVE_LIBPCAP */
 

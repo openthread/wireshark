@@ -636,7 +636,7 @@ proto_register_json(void)
 	proto_register_fields(proto_json, hfi, array_length(hfi));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	json_handle = new_register_dissector("json", dissect_json, proto_json);
+	json_handle = register_dissector("json", dissect_json, proto_json);
 
 	init_json_parser();
 }
@@ -644,7 +644,7 @@ proto_register_json(void)
 void
 proto_reg_handoff_json(void)
 {
-	dissector_handle_t json_file_handle = new_create_dissector_handle(dissect_json_file, proto_json);
+	dissector_handle_t json_file_handle = create_dissector_handle(dissect_json_file, proto_json);
 
 	heur_dissector_add("hpfeeds", dissect_json_heur, "JSON over HPFEEDS", "json_hpfeeds", proto_json, HEURISTIC_ENABLE);
 	heur_dissector_add("db-lsp", dissect_json_heur, "JSON over DB-LSP", "json_db_lsp", proto_json, HEURISTIC_ENABLE);
@@ -653,6 +653,7 @@ proto_reg_handoff_json(void)
 	dissector_add_string("media_type", "application/json", json_handle); /* RFC 4627 */
 	dissector_add_string("media_type", "application/json-rpc", json_handle); /* JSON-RPC over HTTP */
 	dissector_add_string("media_type", "application/jsonrequest", json_handle); /* JSON-RPC over HTTP */
+	dissector_add_string("media_type", "application/dds-web+json", json_handle); /* DDS Web Integration Service over HTTP */
 
 	text_lines_handle = find_dissector("data-text-lines");
 }

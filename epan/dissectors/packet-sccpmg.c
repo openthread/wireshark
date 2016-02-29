@@ -242,8 +242,8 @@ dissect_sccpmg_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *sccpmg_tre
 	}
 }
 
-static void
-dissect_sccpmg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sccpmg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *sccpmg_item;
 	proto_tree *sccpmg_tree = NULL;
@@ -272,6 +272,7 @@ dissect_sccpmg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* dissect the message */
 	dissect_sccpmg_message(tvb, pinfo, sccpmg_tree);
+	return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

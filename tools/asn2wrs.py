@@ -585,6 +585,10 @@ def dependency_compute(items, dependency, map_fn = lambda t: t, ignore_fn = lamb
                 x[e] = True
     return (item_ord, item_cyc)
 
+# Given a filename, return a relative path from the current directory
+def relpath(filename):
+    return os.path.relpath(filename)
+
 # Given a filename, return a relative path from epan/dissectors
 def rel_dissector_path(filename):
     path_parts = os.path.abspath(filename).split(os.sep)
@@ -1552,16 +1556,11 @@ class EthCtx:
     #--- eth_out_pdu_decl ----------------------------------------------------------
     def eth_out_pdu_decl(self, f):
         t = self.eth_hf[f]['ethtype']
-        is_new = self.eth_hf[f]['pdu']['new']
         out = ''
         if (not self.eth_hf[f]['pdu']['export']):
             out += 'static '
-        if (is_new):
-            out += 'int '
-            out += 'dissect_'+f+'(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_);\n'
-        else:
-            out += 'void '
-            out += 'dissect_'+f+'(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_);\n'
+        out += 'int '
+        out += 'dissect_'+f+'(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_);\n'
         return out
 
     #--- eth_output_hf ----------------------------------------------------------
@@ -1742,24 +1741,15 @@ class EthCtx:
     def eth_output_types(self):
         def out_pdu(f):
             t = self.eth_hf[f]['ethtype']
-            is_new = self.eth_hf[f]['pdu']['new']
             impl = 'FALSE'
             out = ''
             if (not self.eth_hf[f]['pdu']['export']):
                 out += 'static '
-            if (is_new):
-                out += 'int '
-                out += 'dissect_'+f+'(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {\n'
-            else:
-                out += 'void '
-                out += 'dissect_'+f+'(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_) {\n'
-            if (is_new):
-                out += '  int offset = 0;\n'
-                off_par = 'offset'
-                ret_par = 'offset'
-            else:
-                off_par = '0'
-                ret_par = None
+            out += 'int '
+            out += 'dissect_'+f+'(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {\n'
+            out += '  int offset = 0;\n'
+            off_par = 'offset'
+            ret_par = 'offset'
             if (self.Per()):
                 if (self.Aligned()):
                     aligned = 'TRUE'
@@ -1776,10 +1766,9 @@ class EthCtx:
             else:
                 par=((),)
             out += self.eth_fn_call('dissect_%s_%s' % (self.eth_type[t]['proto'], t), ret=ret_par, par=par)
-            if (self.Per() and is_new):
+            if (self.Per()):
                 out += '  offset += 7; offset >>= 3;\n'
-            if (is_new):
-                out += '  return offset;\n'
+            out += '  return offset;\n'
             out += '}\n'
             return out
         #end out_pdu()
@@ -1802,7 +1791,10 @@ class EthCtx:
                 t = self.type[self.eth_dep_cycle[i][0]]['ethname']
                 if self.dep_cycle_eth_type[t][0] != i: i += 1; continue
                 fx.write(''.join(['/* %s */\n' % ' -> '.join(self.eth_dep_cycle[i]) for i in self.dep_cycle_eth_type[t]]))
-                fx.write(self.eth_type_fn_h(t))
+                if not self.eth_type[t]['export'] & EF_TYPE:
+                    fx.write(self.eth_type_fn_h(t))
+                else:
+                    fx.write('/*' + self.eth_type_fn_h(t).strip() + '*/\n')
                 fx.write('\n')
                 i += 1
             fx.write('\n')
@@ -2271,12 +2263,12 @@ class EthCnf:
             out = '#line %u "%s"\n%s\n' % (self.fn[name][ctx]['lineno'], rel_dissector_path(self.fn[name][ctx]['fn']), out);
         return out
 
-    def add_pdu(self, par, is_new, fn, lineno):
+    def add_pdu(self, par, fn, lineno):
         #print "add_pdu(par=%s, %s, %d)" % (str(par), fn, lineno)
         (reg, hidden) = (None, False)
         if (len(par) > 1): reg = par[1]
         if (reg and reg[0]=='@'): (reg, hidden) = (reg[1:], True)
-        attr = {'new' : is_new, 'reg' : reg, 'hidden' : hidden, 'need_decl' : False, 'export' : False}
+        attr = {'new' : False, 'reg' : reg, 'hidden' : hidden, 'need_decl' : False, 'export' : False}
         self.add_item('PDU', par[0], attr=attr, fn=fn, lineno=lineno)
         return
 
@@ -2415,13 +2407,13 @@ class EthCnf:
                     if not par: continue
                     self.set_opt(par[0], par[1:], fn, lineno)
                     ctx = None
-                elif result.group('name') in ('PDU', 'PDU_NEW', 'REGISTER', 'REGISTER_NEW',
+                elif result.group('name') in ('PDU', 'REGISTER',
                                             'MODULE', 'MODULE_IMPORT',
                                             'OMIT_ASSIGNMENT', 'NO_OMIT_ASSGN',
                                             'VIRTUAL_ASSGN', 'SET_TYPE', 'ASSIGN_VALUE_TO_TYPE',
                                             'TYPE_RENAME', 'FIELD_RENAME', 'TF_RENAME', 'IMPORT_TAG',
                                             'TYPE_ATTR', 'ETYPE_ATTR', 'FIELD_ATTR', 'EFIELD_ATTR',
-                                            'SYNTAX', 'SYNTAX_NEW'):
+                                            'SYNTAX'):
                     ctx = result.group('name')
                 elif result.group('name') in ('OMIT_ALL_ASSIGNMENTS', 'OMIT_ASSIGNMENTS_EXCEPT',
                                               'OMIT_ALL_TYPE_ASSIGNMENTS', 'OMIT_TYPE_ASSIGNMENTS_EXCEPT',
@@ -2622,32 +2614,26 @@ class EthCnf:
                 if not par: continue
                 flags = default_flags
                 self.add_item('USE_VALS_EXT', par[0], flag=flags, fn=fn, lineno=lineno)
-            elif ctx in ('PDU', 'PDU_NEW'):
+            elif ctx == 'PDU':
                 if empty.match(line): continue
                 par = get_par(line, 1, 5, fn=fn, lineno=lineno)
                 if not par: continue
-                is_new = False
-                if (ctx == 'PDU_NEW'): is_new = True
-                self.add_pdu(par[0:2], is_new, fn, lineno)
+                self.add_pdu(par[0:2], fn, lineno)
                 if (len(par)>=3):
                     self.add_register(par[0], par[2:5], fn, lineno)
-            elif ctx in ('SYNTAX', 'SYNTAX_NEW'):
+            elif ctx == 'SYNTAX':
                 if empty.match(line): continue
                 par = get_par(line, 1, 2, fn=fn, lineno=lineno)
                 if not par: continue
                 if not self.check_item('PDU', par[0]):
-                    is_new = False
-                    if (ctx == 'SYNTAX_NEW'): is_new = True
-                    self.add_pdu(par[0:1], is_new, fn, lineno)
+                    self.add_pdu(par[0:1], fn, lineno)
                 self.add_syntax(par, fn, lineno)
-            elif ctx in ('REGISTER', 'REGISTER_NEW'):
+            elif ctx == 'REGISTER':
                 if empty.match(line): continue
                 par = get_par(line, 3, 4, fn=fn, lineno=lineno)
                 if not par: continue
                 if not self.check_item('PDU', par[0]):
-                    is_new = False
-                    if (ctx == 'REGISTER_NEW'): is_new = True
-                    self.add_pdu(par[0:1], is_new, fn, lineno)
+                    self.add_pdu(par[0:1], fn, lineno)
                 self.add_register(par[0], par[1:4], fn, lineno)
             elif ctx in ('MODULE', 'MODULE_IMPORT'):
                 if empty.match(line): continue
@@ -2761,7 +2747,7 @@ class EthCnf:
         if opt in ("-I",):
             par = self.check_par(par, 1, 1, fn, lineno)
             if not par: return
-            self.include_path.append(par[0])
+            self.include_path.append(relpath(par[0]))
         elif opt in ("-b", "BER", "CER", "DER"):
             par = self.check_par(par, 0, 0, fn, lineno)
             self.ectx.encoding = 'ber'
@@ -2799,11 +2785,11 @@ class EthCnf:
         elif opt in ("-O",):
             par = self.check_par(par, 1, 1, fn, lineno)
             if not par: return
-            self.ectx.output.outdir = par[0]
+            self.ectx.output.outdir = relpath(par[0])
         elif opt in ("-s",):
             par = self.check_par(par, 1, 1, fn, lineno)
             if not par: return
-            self.ectx.output.single_file = par[0]
+            self.ectx.output.single_file = relpath(par[0])
         elif opt in ("-k",):
             par = self.check_par(par, 0, 0, fn, lineno)
             self.ectx.output.keep = True
@@ -2943,8 +2929,8 @@ class EthOut:
         out = out.replace('\\', '/')
         # Change absolute paths and relative paths generated outside
         # source directory to paths relative to asn1/<proto> subdir.
-        out = re.sub(r'(\s)[./]\S*(/tools/|/epan/)', r'\1../..\2', out)
-        out = re.sub(r'(\s)[./]\S*/asn1/\S*?([\s/])', r'\1.\2', out)
+        out = re.sub(r'(\s)[./A-Z]\S*(/tools/|/epan/)', r'\1../..\2', out)
+        out = re.sub(r'(\s)[./A-Z]\S*/asn1/\S*?([\s/])', r'\1.\2', out)
         return out
 
     #--- dbg_print -------------------------------------------------------
@@ -7933,14 +7919,14 @@ def eth_main():
         if o in ("-h", "-?"):
             eth_usage(); sys.exit(2)
         if o in ("-c",):
-            conf_to_read = a
+            conf_to_read = relpath(a)
         if o in ("-I",):
-            ectx.conform.include_path.append(a)
+            ectx.conform.include_path.append(relpath(a))
         if o in ("-E",):
             ectx.expcnf = True
             ectx.justexpcnf = True
         if o in ("-D",):
-            ectx.srcdir = a
+            ectx.srcdir = relpath(a)
         if o in ("-C",):
             ectx.constraints_check = True
         if o in ("-X",):

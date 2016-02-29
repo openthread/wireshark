@@ -27,7 +27,7 @@
 #include <gtk/gtk.h>
 
 
-#include "../file.h"
+#include "../../file.h"
 #ifdef HAVE_LIBPCAP
 #include "ui/capture.h"
 #endif
@@ -316,7 +316,7 @@ dnd_init(GtkWidget *w)
     static GtkTargetEntry target_entry[] = {
          /*{"STRING", 0, DND_TARGET_STRING},*/
          /*{"text/plain", 0, DND_TARGET_STRING},*/
-         {(gchar *)"text/uri-list", 0, DND_TARGET_URL}
+         {"text/uri-list", 0, DND_TARGET_URL}
     };
 
     /* set this window as a dnd destination */

@@ -76,8 +76,8 @@ static gint ett_acap_reqresp = -1;
 
 #define TCP_PORT_ACAP           674
 
-static void
-dissect_acap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_acap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gboolean      is_request;
     proto_tree   *acap_tree, *reqresp_tree;
@@ -179,6 +179,7 @@ dissect_acap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          * state information to the packets.
          */
     }
+    return tvb_captured_length(tvb);
 }
 
 void

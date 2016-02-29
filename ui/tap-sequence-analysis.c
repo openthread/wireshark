@@ -31,6 +31,7 @@
 #include "epan/addr_resolv.h"
 #include "epan/packet.h"
 #include "epan/tap.h"
+#include "epan/proto_data.h"
 #include "epan/dissectors/packet-tcp.h"
 #include "epan/dissectors/packet-icmp.h"
 
@@ -91,21 +92,21 @@ seq_analysis_frame_packet( void *ptr, packet_info *pinfo, epan_dissect_t *edt _U
         if (sainfo->any_addr) {
             if (pinfo->net_src.type!=AT_NONE && pinfo->net_dst.type!=AT_NONE) {
                 sai = (seq_analysis_item_t *)g_malloc0(sizeof(seq_analysis_item_t));
-                COPY_ADDRESS(&(sai->src_addr),&(pinfo->net_src));
-                COPY_ADDRESS(&(sai->dst_addr),&(pinfo->net_dst));
+                copy_address(&(sai->src_addr),&(pinfo->net_src));
+                copy_address(&(sai->dst_addr),&(pinfo->net_dst));
             }
 
         } else {
             if (pinfo->src.type!=AT_NONE && pinfo->dst.type!=AT_NONE) {
                 sai = (seq_analysis_item_t *)g_malloc0(sizeof(seq_analysis_item_t));
-                COPY_ADDRESS(&(sai->src_addr),&(pinfo->src));
-                COPY_ADDRESS(&(sai->dst_addr),&(pinfo->dst));
+                copy_address(&(sai->src_addr),&(pinfo->src));
+                copy_address(&(sai->dst_addr),&(pinfo->dst));
             }
         }
 
         if (!sai) return FALSE;
 
-        sai->fd = pinfo->fd;
+        sai->frame_number = pinfo->num;
 
         sai->port_src=pinfo->srcport;
         sai->port_dst=pinfo->destport;
@@ -197,13 +198,13 @@ seq_analysis_tcp_packet( void *ptr _U_, packet_info *pinfo, epan_dissect_t *edt 
         seq_analysis_item_t *sai;
 
         sai = (seq_analysis_item_t *)g_malloc0(sizeof(seq_analysis_item_t));
-        sai->fd = pinfo->fd;
+        sai->frame_number = pinfo->num;
         if (sainfo->any_addr) {
-            COPY_ADDRESS(&(sai->src_addr),&(pinfo->net_src));
-            COPY_ADDRESS(&(sai->dst_addr),&(pinfo->net_dst));
+            copy_address(&(sai->src_addr),&(pinfo->net_src));
+            copy_address(&(sai->dst_addr),&(pinfo->net_dst));
         } else {
-            COPY_ADDRESS(&(sai->src_addr),&(pinfo->src));
-            COPY_ADDRESS(&(sai->dst_addr),&(pinfo->dst));
+            copy_address(&(sai->src_addr),&(pinfo->src));
+            copy_address(&(sai->dst_addr),&(pinfo->dst));
         }
         sai->port_src=pinfo->srcport;
         sai->port_dst=pinfo->destport;
@@ -250,8 +251,9 @@ static void sequence_analysis_item_set_timestamp(gpointer data, gpointer user_da
 {
     gchar time_str[COL_MAX_LEN];
     seq_analysis_item_t *seq_item = (seq_analysis_item_t *)data;
-    const struct epan_session *epan = (const struct epan_session *)user_data;
-    set_fd_time(epan, seq_item->fd, time_str);
+    const capture_file *cf = (const capture_file *)user_data;
+    frame_data *fd = frame_data_sequence_find(cf->frames, seq_item->frame_number);
+    set_fd_time(cf->epan, fd, time_str);
     seq_item->time_str = g_strdup(time_str);
 }
 
@@ -287,7 +289,7 @@ sequence_analysis_list_get(capture_file *cf, seq_analysis_info_t *sainfo)
 
     /* SEQ_ANALYSIS_DEBUG("%d items", g_queue_get_length(sainfo->items)); */
     /* Fill in the timestamps */
-    g_queue_foreach(sainfo->items, sequence_analysis_item_set_timestamp, cf->epan);
+    g_queue_foreach(sainfo->items, sequence_analysis_item_set_timestamp, cf);
 }
 
 static void sequence_analysis_item_free(gpointer data)
@@ -297,8 +299,8 @@ static void sequence_analysis_item_free(gpointer data)
     g_free(seq_item->time_str);
     g_free(seq_item->comment);
     g_free(seq_item->protocol);
-    g_free((void *)seq_item->src_addr.data);
-    g_free((void *)seq_item->dst_addr.data);
+    free_address(&seq_item->src_addr);
+    free_address(&seq_item->dst_addr);
     g_free(data);
 }
 
@@ -310,10 +312,10 @@ sequence_analysis_sort_compare(gconstpointer a, gconstpointer b, gpointer user_d
     const seq_analysis_item_t *entry_a = (const seq_analysis_item_t *)a;
     const seq_analysis_item_t *entry_b = (const seq_analysis_item_t *)b;
 
-    if(entry_a->fd->num < entry_b->fd->num)
+    if(entry_a->frame_number < entry_b->frame_number)
         return -1;
 
-    if(entry_a->fd->num > entry_b->fd->num)
+    if(entry_a->frame_number > entry_b->frame_number)
         return 1;
 
     return 0;
@@ -358,10 +360,7 @@ sequence_analysis_list_free(seq_analysis_info_t *sainfo)
     sainfo->nconv = 0;
 
     for (i=0; i<MAX_NUM_NODES; i++) {
-        sainfo->nodes[i].type = AT_NONE;
-        sainfo->nodes[i].len = 0;
-        g_free((void *)sainfo->nodes[i].data);
-        sainfo->nodes[i].data = NULL;
+        free_address(&sainfo->nodes[i]);
     }
     sainfo->num_nodes = 0;
 }
@@ -436,14 +435,14 @@ static guint add_or_get_node(seq_analysis_info_t *sainfo, address *node) {
     if (node->type == AT_NONE) return NODE_OVERFLOW;
 
     for (i=0; i<MAX_NUM_NODES && i < sainfo->num_nodes ; i++) {
-        if ( CMP_ADDRESS(&(sainfo->nodes[i]), node) == 0 ) return i; /* it is in the array */
+        if ( cmp_address(&(sainfo->nodes[i]), node) == 0 ) return i; /* it is in the array */
     }
 
     if (i >= MAX_NUM_NODES) {
         return  NODE_OVERFLOW;
     } else {
         sainfo->num_nodes++;
-        COPY_ADDRESS(&(sainfo->nodes[i]), node);
+        copy_address(&(sainfo->nodes[i]), node);
         return i;
     }
 }
@@ -484,6 +483,7 @@ sequence_analysis_dump_to_file(const char *pathname, seq_analysis_info_t *sainfo
     guint32  i, display_items, display_nodes;
     guint32  start_position, end_position, item_width, header_length;
     seq_analysis_item_t *sai;
+    frame_data *fd;
     guint16  first_conv_num = 0;
     gboolean several_convs  = FALSE;
     gboolean first_packet   = TRUE;
@@ -551,7 +551,7 @@ sequence_analysis_dump_to_file(const char *pathname, seq_analysis_info_t *sainfo
     /* Write the node names on top */
     for (i=0; i<display_nodes; i+=2) {
         /* print the node identifiers */
-        addr_str = (char*)address_to_display(NULL, &(sainfo->nodes[i+first_node]));
+        addr_str = address_to_display(NULL, &(sainfo->nodes[i+first_node]));
         g_string_printf(label_string, "| %s", addr_str);
         wmem_free(NULL, addr_str);
         enlarge_string(label_string, NODE_CHARS_WIDTH*2, ' ');
@@ -569,7 +569,7 @@ sequence_analysis_dump_to_file(const char *pathname, seq_analysis_info_t *sainfo
     /* Write the node names on top */
     for (i=1; i<display_nodes; i+=2) {
         /* print the node identifiers */
-        addr_str = (char*)address_to_display(NULL, &(sainfo->nodes[i+first_node]));
+        addr_str = address_to_display(NULL, &(sainfo->nodes[i+first_node]));
         g_string_printf(label_string, "| %s", addr_str);
         wmem_free(NULL, addr_str);
         if (label_string->len < NODE_CHARS_WIDTH)
@@ -631,12 +631,13 @@ sequence_analysis_dump_to_file(const char *pathname, seq_analysis_info_t *sainfo
             fprintf(of, "%s", label_string->str);
         }
 
+        fd = frame_data_sequence_find(cf->frames, sai->frame_number);
 #if 0
         /* write the time */
-        g_string_printf(label_string, "|%.3f", nstime_to_sec(&sai->fd->rel_ts));
+        g_string_printf(label_string, "|%.3f", nstime_to_sec(&fd->rel_ts));
 #endif
         /* Write the time, using the same format as in the time col */
-        set_fd_time(cf->epan, sai->fd, time_str);
+        set_fd_time(cf->epan, fd, time_str);
         g_string_printf(label_string, "|%s", time_str);
         enlarge_string(label_string, 10, ' ');
         fprintf(of, "%s", label_string->str);

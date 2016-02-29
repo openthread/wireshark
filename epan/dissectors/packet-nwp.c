@@ -60,6 +60,8 @@ static gint ett_nwp_neigh_tree		= -1;
 
 static expert_field ei_nwp_bad_type = EI_INIT;
 
+static dissector_handle_t nwp_handle;
+
 #define NWP_XID_CHUNK_LEN	4
 #define NWP_XID_LEN		20
 /* Two characters for every byte + 4 for "hid-" + 1 for "\0" */
@@ -230,7 +232,7 @@ dissect_nwp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	type = tvb_get_guint8(tvb, NWPH_TYPE);
 	type_str = val_to_str(type, nwp_type_vals,
 		"Unknown NWP packet type (0x%02x)");
-	col_set_str(pinfo->cinfo, COL_INFO, type_str);
+	col_add_str(pinfo->cinfo, COL_INFO, type_str);
 
 	/* Construct protocol tree. */
 	ti = proto_tree_add_item(tree, proto_nwp, tvb, 0, -1, ENC_NA);
@@ -345,7 +347,7 @@ proto_register_nwp(void)
 		"NWP",
 	        "nwp");
 
-	new_register_dissector("nwp", dissect_nwp, proto_nwp);
+	nwp_handle = register_dissector("nwp", dissect_nwp, proto_nwp);
 	proto_register_field_array(proto_nwp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
@@ -356,8 +358,6 @@ proto_register_nwp(void)
 void
 proto_reg_handoff_nwp(void)
 {
-	dissector_handle_t nwp_handle;
-	nwp_handle = new_create_dissector_handle(dissect_nwp, proto_nwp);
 	dissector_add_uint("ethertype", ETHERTYPE_NWP, nwp_handle);
 }
 

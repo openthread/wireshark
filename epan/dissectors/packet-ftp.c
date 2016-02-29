@@ -27,7 +27,7 @@
 #include "config.h"
 
 #include <stdio.h>
-#include <stdlib.h>
+#include <stdlib.h>	/* for atoi() and strtoul() */
 
 #include <epan/packet.h>
 #include <epan/strutil.h>
@@ -511,8 +511,8 @@ parse_extended_pasv_response(const guchar *line, gint linelen, guint16 *ftp_port
 }
 
 
-static void
-dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gboolean        is_request;
     proto_tree     *ftp_tree;
@@ -545,7 +545,7 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     gboolean        ftp_nat;
     conversation_t *conversation;
 
-    ftp_ip_address = pinfo->src;
+    copy_address_shallow(&ftp_ip_address, &pinfo->src);
 
     if (pinfo->match_uint == pinfo->destport)
         is_request = TRUE;
@@ -690,8 +690,8 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     tvb, pasv_offset + (tokenlen+1) , ftp_ip_len, ftp_ip);
             proto_tree_add_uint(reqresp_tree, hf_ftp_active_port,
                     tvb, pasv_offset + 1 + (tokenlen+1) + ftp_ip_len, ftp_port_len, ftp_port);
-            SET_ADDRESS(&ftp_ip_address, AT_IPv4, 4, (const guint8 *)&ftp_ip);
-            ftp_nat = !ADDRESSES_EQUAL(&pinfo->src, &ftp_ip_address);
+            set_address(&ftp_ip_address, AT_IPv4, 4, (const guint8 *)&ftp_ip);
+            ftp_nat = !addresses_equal(&pinfo->src, &ftp_ip_address);
             if (ftp_nat) {
                 proto_tree_add_boolean(reqresp_tree, hf_ftp_active_nat,
                         tvb, 0, 0, ftp_nat);
@@ -710,9 +710,9 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         tvb, pasv_offset + 4, ftp_ip_len, pasv_ip);
                 proto_tree_add_uint(reqresp_tree, hf_ftp_pasv_port,
                         tvb, pasv_offset + 4 + 1 + ftp_ip_len, ftp_port_len, ftp_port);
-                SET_ADDRESS(&ftp_ip_address, AT_IPv4, 4,
+                set_address(&ftp_ip_address, AT_IPv4, 4,
                     (const guint8 *)&pasv_ip);
-                ftp_nat = !ADDRESSES_EQUAL(&pinfo->src, &ftp_ip_address);
+                ftp_nat = !addresses_equal(&pinfo->src, &ftp_ip_address);
                 if (ftp_nat) {
                     proto_tree_add_boolean(reqresp_tree, hf_ftp_pasv_nat,
                             tvb, 0, 0, ftp_nat);
@@ -728,7 +728,7 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                  * "ftp_ip_address" and "server_port", and
                  * wildcard everything else?
                  */
-                conversation = find_conversation(pinfo->fd->num, &ftp_ip_address,
+                conversation = find_conversation(pinfo->num, &ftp_ip_address,
                     &pinfo->dst, PT_TCP, ftp_port, 0,
                     NO_PORT_B);
                 if (conversation == NULL) {
@@ -750,7 +750,7 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                      * a new one was opened?
                      */
                     conversation = conversation_new(
-                        pinfo->fd->num, &ftp_ip_address, &pinfo->dst,
+                        pinfo->num, &ftp_ip_address, &pinfo->dst,
                         PT_TCP, ftp_port, 0, NO_PORT2);
                     conversation_set_dissector(conversation, ftpdata_handle);
                 }
@@ -778,14 +778,13 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             if (eprt_af == EPRT_AF_IPv4) {
                 proto_tree_add_ipv4(reqresp_tree, hf_ftp_eprt_ip,
                         tvb, eprt_offset, eprt_ip_len, eprt_ip);
-                SET_ADDRESS(&ftp_ip_address, AT_IPv4, 4,
+                set_address(&ftp_ip_address, AT_IPv4, 4,
                         (const guint8 *)&eprt_ip);
             }
             else if (eprt_af == EPRT_AF_IPv6) {
                 proto_tree_add_ipv6(reqresp_tree, hf_ftp_eprt_ipv6,
-                        tvb, eprt_offset, eprt_ip_len, (const guint8 *)eprt_ipv6);
-                SET_ADDRESS(&ftp_ip_address, AT_IPv6, 16,
-                        (const guint8 *)&eprt_ipv6);
+                        tvb, eprt_offset, eprt_ip_len, (const struct e_in6_addr *)eprt_ipv6);
+                set_address(&ftp_ip_address, AT_IPv6, 16, eprt_ipv6);
             }
             eprt_offset += eprt_ip_len + 1; /* addr, 3rd delimiter */
 
@@ -793,12 +792,12 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     tvb, eprt_offset, ftp_port_len, ftp_port);
 
             /* Find/create conversation for data */
-            conversation = find_conversation(pinfo->fd->num,
+            conversation = find_conversation(pinfo->num,
                     &pinfo->src, &ftp_ip_address,
                     PT_TCP, ftp_port, 0, NO_PORT_B);
             if (conversation == NULL) {
                 conversation = conversation_new(
-                        pinfo->fd->num, &pinfo->src, &ftp_ip_address,
+                        pinfo->num, &pinfo->src, &ftp_ip_address,
                         PT_TCP, ftp_port, 0, NO_PORT2);
                 conversation_set_dissector(conversation,
                         ftpdata_handle);
@@ -832,7 +831,7 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 else if (ftp_ip_address.type == AT_IPv6) {
                     addr_it = proto_tree_add_ipv6(reqresp_tree,
                             hf_ftp_epsv_ipv6, tvb, 0, 0,
-                            (const guint8*)ftp_ip_address.data);
+                            (const struct e_in6_addr *)ftp_ip_address.data);
                     PROTO_ITEM_SET_GENERATED(addr_it);
                 }
 
@@ -841,12 +840,12 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         ftp_port_len, ftp_port);
 
                 /* Find/create conversation for data */
-                conversation = find_conversation(pinfo->fd->num, &ftp_ip_address,
+                conversation = find_conversation(pinfo->num, &ftp_ip_address,
                                                  &pinfo->dst, PT_TCP, ftp_port, 0,
                                                  NO_PORT_B);
                 if (conversation == NULL) {
                     conversation = conversation_new(
-                        pinfo->fd->num, &ftp_ip_address, &pinfo->dst,
+                        pinfo->num, &ftp_ip_address, &pinfo->dst,
                         PT_TCP, ftp_port, 0, NO_PORT2);
                     conversation_set_dissector(conversation,
                         ftpdata_handle);
@@ -877,10 +876,12 @@ dissect_ftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 next_offset - offset);
         offset = next_offset;
     }
+
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_ftpdata(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ftpdata(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     int         data_length;
@@ -913,6 +914,8 @@ dissect_ftpdata(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         /* Assume binary, just show the number of bytes */
         proto_item_append_text(ti, " (%u bytes data)", data_length);
     }
+
+    return tvb_captured_length(tvb);
 }
 
 void

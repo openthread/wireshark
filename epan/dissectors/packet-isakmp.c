@@ -51,6 +51,7 @@
 #include <epan/expert.h>
 #include <epan/to_str.h>
 #include <epan/conversation.h>
+#include <wsutil/str_util.h>
 #include "packet-x509if.h"
 #include "packet-x509af.h"
 #include "packet-isakmp.h"
@@ -1845,7 +1846,7 @@ decrypt_payload(tvbuff_t *tvb, packet_info *pinfo, const guint8 *buf, guint buf_
 
   for (ivl = g_list_first(decr->iv_list); ivl != NULL; ivl = g_list_next(ivl)) {
     ivd = (iv_data_t *) ivl->data;
-    if (ivd->frame_num == pinfo->fd->num) {
+    if (ivd->frame_num == pinfo->num) {
       iv_len = ivd->iv_len;
       memcpy(iv, ivd->iv, iv_len);
     }
@@ -1865,7 +1866,7 @@ decrypt_payload(tvbuff_t *tvb, packet_info *pinfo, const guint8 *buf, guint buf_
     if (decr->iv_list == NULL) {
       /* First packet */
       ivd = (iv_data_t *)g_malloc(sizeof(iv_data_t));
-      ivd->frame_num = pinfo->fd->num;
+      ivd->frame_num = pinfo->num;
       ivd->iv_len = digest_size;
       decr->last_message_id = hdr->message_id;
       gcry_md_reset(md_ctx);
@@ -1878,7 +1879,7 @@ decrypt_payload(tvbuff_t *tvb, packet_info *pinfo, const guint8 *buf, guint buf_
       memcpy(iv, ivd->iv, iv_len);
     } else if (decr->last_cbc_len >= cbc_block_size) {
       ivd = (iv_data_t *)g_malloc(sizeof(iv_data_t));
-      ivd->frame_num = pinfo->fd->num;
+      ivd->frame_num = pinfo->num;
       if (hdr->message_id != decr->last_message_id) {
         if (decr->last_p1_cbc_len == 0) {
           memcpy(decr->last_p1_cbc, decr->last_cbc, cbc_block_size);
@@ -2259,7 +2260,7 @@ static const guint8 VID_IKE_CHALLENGE_RESPONSE_REV_2[]= { /* IKE Challenge/Respo
         0x19, 0x00, 0xF0, 0x24, 0xBA, 0x66, 0xA8, 0x6B
 };
 
-static const guint8 VID_MS_L2TP_IPSEC_VPN_CLIENT[]= { /* Microsoft L2TP/IPSec VPN Client */
+static const guint8 VID_CISCO_FRAG2[]= { /* Cisco Fragmentation - md5("FRAGMENTATION") */
         0x40, 0x48, 0xB7, 0xD5, 0x6E, 0xBC, 0xE8, 0x85,
         0x25, 0xE7, 0xDE, 0x7F, 0x00, 0xD6, 0xC2, 0xD3
 };
@@ -2303,6 +2304,34 @@ static const guint8 VID_CISCO_FRAG[] = { /* Cisco Fragmentation */
         0x40, 0x48, 0xB7, 0xD5, 0x6E, 0xBC, 0xE8, 0x85,
         0x25, 0xE7, 0xDE, 0x7F, 0x00, 0xD6, 0xC2, 0xD3,
         0x80, 0x00, 0x00, 0x00
+};
+
+static const guint8 VID_CISCO_FLEXVPN_SUPPORTED[] = { /* "FLEXVPN-SUPPORTED" */
+        0x46, 0x4c, 0x45, 0x58, 0x56, 0x50, 0x4e, 0x2d,
+        0x53, 0x55, 0x50, 0x50, 0x4f, 0x52, 0x54, 0x45,
+        0x44
+};
+
+static const guint8 VID_CISCO_DELETE_REASON[] = { /* CISCO-DELETE-REASON */
+        0x43, 0x49, 0x53, 0x43, 0x4f, 0x2d, 0x44, 0x45,
+        0x4c, 0x45, 0x54, 0x45, 0x2d, 0x52, 0x45, 0x41,
+        0x53, 0x4f, 0x4e
+};
+
+/* CISCO(COPYRIGHT)&Copyright (c) 2009 Cisco Systems, Inc. */
+static const guint8 VID_CISCO_COPYRIGHT[] = { /* Cisco Copyright */
+        0x43, 0x49, 0x53, 0x43, 0x4f, 0x28, 0x43, 0x4f,
+        0x50, 0x59, 0x52, 0x49, 0x47, 0x48, 0x54, 0x29,
+        0x26, 0x43, 0x6f, 0x70, 0x79, 0x72, 0x69, 0x67,
+        0x68, 0x74, 0x20, 0x28, 0x63, 0x29, 0x20, 0x32,
+        0x30, 0x30, 0x39, 0x20, 0x43, 0x69, 0x73, 0x63,
+        0x6f, 0x20, 0x53, 0x79, 0x73, 0x74, 0x65, 0x6d,
+        0x73, 0x2c, 0x20, 0x49, 0x6e, 0x63, 0x2e
+};
+
+static const guint8 VID_CISCO_GRE_MODE[] = { /* CISCO-GRE-MODE */
+        0x43, 0x49, 0x53, 0x43, 0x4f, 0x2d, 0x47, 0x52,
+        0x45, 0x2d, 0x4d, 0x4f, 0x44, 0x45
 };
 
 static const guint8 VID_CP_01_R65[] = { /* CryptoPro/GOST 0.1 / Check Point R65 */
@@ -2562,7 +2591,11 @@ static const byte_string vendor_id[] = {
   { VID_IKE_CHALLENGE_RESPONSE_2, sizeof(VID_IKE_CHALLENGE_RESPONSE_2), "IKE Challenge/Response for Authenticated Cryptographic Keys" },
   { VID_IKE_CHALLENGE_RESPONSE_REV_1, sizeof(VID_IKE_CHALLENGE_RESPONSE_REV_1), "IKE Challenge/Response for Authenticated Cryptographic Keys (Revised)" },
   { VID_IKE_CHALLENGE_RESPONSE_REV_2, sizeof(VID_IKE_CHALLENGE_RESPONSE_REV_2), "IKE Challenge/Response for Authenticated Cryptographic Keys (Revised)" },
-  { VID_MS_L2TP_IPSEC_VPN_CLIENT, sizeof(VID_MS_L2TP_IPSEC_VPN_CLIENT), "Microsoft L2TP/IPSec VPN Client" },
+  { VID_CISCO_FRAG2, sizeof(VID_CISCO_FRAG2), "Cisco Fragmentation" },
+  { VID_CISCO_FLEXVPN_SUPPORTED, sizeof(VID_CISCO_FLEXVPN_SUPPORTED), "Cisco FlexVPN Supported" },
+  { VID_CISCO_DELETE_REASON, sizeof(VID_CISCO_DELETE_REASON), "Cisco Delete Reason Supported"},
+  { VID_CISCO_COPYRIGHT, sizeof(VID_CISCO_COPYRIGHT), "Cisco Copyright"},
+  { VID_CISCO_GRE_MODE, sizeof(VID_CISCO_GRE_MODE), "Cisco GRE Mode Supported"},
   { VID_MS_VID_INITIAL_CONTACT, sizeof(VID_MS_VID_INITIAL_CONTACT), "Microsoft Vid-Initial-Contact" },
   { VID_GSS_API_1, sizeof(VID_GSS_API_1), "A GSS-API Authentication Method for IKE" },
   { VID_GSS_API_2, sizeof(VID_GSS_API_2), "A GSS-API Authentication Method for IKE" },
@@ -2845,7 +2878,7 @@ dissect_isakmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
 #ifdef HAVE_LIBGCRYPT
   if (isakmp_version == 1) {
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
 
     tvb_memcpy(tvb, i_cookie, offset, COOKIE_SIZE);
     decr = (decrypt_data_t*) g_hash_table_lookup(isakmp_hash, i_cookie);
@@ -2855,15 +2888,15 @@ dissect_isakmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
       decr   = (decrypt_data_t *)g_slice_alloc(sizeof(decrypt_data_t));
       memcpy(ic_key, i_cookie, COOKIE_SIZE);
       memset(decr, 0, sizeof(decrypt_data_t));
-      SET_ADDRESS(&decr->initiator, AT_NONE, 0, NULL);
+      clear_address(&decr->initiator);
 
       g_hash_table_insert(isakmp_hash, ic_key, decr);
     }
 
-    if (ADDRESSES_EQUAL(&decr->initiator, &null_addr)) {
+    if (addresses_equal(&decr->initiator, &null_addr)) {
       /* XXX - We assume that we're seeing the second packet in an exchange here.
        * Is there a way to verify this? */
-      WMEM_COPY_ADDRESS(wmem_file_scope(), &decr->initiator, &pinfo->src);
+      copy_address_wmem(wmem_file_scope(), &decr->initiator, &pinfo->src);
     }
 
     decr_data = decr;
@@ -3165,25 +3198,25 @@ dissect_rohc_supported(tvbuff_t *tvb, packet_info *pinfo, proto_tree *rohc_tree,
   guint optlen, rohc, len = 0;
   proto_item *rohc_item;
   proto_tree *sub_rohc_tree;
-  
+
   rohc = tvb_get_ntohs(tvb, offset);
   optlen = tvb_get_ntohs(tvb, offset+2);
   len = 2;
-  
+
   /* is TV ? (Type/Value) ? */
   if (rohc & 0x8000) {
     rohc = rohc & 0x7fff;
     len = 0;
     optlen = 2;
   }
-  
-  
+
+
   rohc_item = proto_tree_add_item(rohc_tree, hf_isakmp_notify_data_rohc_attr, tvb, offset, 2+len+optlen, ENC_NA);
   proto_item_append_text(rohc_item," (t=%d,l=%d) %s",rohc, optlen, val_to_str(rohc, rohc_attr_type, "Unknown Attribute Type (%02d)") );
   sub_rohc_tree = proto_item_add_subtree(rohc_item, ett_isakmp_rohc_attr);
   proto_tree_add_item(sub_rohc_tree, hf_isakmp_notify_data_rohc_attr_format, tvb, offset, 2, ENC_BIG_ENDIAN);
   proto_tree_add_uint(sub_rohc_tree, hf_isakmp_notify_data_rohc_attr_type, tvb, offset, 2, rohc);
-  
+
   offset += 2;
   if (len)
   {
@@ -3212,7 +3245,7 @@ dissect_rohc_supported(tvbuff_t *tvb, packet_info *pinfo, proto_tree *rohc_tree,
     case ROHC_MRRU:
       proto_tree_add_item(sub_rohc_tree, hf_isakmp_notify_data_rohc_attr_mrru, tvb, offset, optlen, ENC_BIG_ENDIAN);
       break;
-  
+
     default:
       /* No Default Action */
       break;
@@ -3243,7 +3276,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 2: {
       guint16 val;
       val = tvb_get_ntohs(tvb, offset);
-  
+
       proto_tree_add_uint_format_value(tree, hf_uint32, tvb, offset, len, val, "%u", val);
       proto_item_append_text(ti, " : %u", val);
       break;
@@ -3251,7 +3284,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 3: {
       guint32 val;
       val = tvb_get_ntoh24(tvb, offset);
-  
+
       proto_tree_add_uint_format_value(tree, hf_uint32, tvb, offset, len, val, "%u", val);
       proto_item_append_text(ti, " : %u", val);
       break;
@@ -3259,7 +3292,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 4: {
       guint32 val;
       val = tvb_get_ntohl(tvb, offset);
-  
+
       proto_tree_add_uint_format_value(tree, hf_uint32, tvb, offset, len, val, "%u", val);
       proto_item_append_text(ti, " : %u", val);
       break;
@@ -3267,7 +3300,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 5: {
       guint64 val;
       val = tvb_get_ntoh40(tvb, offset);
-  
+
       proto_tree_add_uint64_format_value(tree, hf_uint64, tvb, offset, len, val, "%" G_GINT64_MODIFIER "u", val);
       proto_item_append_text(ti, " : %" G_GINT64_MODIFIER "u", val);
       break;
@@ -3275,7 +3308,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 6: {
         guint64 val;
         val = tvb_get_ntoh48(tvb, offset);
-  
+
         proto_tree_add_uint64_format_value(tree, hf_uint64, tvb, offset, len, val, "%" G_GINT64_MODIFIER "u", val);
         proto_item_append_text(ti, " : %" G_GINT64_MODIFIER "u", val);
         break;
@@ -3283,7 +3316,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 7: {
       guint64 val;
       val = tvb_get_ntoh56(tvb, offset);
-  
+
       proto_tree_add_uint64_format_value(tree, hf_uint64, tvb, offset, len, val, "%" G_GINT64_MODIFIER "u", val);
       proto_item_append_text(ti, " : %" G_GINT64_MODIFIER "u", val);
       break;
@@ -3291,7 +3324,7 @@ dissect_life_duration(tvbuff_t *tvb, proto_tree *tree, proto_item *ti, int hf_ui
     case 8: {
       guint64 val;
       val = tvb_get_ntoh64(tvb, offset);
-  
+
       proto_tree_add_uint64_format_value(tree, hf_uint64, tvb, offset, len, val, "%" G_GINT64_MODIFIER "u", val);
       proto_item_append_text(ti, " : %" G_GINT64_MODIFIER "u", val);
       break;
@@ -3310,11 +3343,11 @@ dissect_transform_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *trans
   guint optlen, transform_attr_type, len = 0;
   proto_item *transform_attr_type_item;
   proto_tree *sub_transform_attr_type_tree;
-  
+
   transform_attr_type = tvb_get_ntohs(tvb, offset);
   optlen = tvb_get_ntohs(tvb, offset+2);
   len = 2;
-  
+
   /* is TV ? (Type/Value) ? */
   if (transform_attr_type & 0x8000) {
     transform_attr_type = transform_attr_type & 0x7fff;
@@ -3328,7 +3361,7 @@ dissect_transform_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *trans
   sub_transform_attr_type_tree = proto_item_add_subtree(transform_attr_type_item, ett_isakmp_tf_attr);
   proto_tree_add_item(sub_transform_attr_type_tree, hf_isakmp_tf_attr_format, tvb, offset, 2, ENC_BIG_ENDIAN);
   proto_tree_add_uint(sub_transform_attr_type_tree, hf_isakmp_tf_attr_type_v1, tvb, offset, 2, transform_attr_type);
-  
+
   offset += 2;
   if (len)
   {
@@ -3706,11 +3739,11 @@ dissect_key_exch(tvbuff_t *tvb, int offset, int length, proto_tree *tree, int is
   proto_tree_add_item(tree, hf_isakmp_key_exch_data, tvb, offset, length, ENC_NA);
 
 #ifdef HAVE_LIBGCRYPT
-  if (decr && decr->gi_len == 0 && ADDRESSES_EQUAL(&decr->initiator, &pinfo->src)) {
+  if (decr && decr->gi_len == 0 && addresses_equal(&decr->initiator, &pinfo->src)) {
     decr->gi = (gchar *)g_malloc(length);
     tvb_memcpy(tvb, decr->gi, offset, length);
     decr->gi_len = length;
-  } else if (decr && decr->gr_len == 0 && !ADDRESSES_EQUAL(&decr->initiator, &pinfo->src)) {
+  } else if (decr && decr->gr_len == 0 && !addresses_equal(&decr->initiator, &pinfo->src)) {
     decr->gr = (gchar *)g_malloc(length);
     tvb_memcpy(tvb, decr->gr, offset, length);
     decr->gr_len = length;
@@ -4050,7 +4083,7 @@ dissect_ikev2_fragmentation(tvbuff_t *tvb, int offset, proto_tree *tree,
   if (fragment_number == total_fragments) {
     if (!pinfo->fd->flags.visited) {
       /* On first pass, get it from the conversation info */
-      conversation_t *p_conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+      conversation_t *p_conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                                  pinfo->ptype, pinfo->srcport,
                                                  pinfo->destport, 0);
       if (p_conv != NULL) {
@@ -4061,14 +4094,14 @@ dissect_ikev2_fragmentation(tvbuff_t *tvb, int offset, proto_tree *tree,
             message_next_payload_set = TRUE;
 
             /* Store in table for this frame for future passes */
-            g_hash_table_insert(defrag_next_payload_hash, GUINT_TO_POINTER(pinfo->fd->num), GUINT_TO_POINTER((guint)message_next_payload));
+            g_hash_table_insert(defrag_next_payload_hash, GUINT_TO_POINTER(pinfo->num), GUINT_TO_POINTER((guint)message_next_payload));
           }
         }
       }
     }
     else {
       /* On later passes, look up in hash table by frame number */
-      message_next_payload = (guint8)GPOINTER_TO_UINT(g_hash_table_lookup(defrag_next_payload_hash, GUINT_TO_POINTER(pinfo->fd->num)));
+      message_next_payload = (guint8)GPOINTER_TO_UINT(g_hash_table_lookup(defrag_next_payload_hash, GUINT_TO_POINTER(pinfo->num)));
       if (message_next_payload != 0) {
         message_next_payload_set = TRUE;
       }
@@ -4417,21 +4450,21 @@ static int
 dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr_type_tree, int offset, int isakmp_version, gboolean is_request)
 {
   guint optlen, cfg_attr_type, len = 0;
-  int offset_end = 0;
   proto_item *cfg_attr_type_item = NULL;
   proto_tree *sub_cfg_attr_type_tree = NULL;
-  
+  guint i;
+
   cfg_attr_type = tvb_get_ntohs(tvb, offset);
   optlen = tvb_get_ntohs(tvb, offset+2);
   len = 2;
-  
+
   /* No Length ? */
   if (cfg_attr_type & 0x8000) {
     cfg_attr_type = cfg_attr_type & 0x7fff;
     len = 0;
     optlen = 2;
   }
-  
+
   if (isakmp_version == 1) {
      cfg_attr_type_item = proto_tree_add_none_format(cfg_attr_type_tree, hf_isakmp_cfg_attr, tvb, offset, 2+len+optlen, "Attribute Type: (t=%d,l=%d) %s", cfg_attr_type, optlen, rval_to_str(cfg_attr_type,vs_v1_cfgattr,"Unknown Attribute Type (%02d)") );
      sub_cfg_attr_type_tree = proto_item_add_subtree(cfg_attr_type_item, ett_isakmp_cfg_attr);
@@ -4459,11 +4492,9 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
   proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_value, tvb, offset, optlen, ENC_NA);
   switch (cfg_attr_type) {
     case INTERNAL_IP4_ADDRESS: /* 1 */
-      offset_end = offset + optlen;
-  
       if (optlen%4 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/4; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_address, tvb, offset, 4, ENC_BIG_ENDIAN);
           offset += 4;
@@ -4474,11 +4505,9 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
       proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_netmask, tvb, offset, 4, ENC_BIG_ENDIAN);
       break;
     case INTERNAL_IP4_DNS: /* 3 */
-      offset_end = offset + optlen;
-  
       if (optlen%4 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/4; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_dns, tvb, offset, 4, ENC_BIG_ENDIAN);
           offset += 4;
@@ -4486,10 +4515,9 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
       }
       break;
     case INTERNAL_IP4_NBNS: /* 4 */
-      offset_end = offset + optlen;
       if (optlen%4 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/4; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_nbns, tvb, offset, 4, ENC_BIG_ENDIAN);
           offset += 4;
@@ -4500,11 +4528,9 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
       proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_address_expiry, tvb, offset, 4, ENC_BIG_ENDIAN);
       break;
     case INTERNAL_IP4_DHCP: /* 6 */
-      offset_end = offset + optlen;
-
       if (optlen%4 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/4; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_dhcp, tvb, offset, 4, ENC_BIG_ENDIAN);
           offset += 4;
@@ -4516,102 +4542,81 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
       proto_item_append_text(cfg_attr_type_item," : %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset,optlen, ENC_ASCII));
       break;
     case INTERNAL_IP6_ADDRESS: /* 8 */
-      offset_end = offset + optlen;
-
       if (optlen%17 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/17; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_address_ip, tvb, offset, 16, ENC_NA);
           offset += 16;
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_address_prefix, tvb, offset, 1, ENC_BIG_ENDIAN);
           offset += 1;
         }
-
       }
       break;
     case INTERNAL_IP6_NETMASK: /* 9 Only in IKEv1 */
       proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_netmask, tvb, offset, 18, ENC_NA);
       break;
     case INTERNAL_IP6_DNS: /* 10 */
-      offset_end = offset + optlen;
-
       if (optlen%16 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/16; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_dns, tvb, offset, 16, ENC_NA);
           offset += 16;
         }
-
       }
       break;
     case INTERNAL_IP6_NBNS: /* 11 */
-      offset_end = offset + optlen;
-
       if (optlen%16 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/16; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_nbns, tvb, offset, 16, ENC_NA);
           offset += 16;
         }
-
       }
       break;
     case INTERNAL_IP6_DHCP: /* 12 */
-      offset_end = offset + optlen;
-
       if (optlen%16 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/16; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_dhcp, tvb, offset, 16, ENC_NA);
           offset += 16;
         }
-
       }
       break;
     case INTERNAL_IP4_SUBNET: /* 13 */
-      offset_end = offset + optlen;
-
       if (optlen%8 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/8; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_subnet_ip, tvb, offset, 4, ENC_BIG_ENDIAN);
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip4_subnet_netmask, tvb, offset, 4, ENC_BIG_ENDIAN);
           offset += 8;
         }
-
       }
       break;
     case SUPPORTED_ATTRIBUTES: /* 14 */
-      offset_end = offset + optlen;
-
       if (optlen%2 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/2; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_supported_attributes, tvb, offset, 2, ENC_BIG_ENDIAN);
           offset += 2;
         }
-
       }
       break;
     case INTERNAL_IP6_SUBNET: /* 15 */
-      offset_end = offset + optlen;
-
       if (optlen%17 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/17; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_subnet_ip, tvb, offset, 16, ENC_NA);
           offset += 16;
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_subnet_prefix, tvb, offset, 1, ENC_BIG_ENDIAN);
           offset += 1;
         }
-
       }
       break;
     case INTERNAL_IP6_LINK: /* 17 */
@@ -4620,26 +4625,21 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
       proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_link_id, tvb, offset, optlen-8, ENC_NA);
       break;
     case INTERNAL_IP6_PREFIX: /* 18 */
-      offset_end = offset + optlen;
-
       if (optlen%17 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/17; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_prefix_ip, tvb, offset, 16, ENC_NA);
           offset += 16;
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_internal_ip6_prefix_length, tvb, offset, 1, ENC_BIG_ENDIAN);
           offset += 1;
         }
-
       }
       break;
     case P_CSCF_IP4_ADDRESS: /* 20 */
-      offset_end = offset + optlen;
-
       if (optlen%4 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/4; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_p_cscf_ip4_address, tvb, offset, 4, ENC_BIG_ENDIAN);
           offset += 4;
@@ -4647,16 +4647,13 @@ dissect_config_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cfg_attr
       }
       break;
     case P_CSCF_IP6_ADDRESS: /* 21 */
-      offset_end = offset + optlen;
-
       if (optlen%16 == 0)
       {
-        while (offset_end-offset > 0)
+        for (i = 0; i < optlen/16; i++)
         {
           proto_tree_add_item(sub_cfg_attr_type_tree, hf_isakmp_cfg_attr_p_cscf_ip6_address, tvb, offset, 16, ENC_NA);
           offset += 16;
         }
-
       }
       break;
     case XAUTH_TYPE: /* 16520 */
@@ -5188,16 +5185,28 @@ isakmp_equal_func(gconstpointer ic1, gconstpointer ic2) {
 
 static guint ikev2_key_hash_func(gconstpointer k) {
   const ikev2_uat_data_key_t *key = (const ikev2_uat_data_key_t*)k;
-  guint hash = 0, keychunk, i;
+  guint hash, *key_segs;
+  size_t key_segcount, i;
 
-  /* XOR our icookie down to the size of a guint */
-  for (i = 0; i < key->spii_len - (key->spii_len % (guint)sizeof(keychunk)); i += (guint)sizeof(keychunk)) {
-    memcpy(&keychunk, &key->spii[i], sizeof(keychunk));
-    hash ^= keychunk;
+  hash = 0;
+
+  /*
+   * XOR our icookie down to the size of a guint.
+   *
+   * The cast to guint suppresses a warning 64-bit-to-32-bit narrowing
+   * from some buggy C compilers (I'm looking at *you*,
+   * i686-apple-darwin11-llvm-gcc-4.2 (GCC) 4.2.1
+   * (Based on Apple Inc. build 5658) (LLVM build 2336.11.00).)
+   */
+  key_segcount = key->spii_len / (guint)sizeof(guint);
+  key_segs = (guint *)key->spii;
+  for (i = 0; i < key_segcount; i++) {
+    hash ^= key_segs[i];
   }
-  for (i = 0; i < key->spir_len - (key->spir_len % (guint)sizeof(keychunk)); i += (guint)sizeof(keychunk)) {
-    memcpy(&keychunk, &key->spir[i], sizeof(keychunk));
-    hash ^= keychunk;
+  key_segcount = key->spir_len / (guint)sizeof(guint);
+  key_segs = (guint *)key->spir;
+  for (i = 0; i < key_segcount; i++) {
+    hash ^= key_segs[i];
   }
 
   return hash;
@@ -6044,11 +6053,11 @@ proto_register_isakmp(void)
         FT_UINT32, BASE_DEC, NULL, 0x00,
         NULL, HFILL }},
     { &hf_isakmp_tf_attr_life_duration_uint64,
-      { "Life Duration", "isakmp.tf.attr.life_duration",
+      { "Life Duration", "isakmp.tf.attr.life_duration64",
         FT_UINT64, BASE_DEC, NULL, 0x00,
         NULL, HFILL }},
     { &hf_isakmp_tf_attr_life_duration_bytes,
-      { "Life Duration", "isakmp.tf.attr.life_duration",
+      { "Life Duration", "isakmp.tf.attr.life_duration_bytes",
         FT_BYTES, BASE_NONE, NULL, 0x00,
         NULL, HFILL }},
     { &hf_isakmp_tf_attr_group_description,
@@ -6174,11 +6183,11 @@ proto_register_isakmp(void)
         FT_UINT32, BASE_DEC, NULL, 0x00,
         NULL, HFILL }},
     { &hf_isakmp_ike_attr_life_duration_uint64,
-      { "Life Duration", "isakmp.ike.attr.life_duration",
+      { "Life Duration", "isakmp.ike.attr.life_duration64",
         FT_UINT64, BASE_DEC, NULL, 0x00,
         NULL, HFILL }},
     { &hf_isakmp_ike_attr_life_duration_bytes,
-      { "Life Duration", "isakmp.ike.attr.life_duration",
+      { "Life Duration", "isakmp.ike.attr.life_duration_bytes",
         FT_BYTES, BASE_NONE, NULL, 0x00,
         NULL, HFILL }},
     { &hf_isakmp_ike_attr_prf,
@@ -6545,7 +6554,7 @@ proto_register_isakmp(void)
   register_init_routine(&isakmp_init_protocol);
   register_cleanup_routine(&isakmp_cleanup_protocol);
 
-  new_register_dissector("isakmp", dissect_isakmp, proto_isakmp);
+  register_dissector("isakmp", dissect_isakmp, proto_isakmp);
 
 #ifdef HAVE_LIBGCRYPT
   isakmp_module = prefs_register_protocol(proto_isakmp, isakmp_prefs_apply_cb);

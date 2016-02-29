@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1026</width>
-    <height>30</height>
+    <height>34</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -106,7 +106,7 @@
    <item>
     <widget class="QComboBox" name="searchTypeComboBox">
      <property name="toolTip">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search for data using display filter syntax (e.g. ip.addr==10.1.1.1), a hexadecimal string (e.g. fffffda5) or a plain string (e.g. My String).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search for data using display filter syntax (e.g. ip.addr==10.1.1.1), a hexadecimal string (e.g. fffffda5), a plain string (e.g. My String) or a regular expression (e.g. colou?r).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
      <item>
       <property name="text">
@@ -123,6 +123,11 @@
        <string>String</string>
       </property>
      </item>
+     <item>
+      <property name="text">
+       <string>Regular Expression</string>
+      </property>
+     </item>
     </widget>
    </item>
    <item>
@@ -136,16 +141,31 @@
     </widget>
    </item>
    <item>
-    <widget class="QToolButton" name="findButton">
+    <widget class="QPushButton" name="findButton">
      <property name="text">
       <string>Find</string>
+     </property>
+     <property name="default">
+      <bool>true</bool>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>27</height>
+      </size>
      </property>
     </widget>
    </item>
    <item>
-    <widget class="QToolButton" name="cancelButton">
+    <widget class="QPushButton" name="cancelButton">
      <property name="text">
       <string>Cancel</string>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>27</height>
+      </size>
      </property>
     </widget>
    </item>
@@ -164,5 +184,6 @@
    <header>syntax_line_edit.h</header>
   </customwidget>
  </customwidgets>
+ <resources/>
  <connections/>
 </ui>

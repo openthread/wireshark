@@ -680,6 +680,8 @@ out_err:
 	return -1;
 }
 
+/* Needed for NLA_PUT_STRING, which passes strlen as an int */
+DIAG_OFF(shorten-64-to-32)
 static int ws80211_create_on_demand_interface(const char *name)
 {
 	int devidx, phyidx, err;
@@ -708,14 +710,17 @@ static int ws80211_create_on_demand_interface(const char *name)
 	NLA_PUT_U32(msg, NL80211_ATTR_IFTYPE, NL80211_IFTYPE_MONITOR);
 
 	err = nl80211_do_cmd(msg, cb);
+	nlmsg_free(msg);
 	if (err)
 		return err;
 	return ws80211_iface_up(name);
 
 nla_put_failure:
+	nlmsg_free(msg);
 	fprintf(stderr, "building message failed\n");
 	return 2;
 }
+DIAG_ON(shorten-64-to-32)
 
 int ws80211_set_freq(const char *name, int freq, int chan_type)
 {
@@ -772,9 +777,11 @@ int ws80211_set_freq(const char *name, int freq, int chan_type)
 		break;
 	}
 	err = nl80211_do_cmd(msg, cb);
+	nlmsg_free(msg);
 	return err;
 
 nla_put_failure:
+	nlmsg_free(msg);
 	fprintf(stderr, "building message failed\n");
 	return 2;
 
@@ -1186,22 +1193,6 @@ void ws80211_free_interfaces(GArray *interfaces)
 		g_free(iface);
 	}
 	g_array_free(interfaces, TRUE);
-}
-
-int ws80211_frequency_to_channel(int freq)
-{
-	if (freq == 2484)
-		return 14;
-
-	if (freq < 2484)
-		return (freq - 2407) / 5;
-
-	/* 4.9 GHz. https://en.wikipedia.org/wiki/List_of_WLAN_channels, fetched
-	 * 2015-06-15 */
-	if (freq < 5000)
-		return freq / 5 - 800;
-
-	return freq / 5 - 1000;
 }
 
 /*

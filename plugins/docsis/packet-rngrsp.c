@@ -60,8 +60,8 @@ static const value_string rng_stat_vals[] = {
 static gint ett_docsis_rngrsp = -1;
 
 /* Code to actually dissect the packets */
-static void
-dissect_rngrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_rngrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *rngrsp_tree;
@@ -179,6 +179,7 @@ dissect_rngrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
           pos = pos + tlvlen;
         }                       /* while (pos < length) */
     }                           /* if (tree) */
+    return tvb_captured_length(tvb);
 }
 
 

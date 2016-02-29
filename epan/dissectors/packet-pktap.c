@@ -24,16 +24,13 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/expert.h>
 #include <wsutil/pint.h>
 
-
-#include "packet-frame.h"
 #include "packet-eth.h"
-#include "packet-pktap.h"
 
-/* Needed for wtap_pcap_encap_to_wtap_encap(). */
-#include <wiretap/pcap-encap.h>
+static dissector_handle_t pcap_pktdata_handle;
 
 void proto_register_pktap(void);
 void proto_reg_handoff_pktap(void);
@@ -94,22 +91,18 @@ static dissector_handle_t pktap_handle;
  * to host byte order in libwiretap.
  */
 
-void
-capture_pktap(const guchar *pd, int len, packet_counts *ld)
+static gboolean
+capture_pktap(const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
 	guint32  hdrlen, rectype, dlt;
 
 	hdrlen = pletoh32(pd);
-	if (hdrlen < MIN_PKTAP_HDR_LEN || !BYTES_ARE_IN_FRAME(0, len, hdrlen)) {
-		ld->other++;
-		return;
-	}
+	if (hdrlen < MIN_PKTAP_HDR_LEN || !BYTES_ARE_IN_FRAME(0, len, hdrlen))
+		return FALSE;
 
 	rectype = pletoh32(pd+4);
-	if (rectype != PKT_REC_PACKET) {
-		ld->other++;
-		return;
-	}
+	if (rectype != PKT_REC_PACKET)
+		return FALSE;
 
 	dlt = pletoh32(pd+4);
 
@@ -117,18 +110,15 @@ capture_pktap(const guchar *pd, int len, packet_counts *ld)
 	switch (dlt) {
 
 	case 1: /* DLT_EN10MB */
-		capture_eth(pd, hdrlen, len, ld);
-		return;
+		return capture_eth(pd, hdrlen, len, cpinfo, pseudo_header);
 
-	default:
-		break;
 	}
 
-	ld->other++;
+	return FALSE;
 }
 
-static void
-dissect_pktap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pktap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *pktap_tree = NULL;
 	proto_item *ti = NULL;
@@ -151,7 +141,7 @@ dissect_pktap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (pkt_len < MIN_PKTAP_HDR_LEN) {
 		proto_tree_add_expert(tree, pinfo, &ei_pktap_hdrlen_too_short,
 		    tvb, offset, 4);
-		return;
+		return tvb_captured_length(tvb);
 	}
 	offset += 4;
 
@@ -202,9 +192,10 @@ dissect_pktap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	if (rectype == PKT_REC_PACKET) {
 		next_tvb = tvb_new_subset_remaining(tvb, pkt_len);
-		dissector_try_uint(wtap_encap_dissector_table,
-		    wtap_pcap_encap_to_wtap_encap(dlt), next_tvb, pinfo, tree);
+		call_dissector_with_data(pcap_pktdata_handle, next_tvb,
+		    pinfo, tree, &dlt);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -284,6 +275,15 @@ void
 proto_reg_handoff_pktap(void)
 {
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_PKTAP, pktap_handle);
+
+	pcap_pktdata_handle = find_dissector("pcap_pktdata");
+
+	/* XXX - WTAP_ENCAP_USER2 to handle Mavericks' botch wherein it
+		uses DLT_USER2 for PKTAP; if you are using DLT_USER2 for your
+		own purposes, feel free to call your own capture_ routine for
+		WTAP_ENCAP_USER2. */
+	register_capture_dissector("wtap_encap", WTAP_ENCAP_PKTAP, capture_pktap, proto_pktap);
+	register_capture_dissector("wtap_encap", WTAP_ENCAP_USER2, capture_pktap, proto_pktap);
 }
 
 /*

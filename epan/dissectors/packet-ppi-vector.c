@@ -126,7 +126,7 @@ enum ppi_vector_type {
 #define PPI_VECTOR_MASK_EXT         0x80000000  /* 31 */
 
 /*  There are currently only three vector flags.
- *  These control the units/interpreration of a vector
+ *  These control the units/interpretation of a vector
  */
 #define PPI_VECTOR_VFLAGS_DEFINES_FORWARD   0x00000001
 
@@ -266,9 +266,10 @@ static gint ett_ppi_vectorflags= -1;
 static gint ett_ppi_vectorchars= -1;
 
 static expert_field ei_ppi_vector_present_bit = EI_INIT;
+static expert_field ei_ppi_vector_length = EI_INIT;
 
 
-/* We want to abbreviate this field into a single line. Does so without any string maniuplation */
+/* We want to abbreviate this field into a single line. Does so without any string manipulation */
 static void
 annotate_vector_chars(guint32 chars, proto_tree *my_pt)
 {
@@ -733,7 +734,7 @@ dissect_ppi_vector_v2(tvbuff_t *tvb, packet_info *pinfo, int offset, gint length
          relativeto_str = " RelativeTo: Forward";
     }
    /*
-    * vchars is another field that we want to pre-process simillar to vflags and for the same reasons.
+    * vchars is another field that we want to pre-process similar to vflags and for the same reasons.
     * we perform separate length checks depending on if vector_flags is present (which would precede vector_chars)
     */
     if      ( ( (present & PPI_VECTOR_MASK_VFLAGS)) && (present & PPI_VECTOR_MASK_VCHARS) && length_remaining >= 8)
@@ -948,12 +949,11 @@ dissect_ppi_vector_v2(tvbuff_t *tvb, packet_info *pinfo, int offset, gint length
     proto_item_append_text (vector_line, " RelativeTo: %s", relativeto_str);
 }
 
-static void
-dissect_ppi_vector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ppi_vector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-    proto_tree *ppi_vector_tree = NULL;
-    proto_item *ti              = NULL;
-    proto_item *vector_line     = NULL;
+    proto_tree *ppi_vector_tree;
+    proto_item *ti, *vector_line;
     gint        length_remaining;
     int         offset          = 0;
 
@@ -973,16 +973,14 @@ dissect_ppi_vector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                      version, length);
 
     /* Create the basic dissection tree*/
-    if (tree) {
-        vector_line = proto_tree_add_protocol_format(tree, proto_ppi_vector, tvb, 0, length, "Vector:");
-        ppi_vector_tree= proto_item_add_subtree(vector_line, ett_ppi_vector);
-        proto_tree_add_uint(ppi_vector_tree, hf_ppi_vector_version,
-                            tvb, offset, 1, version);
-        proto_tree_add_item(ppi_vector_tree, hf_ppi_vector_pad,
-                            tvb, offset + 1, 1, ENC_LITTLE_ENDIAN);
-        ti = proto_tree_add_uint(ppi_vector_tree, hf_ppi_vector_length,
-                                 tvb, offset + 2, 2, length);
-    }
+    vector_line = proto_tree_add_protocol_format(tree, proto_ppi_vector, tvb, 0, length, "Vector:");
+    ppi_vector_tree = proto_item_add_subtree(vector_line, ett_ppi_vector);
+    proto_tree_add_uint(ppi_vector_tree, hf_ppi_vector_version,
+                        tvb, offset, 1, version);
+    proto_tree_add_item(ppi_vector_tree, hf_ppi_vector_pad,
+                        tvb, offset + 1, 1, ENC_LITTLE_ENDIAN);
+    ti = proto_tree_add_uint(ppi_vector_tree, hf_ppi_vector_length,
+                                tvb, offset + 2, 2, length);
 
     /* initialize remaining length */
     length_remaining = length;
@@ -992,8 +990,8 @@ dissect_ppi_vector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          * Base-geotag-header (Radiotap lookalike) is shorter than the fixed-length portion
          * plus one "present" bitset.
          */
-        proto_item_append_text(ti, " (invalid - minimum length is %d)", PPI_GEOBASE_MIN_HEADER_LEN);
-        return;
+        expert_add_info_format(pinfo, ti, &ei_ppi_vector_length, "Invalid PPI-Vector length - minimum length is %d", PPI_GEOBASE_MIN_HEADER_LEN);
+        return 2;
     }
 
     switch (version) {
@@ -1005,8 +1003,8 @@ dissect_ppi_vector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     case 2:
         /* perform max length sanity checking */
         if (length > PPI_VECTOR_MAXTAGLEN ) {
-            proto_item_append_text(ti, " (invalid - maximum length is %d\n)", PPI_VECTOR_MAXTAGLEN);
-            return;
+            expert_add_info_format(pinfo, ti, &ei_ppi_vector_length, "Invalid PPI-Vector length  (got %d, %d max\n)", length, PPI_VECTOR_MAXTAGLEN);
+            return 2;
         }
         dissect_ppi_vector_v2(tvb, pinfo, offset, length_remaining, ppi_vector_tree, vector_line);
         break;
@@ -1015,6 +1013,7 @@ dissect_ppi_vector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_item(ppi_vector_tree, hf_ppi_vector_unknown_data, tvb, offset + 4, -1, ENC_NA);
         break;
     }
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -1046,7 +1045,7 @@ proto_register_ppi_vector(void)
             "Specifies if the Vector flags bitfield is present", HFILL } },
 
         { &hf_ppi_vector_present_vchars,
-          { "Vector chararacteristics", "ppi_vector.present.chars",
+          { "Vector characteristics", "ppi_vector.present.chars",
             FT_BOOLEAN, 32, NULL, PPI_VECTOR_MASK_VCHARS,
             "Specifies if the Vector chars  bitfield is present", HFILL } },
 
@@ -1383,6 +1382,7 @@ proto_register_ppi_vector(void)
 
     static ei_register_info ei[] = {
         { &ei_ppi_vector_present_bit, { "ppi_vector.present.unknown_bit", PI_PROTOCOL, PI_WARN, "Error: PPI-VECTOR: unknown bit set in present field.", EXPFILL }},
+        { &ei_ppi_vector_length, { "ppi_vector.length.invalid", PI_MALFORMED, PI_ERROR, "Invalid length", EXPFILL }},
     };
 
     expert_module_t* expert_ppi_vector;

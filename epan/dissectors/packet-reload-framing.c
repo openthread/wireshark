@@ -135,7 +135,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
   if (effective_length < MIN_HDR_LENGTH)
     return 0;
 
-  conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
   if (conversation)
     reload_framing_info = (reload_conv_info_t *)conversation_get_proto_data(conversation, proto_reload_framing);
@@ -225,7 +225,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
   len_save = transaction_id_key[2].length;
 
   if (!conversation) {
-    conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                     pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
   }
 
@@ -249,7 +249,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
       reload_frame = wmem_new(wmem_file_scope(), reload_frame_t);
       reload_frame->data_frame = 0;
       reload_frame->ack_frame  = 0;
-      reload_frame->req_time   = pinfo->fd->abs_ts;
+      reload_frame->req_time   = pinfo->abs_ts;
       wmem_tree_insert32_array(reload_framing_info->transaction_pdus, transaction_id_key, (void *)reload_frame);
     }
     transaction_id_key[2].key    = key_save;
@@ -260,13 +260,13 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     if (type == DATA) {
       /* This is a data */
       if (reload_frame->data_frame == 0) {
-        reload_frame->data_frame = pinfo->fd->num;
+        reload_frame->data_frame = pinfo->num;
       }
     }
     else {
       /* This is a catch-all for all non-request messages */
       if (reload_frame->ack_frame == 0) {
-        reload_frame->ack_frame = pinfo->fd->num;
+        reload_frame->ack_frame = pinfo->num;
       }
     }
   }
@@ -280,9 +280,9 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
   if (!reload_frame) {
     /* create a "fake" pana_trans structure */
     reload_frame = wmem_new(wmem_packet_scope(), reload_frame_t);
-    reload_frame->data_frame = (type==DATA) ? pinfo->fd->num : 0;
-    reload_frame->ack_frame  = (type!=DATA) ? pinfo->fd->num : 0;
-    reload_frame->req_time   = pinfo->fd->abs_ts;
+    reload_frame->data_frame = (type==DATA) ? pinfo->num : 0;
+    reload_frame->ack_frame  = (type!=DATA) ? pinfo->num : 0;
+    reload_frame->req_time   = pinfo->abs_ts;
   }
 
   ti = proto_tree_add_item(tree, proto_reload_framing, tvb, 0, -1, ENC_NA);
@@ -294,7 +294,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 
   /* Retransmission control */
   if (type == DATA) {
-    if (reload_frame->data_frame != pinfo->fd->num) {
+    if (reload_frame->data_frame != pinfo->num) {
       proto_item *it;
       it = proto_tree_add_uint(reload_framing_tree, hf_reload_framing_duplicate, tvb, 0, 0, reload_frame->data_frame);
       PROTO_ITEM_SET_GENERATED(it);
@@ -307,7 +307,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
   }
   else {
     /* This is a response */
-    if (reload_frame->ack_frame != pinfo->fd->num) {
+    if (reload_frame->ack_frame != pinfo->num) {
       proto_item *it;
       it = proto_tree_add_uint(reload_framing_tree, hf_reload_framing_duplicate, tvb, 0, 0, reload_frame->ack_frame);
       PROTO_ITEM_SET_GENERATED(it);
@@ -320,7 +320,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
       it = proto_tree_add_uint(reload_framing_tree, hf_reload_framing_response_to, tvb, 0, 0, reload_frame->data_frame);
       PROTO_ITEM_SET_GENERATED(it);
 
-      nstime_delta(&ns, &pinfo->fd->abs_ts, &reload_frame->req_time);
+      nstime_delta(&ns, &pinfo->abs_ts, &reload_frame->req_time);
       it = proto_tree_add_time(reload_framing_tree, hf_reload_framing_time, tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED(it);
     }
@@ -580,7 +580,7 @@ proto_register_reload_framing(void)
   expert_reload_framing = expert_register_protocol(proto_reload_framing);
   expert_register_field_array(expert_reload_framing, ei, array_length(ei));
 
-  new_register_dissector("reload-framing", dissect_reload_framing, proto_reload_framing);
+  register_dissector("reload-framing", dissect_reload_framing, proto_reload_framing);
 
 }
 
@@ -591,8 +591,8 @@ proto_reg_handoff_reload_framing(void)
   dissector_handle_t reload_framing_tcp_handle;
   dissector_handle_t reload_framing_udp_handle;
 
-  reload_framing_tcp_handle = new_create_dissector_handle(dissect_reload_framing_tcp, proto_reload_framing);
-  reload_framing_udp_handle = new_create_dissector_handle(dissect_reload_framing, proto_reload_framing);
+  reload_framing_tcp_handle = create_dissector_handle(dissect_reload_framing_tcp, proto_reload_framing);
+  reload_framing_udp_handle = create_dissector_handle(dissect_reload_framing, proto_reload_framing);
 
   reload_handle = find_dissector("reload");
 

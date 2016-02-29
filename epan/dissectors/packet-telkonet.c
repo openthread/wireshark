@@ -54,8 +54,8 @@ static const value_string telkonet_type_vals[] = {
 	{ 0x00,	NULL }
 };
 
-static void
-dissect_telkonet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_telkonet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *ti, *telkonet_tree;
 	int offset = 0;
@@ -77,6 +77,8 @@ dissect_telkonet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (type == TELKONET_TYPE_TUNNEL)
 		call_dissector(eth_withoutfcs_handle, tvb_new_subset_remaining(tvb, offset),
 			pinfo, tree);
+
+	return tvb_captured_length(tvb);
 }
 
 void

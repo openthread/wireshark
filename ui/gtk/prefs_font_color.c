@@ -35,7 +35,7 @@
 
 #include "ui/gtk/old-gtk-compat.h"
 #include "color_utils.h"
-#include "follow_tcp.h"
+#include "follow_stream.h"
 #include "font_utils.h"
 #include "packet_panes.h"
 #include "prefs_font_color.h"
@@ -98,7 +98,7 @@ static void update_font(PangoFontDescription *, GtkWidget *, GtkWidget *);
 static void update_text_color(GObject *obj, GParamSpec *pspec, gpointer data);
 static void update_current_color(GtkWidget *, gpointer);
 
-static const color_t filter_text_fg_color = {0, 0, 0, 0}; /* black */
+static const color_t filter_text_fg_color = {0, 0, 0}; /* black */
 static GdkXxx tcolors[MAX_IDX], filter_text_fg, *curcolor = NULL;
 
 #if ! GTK_CHECK_VERSION(3,4,0)
@@ -507,9 +507,8 @@ font_color_prefs_apply(GtkWidget *w _U_, gboolean redissect)
     case FA_SUCCESS:
       break;
 
-    case FA_FONT_NOT_RESIZEABLE:
-      /* "user_font_apply()" popped up an alert box. */
-      /* turn off zooming - font can't be resized */
+    case FA_ZOOMED_TOO_FAR:
+      /* zoomed too far - turn off zooming */
       recent.gui_zoom_level = 0;
       break;
 
@@ -529,7 +528,7 @@ font_color_prefs_apply(GtkWidget *w _U_, gboolean redissect)
     redraw_packet_bytes_all();
   }
 
-  follow_tcp_redraw_all();
+  follow_stream_redraw_all();
 }
 
 

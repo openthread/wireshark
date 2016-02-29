@@ -112,7 +112,7 @@ static p1_address_ctx_t *get_do_address_ctx(asn1_ctx_t* actx)
 
     if (actx->pinfo->private_table) {
         /* First check if called from an extension attribute */
-        ctx = (p1_address_ctx_t *)g_hash_table_lookup(actx->pinfo->private_table, (gpointer)P1_ADDRESS_CTX);
+        ctx = (p1_address_ctx_t *)g_hash_table_lookup(actx->pinfo->private_table, P1_ADDRESS_CTX);
     }
 
     if (!ctx) {
@@ -209,8 +209,8 @@ const char* p1_get_last_oraddress (asn1_ctx_t* actx)
 /*
  * Dissect P1 MTS APDU
  */
-void
-dissect_p1_mts_apdu (tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+int
+dissect_p1_mts_apdu (tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
     proto_item *item=NULL;
     proto_tree *tree=NULL;
@@ -220,7 +220,7 @@ dissect_p1_mts_apdu (tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
     /* save parent_tree so subdissectors can create new top nodes */
     p1_initialize_content_globals (&asn1_ctx, parent_tree, TRUE);
 
-    if(parent_tree){
+    if (parent_tree) {
         item = proto_tree_add_item(parent_tree, proto_p1, tvb, 0, -1, ENC_NA);
         tree = proto_item_add_subtree(item, ett_p1);
     }
@@ -230,6 +230,7 @@ dissect_p1_mts_apdu (tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 
     dissect_p1_MTS_APDU (FALSE, tvb, 0, &asn1_ctx, tree, hf_p1_MTS_APDU_PDU);
     p1_initialize_content_globals (&asn1_ctx, NULL, FALSE);
+    return tvb_captured_length(tvb);
 }
 
 /*
@@ -293,10 +294,10 @@ dissect_p1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* dat
 
     col_set_str(pinfo->cinfo, COL_INFO, p1_op_name);
 
-    while (tvb_reported_length_remaining(tvb, offset) > 0){
+    while (tvb_reported_length_remaining(tvb, offset) > 0) {
         old_offset=offset;
         offset=(*p1_dissector)(FALSE, tvb, offset, &asn1_ctx , tree, hf_p1_index);
-        if(offset == old_offset){
+        if (offset == old_offset) {
             proto_tree_add_expert(tree, pinfo, &ei_p1_zero_pdu, tvb, offset, -1);
             break;
         }
@@ -362,7 +363,7 @@ void proto_register_p1(void) {
 
   /* Register protocol */
   proto_p1 = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  new_register_dissector("p1", dissect_p1, proto_p1);
+  register_dissector("p1", dissect_p1, proto_p1);
 
   proto_p3 = proto_register_protocol("X.411 Message Access Service", "P3", "p3");
 
@@ -372,9 +373,9 @@ void proto_register_p1(void) {
   expert_p1 = expert_register_protocol(proto_p1);
   expert_register_field_array(expert_p1, ei, array_length(ei));
 
-  p1_extension_dissector_table = register_dissector_table("p1.extension", "P1-EXTENSION", FT_UINT32, BASE_DEC);
-  p1_extension_attribute_dissector_table = register_dissector_table("p1.extension-attribute", "P1-EXTENSION-ATTRIBUTE", FT_UINT32, BASE_DEC);
-  p1_tokendata_dissector_table = register_dissector_table("p1.tokendata", "P1-TOKENDATA", FT_UINT32, BASE_DEC);
+  p1_extension_dissector_table = register_dissector_table("p1.extension", "P1-EXTENSION", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  p1_extension_attribute_dissector_table = register_dissector_table("p1.extension-attribute", "P1-EXTENSION-ATTRIBUTE", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  p1_tokendata_dissector_table = register_dissector_table("p1.tokendata", "P1-TOKENDATA", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   /* Register our configuration options for P1, particularly our port */
 
@@ -447,13 +448,13 @@ prefs_register_p1(void)
 
   /* de-register the old port */
   /* port 102 is registered by TPKT - don't undo this! */
-  if((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
+  if ((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
     dissector_delete_uint("tcp.port", tcp_port, tpkt_handle);
 
   /* Set our port number for future use */
   tcp_port = global_p1_tcp_port;
 
-  if((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
+  if ((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
     dissector_add_uint("tcp.port", tcp_port, tpkt_handle);
 
 }

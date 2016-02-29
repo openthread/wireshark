@@ -35,6 +35,7 @@
 #include <epan/ipproto.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
+#include <epan/proto.h>
 
 #include "ui/main_statusbar.h"
 #include "ui/packet_list_utils.h"
@@ -47,8 +48,7 @@
 
 #include "wsutil/str_util.h"
 
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 #include "frame_tvbuff.h"
 
 #include "color_utils.h"
@@ -244,11 +244,14 @@ PacketList::PacketList(QWidget *parent) :
     cap_file_(NULL),
     decode_as_(NULL),
     ctx_column_(-1),
+    overlay_timer_id_(0),
     create_near_overlay_(true),
     create_far_overlay_(true),
     capture_in_progress_(false),
     tail_timer_id_(0),
-    rows_inserted_(false)
+    rows_inserted_(false),
+    columns_changed_(false),
+    set_column_visibility_(false)
 {
     QMenu *main_menu_item, *submenu;
     QAction *action;
@@ -258,11 +261,9 @@ PacketList::PacketList(QWidget *parent) :
     setSortingEnabled(true);
     setUniformRowHeights(true);
     setAccessibleName("Packet list");
-    setItemDelegateForColumn(0, &related_packet_delegate_);
 
     overlay_sb_ = new OverlayScrollBar(Qt::Vertical, this);
     setVerticalScrollBar(overlay_sb_);
-    overlay_timer_id_ = startTimer(overlay_update_interval_);
 
     packet_list_model_ = new PacketListModel(this, cap_file_);
     setModel(packet_list_model_);
@@ -326,6 +327,7 @@ PacketList::PacketList(QWidget *parent) :
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowTCPStream"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowUDPStream"));
     submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowSSLStream"));
+    submenu->addAction(window()->findChild<QAction *>("actionAnalyzeFollowHTTPStream"));
 
     ctx_menu_.addSeparator();
 
@@ -456,9 +458,9 @@ void PacketList::selectionChanged (const QItemSelection & selected, const QItemS
 
     if (proto_tree_ && cap_file_->edt->tree) {
         packet_info *pi = &cap_file_->edt->pi;
-        related_packet_delegate_.setCurrentFrame(pi->fd->num);
+        related_packet_delegate_.setCurrentFrame(pi->num);
         proto_tree_->fillProtocolTree(cap_file_->edt->tree);
-        conversation_t *conv = find_conversation(pi->fd->num, &pi->src, &pi->dst, pi->ptype,
+        conversation_t *conv = find_conversation(pi->num, &pi->src, &pi->dst, pi->ptype,
                                                 pi->srcport, pi->destport, 0);
         if (conv) {
             related_packet_delegate_.setConversation(conv);
@@ -474,10 +476,33 @@ void PacketList::selectionChanged (const QItemSelection & selected, const QItemS
         for (src_le = cap_file_->edt->pi.data_src; src_le != NULL; src_le = src_le->next) {
             source = (struct data_source *)src_le->data;
             source_name = get_data_source_name(source);
-            byte_view_tab_->addTab(source_name, get_data_source_tvb(source), cap_file_->edt->tree, proto_tree_, cap_file_->current_frame->flags.encoding);
+            byte_view_tab_->addTab(source_name, get_data_source_tvb(source), cap_file_->edt->tree, proto_tree_, (packet_char_enc)cap_file_->current_frame->flags.encoding);
             wmem_free(NULL, source_name);
         }
         byte_view_tab_->setCurrentIndex(0);
+    }
+
+    if (cap_file_->search_in_progress &&
+        (cap_file_->search_pos != 0 || (cap_file_->string && cap_file_->decode_data)))
+    {
+        match_data  mdata;
+        field_info *fi = NULL;
+
+        if (cap_file_->string && cap_file_->decode_data) {
+            // The tree where the target string matched one of the labels was discarded in
+            // match_protocol_tree() so we have to search again in the latest tree.
+            if (cf_find_string_protocol_tree(cap_file_, cap_file_->edt->tree, &mdata)) {
+                fi = mdata.finfo;
+            }
+        } else {
+            // Find the finfo that corresponds to our byte.
+            fi = proto_find_field_from_offset(cap_file_->edt->tree, cap_file_->search_pos,
+                                              cap_file_->edt->tvb);
+        }
+
+        if (fi && proto_tree_) {
+            proto_tree_->selectField(fi);
+        }
     }
 }
 
@@ -557,11 +582,20 @@ void PacketList::paintEvent(QPaintEvent *event)
     QTreeView::paintEvent(event);
 }
 
+void PacketList::mousePressEvent (QMouseEvent *event)
+{
+    setAutoScroll(false);
+    QTreeView::mousePressEvent(event);
+    setAutoScroll(true);
+}
+
 void PacketList::setColumnVisibility()
 {
+    set_column_visibility_ = true;
     for (int i = 0; i < prefs.num_cols; i++) {
         setColumnHidden(i, get_column_visible(i) ? false : true);
     }
+    set_column_visibility_ = false;
 }
 
 int PacketList::sizeHintForColumn(int column) const
@@ -577,6 +611,30 @@ int PacketList::sizeHintForColumn(int column) const
     }
     size_hint += QTreeView::sizeHintForColumn(column); // Decoration padding
     return size_hint;
+}
+
+void PacketList::setRecentColumnWidth(int col)
+{
+    int col_width = recent_get_column_width(col);
+
+    if (col_width < 1) {
+        int fmt = get_column_format(col);
+        const char *long_str = get_column_width_string(fmt, col);
+
+        QFontMetrics fm = QFontMetrics(wsApp->monospaceFont());
+        if (long_str) {
+            col_width = fm.width(long_str);
+        } else {
+            col_width = fm.width(MIN_COL_WIDTH_STR);
+        }
+
+        // Custom delegate padding
+        if (itemDelegateForColumn(col)) {
+            col_width += itemDelegateForColumn(col)->sizeHint(viewOptions(), QModelIndex()).width();
+        }
+    }
+
+    setColumnWidth(col, col_width);
 }
 
 void PacketList::initHeaderContextMenu()
@@ -615,31 +673,46 @@ void PacketList::initHeaderContextMenu()
     }
 }
 
+void PacketList::drawCurrentPacket()
+{
+    QModelIndex current_index = currentIndex();
+    setCurrentIndex(QModelIndex());
+    if (current_index.isValid()) {
+        setCurrentIndex(current_index);
+    }
+}
+
 // Redraw the packet list and detail. Called from many places.
 // XXX We previously re-selected the packet here, but that seems to cause
 // automatic scrolling problems.
 void PacketList::redrawVisiblePackets() {
-    if (!cap_file_) return;
-
-    if (cap_file_->edt && cap_file_->edt->tree) {
-        proto_tree_->fillProtocolTree(cap_file_->edt->tree);
-    }
-
     update();
     header()->update();
+    drawCurrentPacket();
+}
+
+void PacketList::resetColumns()
+{
+    packet_list_model_->resetColumns();
 }
 
 // prefs.col_list has changed.
 void PacketList::columnsChanged()
 {
-    if (!cap_file_) return;
+    columns_changed_ = true;
+    if (!cap_file_) {
+        // Keep columns_changed_ = true until we load a capture file.
+        return;
+    }
 
     prefs.num_cols = g_list_length(prefs.col_list);
     col_cleanup(&cap_file_->cinfo);
     build_column_format_array(&cap_file_->cinfo, prefs.num_cols, FALSE);
     setColumnVisibility();
     create_far_overlay_ = true;
-    packet_list_model_->resetColumns();
+    resetColumns();
+    applyRecentColumnWidths();
+    columns_changed_ = false;
 }
 
 // Fields have changed, update custom columns
@@ -653,45 +726,55 @@ void PacketList::fieldsChanged(capture_file *cf)
 
 // Column widths should
 // - Load from recent when we load a new profile (including at starting up).
+// - Reapply when changing columns.
 // - Persist across freezes and thaws.
 // - Persist across file closing and opening.
 // - Save to recent when we save our profile (including shutting down).
-
-// Called via recentFilesRead.
+// - Not be affected by the behavior of stretchLastSection.
 void PacketList::applyRecentColumnWidths()
 {
     // Either we've just started up or a profile has changed. Read
     // the recent settings, apply them, and save the header state.
-    QFontMetrics fm = QFontMetrics(wsApp->monospaceFont());
-    for (int i = 0; i < prefs.num_cols; i++) {
-        int col_width = recent_get_column_width(i);
 
-        if (col_width < 1) {
-            int fmt;
-            const char *long_str;
+    int column_width = 0;
 
-            fmt = get_column_format(i);
-            long_str = get_column_width_string(fmt, i);
-            if (long_str) {
-                col_width = fm.width(long_str);
-            } else {
-                col_width = fm.width(MIN_COL_WIDTH_STR);
-            }
-            // Custom delegate padding
-            if (itemDelegateForColumn(i)) {
-                col_width += itemDelegateForColumn(i)->sizeHint(viewOptions(), QModelIndex()).width();
-            }
-        }
-        setColumnWidth(i, col_width) ;
+    for (int col = 0; col < prefs.num_cols; col++) {
+        setRecentColumnWidth(col);
+        column_width += columnWidth(col);
     }
+
+    if (column_width > width()) {
+        resize(column_width, height());
+    }
+
     column_state_ = header()->saveState();
 }
 
-// This sets the mode for the entire view. If we want to make this setting
-// per-column we'll either have to generalize RelatedPacketDelegate so that
-// we can set it for entire rows or create another delegate.
-void PacketList::elideModeChanged()
+void PacketList::preferencesChanged()
 {
+    // Related packet delegate
+    if (prefs.gui_packet_list_show_related) {
+        setItemDelegateForColumn(0, &related_packet_delegate_);
+    } else {
+        setItemDelegateForColumn(0, 0);
+    }
+
+    // Intelligent scroll bar (minimap)
+    if (prefs.gui_packet_list_show_minimap) {
+        if (overlay_timer_id_ == 0) {
+            overlay_timer_id_ = startTimer(overlay_update_interval_);
+        }
+    } else {
+        if (overlay_timer_id_ != 0) {
+            killTimer(overlay_timer_id_);
+            overlay_timer_id_ = 0;
+        }
+    }
+
+    // Elide mode.
+    // This sets the mode for the entire view. If we want to make this setting
+    // per-column we'll either have to generalize RelatedPacketDelegate so that
+    // we can set it for entire rows or create another delegate.
     Qt::TextElideMode elide_mode = Qt::ElideRight;
     switch (prefs.gui_packet_list_elide_mode) {
     case ELIDE_LEFT:
@@ -717,7 +800,7 @@ void PacketList::recolorPackets()
 
 /* Enable autoscroll timer. Note: must be called after the capture is started,
  * otherwise the timer will not be executed. */
-void PacketList::setAutoScroll(bool enabled)
+void PacketList::setVerticalAutoScroll(bool enabled)
 {
     tail_at_end_ = enabled;
     if (enabled && capture_in_progress_) {
@@ -740,6 +823,7 @@ void PacketList::captureFileReadFinished()
 void PacketList::freeze()
 {
     setUpdatesEnabled(false);
+    column_state_ = header()->saveState();
     setModel(NULL);
     // It looks like GTK+ sends a cursor-changed signal at this point but Qt doesn't
     // call selectionChanged.
@@ -788,7 +872,7 @@ void PacketList::writeRecent(FILE *rf) {
         }
         col_fmt = get_column_format(col);
         if (col_fmt == COL_CUSTOM) {
-            fprintf (rf, " %%Cus:%s,", get_column_custom_field(col));
+            fprintf (rf, " %%Cus:%s,", get_column_custom_fields(col));
         } else {
             fprintf (rf, " %s,", col_format_to_string(col_fmt));
         }
@@ -843,11 +927,11 @@ QString PacketList::getFilterFromRowAndColumn()
             if (strlen(cap_file_->cinfo.col_expr.col_expr[ctx_column_]) != 0 &&
                 strlen(cap_file_->cinfo.col_expr.col_expr_val[ctx_column_]) != 0) {
                 if (cap_file_->cinfo.columns[ctx_column_].col_fmt == COL_CUSTOM) {
-                    header_field_info *hfi = proto_registrar_get_byname(cap_file_->cinfo.columns[ctx_column_].col_custom_field);
-                    if (hfi->parent == -1) {
+                    header_field_info *hfi = proto_registrar_get_byname(cap_file_->cinfo.columns[ctx_column_].col_custom_fields);
+                    if (hfi && hfi->parent == -1) {
                         /* Protocol only */
                         filter.append(cap_file_->cinfo.col_expr.col_expr[ctx_column_]);
-                    } else if (hfi->type == FT_STRING) {
+                    } else if (hfi && hfi->type == FT_STRING) {
                         /* Custom string, add quotes */
                         filter.append(QString("%1 == \"%2\"")
                                       .arg(cap_file_->cinfo.col_expr.col_expr[ctx_column_])
@@ -953,6 +1037,9 @@ void PacketList::setCaptureFile(capture_file *cf)
         header()->restoreState(column_state_);
     }
     cap_file_ = cf;
+    if (cap_file_ && columns_changed_) {
+        columnsChanged();
+    }
     packet_list_model_->setCaptureFile(cf);
     create_near_overlay_ = true;
 }
@@ -1067,6 +1154,13 @@ void PacketList::unsetAllTimeReferences()
     create_far_overlay_ = true;
 }
 
+void PacketList::applyTimeShift()
+{
+    packet_list_model_->applyTimeShift();
+    redrawVisiblePackets();
+    // XXX emit packetDissectionChanged(); ?
+}
+
 void PacketList::showHeaderMenu(QPoint pos)
 {
     header_ctx_column_ = header()->logicalIndexAt(pos);
@@ -1138,6 +1232,10 @@ void PacketList::headerMenuTriggered()
         break;
     case caResolveNames:
         set_column_resolved(header_ctx_column_, checked);
+        packet_list_model_->resetColumns();
+        if (!prefs.gui_use_pref_save) {
+            prefs_main_write();
+        }
         redraw = true;
         break;
     case caResizeToContents:
@@ -1149,6 +1247,9 @@ void PacketList::headerMenuTriggered()
     case caHideColumn:
         set_column_visible(header_ctx_column_, FALSE);
         hideColumn(header_ctx_column_);
+        if (!prefs.gui_use_pref_save) {
+            prefs_main_write();
+        }
         break;
     case caRemoveColumn:
     {
@@ -1177,15 +1278,29 @@ void PacketList::columnVisibilityTriggered()
     QAction *ha = qobject_cast<QAction*>(sender());
     if (!ha) return;
 
-    set_column_visible(ha->data().toInt(), ha->isChecked());
+    int col = ha->data().toInt();
+    set_column_visible(col, ha->isChecked());
     setColumnVisibility();
+    if (ha->isChecked()) {
+        setRecentColumnWidth(col);
+    }
+    if (!prefs.gui_use_pref_save) {
+        prefs_main_write();
+    }
 }
 
 void PacketList::sectionResized(int col, int, int new_width)
 {
-    if (isVisible()) {
+    if (isVisible() && !columns_changed_ && !set_column_visibility_ && new_width > 0) {
         // Column 1 gets an invalid value (32 on OS X) when we're not yet
         // visible.
+        //
+        // Don't set column width when columns changed or setting column
+        // visibility because we may get a sectionReized() from QTreeView
+        // with values from a old columns layout.
+        //
+        // Don't set column width when hiding a column.
+
         recent_set_column_width(col, new_width);
     }
 }
@@ -1314,11 +1429,13 @@ void PacketList::vScrollBarActionTriggered(int)
 const int height_multiplier_ = 7;
 void PacketList::drawNearOverlay()
 {
-    if (!cap_file_ || cap_file_->state != FILE_READ_DONE) return;
-
     if (create_near_overlay_) {
         create_near_overlay_ = false;
     }
+
+    if (!cap_file_ || cap_file_->state != FILE_READ_DONE) return;
+
+    if (!prefs.gui_packet_list_show_minimap) return;
 
     qreal dp_ratio = 1.0;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)
@@ -1400,11 +1517,13 @@ void PacketList::drawNearOverlay()
 
 void PacketList::drawFarOverlay()
 {
-    if (!cap_file_ || cap_file_->state != FILE_READ_DONE) return;
-
     if (create_far_overlay_) {
         create_far_overlay_ = false;
     }
+
+    if (!cap_file_ || cap_file_->state != FILE_READ_DONE) return;
+
+    if (!prefs.gui_packet_list_show_minimap) return;
 
     qreal dp_ratio = 1.0;
 #if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)

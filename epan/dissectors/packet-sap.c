@@ -115,8 +115,8 @@ static expert_field ei_sap_bogus_authentication_or_pad_length = EI_INIT;
 
 static dissector_handle_t sdp_handle;
 
-static void
-dissect_sap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
     int sap_version, is_ipv6, is_del, is_enc, is_comp, addr_len;
@@ -200,7 +200,7 @@ dissect_sap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if ((int) auth_data_len - pad_len - 1 < 0) {
             expert_add_info_format(pinfo, sai, &ei_sap_bogus_authentication_or_pad_length,
                                         "Bogus authentication length (%d) or pad length (%d)", auth_len, pad_len);
-            return;
+            return tvb_captured_length(tvb);
         }
 
 
@@ -223,7 +223,7 @@ dissect_sap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             mangle = &ei_sap_compressed;
 
         proto_tree_add_expert(sap_tree, pinfo, mangle, tvb, offset, -1);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     if (tree) {
@@ -273,6 +273,7 @@ dissect_sap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Done with SAP */
     next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(sdp_handle, next_tvb, pinfo, tree);
+    return tvb_captured_length(tvb);
 }
 
 void proto_register_sap(void)
@@ -343,7 +344,7 @@ void proto_register_sap(void)
         { &hf_sap_auth_len, { "Authentication Length", "sap.auth.len", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_sap_message_identifier_hash, { "Message Identifier Hash", "sap.message_identifier_hash", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
         { &hf_sap_originating_source_ipv4, { "Originating Source", "sap.originating_source", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-        { &hf_sap_originating_source_ipv6, { "Originating Source", "sap.originating_source", FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_sap_originating_source_ipv6, { "Originating Source", "sap.originating_source.ipv6", FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_sap_auth_subheader, { "Authentication subheader", "sap.auth.subheader", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_sap_auth_data_padding, { "Authentication data padding", "sap.auth.data_padding", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_sap_auth_data_padding_len, { "Authentication data pad count (bytes)", "sap.auth.data_padding.len", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},

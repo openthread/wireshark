@@ -28,6 +28,7 @@
 #include <epan/nlpid.h>
 #include <epan/etypes.h>
 #include <epan/expert.h>
+#include <wsutil/str_util.h>
 #include "packet-q931.h"
 #include "packet-arp.h"
 
@@ -1865,14 +1866,14 @@ dissect_q2931_ie(tvbuff_t *tvb, packet_info* pinfo, int offset, int len, proto_t
 	}
 }
 
-static void
-dissect_q2931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q2931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int	    offset     = 0;
 	proto_tree *q2931_tree = NULL;
 	proto_item *ti;
 	guint8	    call_ref_len;
-	guint8	    call_ref[15];
+	guint8	    call_ref[16];
 	guint8	    message_type;
 	guint8	    message_type_ext;
 	guint16	    message_len;
@@ -1951,7 +1952,7 @@ dissect_q2931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			dissect_q2931_ie(tvb, pinfo, offset, info_element_len,
 			    q2931_tree, info_element, info_element_ext);
 		}
-#if 0 /* XXX: Is codeset & etc supoosed to be used somehow ? */
+#if 0 /* XXX: Is codeset & etc supposed to be used somehow ? */
 		if (non_locking_shift)
 			codeset = 0;
 		/*
@@ -1976,6 +1977,7 @@ dissect_q2931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 #endif
 		offset += 1 + 1 + 2 + info_element_len;
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

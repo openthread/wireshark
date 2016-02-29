@@ -143,7 +143,7 @@ rlogin_state_machine(rlogin_hash_entry_t *hash_info, tvbuff_t *tvb, packet_info 
 			{
 				/* Have info, store frame number */
 				hash_info->state = DONE;
-				hash_info->info_framenum = pinfo->fd->num;
+				hash_info->info_framenum = pinfo->num;
 			}
 		}
 	}
@@ -154,7 +154,7 @@ rlogin_state_machine(rlogin_hash_entry_t *hash_info, tvbuff_t *tvb, packet_info 
 	{
 		/* Store frame number here */
 		hash_info->state = DONE;
-		hash_info->info_framenum = pinfo->fd->num;
+		hash_info->info_framenum = pinfo->num;
 
 		/* Work out length of string to copy */
 		stringlen = tvb_strnlen(tvb, 0, NAME_LEN);
@@ -204,7 +204,7 @@ static void rlogin_display(rlogin_hash_entry_t *hash_info,
 	 * to something past this segment, we'd have to remember the urgent
 	 * pointer setting for this conversation.
 	 */
-	if (tcpinfo && tcpinfo->urgent &&      /* if urgent pointer set */
+	if (tcpinfo && IS_TH_URG(tcpinfo->flags) &&      /* if urgent pointer set */
 	    length >= tcpinfo->urgent_pointer) /* and it's in this frame */
 	{
 		/* Get urgent byte into Temp */
@@ -249,7 +249,7 @@ static void rlogin_display(rlogin_hash_entry_t *hash_info,
 		return;
 	}
 
-	if (hash_info->info_framenum == pinfo->fd->num)
+	if (hash_info->info_framenum == pinfo->num)
 	{
 		gint info_len;
 		gint slash_offset;
@@ -428,7 +428,7 @@ dissect_rlogin(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 				                   "Startup info received");
 		}
 		else
-		if (tcpinfo && tcpinfo->urgent && length >= tcpinfo->urgent_pointer)
+		if (tcpinfo && IS_TH_URG(tcpinfo->flags) && length >= tcpinfo->urgent_pointer)
 		{
 			/* Urgent pointer inside current data represents a control message */
 			col_append_str(pinfo->cinfo, COL_INFO, "Control Message");
@@ -577,7 +577,7 @@ void proto_register_rlogin(void)
 void proto_reg_handoff_rlogin(void)
 {
 	/* Dissector install routine */
-	dissector_handle_t rlogin_handle = new_create_dissector_handle(dissect_rlogin,proto_rlogin);
+	dissector_handle_t rlogin_handle = create_dissector_handle(dissect_rlogin,proto_rlogin);
 	dissector_add_uint("tcp.port", RLOGIN_PORT, rlogin_handle);
 }
 

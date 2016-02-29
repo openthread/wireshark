@@ -19,6 +19,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+include $(top_srcdir)/Makefile.am.inc
+
 SUBDIRS = lemon
 
 PIDL_FILES= \
@@ -89,7 +91,6 @@ EXTRA_DIST = \
 	$(PIDL_FILES)					\
 	asn2deb						\
 	asn2wrs.py					\
-	build-qt-sdk.bat				\
 	checkfiltername.pl				\
 	checkhf.pl					\
 	checklicenses.py				\
@@ -132,12 +133,12 @@ EXTRA_DIST = \
 	dftestlib/util.py				\
 	extract_asn1_from_spec.pl			\
 	fix-encoding-args.pl				\
-	fix_pragma_wdocumentation.sh			\
 	fixhf.pl					\
 	ftsanity.py					\
 	fuzz-test.sh					\
 	gen-bugnote					\
 	generate-bacnet-vendors.py			\
+	generate-sysdig-event.py			\
 	Get-HardenFlags.ps1				\
 	git-compare-abis.sh				\
 	git-export-release.sh				\
@@ -168,6 +169,8 @@ EXTRA_DIST = \
 	parse_xml2skinny_dissector.py			\
 	pkt-from-core.py				\
 	pre-commit					\
+	pre-commit-ignore.conf				\
+	pre-commit-ignore.py				\
 	process-x11-fields.pl				\
 	process-x11-xcb.pl				\
 	randpkt-test.sh					\
@@ -187,6 +190,7 @@ EXTRA_DIST = \
 	usb-ptp-extract-models.txt			\
 	valgrind-wireshark.sh				\
 	vg-suppressions					\
+	win-setup.ps1					\
 	win-setup.sh					\
 	wireshark_be.py					\
 	wireshark_gen.py				\
@@ -195,12 +199,13 @@ EXTRA_DIST = \
 	yacc.py
 
 noinst_SCRIPTS = setuid-root.pl
+
 setuid-root.pl: setuid-root.pl.in Makefile
-	sed \
+	$(AM_V_SED)$(SED) \
 		-e 's,@BIN_PREFIX\@,$(bindir),' \
 		-e 's,@TSHARK_BIN\@,$(tshark_bin)$(EEXT),' \
 		-e 's,@DUMPCAP_BIN\@,$(dumpcap_bin)$(EEXT),' \
-		< $(srcdir)/setuid-root.pl.in > setuid-root.pl
+		< $(srcdir)/setuid-root.pl.in > setuid-root.pl; \
 	chmod +x setuid-root.pl
 
 CLEANFILES = \

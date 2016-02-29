@@ -269,7 +269,7 @@ extern "C" {
 #endif
 
 #ifndef ETHERTYPE_MINT
-#define ETHERTYPE_MINT			0x8783	/* Motorola Media Indepentent Network Transport */
+#define ETHERTYPE_MINT			0x8783	/* Motorola Media Independent Network Transport */
 #endif
 
 #ifndef ETHERTYPE_MAC_CONTROL
@@ -536,6 +536,10 @@ extern "C" {
 
 #ifndef ETHERTYPE_HSR
 #define ETHERTYPE_HSR			0x892F  /* High-availability Seamless Redundancy (IEC62439 Part 3) */
+#endif
+
+#ifndef ETHERTYPE_NSH
+#define ETHERTYPE_NSH			0x894F  /* Network Service Header (draft-ietf-sfc-nsh-01.txt) */
 #endif
 
 #ifndef ETHERTYPE_LOOP

@@ -174,9 +174,14 @@ This package contains the Qt Wireshark GUI and desktop integration files.
 %endif
 
 %if %{with gtk2} || %{with gtk3}
-%package	gnome
+%package	gtk
 Summary:	Wireshark's GTK+-based GUI
 Group:		Applications/Internet
+# This package used to be called wireshark-gnome.  Tell the system about
+# the rename.  The Provides line is optional to help people find the new
+# package.
+Provides:	wireshark-gnome
+Obsoletes:	wireshark-gnome
 %if %{with gtk3}
 Requires:	gtk3 >= @GTK3_MIN_VERSION@
 BuildRequires:	gtk3-devel >= @GTK3_MIN_VERSION@
@@ -208,7 +213,7 @@ Requires:	portaudio
 # Add this for more readable fonts on some distributions/versions
 #Requires:	dejavu-sans-mono-fonts
 
-%description gnome
+%description gtk
 This package contains the GTK+ Wireshark GUI and desktop integration files.
 %endif
 
@@ -293,6 +298,7 @@ touch %{buildroot}%{_bindir}/wireshark
 # Fedora's packaging guidelines (https://fedoraproject.org/wiki/Packaging:Guidelines)
 # require this (at least if desktop-file-install was not used to install it).
 desktop-file-validate %{buildroot}%{_datadir}/applications/wireshark.desktop
+desktop-file-validate %{buildroot}%{_datadir}/applications/wireshark-gtk.desktop
 %endif
 %endif
 
@@ -331,7 +337,7 @@ fi
 %endif
 
 %if %{with gtk2} || %{with gtk3}
-%post gnome
+%post gtk
 update-desktop-database %{_datadir}/applications &> /dev/null ||:
 update-mime-database %{_datadir}/mime &> /dev/null || :
 touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
@@ -339,7 +345,7 @@ gtk-update-icon-cache -t %{_datadir}/icons/hicolor &>/dev/null || :
 /usr/sbin/update-alternatives --install %{_bindir}/wireshark \
   %{name} %{_bindir}/wireshark-gtk 10
 
-%postun gnome
+%postun gtk
 update-desktop-database %{_datadir}/applications &> /dev/null ||:
 update-mime-database %{_datadir}/mime &> /dev/null || :
 if [ $1 -eq 0 ] ; then
@@ -389,6 +395,10 @@ fi
 %{_libdir}/wireshark
 # Don't pick up the wireshark (GUI) man page
 %exclude %{_mandir}/man1/wireshark.*
+# Our RPMs use 'alternatives' to choose the Wireshark so it doesn't make sense
+# to have 2 desktop entries: one for 'wireshark' (Qt or Gtk GUI, depending on
+# configuration) and one for 'wireshark-gtk' (the Gtk GUI).
+%exclude %{_datadir}/applications/wireshark-gtk.desktop
 %{_mandir}/man1/*
 %{_mandir}/man4/*
 %{_datadir}/wireshark
@@ -410,7 +420,7 @@ fi
 %endif
 
 %if %{with gtk2} || %{with gtk3}
-%files gnome
+%files gtk
 %defattr(-,root,root)
 %{_datadir}/applications/wireshark.desktop
 %{_datadir}/appdata/wireshark.appdata.xml
@@ -423,6 +433,9 @@ fi
 %endif
 
 %changelog
+* Tue Nov 10 2015 Jeff Morriss
+- Rename the gnome package to gtk: Wireshark uses Gtk+ but isn't part of GNOME.
+
 * Mon Sep 14 2015 Jeff Morriss
 - Follow ./configure's decision on whether to configure Lua or not rather than
   forcing it to be enabled (and thus failing on some distros which don't ship

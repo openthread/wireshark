@@ -46,8 +46,6 @@ static int proto_infiniband = -1;   /* we'll need the Infiniband protocol index 
 /* Initialize the protocol and registered fields... */
 static int proto_ib_sdp = -1;
 
-static int hf_ib_sdp = -1;
-
 /* IB SDP BSDH Header */
 static int hf_ib_sdp_bsdh = -1;
 static int hf_ib_sdp_mid = -1;
@@ -176,12 +174,12 @@ dissect_ib_sdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     if (gPREF_MAN_EN) {
         /* If the manual settings are enabled see if this fits - in which case we can skip
            the following checks entirely and go straight to dissecting */
-        if (    (ADDRESSES_EQUAL(&pinfo->src, &manual_addr[0]) &&
-                 ADDRESSES_EQUAL(&pinfo->dst, &manual_addr[1]) &&
+        if (    (addresses_equal(&pinfo->src, &manual_addr[0]) &&
+                 addresses_equal(&pinfo->dst, &manual_addr[1]) &&
                  (pinfo->srcport == 0xffffffff /* is unknown */ || pinfo->srcport == gPREF_QP[0]) &&
                  (pinfo->destport == 0xffffffff /* is unknown */ || pinfo->destport == gPREF_QP[1]))    ||
-                (ADDRESSES_EQUAL(&pinfo->src, &manual_addr[1]) &&
-                 ADDRESSES_EQUAL(&pinfo->dst, &manual_addr[0]) &&
+                (addresses_equal(&pinfo->src, &manual_addr[1]) &&
+                 addresses_equal(&pinfo->dst, &manual_addr[0]) &&
                  (pinfo->srcport == 0xffffffff /* is unknown */ || pinfo->srcport == gPREF_QP[1]) &&
                  (pinfo->destport == 0xffffffff /* is unknown */ || pinfo->destport == gPREF_QP[0]))    )
             goto manual_override;
@@ -190,14 +188,14 @@ dissect_ib_sdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     /* first try to find a conversation between the two current hosts. in most cases this
        will not work since we do not have the source QP. this WILL succeed when we're still
        in the process of CM negotiations */
-    conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                              PT_IBQP, pinfo->srcport, pinfo->destport, 0);
 
     if (!conv) {
         /* if not, try to find an established RC channel. recall Infiniband conversations are
            registered with one side of the channel. since the packet is only guaranteed to
            contain the qpn of the destination, we'll use this */
-        conv = find_conversation(pinfo->fd->num, &pinfo->dst, &pinfo->dst,
+        conv = find_conversation(pinfo->num, &pinfo->dst, &pinfo->dst,
                                  PT_IBQP, pinfo->destport, pinfo->destport, NO_ADDR_B|NO_PORT_B);
 
         if (!conv)
@@ -222,7 +220,7 @@ manual_override:
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "SDP");
 
-    SDP_header_item = proto_tree_add_item(tree, hf_ib_sdp, tvb, local_offset, -1, ENC_NA);
+    SDP_header_item = proto_tree_add_item(tree, proto_ib_sdp, tvb, local_offset, -1, ENC_NA);
     SDP_header_tree = proto_item_add_subtree(SDP_header_item, ett_ib_sdp);
 
     SDP_BSDH_header_item = proto_tree_add_item(SDP_header_tree, hf_ib_sdp_bsdh, tvb, local_offset, 16, ENC_NA);
@@ -321,10 +319,6 @@ proto_register_ib_sdp(void)
 {
     module_t *ib_sdp_module;
     static hf_register_info hf[] = {
-        { &hf_ib_sdp, {
-            "SDP", "infiniband_sdp",
-            FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL}
-        },
         /* SDP BSDH Header */
         { &hf_ib_sdp_bsdh, {
             "BSDH", "infiniband_sdp.bsdh",
@@ -475,7 +469,7 @@ proto_register_ib_sdp(void)
 
     proto_ib_sdp = proto_register_protocol("Infiniband Sockets Direct Protocol", "Infiniband SDP", "infiniband_sdp");
 
-    new_register_dissector("infiniband_sdp", dissect_ib_sdp, proto_ib_sdp);
+    register_dissector("infiniband_sdp", dissect_ib_sdp, proto_ib_sdp);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_ib_sdp, hf, array_length(hf));
@@ -538,13 +532,13 @@ proto_reg_handoff_ib_sdp(void)
                 if (errno || *not_parsed != '\0') {
                     error_occured = TRUE;
                 } else {
-                    SET_ADDRESS(&manual_addr[i], AT_IB, sizeof(guint16), manual_addr_data[i]);
+                    set_address(&manual_addr[i], AT_IB, sizeof(guint16), manual_addr_data[i]);
                 }
             } else {    /* GID */
                 if (!str_to_ip6(gPREF_ID[i], manual_addr_data[i])) {
                     error_occured = TRUE;
                 } else {
-                    SET_ADDRESS(&manual_addr[i], AT_IB, GID_SIZE, manual_addr_data[i]);
+                    set_address(&manual_addr[i], AT_IB, GID_SIZE, manual_addr_data[i]);
                 }
             }
 

@@ -30,6 +30,7 @@
 #include <epan/expert.h>
 #include <epan/exceptions.h>
 #include <wsutil/pint.h>
+#include <wsutil/str_util.h>
 #include <epan/prefs.h>
 #include <epan/reassemble.h>
 #include <epan/tap.h>
@@ -41,6 +42,8 @@
 #include "packet-rpc.h"
 #include "packet-tcp.h"
 #include "packet-nfs.h"
+#include "packet-dcerpc.h"
+#include "packet-gssapi.h"
 
 /*
  * See:
@@ -312,9 +315,10 @@ GHashTable *rpc_progs = NULL;
 typedef gboolean (*rec_dissector_t)(tvbuff_t *, packet_info *, proto_tree *,
 	tvbuff_t *, fragment_head *, gboolean, guint32, gboolean);
 
-static void dissect_rpc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 static void show_rpc_fraginfo(tvbuff_t *tvb, tvbuff_t *frag_tvb, proto_tree *tree,
 			      guint32 rpc_rm, fragment_head *ipfd_head, packet_info *pinfo);
+static char *rpc_proc_name_internal(wmem_allocator_t *allocator, guint32 prog,
+	guint32 vers, guint32 proc);
 
 
 static guint32 rpc_program = 0;
@@ -363,7 +367,9 @@ rpcstat_init(struct register_srt* srt, GArray* srt_array, srt_gui_init_cb gui_ca
 	rpc_srt_table = init_srt_table(table_name, NULL, srt_array, tap_data->num_procedures, NULL, hfi->abbrev, gui_callback, gui_data, tap_data);
 	for (i = 0; i < rpc_srt_table->num_procs; i++)
 	{
-		init_srt_table_row(rpc_srt_table, i, rpc_proc_name(tap_data->program, tap_data->version, i));
+		char *proc_name = rpc_proc_name_internal(NULL, tap_data->program, tap_data->version, i);
+		init_srt_table_row(rpc_srt_table, i, proc_name);
+		wmem_free(NULL, proc_name);
 	}
 }
 
@@ -400,7 +406,7 @@ rpcstat_packet(void *pss, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 static guint
 rpcstat_param(register_srt_t* srt, const char* opt_arg, char** err)
 {
-	guint pos = 0;
+	int pos = 0;
 	int program, version;
 	rpcstat_tap_data_t* tap_data;
 
@@ -467,12 +473,12 @@ rpc_proc_hash(gconstpointer k)
 
 
 /*	return the name associated with a previously registered procedure. */
-const char *
-rpc_proc_name(guint32 prog, guint32 vers, guint32 proc)
+static char *
+rpc_proc_name_internal(wmem_allocator_t *allocator, guint32 prog, guint32 vers, guint32 proc)
 {
 	rpc_proc_info_key key;
 	dissector_handle_t dissect_function;
-	const char *procname;
+	char *procname;
 
 	key.prog = prog;
 	key.vers = vers;
@@ -480,15 +486,21 @@ rpc_proc_name(guint32 prog, guint32 vers, guint32 proc)
 
 	/* Look at both tables for possible procedure names */
 	if ((dissect_function = dissector_get_custom_table_handle(subdissector_call_table, &key)) != NULL)
-		procname = dissector_handle_get_dissector_name(dissect_function);
+		procname = wmem_strdup(allocator, dissector_handle_get_dissector_name(dissect_function));
 	else if ((dissect_function = dissector_get_custom_table_handle(subdissector_reply_table, &key)) != NULL)
-		procname = dissector_handle_get_dissector_name(dissect_function);
+		procname = wmem_strdup(allocator, dissector_handle_get_dissector_name(dissect_function));
 	else {
 		/* happens only with strange program versions or
 		   non-existing dissectors */
-		procname = wmem_strdup_printf(wmem_packet_scope(), "proc-%u", key.proc);
+		procname = wmem_strdup_printf(allocator, "proc-%u", key.proc);
 	}
 	return procname;
+}
+
+const char *
+rpc_proc_name(guint32 prog, guint32 vers, guint32 proc)
+{
+	return rpc_proc_name_internal(wmem_packet_scope(), prog, vers, proc);
 }
 
 /*----------------------------------------*/
@@ -551,24 +563,30 @@ rpc_init_prog(int proto, guint32 prog, int ett, size_t nvers,
 				    proto_get_protocol_long_name(value->proto),
 				    versions[versidx].vers,
 				    proc->strptr);
+
+				/* Abort out if desired - but don't throw an exception here! */
 				if (getenv("WIRESHARK_ABORT_ON_DISSECTOR_BUG") != NULL)
-					abort();
+					REPORT_DISSECTOR_BUG("RPC: No call handler!");
+
 				continue;
 			}
 			dissector_add_custom_table_handle("rpc.call", g_memdup(&key, sizeof(rpc_proc_info_key)),
-						new_create_dissector_handle_with_name(proc->dissect_call, value->proto_id, proc->strptr));
+						create_dissector_handle_with_name(proc->dissect_call, value->proto_id, proc->strptr));
 
 			if (proc->dissect_reply == NULL) {
-				fprintf(stderr, "OOPS: No call handler for %s version %u procedure %s\n",
+				fprintf(stderr, "OOPS: No reply handler for %s version %u procedure %s\n",
 				    proto_get_protocol_long_name(value->proto),
 				    versions[versidx].vers,
 				    proc->strptr);
+
+				/* Abort out if desired - but don't throw an exception here! */
 				if (getenv("WIRESHARK_ABORT_ON_DISSECTOR_BUG") != NULL)
-					abort();
+					REPORT_DISSECTOR_BUG("RPC: No reply handler!");
+
 				continue;
 			}
 			dissector_add_custom_table_handle("rpc.reply", g_memdup(&key, sizeof(rpc_proc_info_key)),
-					new_create_dissector_handle_with_name(proc->dissect_reply, value->proto_id, proc->strptr));
+					create_dissector_handle_with_name(proc->dissect_reply, value->proto_id, proc->strptr));
 		}
 	}
 }
@@ -1074,10 +1092,10 @@ dissect_rpc_authgss_context(proto_tree *tree, tvbuff_t *tvb, int offset,
 		wmem_tree_insert32_array(authgss_contexts, &tkey[0], context_info);
 	}
 	if (is_create) {
-		context_info->create_frame = pinfo->fd->num;
+		context_info->create_frame = pinfo->num;
 	}
 	if (is_destroy) {
-		context_info->destroy_frame = pinfo->fd->num;
+		context_info->destroy_frame = pinfo->num;
 	}
 
 	if (context_info->create_frame) {
@@ -1296,7 +1314,7 @@ dissect_rpc_opaque_auth(tvbuff_t* tvb, proto_tree* tree, int offset,
 	rpc_conv_info_t *conv_info = NULL;
 
 	if (pinfo->ptype == PT_TCP)
-		conv = find_conversation(pinfo->fd->num, &pinfo->src,
+		conv = find_conversation(pinfo->num, &pinfo->src,
 				&pinfo->dst, pinfo->ptype, pinfo->srcport,
 				pinfo->destport, 0);
 
@@ -1580,7 +1598,7 @@ dissect_rpc_authgss_integ_data(tvbuff_t *tvb, packet_info *pinfo,
 
 static int
 dissect_rpc_authgss_priv_data(tvbuff_t *tvb, proto_tree *tree, int offset,
-			      packet_info *pinfo _U_)
+			      packet_info *pinfo, gssapi_encrypt_info_t* gssapi_encrypt)
 {
 	int length;
 	/* int return_offset; */
@@ -1600,11 +1618,11 @@ dissect_rpc_authgss_priv_data(tvbuff_t *tvb, proto_tree *tree, int offset,
 		return offset;
 	}
 
-	/* return_offset = */ call_dissector(spnego_krb5_wrap_handle,
+	/* return_offset = */ call_dissector_with_data(spnego_krb5_wrap_handle,
 		             tvb_new_subset_remaining(tvb, offset),
-			     pinfo, tree);
+			     pinfo, tree, gssapi_encrypt);
 
-	if (!pinfo->gssapi_decrypted_tvb) {
+	if (!gssapi_encrypt->gssapi_decrypted_tvb) {
 		/* failed to decrypt the data */
 		offset += length;
 		return offset;
@@ -1614,6 +1632,147 @@ dissect_rpc_authgss_priv_data(tvbuff_t *tvb, proto_tree *tree, int offset,
 	return offset;
 }
 
+static address null_address = ADDRESS_INIT_NONE;
+
+/*
+ * Attempt to find a conversation for a call and, if we don't find one,
+ * create a new one.
+ */
+static conversation_t *
+get_conversation_for_call(packet_info *pinfo)
+{
+	conversation_t *conversation;
+
+	/*
+	 * If the transport is connection-oriented (TCP or Infiniband),
+	 * we use the addresses and ports of both endpoints, because
+	 * the addresses and ports of the two endpoints should be
+	 * the same for a call and its matching reply.  (XXX - what
+	 * if the connection is broken and re-established between
+	 * the call and the reply?  Or will the call be re-made on
+	 * the new connection?)
+	 *
+	 * If the transport is connectionless, we don't worry
+	 * about the address to which the call was sent, because
+	 * there's no guarantee that the reply will come from the
+	 * address to which the call was sent.  We also don't
+	 * worry about the port *from* which the call was sent,
+	 * because some clients (*cough* OS X NFS client *cough*)
+	 * might send retransmissions from a different port from
+	 * the original request.
+	 */
+	if (pinfo->ptype == PT_TCP || pinfo->ptype == PT_IBQP) {
+		conversation = find_conversation(pinfo->num,
+		    &pinfo->src, &pinfo->dst, pinfo->ptype,
+		    pinfo->srcport, pinfo->destport, 0);
+	} else {
+		/*
+		 * XXX - you currently still have to pass a non-null
+		 * pointer for the second address argument even
+		 * if you use NO_ADDR_B.
+		 */
+		conversation = find_conversation(pinfo->num,
+		    &pinfo->src, &null_address, pinfo->ptype,
+		    pinfo->destport, 0, NO_ADDR_B|NO_PORT_B);
+	}
+
+	if (conversation == NULL) {
+		if (pinfo->ptype == PT_TCP || pinfo->ptype == PT_IBQP) {
+			conversation = conversation_new(pinfo->num,
+			    &pinfo->src, &pinfo->dst, pinfo->ptype,
+			    pinfo->srcport, pinfo->destport, 0);
+		} else {
+			conversation = conversation_new(pinfo->num,
+			    &pinfo->src, &null_address, pinfo->ptype,
+			    pinfo->destport, 0, NO_ADDR2|NO_PORT2);
+		}
+	}
+	return conversation;
+}
+
+static conversation_t *
+find_conversation_for_reply(packet_info *pinfo)
+{
+	conversation_t *conversation;
+
+	/*
+	 * If the transport is connection-oriented (TCP or Infiniband),
+	 * we use the addresses and ports of both endpoints, because
+	 * the addresses and ports of the two endpoints should be
+	 * the same for a call and its matching reply.  (XXX - what
+	 * if the connection is broken and re-established between
+	 * the call and the reply?  Or will the call be re-made on
+	 * the new connection?)
+	 *
+	 * If the transport is connectionless, we don't worry
+	 * about the address from which the reply was sent,
+	 * because there's no guarantee that the call was sent
+	 * to the address from which the reply came.  We also
+	 * don't worry about the port *to* which the reply was
+	 * sent, because some clients (*cough* OS X NFS client
+	 * *cough*) might send call retransmissions from a
+	 * different port from the original request, so replies
+	 * to the original call and a retransmission of the call
+	 * might be sent to different ports.
+	 */
+	if (pinfo->ptype == PT_TCP || pinfo->ptype == PT_IBQP) {
+		conversation = find_conversation(pinfo->num,
+		    &pinfo->src, &pinfo->dst, pinfo->ptype,
+		    pinfo->srcport, pinfo->destport, 0);
+	} else {
+		/*
+		 * XXX - you currently still have to pass a non-null
+		 * pointer for the second address argument even
+		 * if you use NO_ADDR_B.
+		 */
+		conversation = find_conversation(pinfo->num,
+		    &pinfo->dst, &null_address, pinfo->ptype,
+		    pinfo->srcport, 0, NO_ADDR_B|NO_PORT_B);
+	}
+	return conversation;
+}
+
+static conversation_t *
+new_conversation_for_reply(packet_info *pinfo)
+{
+	conversation_t *conversation;
+
+	if (pinfo->ptype == PT_TCP || pinfo->ptype == PT_IBQP) {
+		conversation = conversation_new(pinfo->num,
+		    &pinfo->src, &pinfo->dst, pinfo->ptype,
+		    pinfo->srcport, pinfo->destport, 0);
+	} else {
+		conversation = conversation_new(pinfo->num,
+		    &pinfo->dst, &null_address, pinfo->ptype,
+		    pinfo->srcport, 0, NO_ADDR2|NO_PORT2);
+	}
+	return conversation;
+}
+
+static conversation_t *
+get_conversation_for_tcp(packet_info *pinfo)
+{
+	conversation_t *conversation;
+
+	/*
+	 * We know this is running over TCP, so the conversation should
+	 * not wildcard either address or port, regardless of whether
+	 * this is a call or reply.
+	 */
+	conversation = find_conversation(pinfo->num,
+	    &pinfo->src, &pinfo->dst, pinfo->ptype,
+	    pinfo->srcport, pinfo->destport, 0);
+	if (conversation == NULL) {
+		/*
+		 * It's not part of any conversation - create a new one.
+		 */
+		conversation = conversation_new(pinfo->num,
+		    &pinfo->src, &pinfo->dst, pinfo->ptype,
+		    pinfo->srcport, pinfo->destport, 0);
+	}
+	return conversation;
+}
+
 /*
  * Dissect the arguments to an indirect call; used by the portmapper/RPCBIND
  * dissector for the CALLIT procedure.
@@ -1621,14 +1780,13 @@ dissect_rpc_authgss_priv_data(tvbuff_t *tvb, proto_tree *tree, int offset,
  * Record these in the same table as the direct calls
  * so we can find it when dissecting an indirect call reply.
  * (There should not be collissions between xid between direct and
- *  indirect calls.)
+ * indirect calls.)
  */
 int
 dissect_rpc_indir_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		       int offset, int args_id, guint32 prog, guint32 vers, guint32 proc)
 {
 	conversation_t* conversation;
-	static address null_address = { AT_NONE, 0, NULL };
 	rpc_proc_info_key key;
 	rpc_call_info_value *rpc_call;
 	dissector_handle_t dissect_function = NULL;
@@ -1639,59 +1797,12 @@ dissect_rpc_indir_call(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	key.vers = vers;
 	key.proc = proc;
 	if ((dissect_function = dissector_get_custom_table_handle(subdissector_call_table, &key)) != NULL) {
+		/*
+		 * Establish a conversation for the call, for use when
+		 * matching calls with replies.
+		 */
+		conversation = get_conversation_for_call(pinfo);
 
-		/* Keep track of the address whence the call came, and the
-		   port to which the call is being sent, so that we can
-		   match up calls with replies.
-
-		   If the transport is connection-oriented (we check, for
-		   now, only for "pinfo->ptype" of PT_TCP), we also take
-		   into account the port from which the call was sent
-		   and the address to which the call was sent, because
-		   the addresses and ports of the two endpoints should be
-		   the same for all calls and replies.  (XXX - what if
-		   the connection is broken and re-established?)
-
-		   If the transport is connectionless, we don't worry
-		   about the address to which the call was sent and from
-		   which the reply was sent, because there's no
-		   guarantee that the reply will come from the address
-		   to which the call was sent.  We also don't worry about
-		   the port *from* which the call was sent and *to* which
-		   the reply was sent, because some clients (*cough* OS X
-		   NFS client *cough) might send retransmissions from a
-		   different port from the original request. */
-		if (pinfo->ptype == PT_TCP) {
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
-			    &pinfo->dst, pinfo->ptype, pinfo->srcport,
-			    pinfo->destport, 0);
-		} else {
-			/*
-			 * XXX - you currently still have to pass a non-null
-			 * pointer for the second address argument even
-			 * if you use NO_ADDR_B.
-			 */
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
-			    &null_address, pinfo->ptype, pinfo->destport,
-			    0, NO_ADDR_B|NO_PORT_B);
-		}
-		if (conversation == NULL) {
-			/* It's not part of any conversation - create a new
-			   one.
-
-			   XXX - this should never happen, as we should've
-			   created a conversation for it in the RPC
-			   dissector. */
-			if (pinfo->ptype == PT_TCP) {
-				conversation = conversation_new(pinfo->fd->num, &pinfo->src,
-				    &pinfo->dst, pinfo->ptype, pinfo->srcport,
-				    pinfo->destport, 0);
-			} else {
-				conversation = conversation_new(pinfo->fd->num, &pinfo->src,
-				    &null_address, pinfo->ptype, pinfo->destport,
-				    0, NO_ADDR2|NO_PORT2);
-			}
-		}
 		/*
 		 * Do we already have a state structure for this conv
 		 */
@@ -1773,7 +1884,6 @@ dissect_rpc_indir_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			int offset, int result_id, int prog_id, int vers_id, int proc_id)
 {
 	conversation_t* conversation;
-	static address null_address = { AT_NONE, 0, NULL };
 	rpc_call_info_value *rpc_call;
 	const char *procname=NULL;
 	dissector_handle_t dissect_function = NULL;
@@ -1781,39 +1891,13 @@ dissect_rpc_indir_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	rpc_proc_info_key	key;
 	guint32 xid;
 
-	/* Look for the matching call in the xid table.
-	   A reply must match a call that we've seen, and the
-	   reply must be sent to the same address that the call came
-	   from, and must come from the port to which the call was sent.
-
-	   If the transport is connection-oriented (we check, for
-	   now, only for "pinfo->ptype" of PT_TCP), we take
-	   into account the port from which the call was sent
-	   and the address to which the call was sent, because
-	   the addresses and ports of the two endpoints should be
-	   the same for all calls and replies.
-
-	   If the transport is connectionless, we don't worry
-	   about the address to which the call was sent and from
-	   which the reply was sent, because there's no
-	   guarantee that the reply will come from the address
-	   to which the call was sent.  We also don't worry about
-	   the port *from* which the call was sent and *to* which
-	   the reply was sent, because some clients (*cough* OS X
-	   NFS client *cough) might send retransmissions from a
-	   different port from the original request. */
-	if (pinfo->ptype == PT_TCP) {
-		conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
-		    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
-	} else {
-		/*
-		 * XXX - you currently still have to pass a non-null
-		 * pointer for the second address argument even
-		 * if you use NO_ADDR_B.
-		 */
-		conversation = find_conversation(pinfo->fd->num, &pinfo->dst, &null_address,
-		    pinfo->ptype, pinfo->srcport, 0, NO_ADDR_B|NO_PORT_B);
-	}
+	/*
+	 * Look for the matching call in the xid table.
+	 * A reply must match a call that we've seen, and the
+	 * reply must be sent to the same address that the call came
+	 * from, and must come from the port to which the call was sent.
+	 */
+	conversation = find_conversation_for_reply(pinfo);
 	if (conversation == NULL) {
 		/* We haven't seen an RPC call for that conversation,
 		   so we can't check for a reply to that call.
@@ -1931,14 +2015,204 @@ dissect_rpc_unknown(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree 
 	return captured_length;
 }
 
+static rpc_prog_info_value *
+looks_like_rpc_call(tvbuff_t *tvb, int offset)
+{
+	guint32 rpc_prog_key;
+	rpc_prog_info_value *rpc_prog;
+
+	if (!tvb_bytes_exist(tvb, offset, 16)) {
+		/* Captured data in packet isn't enough to let us
+		   tell. */
+		return NULL;
+	}
+
+	/* XID can be anything, so don't check it.
+	   We already have the message type.
+	   Check whether an RPC version number of 2 is in the
+	   location where it would be, and that an RPC program
+	   number we know about is in the location where it would be.
+
+	   Sun's snoop just checks for a message direction of RPC_CALL
+	   and a version number of 2, which is a bit of a weak heuristic.
+
+	   We could conceivably check for any of the program numbers
+	   in the list at
+
+		ftp://ftp.tau.ac.il/pub/users/eilon/rpc/rpc
+
+	   and report it as RPC (but not dissect the payload if
+	   we don't have a subdissector) if it matches. */
+	rpc_prog_key = tvb_get_ntohl(tvb, offset + 12);
+
+	/* we only dissect RPC version 2 */
+	if (tvb_get_ntohl(tvb, offset + 8) != 2)
+		return NULL;
+
+	/* Do we know this program? */
+	rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs, GUINT_TO_POINTER(rpc_prog_key));
+	if (rpc_prog == NULL) {
+		guint32 version;
+
+		/*
+		 * No.
+		 * If the user has specified that he wants to try to
+		 * dissect even completely unknown RPC program numbers,
+		 * then let him do that.
+		 */
+		if (!rpc_dissect_unknown_programs) {
+			/* They didn't, so just fail. */
+			return NULL;
+		}
+
+		/*
+		 * The user wants us to try to dissect even
+		 * unknown program numbers.
+		 *
+		 * Use some heuristics to keep from matching any
+		 * packet with a 2 in the appropriate location.
+		 * We check that the program number is neither
+		 * 0 nor -1, and that the version is <= 10, which
+		 * is better than nothing.
+		 */
+		if (rpc_prog_key == 0 || rpc_prog_key == 0xffffffff)
+			return FALSE;
+		version = tvb_get_ntohl(tvb, offset+16);
+		if (version > 10)
+			return NULL;
+
+		rpc_prog = wmem_new(wmem_packet_scope(), rpc_prog_info_value);
+		rpc_prog->proto = NULL;
+		rpc_prog->proto_id = 0;
+		rpc_prog->ett = ett_rpc_unknown_program;
+		rpc_prog->progname = wmem_strdup_printf(wmem_packet_scope(), "Unknown RPC program %u", rpc_prog_key);
+	}
+
+	return rpc_prog;
+}
+
+static rpc_call_info_value *
+looks_like_rpc_reply(tvbuff_t *tvb, packet_info *pinfo, int offset)
+{
+	unsigned int xid;
+	conversation_t *conversation;
+	rpc_conv_info_t *rpc_conv_info;
+	rpc_call_info_value *rpc_call;
+
+	/* A reply must match a call that we've seen, and the reply
+	   must be sent to the same address that the call came from,
+	   and must come from the port to which the call was sent.
+
+	   If the transport is connection-oriented (we check, for
+	   now, only for "pinfo->ptype" of PT_TCP), we take
+	   into account the port from which the call was sent
+	   and the address to which the call was sent, because
+	   the addresses and ports of the two endpoints should be
+	   the same for all calls and replies.
+
+	   If the transport is connectionless, we don't worry
+	   about the address from which the reply was sent,
+	   because there's no guarantee that the call was sent
+	   to the address from which the reply came.  We also
+	   don't worry about the port *to* which the reply was
+	   sent, because some clients (*cough* OS X NFS client
+	   *cough*) might send retransmissions from a
+	   different port from the original request, so replies
+	   to the original call and a retransmission of the call
+	   might be sent to different ports.
+
+	   Sun's snoop just checks for a message direction of RPC_REPLY
+	   and a status of MSG_ACCEPTED or MSG_DENIED, which is a bit
+	   of a weak heuristic. */
+	xid = tvb_get_ntohl(tvb, offset);
+	conversation = find_conversation_for_reply(pinfo);
+	if (conversation != NULL) {
+		/*
+		 * We have a conversation; try to find an RPC
+		 * state structure for the conversation.
+		 */
+		rpc_conv_info = (rpc_conv_info_t *)conversation_get_proto_data(conversation, proto_rpc);
+		if (rpc_conv_info != NULL)
+			rpc_call = (rpc_call_info_value *)wmem_tree_lookup32(rpc_conv_info->xids, xid);
+		else
+			rpc_call = NULL;
+	} else {
+		/*
+		 * We don't have a conversation, so we obviously
+		 * don't have an RPC state structure for it.
+		 */
+		rpc_conv_info = NULL;
+		rpc_call = NULL;
+	}
+
+	if (rpc_call == NULL) {
+		/*
+		 * We don't have a conversation, or we have one but
+		 * there's no RPC state information for it, or
+		 * we have RPC state information but the XID doesn't
+		 * match a call from the conversation, so it's
+		 * probably not an RPC reply.
+		 *
+		 * Unless we're permitted to scan for embedded records
+		 * and this is a connection-oriented transport,
+		 * give up.
+		 */
+		if (((! rpc_find_fragment_start) || (pinfo->ptype != PT_TCP)) && (pinfo->ptype != PT_IBQP)) {
+			return NULL;
+		}
+
+		/*
+		 * Do we have a conversation to which to attach
+		 * that information?
+		 */
+		if (conversation == NULL) {
+			/*
+			 * It's not part of any conversation - create
+			 * a new one.
+			 */
+			conversation = new_conversation_for_reply(pinfo);
+		}
+
+		/*
+		 * Do we have RPC information for that conversation?
+		 */
+		if (rpc_conv_info == NULL) {
+			/*
+			 * No.  Create a new RPC information structure,
+			 * and attach it to the conversation.
+			 */
+			rpc_conv_info = wmem_new(wmem_file_scope(), rpc_conv_info_t);
+			rpc_conv_info->xids=wmem_tree_new(wmem_file_scope());
+
+			conversation_add_proto_data(conversation, proto_rpc, rpc_conv_info);
+		}
+
+		/*
+		 * Define a dummy call for this reply.
+		 */
+		rpc_call = wmem_new0(wmem_file_scope(), rpc_call_info_value);
+		rpc_call->rep_num = pinfo->num;
+		rpc_call->xid = xid;
+		rpc_call->flavor = FLAVOR_NOT_GSSAPI;  /* total punt */
+		rpc_call->req_time = pinfo->abs_ts;
+
+		/* store it */
+		wmem_tree_insert32(rpc_conv_info->xids, xid, (void *)rpc_call);
+	}
+
+	/* pass rpc_info to subdissectors */
+	rpc_call->request = FALSE;
+	return rpc_call;
+}
+
 static gboolean
 dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		    tvbuff_t *frag_tvb, fragment_head *ipfd_head, gboolean is_tcp,
 		    guint32 rpc_rm, gboolean first_pdu)
 {
 	guint32	msg_type;
-	rpc_call_info_value *rpc_call = NULL;
-	rpc_prog_info_value *rpc_prog = NULL;
+	rpc_call_info_value *rpc_call;
+	rpc_prog_info_value *rpc_prog;
 	guint32 rpc_prog_key;
 
 	unsigned int xid;
@@ -1958,9 +2232,9 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	unsigned int accept_state;
 	unsigned int reject_state;
 
-	const char *msg_type_name = NULL;
-	const char *progname = NULL;
-	const char *procname = NULL;
+	const char *msg_type_name;
+	const char *progname;
+	const char *procname;
 
 	unsigned int vers_low;
 	unsigned int vers_high;
@@ -1976,14 +2250,13 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 	rpc_proc_info_key	key;
 	conversation_t* conversation;
-	static address null_address = { AT_NONE, 0, NULL };
 	nstime_t ns;
 
-	dissector_handle_t dissect_function = NULL;
+	dissector_handle_t dissect_function;
 	gboolean dissect_rpc_flag = TRUE;
 
 	rpc_conv_info_t *rpc_conv_info=NULL;
-
+	gssapi_encrypt_info_t gssapi_encrypt;
 
 	/*
 	 * Check to see whether this looks like an RPC call or reply.
@@ -1999,159 +2272,19 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	switch (msg_type) {
 
 	case RPC_CALL:
-		/* check for RPC call */
-		if (!tvb_bytes_exist(tvb, offset, 16)) {
-			/* Captured data in packet isn't enough to let us
-			   tell. */
+		/* Check for RPC call. */
+		rpc_prog = looks_like_rpc_call(tvb, offset);
+		if (rpc_prog == NULL)
 			return FALSE;
-		}
-
-		/* XID can be anything, so don't check it.
-		   We already have the message type.
-		   Check whether an RPC version number of 2 is in the
-		   location where it would be, and that an RPC program
-		   number we know about is in the location where it would be.
-
-		   XXX - Sun's snoop appears to recognize as RPC even calls
-		   to stuff it doesn't dissect; does it just look for a 2
-		   at that location, which seems far to weak a heuristic
-		   (too many false positives), or does it have some additional
-		   checks it does?
-
-		   We could conceivably check for any of the program numbers
-		   in the list at
-
-			ftp://ftp.tau.ac.il/pub/users/eilon/rpc/rpc
-
-		   and report it as RPC (but not dissect the payload if
-		   we don't have a subdissector) if it matches. */
-		rpc_prog_key = tvb_get_ntohl(tvb, offset + 12);
-
-		/* we only dissect version 2 */
-		if (tvb_get_ntohl(tvb, offset + 8) != 2 ){
-			return FALSE;
-		}
-		/* Do we know this program? */
-		if( (rpc_prog = (rpc_prog_info_value *)g_hash_table_lookup(rpc_progs, GUINT_TO_POINTER(rpc_prog_key))) != NULL) {
-			/* Yes. */
-			proto = rpc_prog->proto;
-			proto_id = rpc_prog->proto_id;
-			ett = rpc_prog->ett;
-			progname = rpc_prog->progname;
-		} else {
-			guint32 version;
-
-			/* No.
-			 * If the user has specified that he wants to try to
-			 * dissect even completely unknown RPC program numbers,
-			 * then let him do that.
-			 */
-			if(!rpc_dissect_unknown_programs){
-				/* They didn't, so just fail. */
-				return FALSE;
-			}
-			/* Yes.  Use some heuristics to keep from matching
-			 * any packet with a 2 in the appropriate location.
-			 * We check that the program number is neither
-			 * 0 nor -1, and that the version is <= 10, which
-			 * is better than nothing.
-			 */
-			if(rpc_prog_key==0 || rpc_prog_key==0xffffffff){
-				return FALSE;
-			}
-			version=tvb_get_ntohl(tvb, offset+16);
-			if(version>10){
-				return FALSE;
-			}
-
-			proto = NULL;
-			proto_id = 0;
-			ett = ett_rpc_unknown_program;
-			progname = wmem_strdup_printf(wmem_packet_scope(), "Unknown RPC program %u", rpc_prog_key);
-		}
+		rpc_call = NULL;
 		break;
 
 	case RPC_REPLY:
-		/* Check for RPC reply.  A reply must match a call that
-		   we've seen, and the reply must be sent to the same
-		   address that the call came from, and must come from
-		   the port to which the call was sent.
-
-		   If the transport is connection-oriented (we check, for
-		   now, only for "pinfo->ptype" of PT_TCP), we take
-		   into account the port from which the call was sent
-		   and the address to which the call was sent, because
-		   the addresses and ports of the two endpoints should be
-		   the same for all calls and replies.
-
-		   If the transport is connectionless, we don't worry
-		   about the address to which the call was sent and from
-		   which the reply was sent, because there's no
-		   guarantee that the reply will come from the address
-		   to which the call was sent.  We also don't worry about
-		   the port *from* which the call was sent and *to* which
-		   the reply was sent, because some clients (*cough* OS X
-		   NFS client *cough) might send retransmissions from a
-		   different port from the original request. */
-		if ((pinfo->ptype == PT_TCP) || (pinfo->ptype == PT_IBQP)) {
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
-			    &pinfo->dst, pinfo->ptype, pinfo->srcport,
-			    pinfo->destport, 0);
-		} else {
-			/*
-			 * XXX - you currently still have to pass a non-null
-			 * pointer for the second address argument even
-			 * if you use NO_ADDR_B.
-			 */
-			conversation = find_conversation(pinfo->fd->num, &pinfo->dst,
-			    &null_address, pinfo->ptype, pinfo->srcport,
-			    0, NO_ADDR_B|NO_PORT_B);
-		}
-		if (conversation == NULL) {
-			/* We haven't seen an RPC call for that conversation,
-			   so we can't check for a reply to that call. */
+		/* Check for RPC reply. */
+		rpc_call = looks_like_rpc_reply(tvb, pinfo, offset);
+		if (rpc_call == NULL)
 			return FALSE;
-		}
-		/*
-		 * Do we already have a state structure for this conv
-		 */
-		rpc_conv_info = (rpc_conv_info_t *)conversation_get_proto_data(conversation, proto_rpc);
-		if (!rpc_conv_info) {
-			/* No.  Attach that information to the conversation, and add
-			 * it to the list of information structures.
-			 */
-			rpc_conv_info = wmem_new(wmem_file_scope(), rpc_conv_info_t);
-			rpc_conv_info->xids=wmem_tree_new(wmem_file_scope());
-
-			conversation_add_proto_data(conversation, proto_rpc, rpc_conv_info);
-		}
-
-		/* The XIDs of the call and reply must match. */
-		xid = tvb_get_ntohl(tvb, offset);
-		rpc_call = (rpc_call_info_value *)wmem_tree_lookup32(rpc_conv_info->xids, xid);
-		if (rpc_call == NULL) {
-			/* The XID doesn't match a call from that
-			   conversation, so it's probably not an RPC reply. */
-
-			/* unless we're permitted to scan for embedded records
-			 * and this is a connection-oriented transport, give up */
-			if (((! rpc_find_fragment_start) || (pinfo->ptype != PT_TCP)) && (pinfo->ptype != PT_IBQP)) {
-				return FALSE;
-			}
-
-			/* in parse-partials, so define a dummy conversation for this reply */
-			rpc_call = wmem_new0(wmem_file_scope(), rpc_call_info_value);
-			rpc_call->rep_num = pinfo->fd->num;
-			rpc_call->xid = xid;
-			rpc_call->flavor = FLAVOR_NOT_GSSAPI;  /* total punt */
-			rpc_call->req_time = pinfo->fd->abs_ts;
-
-			/* store it */
-			wmem_tree_insert32(rpc_conv_info->xids, xid, (void *)rpc_call);
-		}
-
-		/* pass rpc_info to subdissectors */
-		rpc_call->request=FALSE;
+		rpc_prog = NULL;
 		break;
 
 	default:
@@ -2206,6 +2339,11 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	switch (msg_type) {
 
 	case RPC_CALL:
+		proto = rpc_prog->proto;
+		proto_id = rpc_prog->proto_id;
+		ett = rpc_prog->ett;
+		progname = rpc_prog->progname;
+
 		rpcvers = tvb_get_ntohl(tvb, offset);
 		if (rpc_tree) {
 			proto_tree_add_uint(rpc_tree,
@@ -2318,54 +2456,12 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			col_append_fstr(pinfo->cinfo, COL_INFO,"V%u %s %s",
 					vers, procname, msg_type_name);
 
-		/* Keep track of the address whence the call came, and the
-		   port to which the call is being sent, so that we can
-		   match up calls with replies.
+		/*
+		 * Establish a conversation for the call, for use when
+		 * matching calls with replies.
+		 */
+		conversation = get_conversation_for_call(pinfo);
 
-		   If the transport is connection-oriented (we check, for
-		   now, only for "pinfo->ptype" of PT_TCP), we also take
-		   into account the port from which the call was sent
-		   and the address to which the call was sent, because
-		   the addresses and ports of the two endpoints should be
-		   the same for all calls and replies.  (XXX - what if
-		   the connection is broken and re-established?)
-
-		   If the transport is connectionless, we don't worry
-		   about the address to which the call was sent and from
-		   which the reply was sent, because there's no
-		   guarantee that the reply will come from the address
-		   to which the call was sent.  We also don't worry about
-		   the port *from* which the call was sent and *to* which
-		   the reply was sent, because some clients (*cough* OS X
-		   NFS client *cough) might send retransmissions from a
-		   different port from the original request. */
-		if ((pinfo->ptype == PT_TCP) || (pinfo->ptype == PT_IBQP)) {
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
-			    &pinfo->dst, pinfo->ptype, pinfo->srcport,
-			    pinfo->destport, 0);
-		} else {
-			/*
-			 * XXX - you currently still have to pass a non-null
-			 * pointer for the second address argument even
-			 * if you use NO_ADDR_B.
-			 */
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
-			    &null_address, pinfo->ptype, pinfo->destport,
-			    0, NO_ADDR_B|NO_PORT_B);
-		}
-		if (conversation == NULL) {
-			/* It's not part of any conversation - create a new
-			   one. */
-			if (pinfo->ptype == PT_TCP) {
-				conversation = conversation_new(pinfo->fd->num, &pinfo->src,
-				    &pinfo->dst, pinfo->ptype, pinfo->srcport,
-				    pinfo->destport, 0);
-			} else {
-				conversation = conversation_new(pinfo->fd->num, &pinfo->src,
-				    &null_address, pinfo->ptype, pinfo->destport,
-				    0, NO_ADDR2|NO_PORT2);
-			}
-		}
 		/*
 		 * Do we already have a state structure for this conv
 		 */
@@ -2391,7 +2487,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			/* We've seen a request with this XID, with the same
 			   source and destination, before - but was it
 			   *this* request? */
-			if (pinfo->fd->num != rpc_call->req_num) {
+			if (pinfo->num != rpc_call->req_num) {
 				/* No, so it's a duplicate request.
 				   Mark it as such. */
 				col_prepend_fstr(pinfo->cinfo, COL_INFO,
@@ -2412,7 +2508,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			   to mean "we don't yet know in which frame
 			   the reply for this call appears". */
 			rpc_call = wmem_new(wmem_file_scope(), rpc_call_info_value);
-			rpc_call->req_num = pinfo->fd->num;
+			rpc_call->req_num = pinfo->num;
 			rpc_call->rep_num = 0;
 			rpc_call->prog = prog;
 			rpc_call->vers = vers;
@@ -2422,7 +2518,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			rpc_call->flavor = flavor;
 			rpc_call->gss_proc = gss_proc;
 			rpc_call->gss_svc = gss_svc;
-			rpc_call->req_time = pinfo->fd->abs_ts;
+			rpc_call->req_time = pinfo->abs_ts;
 
 			/* store it */
 			wmem_tree_insert32(rpc_conv_info->xids, xid, (void *)rpc_call);
@@ -2551,7 +2647,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			    rpc_call->req_num);
 			PROTO_ITEM_SET_GENERATED(tmp_item);
 
-			nstime_delta(&ns, &pinfo->fd->abs_ts, &rpc_call->req_time);
+			nstime_delta(&ns, &pinfo->abs_ts, &rpc_call->req_time);
 			tmp_item=proto_tree_add_time(rpc_tree, hf_rpc_time, tvb, offset, 0,
 				&ns);
 			PROTO_ITEM_SET_GENERATED(tmp_item);
@@ -2564,11 +2660,11 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			/* We have not yet seen a reply to that call, so
 			   this must be the first reply; remember its
 			   frame number. */
-			rpc_call->rep_num = pinfo->fd->num;
+			rpc_call->rep_num = pinfo->num;
 		} else {
 			/* We have seen a reply to this call - but was it
 			   *this* reply? */
-			if (rpc_call->rep_num != pinfo->fd->num) {
+			if (rpc_call->rep_num != pinfo->num) {
 				proto_item *tmp_item;
 
 				/* No, so it's a duplicate reply.
@@ -2717,24 +2813,23 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	/* If this is encrypted data we have to try to decrypt the data first before we
 	 * we create a tree.
 	 * the reason for this is because if we can decrypt the data we must create the
-	 * item/tree for the next protocol using the decrypted tdb and not the current
+	 * item/tree for the next protocol using the decrypted tvb and not the current
 	 * tvb.
 	 */
-	pinfo->decrypt_gssapi_tvb=DECRYPT_GSSAPI_NORMAL;
-	pinfo->gssapi_wrap_tvb=NULL;
-	pinfo->gssapi_encrypted_tvb=NULL;
-	pinfo->gssapi_decrypted_tvb=NULL;
+	memset(&gssapi_encrypt, 0, sizeof(gssapi_encrypt));
+	gssapi_encrypt.decrypt_gssapi_tvb=DECRYPT_GSSAPI_NORMAL;
+
 	if (flavor == FLAVOR_GSSAPI && gss_proc == RPCSEC_GSS_DATA && gss_svc == RPCSEC_GSS_SVC_PRIVACY) {
 		proto_tree *gss_tree;
 
 		gss_tree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_gss_wrap, NULL, "GSS-Wrap");
 
-		offset = dissect_rpc_authgss_priv_data(tvb, gss_tree, offset, pinfo);
-		if (pinfo->gssapi_decrypted_tvb) {
-			proto_tree_add_item(gss_tree, hf_rpc_authgss_seq, pinfo->gssapi_decrypted_tvb, 0, 4, ENC_BIG_ENDIAN);
+		offset = dissect_rpc_authgss_priv_data(tvb, gss_tree, offset, pinfo, &gssapi_encrypt);
+		if (gssapi_encrypt.gssapi_decrypted_tvb) {
+			proto_tree_add_item(gss_tree, hf_rpc_authgss_seq, gssapi_encrypt.gssapi_decrypted_tvb, 0, 4, ENC_BIG_ENDIAN);
 
 			/* Switcheroo to the new tvb that contains the decrypted payload */
-			tvb = pinfo->gssapi_decrypted_tvb;
+			tvb = gssapi_encrypt.gssapi_decrypted_tvb;
 			offset = 4;
 		}
 	}
@@ -2849,13 +2944,13 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 						progname, rpc_call);
 			}
 			else if (gss_svc == RPCSEC_GSS_SVC_PRIVACY) {
-				if (pinfo->gssapi_decrypted_tvb) {
+				if (gssapi_encrypt.gssapi_decrypted_tvb) {
 					call_dissect_function(
-						pinfo->gssapi_decrypted_tvb,
+						gssapi_encrypt.gssapi_decrypted_tvb,
 						pinfo, ptree, 4,
 						dissect_function,
 						progname, rpc_call);
-					offset = tvb_reported_length(pinfo->gssapi_decrypted_tvb);
+					offset = tvb_reported_length(gssapi_encrypt.gssapi_decrypted_tvb);
 				}
 			}
 			break;
@@ -2955,14 +3050,15 @@ dissect_rpc_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 	    TRUE);
 }
 
-static void
-dissect_rpc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rpc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	if (!dissect_rpc_message(tvb, pinfo, tree, NULL, NULL, FALSE, 0,
 	    TRUE)) {
 		if (tvb_reported_length(tvb) != 0)
 			dissect_rpc_continuation(tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 
@@ -3128,18 +3224,18 @@ call_message_dissector(tvbuff_t *tvb, tvbuff_t *rec_tvb, packet_info *pinfo,
 static int
 dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 		     proto_tree *tree, rec_dissector_t dissector, gboolean is_heur,
-		     int proto, int ett, gboolean defragment, gboolean first_pdu, struct tcpinfo *tcpinfo)
+		     int proto, int ett, gboolean first_pdu, struct tcpinfo *tcpinfo)
 {
 	guint32 seq;
 	guint32 rpc_rm;
-	volatile guint32 len;
+	guint32 len;
 	gint32 seglen;
 	gint tvb_len, tvb_reported_len;
 	tvbuff_t *frag_tvb;
+	conversation_t *conversation = NULL;
 	gboolean rpc_succeeded;
 	gboolean save_fragmented;
 	rpc_fragment_key old_rfk, *rfk, *new_rfk;
-	conversation_t *conversation;
 	fragment_head *ipfd_head;
 	tvbuff_t *rec_tvb;
 
@@ -3174,6 +3270,7 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 	 */
 	if (len > max_rpc_tcp_pdu_size)
 		return 0;	/* pretend it's not valid */
+
 	if (rpc_desegment) {
 		seglen = tvb_reported_length_remaining(tvb, offset + 4);
 
@@ -3183,20 +3280,14 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			 * data for this message, but we can do
 			 * reassembly on it.
 			 *
-			 * If this is a heuristic dissector, just
+			 * If this is a heuristic dissector, check
+			 * whether it looks like the beginning of
+			 * an RPC call or reply.  If not, then, just
 			 * return 0 - we don't want to try to get
 			 * more data, as that's too likely to cause
-			 * us to misidentify this as valid.
-			 *
-			 * XXX - this means that we won't
-			 * recognize the first fragment of a
-			 * multi-fragment RPC operation unless
-			 * we've already identified this
-			 * conversation as being an RPC
-			 * conversation (and thus aren't running
-			 * heuristically) - that would be a problem
-			 * if, for example, the first segment were
-			 * the beginning of a large NFS WRITE.
+			 * us to misidentify this as valid.  Otherwise,
+			 * mark this conversation as being for RPC and
+			 * try to get more data.
 			 *
 			 * If this isn't a heuristic dissector,
 			 * we've already identified this conversation
@@ -3204,13 +3295,61 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			 * saw valid data in previous frames.  Try to
 			 * get more data.
 			 */
-			if (is_heur)
-				return 0;	/* not valid */
-			else {
-				pinfo->desegment_offset = offset;
-				pinfo->desegment_len = len - seglen;
-				return -((gint32) pinfo->desegment_len);
+			if (is_heur) {
+				guint32 msg_type;
+
+				if (!tvb_bytes_exist(tvb, offset + 4, 8)) {
+					/*
+					 * Captured data in packet isn't
+					 * enough to let us tell.
+					 */
+					return 0;
+				}
+
+				/* both directions need at least this */
+				msg_type = tvb_get_ntohl(tvb, offset + 4 + 4);
+
+				switch (msg_type) {
+
+				case RPC_CALL:
+					/* Check for RPC call. */
+					if (looks_like_rpc_call(tvb,
+					    offset + 4) == NULL) {
+						/* Doesn't look like a call. */
+						return 0;
+					}
+					break;
+
+				case RPC_REPLY:
+					/* Check for RPC reply. */
+					if (looks_like_rpc_reply(tvb, pinfo,
+					    offset + 4) == NULL) {
+						/* Doesn't look like a reply. */
+						return 0;
+					}
+					break;
+
+				default:
+					/* The putative message type field
+					   contains neither RPC_CALL nor
+					   RPC_REPLY, so it's not an RPC
+					   call or reply. */
+					return 0;
+				}
+
+				/* Get this conversation, creating it if
+				   it doesn't already exist, and make the
+				   dissector for it the non-heuristic RPC
+				   dissector for RPC-over-TCP. */
+				conversation = get_conversation_for_tcp(pinfo);
+				conversation_set_dissector(conversation,
+				    rpc_tcp_handle);
 			}
+
+			/* Try to get more data. */
+			pinfo->desegment_offset = offset;
+			pinfo->desegment_len = len - seglen;
+			return -((gint32) pinfo->desegment_len);
 		}
 	}
 	len += 4;	/* include record mark */
@@ -3226,8 +3365,12 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 	/*
 	 * If we're not defragmenting, just hand this to the
 	 * disssector.
+	 *
+	 * We defragment only if we should (rpc_defragment true) *and*
+	 * we can (tvb_len == tvb_reported_len, so that we have all the
+	 * data in the fragment).
 	 */
-	if (!defragment) {
+	if (!rpc_defragment || tvb_len != tvb_reported_len) {
 		/*
 		 * This is the first fragment we've seen, and it's also
 		 * the last fragment; that means the record wasn't
@@ -3257,19 +3400,12 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 	 *
 	 * The key is the conversation ID for the conversation to which
 	 * the packet belongs and the current sequence number.
+	 *
 	 * We must first find the conversation and, if we don't find
-	 * one, create it.  We know this is running over TCP, so the
-	 * conversation should not wildcard either address or port.
+	 * one, create it.
 	 */
-	conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
-	    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
-	if (conversation == NULL) {
-		/*
-		 * It's not part of any conversation - create a new one.
-		 */
-		conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
-		    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
-	}
+	if (conversation == NULL)
+		conversation = get_conversation_for_tcp(pinfo);
 	old_rfk.conv_id = conversation->index;
 	old_rfk.seq = seq;
 	old_rfk.port = pinfo->srcport;
@@ -3348,6 +3484,8 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 				 * Show it as a record marker plus data, under
 				 * a top-level tree for this protocol.
 				 */
+				col_set_str(pinfo->cinfo, COL_PROTOCOL, "RPC");
+				col_set_str(pinfo->cinfo, COL_INFO, "Fragment");
 				make_frag_tree(frag_tvb, tree, proto, ett,rpc_rm);
 
 				/*
@@ -3415,6 +3553,8 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			 * a top-level tree for this protocol,
 			 * but don't hand it to the dissector
 			 */
+			col_set_str(pinfo->cinfo, COL_PROTOCOL, "RPC");
+			col_set_str(pinfo->cinfo, COL_INFO, "Fragment");
 			make_frag_tree(frag_tvb, tree, proto, ett, rpc_rm);
 
 			/*
@@ -3445,6 +3585,8 @@ dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			 * a top-level tree for this protocol,
 			 * but don't show it to the dissector.
 			 */
+			col_set_str(pinfo->cinfo, COL_PROTOCOL, "RPC");
+			col_set_str(pinfo->cinfo, COL_INFO, "Fragment");
 			make_frag_tree(frag_tvb, tree, proto, ett, rpc_rm);
 
 			/*
@@ -3635,7 +3777,7 @@ static int
 find_and_dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			      proto_tree *tree, rec_dissector_t dissector,
 			      gboolean is_heur,
-			      int proto, int ett, gboolean defragment, struct tcpinfo* tcpinfo)
+			      int proto, int ett, struct tcpinfo* tcpinfo)
 {
 
 	int   offReply;
@@ -3650,7 +3792,6 @@ find_and_dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 	len = dissect_rpc_fragment(tvb, offReply,
 				   pinfo, tree,
 				   dissector, is_heur, proto, ett,
-				   defragment,
 				   TRUE /* force first-pdu state */, tcpinfo);
 
 	/* misses are reported as-is */
@@ -3678,22 +3819,9 @@ find_and_dissect_rpc_fragment(tvbuff_t *tvb, int offset, packet_info *pinfo,
 
 
 /*
- * Can return:
- *
- *	NEED_MORE_DATA, if we don't have enough data to dissect anything;
- *
- *	IS_RPC, if we dissected at least one message in its entirety
- *	as RPC;
- *
- *	IS_NOT_RPC, if we found no RPC message.
+ * Returns TRUE if it looks like ONC RPC, FALSE otherwise.
  */
-typedef enum {
-	NEED_MORE_DATA,
-	IS_RPC,
-	IS_NOT_RPC
-} rpc_tcp_return_t;
-
-static rpc_tcp_return_t
+static gboolean
 dissect_rpc_tcp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		       gboolean is_heur, struct tcpinfo* tcpinfo)
 {
@@ -3708,7 +3836,7 @@ dissect_rpc_tcp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		 */
 		len = dissect_rpc_fragment(tvb, offset, pinfo, tree,
 		    dissect_rpc_message, is_heur, proto_rpc, ett_rpc,
-		    rpc_defragment, first_pdu, tcpinfo);
+		    first_pdu, tcpinfo);
 
 		if ((len == 0) && first_pdu && rpc_find_fragment_start) {
 			/*
@@ -3717,16 +3845,17 @@ dissect_rpc_tcp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			 */
 			len = find_and_dissect_rpc_fragment(tvb, offset, pinfo, tree,
 				 dissect_rpc_message, is_heur, proto_rpc, ett_rpc,
-				 rpc_defragment, tcpinfo);
+				 tcpinfo);
 		}
 
 		first_pdu = FALSE;
 		if (len < 0) {
 			/*
-			 * We need more data from the TCP stream for
+			 * dissect_rpc_fragment() thinks this is ONC RPC,
+			 * but we need more data from the TCP stream for
 			 * this fragment.
 			 */
-			return NEED_MORE_DATA;
+			return TRUE;
 		}
 		if (len == 0) {
 			/*
@@ -3735,12 +3864,13 @@ dissect_rpc_tcp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			break;
 		}
 
-		/*  Set a fence so whatever the subdissector put in the
-		 *  Info column stays there.  This is useful when the
-		 *  subdissector clears the column (which it might have to do
-		 *  if it runs over some other protocol too) and there are
-		 *  multiple PDUs in one frame.
+		/*  Set fences so whatever the subdissector put in the
+		 *  Protocol and Info columns stay there.  This is useful
+		 *  when the subdissector clears the column (which it
+		 *  might have to do if it runs over some other protocol
+		 *  too) and there are multiple PDUs in one frame.
 		 */
+		col_set_fence(pinfo->cinfo, COL_PROTOCOL);
 		col_set_fence(pinfo->cinfo, COL_INFO);
 
 		/* PDU tracking
@@ -3760,7 +3890,7 @@ dissect_rpc_tcp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		offset += len;
 		saw_rpc = TRUE;
 	}
-	return saw_rpc ? IS_RPC : IS_NOT_RPC;
+	return saw_rpc;
 }
 
 static gboolean
@@ -3768,19 +3898,7 @@ dissect_rpc_tcp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
 {
 	struct tcpinfo* tcpinfo = (struct tcpinfo *)data;
 
-	switch (dissect_rpc_tcp_common(tvb, pinfo, tree, TRUE, tcpinfo)) {
-
-	case IS_RPC:
-		return TRUE;
-
-	case IS_NOT_RPC:
-		return FALSE;
-
-	default:
-		/* "Can't happen" */
-		DISSECTOR_ASSERT_NOT_REACHED();
-		return FALSE;
-	}
+	return dissect_rpc_tcp_common(tvb, pinfo, tree, TRUE, tcpinfo);
 }
 
 static int
@@ -3788,7 +3906,7 @@ dissect_rpc_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
 	struct tcpinfo* tcpinfo = (struct tcpinfo *)data;
 
-	if (dissect_rpc_tcp_common(tvb, pinfo, tree, FALSE, tcpinfo) == IS_NOT_RPC)
+	if (!dissect_rpc_tcp_common(tvb, pinfo, tree, FALSE, tcpinfo))
 		dissect_rpc_continuation(tvb, pinfo, tree);
 
 	return tvb_reported_length(tvb);
@@ -3833,10 +3951,10 @@ static stat_tap_table_item rpc_prog_stat_fields[] = {
 	{TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Avg SRT (s)", "%.2f"}
 };
 
-static void rpc_prog_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void rpc_prog_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
 	int num_fields = sizeof(rpc_prog_stat_fields)/sizeof(stat_tap_table_item);
-	new_stat_tap_table* table;
+	stat_tap_table* table;
 
 	table = new_stat_tap_init_table("ONC-RPC Program Statistics", num_fields, 0, NULL, gui_callback, gui_data);
 	new_stat_tap_add_table(new_stat, table);
@@ -3854,10 +3972,10 @@ rpc_prog_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt 
 	guint call_count;
 	guint element;
 	gboolean found = FALSE;
-	new_stat_tap_table* table;
+	stat_tap_table* table;
 	stat_tap_table_item_type* item_data;
 
-	table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, 0);
+	table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, 0);
 
 	for (element = 0; element < table->num_elements; element++)
 	{
@@ -3901,7 +4019,7 @@ rpc_prog_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt 
 	new_stat_tap_set_field_data(table, element, CALLS_COLUMN, item_data);
 
 	/* calculate time delta between request and reply */
-	nstime_delta(&delta, &pinfo->fd->abs_ts, &ri->req_time);
+	nstime_delta(&delta, &pinfo->abs_ts, &ri->req_time);
 	delta_s = nstime_to_sec(&delta);
 
 	item_data = new_stat_tap_get_field_data(table, element, MIN_SRT_COLUMN);
@@ -3925,7 +4043,7 @@ rpc_prog_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt 
 }
 
 static void
-rpc_prog_stat_reset(new_stat_tap_table* table)
+rpc_prog_stat_reset(stat_tap_table* table)
 {
 	guint element;
 	stat_tap_table_item_type* item_data;
@@ -3948,7 +4066,7 @@ rpc_prog_stat_reset(new_stat_tap_table* table)
 }
 
 static void
-rpc_prog_stat_free_table_item(new_stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
+rpc_prog_stat_free_table_item(stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
 {
 	if (column != PROGRAM_NAME_COLUMN) return;
 	g_free((char*)field_data->value.string_value);
@@ -4224,7 +4342,7 @@ proto_register_rpc(void)
 		{ PARAM_FILTER, "filter", "Filter", NULL, TRUE }
 	};
 
-	static new_stat_tap_ui rpc_prog_stat_table = {
+	static stat_tap_table_ui rpc_prog_stat_table = {
 		REGISTER_STAT_GROUP_UNSORTED,
 		"ONC-RPC Programs",
 		"rpc",
@@ -4241,8 +4359,8 @@ proto_register_rpc(void)
 
 	proto_rpc = proto_register_protocol("Remote Procedure Call", "RPC", "rpc");
 
-	subdissector_call_table = register_custom_dissector_table("rpc.call", "RPC Call Functions", rpc_proc_hash, rpc_proc_equal);
-	subdissector_reply_table = register_custom_dissector_table("rpc.reply", "RPC Reply Functions", rpc_proc_hash, rpc_proc_equal);
+	subdissector_call_table = register_custom_dissector_table("rpc.call", "RPC Call Functions", rpc_proc_hash, rpc_proc_equal, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	subdissector_reply_table = register_custom_dissector_table("rpc.reply", "RPC Reply Functions", rpc_proc_hash, rpc_proc_equal, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 	/* this is a dummy dissector for all those unknown rpc programs */
 	proto_register_field_array(proto_rpc, hf, array_length(hf));
@@ -4280,11 +4398,11 @@ proto_register_rpc(void)
 		&rpc_find_fragment_start);
 
 	register_dissector("rpc", dissect_rpc, proto_rpc);
-	new_register_dissector("rpc-tcp", dissect_rpc_tcp, proto_rpc);
+	register_dissector("rpc-tcp", dissect_rpc_tcp, proto_rpc);
 	rpc_tap = register_tap("rpc");
 
 	register_srt_table(proto_rpc, NULL, 1, rpcstat_packet, rpcstat_init, rpcstat_param);
-	register_new_stat_tap_ui(&rpc_prog_stat_table);
+	register_stat_tap_table_ui(&rpc_prog_stat_table);
 
 	/*
 	 * Init the hash tables.  Dissectors for RPC protocols must

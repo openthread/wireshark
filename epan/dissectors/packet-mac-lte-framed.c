@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/proto_data.h>
 #include "packet-mac-lte.h"
 
 void proto_register_mac_lte_framed(void);
@@ -34,8 +35,8 @@ static int proto_mac_lte_framed = -1;
 extern int proto_mac_lte;
 
 /* Main dissection function. */
-static void dissect_mac_lte_framed(tvbuff_t *tvb, packet_info *pinfo,
-                                   proto_tree *tree)
+static int dissect_mac_lte_framed(tvbuff_t *tvb, packet_info *pinfo,
+                                   proto_tree *tree, void* data _U_)
 {
     gint                 offset = 0;
     struct mac_lte_info  *p_mac_lte_info;
@@ -45,7 +46,7 @@ static void dissect_mac_lte_framed(tvbuff_t *tvb, packet_info *pinfo,
     /* Need to find enabled mac-lte dissector */
     dissector_handle_t   mac_lte_handle = find_dissector("mac-lte");
     if (!mac_lte_handle) {
-        return;
+        return 0;
     }
 
     /* Do this again on re-dissection to re-discover offset of actual PDU */
@@ -55,7 +56,7 @@ static void dissect_mac_lte_framed(tvbuff_t *tvb, packet_info *pinfo,
        - tag for data
        - at least one byte of MAC PDU payload */
     if ((size_t)tvb_reported_length_remaining(tvb, offset) < (3+2)) {
-        return;
+        return 5;
     }
 
     /* If redissecting, use previous info struct (if available) */
@@ -71,7 +72,7 @@ static void dissect_mac_lte_framed(tvbuff_t *tvb, packet_info *pinfo,
 
     /* Dissect the fields to populate p_mac_lte */
     if (!dissect_mac_lte_context_fields(p_mac_lte_info, tvb, &offset)) {
-        return;
+        return offset;
     }
 
     /* Store info in packet (first time) */
@@ -85,6 +86,7 @@ static void dissect_mac_lte_framed(tvbuff_t *tvb, packet_info *pinfo,
     /* Create tvb that starts at actual MAC PDU */
     mac_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector_only(mac_lte_handle, mac_tvb, pinfo, tree, NULL);
+    return tvb_captured_length(tvb);
 }
 
 void proto_register_mac_lte_framed(void)

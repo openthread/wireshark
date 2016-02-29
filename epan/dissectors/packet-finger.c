@@ -85,8 +85,8 @@ dissect_finger(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     pinfo->desegment_offset = 0;
                     return -1;
                 } else {
-                    finger_trans->req_frame = pinfo->fd->num;
-                    finger_trans->req_time = pinfo->fd->abs_ts;
+                    finger_trans->req_frame = pinfo->num;
+                    finger_trans->req_time = pinfo->abs_ts;
                 }
             } else {
                 pinfo->desegment_len = DESEGMENT_UNTIL_FIN;
@@ -95,8 +95,8 @@ dissect_finger(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             }
         }
     } else if (is_query && (finger_trans->req_frame == 0)) {
-        finger_trans->req_frame = pinfo->fd->num;
-        finger_trans->req_time = pinfo->fd->abs_ts;
+        finger_trans->req_frame = pinfo->num;
+        finger_trans->req_time = pinfo->abs_ts;
     }
 
     if (!is_query && (finger_trans->rep_frame == 0)) {
@@ -105,10 +105,10 @@ dissect_finger(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
          * number, and if reassembly is turned off, finger_trans->rep_frame will
          * be assigned to the first frame number of the response.  This seems
          * to match other protocols' behavior.  The alternative is:
-         *      if (pinfo->fd->num > finger_trans->rep_frame)
+         *      if (pinfo->num > finger_trans->rep_frame)
          * which will give us the same frame number either way.
          */
-        finger_trans->rep_frame = pinfo->fd->num;
+        finger_trans->rep_frame = pinfo->num;
     }
 
     ti = proto_tree_add_protocol_format(tree, proto_finger, tvb, 0, -1,
@@ -137,8 +137,8 @@ dissect_finger(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 tvb, 0, 0, finger_trans->req_frame);
             PROTO_ITEM_SET_GENERATED(ti);
 
-            if (pinfo->fd->num == finger_trans->rep_frame) {
-                nstime_delta(&ns, &pinfo->fd->abs_ts, &finger_trans->req_time);
+            if (pinfo->num == finger_trans->rep_frame) {
+                nstime_delta(&ns, &pinfo->abs_ts, &finger_trans->req_time);
                 ti = proto_tree_add_time(finger_tree, hf_finger_response_time, tvb, 0, 0, &ns);
                 PROTO_ITEM_SET_GENERATED(ti);
             }
@@ -201,7 +201,7 @@ proto_reg_handoff_finger(void)
 {
     static dissector_handle_t finger_handle;
 
-    finger_handle = new_create_dissector_handle(dissect_finger, proto_finger);
+    finger_handle = create_dissector_handle(dissect_finger, proto_finger);
     dissector_add_uint("tcp.port", FINGER_PORT, finger_handle);
 }
 

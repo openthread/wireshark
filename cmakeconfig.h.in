@@ -64,8 +64,17 @@
 /* Define if GeoIP supports IPv6 (GeoIP 1.4.5 and later) */
 #cmakedefine HAVE_GEOIP_V6 1
 
+/* Define if LIBSSH support is enabled */
+#cmakedefine HAVE_LIBSSH 1
+
+/* Define if LIBSSH has ssh_userauth_agent() function */
+#cmakedefine HAVE_SSH_USERAUTH_AGENT 1
+
 /* Define if you have the 'floorl' function. */
 #cmakedefine HAVE_FLOORL 1
+
+/* Define if you have the 'lrint' function. */
+#cmakedefine HAVE_LRINT 1
 
 /* Define to 1 if you have the `getaddrinfo' function. */
 #cmakedefine HAVE_GETADDRINFO 1
@@ -97,11 +106,14 @@
 /* Define to use heimdal kerberos */
 #cmakedefine HAVE_HEIMDAL_KERBEROS 1
 
-/* Define unless inet/aton.h needs to be included */
-#cmakedefine HAVE_INET_ATON_H 1
+/* Define to 1 if you have the `inet_aton' function. */
+#cmakedefine HAVE_INET_ATON 1
 
 /* Define if inet_ntop() prototype exists */
 #cmakedefine HAVE_INET_NTOP_PROTO 1
+
+/* Define to 1 if you have the `inet_pton' function. */
+#cmakedefine HAVE_INET_PTON 1
 
 /* Define to 1 if you have the `inflatePrime' function. */
 #cmakedefine HAVE_INFLATEPRIME 1
@@ -114,9 +126,6 @@
 
 /* Define to use kerberos */
 #cmakedefine HAVE_KERBEROS 1
-
-/* Define if krb5.h defines KEYTYPE_ARCFOUR_56 */
-#cmakedefine HAVE_KEYTYPE_ARCFOUR_56 1
 
 /* Define to use the libcap library */
 #cmakedefine HAVE_LIBCAP 1
@@ -351,9 +360,6 @@
 /* HTML viewer, e.g. mozilla */
 #cmakedefine HTML_VIEWER "${HTML_VIEWER_EXECUTABLE}"
 
-/* Define if inet/v6defs.h needs to be included */
-#cmakedefine NEED_INET_V6DEFS_H 1
-
 /* Name of package */
 #cmakedefine PACKAGE
 
@@ -424,15 +430,6 @@
    However, we do need it for some headers that are shared between C and C++. */
 #define _U_ ${C_UNUSED}
 
-/* We don't bother checking for IPv6 support; the checks done in the
-   autoconf script are relics of a bygone age, where IPv6 support in
-   OSes was sometimes present by default, sometimes provided by
-   third-party add-ons, and sometimes completely absent, and where the
-   particular flavor of IPv6 support mattered to us.  We'll just wire it
-   on, unless and until that becomes an issue on platforms where people
-   use CMake. */
-#define INET6 1
-
 #if defined(_WIN32)
 
    /* WpdPack/INclude/pcap/pcap.h checks for "#if defined(WIN32)" */
@@ -471,6 +468,5 @@
 #  define UNICODE 1
 #  define _UNICODE 1
 
-#  define NEED_INET_V6DEFS_H 1
 #  define NEED_STRPTIME_H 1
 #endif

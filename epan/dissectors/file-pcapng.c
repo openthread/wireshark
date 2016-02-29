@@ -33,12 +33,11 @@
 #include <epan/addr_resolv.h>
 #include <epan/wmem/wmem.h>
 
-#include <wiretap/wtap.h>
+#include <epan/dissectors/packet-pcap_pktdata.h>
 
 static int proto_pcapng = -1;
 
-static dissector_handle_t  pcapng_handle;
-extern dissector_handle_t  pcap_pseudoheader_handle;
+static dissector_handle_t  pcap_pktdata_handle;
 
 static int hf_pcapng_block = -1;
 
@@ -136,7 +135,6 @@ static int hf_pcapng_record_padding = -1;
 
 static expert_field ei_invalid_option_length = EI_INIT;
 static expert_field ei_invalid_record_length = EI_INIT;
-static expert_field ei_unknown_encoding = EI_INIT;
 
 static gint ett_pcapng = -1;
 static gint ett_pcapng_section_header_block = -1;
@@ -216,12 +214,6 @@ static const value_string block_type_vals[] = {
     { 0x00000007,  "IRIG Timestamp Block" },
     { 0x00000008,  "Arinc 429 in AFDX Encapsulation Information Block " },
     { 0x0A0D0D0A,  "Section Header Block" },
-    { 0, NULL }
-};
-
-static const value_string byte_order_magic_vals[] = {
-    { 0x1A2B3C4D,  "Big-endian" },
-    { 0x4D3C2B1A,  "Little-endian" },
     { 0, NULL }
 };
 
@@ -338,145 +330,6 @@ static const value_string flags_reception_type_vals[] = {
     { 0x04,  "Promiscuous" },
     { 0, NULL }
 };
-
-/* Mostly PCAP, but add also link type found in wiretap code */
-static const value_string link_type_vals[] = {
-    { 0,    "NULL" },
-    { 1,    "ETHERNET" },
-    { 3,    "AX25" },
-    { 6,    "IEEE802_5" },
-    { 7,    "ARCNET_BSD" },
-    { 8,    "SLIP" },
-    { 9,    "PPP" },
-    { 10,   "FDDI/FDDI_BITSWAPPED" },
-    { 32,   "REDBACK" },
-    { 50,   "PPP_HDLC" },
-    { 51,   "PPP_ETHER" },
-    { 99,   "SYMANTEC" },
-    { 100,  "ATM_RFC1483" },
-    { 101,  "RAW" },
-    { 104,  "C_HDLC" },
-    { 105,  "IEEE802_11" },
-    { 106,  "LINUX_ATM_CLIP" },
-    { 107,  "FRELAY" },
-    { 108,  "LOOP" },
-    { 109,  "ENC" },
-    { 112,  "CHDLC" },
-    { 113,  "LINUX_SLL" },
-    { 114,  "LTALK" },
-    { 117,  "PFLOG" },
-    { 118,  "CISCO_IOS" },
-    { 119,  "IEEE802_11_PRISM" },
-    { 121,  "HHDLC" },
-    { 122,  "IP_OVER_FC" },
-    { 123,  "SUNATM" },
-    { 127,  "IEEE802_11_RADIOTAP" },
-    { 128,  "TZSP" },
-    { 129,  "ARCNET_LINUX" },
-    { 130,  "JUNIPER_MLPPP" },
-    { 131,  "JUNIPER_MLFR" },
-    { 133,  "JUNIPER_GGSN" },
-    { 135,  "JUNIPER_ATM2" },
-    { 136,  "JUNIPER_SVCS" },
-    { 137,  "JUNIPER_ATM1" },
-    { 138,  "APPLE_IP_OVER_IEEE1394" },
-    { 139,  "MTP2_WITH_PHDR" },
-    { 140,  "MTP2" },
-    { 141,  "MTP3" },
-    { 142,  "SCCP" },
-    { 143,  "DOCSIS" },
-    { 144,  "LINUX_IRDA" },
-    { 147,  "USER_0" },
-    { 148,  "USER_1" },
-    { 149,  "USER_2" },
-    { 150,  "USER_3" },
-    { 151,  "USER_4" },
-    { 152,  "USER_5" },
-    { 153,  "USER_6" },
-    { 154,  "USER_7" },
-    { 155,  "USER_8" },
-    { 156,  "USER_9" },
-    { 157,  "USER_10" },
-    { 158,  "USER_11" },
-    { 159,  "USER_12" },
-    { 160,  "USER_13" },
-    { 161,  "USER_14" },
-    { 162,  "USER_15" },
-    { 163,  "IEEE802_11_AVS" },
-    { 165,  "BACNET_MS_TP" },
-    { 166,  "PPP_PPPD" },
-    { 167,  "JUNIPER_PPPOE" },
-    { 169,  "GPRS_LLC" },
-    { 172,  "GCOM_TIE1" },
-    { 173,  "GCOM_SERIAL" },
-    { 177,  "LINUX_LAPD" },
-    { 178,  "JUNIPER_ETHER" },
-    { 179,  "JUNIPER_PPP" },
-    { 180,  "JUNIPER_FRELAY" },
-    { 181,  "JUNIPER_CHDLC" },
-    { 183,  "JUNIPER_VP" },
-    { 186,  "USB" },
-    { 187,  "BLUETOOTH_HCI_H4" },
-    { 188,  "IEEE802_16_MAC_CPS" },
-    { 189,  "USB_LINUX" },
-    { 190,  "CAN20B" },
-    { 192,  "PPI" },
-    { 195,  "IEEE802_15_4" },
-    { 196,  "SITA" },
-    { 197,  "ERF" },
-    { 199,  "IPMB" },
-    { 201,  "BLUETOOTH_HCI_H4_WITH_PHDR" },
-    { 202,  "AX25_KISS" },
-    { 203,  "LAPD" },
-    { 204,  "PPP_WITH_DIR" },
-    { 205,  "C_HDLC_WITH_DIR" },
-    { 206,  "FRELAY_WITH_DIR" },
-    { 209,  "IPMB_LINUX" },
-    { 210,  "FLEXRAY" },
-    { 211,  "MOST" },
-    { 212,  "LIN" },
-    { 213,  "X2E_SERIAL" },
-    { 214,  "X2E_XORAYA" },
-    { 215,  "IEEE802_15_4_NONASK_PHY" },
-    { 220,  "USB_LINUX_MMAPPED" },
-    { 224,  "FC_2" },
-    { 225,  "FC_2_WITH_FRAME_DELIMS" },
-    { 226,  "IPNET" },
-    { 227,  "CAN_SOCKETCAN" },
-    { 228,  "IPV4" },
-    { 229,  "IPV6" },
-    { 230,  "IEEE802_15_4_NOFCS" },
-    { 231,  "DBUS" },
-    { 235,  "DVB_CI" },
-    { 236,  "MUX27010" },
-    { 237,  "STANAG_5066_D_PDU" },
-    { 239,  "NFLOG" },
-    { 240,  "NETANALYZER" },
-    { 241,  "NETANALYZER_TRANSPARENT" },
-    { 242,  "IPOIB" },
-    { 243,  "MPEG_2_TS" },
-    { 244,  "NG40" },
-    { 245,  "NFC_LLCP" },
-    { 247,  "INFINIBAND" },
-    { 248,  "SCTP" },
-    { 249,  "USBPCAP" },
-    { 250,  "RTAC_SERIAL" },
-    { 251,  "BLUETOOTH_LE_LL" },
-    { 252,  "WIRESHARK_UPPER_PDU" },
-    { 253,  "NETLINK" },
-    { 254,  "BLUETOOTH_LINUX_MONITOR" },
-    { 255,  "BLUETOOTH_BREDR_BB" },
-    { 256,  "BLUETOOTH_LE_LL_WITH_PHDR" },
-    { 257,  "PROFIBUS_DL" },
-    { 258,  "PKTAP" },
-    { 259,  "EPON" },
-    { 260,  "IPMI_HPM_2" },
-    { 261,  "ZWAVE_R1_R2" },
-    { 262,  "ZWAVE_R3" },
-    { 263,  "WATTSTOPPER_DLM" },
-    { 0, NULL }
-};
-
 
 void proto_register_pcapng(void);
 void proto_reg_handoff_pcapng(void);
@@ -607,11 +460,11 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                     break;
                 }
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
-                TVB_SET_ADDRESS(&addr, AT_IPv4, tvb, offset, 4);
+                set_address_tvb(&addr, AT_IPv4, 4, tvb, offset);
                 offset += 4;
 
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_ipv4_mask, tvb, offset, 4, ENC_BIG_ENDIAN);
-                TVB_SET_ADDRESS(&addr_mask, AT_IPv4, tvb, offset, 4);
+                set_address_tvb(&addr_mask, AT_IPv4, 4, tvb, offset);
                 offset += 4;
 
                 str = wmem_strdup_printf(wmem_packet_scope(), "%s/%s",
@@ -626,7 +479,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 }
 
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_ipv6, tvb, offset, 16, ENC_NA);
-                TVB_SET_ADDRESS(&addr, AT_IPv6, tvb, offset, 16);
+                set_address_tvb(&addr, AT_IPv6, 16, tvb, offset);
                 offset += 16;
 
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_ipv6_mask, tvb, offset, 1, ENC_NA);
@@ -656,7 +509,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 }
 
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_eui_address, tvb, offset, 8, encoding);
-                TVB_SET_ADDRESS(&addr, AT_EUI64, tvb, offset, 8);
+                set_address_tvb(&addr, AT_EUI64, 8, tvb, offset);
                 offset += 8;
 
                 str = address_to_display(wmem_packet_scope(),  &addr);
@@ -824,7 +677,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 }
 
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
-                TVB_SET_ADDRESS(&addr, AT_IPv4, tvb, offset, 4);
+                set_address_tvb(&addr, AT_IPv4, 4, tvb, offset);
                 offset += 4;
 
                 str = wmem_strdup_printf(wmem_packet_scope(), "%s",
@@ -839,7 +692,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 }
 
                 proto_tree_add_item(option_tree, hf_pcapng_option_data_ipv6, tvb, offset, 16, ENC_NA);
-                TVB_SET_ADDRESS(&addr, AT_IPv6, tvb, offset, 16);
+                set_address_tvb(&addr, AT_IPv6, 16, tvb, offset);
                 offset += 16;
 
                 str = wmem_strdup_printf(wmem_packet_scope(), "%s",
@@ -1056,7 +909,7 @@ pcapng_add_timestamp(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         ti = proto_tree_add_time(tree, hf_pcapng_timestamp, tvb, offset, 8, &timestamp);
         PROTO_ITEM_SET_GENERATED(ti);
 
-        pinfo->fd->abs_ts = timestamp;
+        pinfo->abs_ts = timestamp;
     }
 }
 
@@ -1067,6 +920,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
     proto_item      *block_item;
     proto_tree      *block_data_tree;
     proto_item      *block_data_item;
+    proto_item      *byte_order_magic_item;
     proto_item      *packet_data_item;
     gint             offset = 0;
     guint32          length;
@@ -1101,7 +955,11 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         info->interface_number = 0;
         info->frame_number = 1;
 
-        proto_tree_add_item(block_data_tree, hf_pcapng_section_header_byte_order_magic, tvb, offset, 4, ENC_NA);
+        byte_order_magic_item = proto_tree_add_item(block_data_tree, hf_pcapng_section_header_byte_order_magic, tvb, offset, 4, ENC_NA);
+        if (encoding == ENC_BIG_ENDIAN)
+            proto_item_append_text(byte_order_magic_item, " (Big-endian)");
+        else
+            proto_item_append_text(byte_order_magic_item, " (Little-endian)");
         offset += 4;
 
         proto_tree_add_item(block_data_tree, hf_pcapng_section_header_major_version, tvb, offset, 2, encoding);
@@ -1166,11 +1024,11 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
             struct interface_description  *interface_description;
             proto_tree *packet_data_tree = proto_item_add_subtree(packet_data_item, ett_pcapng_packet_data);
 
-            pinfo->fd->num = info->frame_number;
+            pinfo->num = info->frame_number;
 
             interface_description = (struct interface_description *) wmem_array_index(info->interfaces, interface_id);
             TRY {
-                call_dissector_with_data(pcap_pseudoheader_handle, tvb_new_subset(tvb, offset, captured_length, reported_length),
+                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset(tvb, offset, captured_length, reported_length),
                                          pinfo, packet_data_tree, &interface_description->link_type);
             }
             CATCH_BOUNDS_ERRORS {
@@ -1204,11 +1062,11 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
             struct interface_description  *interface_description;
             proto_tree *packet_data_tree = proto_item_add_subtree(packet_data_item, ett_pcapng_packet_data);
 
-            pinfo->fd->num = info->frame_number;
+            pinfo->num = info->frame_number;
 
             interface_description = (struct interface_description *) wmem_array_index(info->interfaces, interface_id);
             TRY {
-                call_dissector_with_data(pcap_pseudoheader_handle, tvb_new_subset_length(tvb, offset, captured_length),
+                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset_length(tvb, offset, captured_length),
                                          pinfo, packet_data_tree, &interface_description->link_type);
             }
             CATCH_BOUNDS_ERRORS {
@@ -1269,7 +1127,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                 }
 
                 proto_tree_add_item(record_tree, hf_pcapng_record_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
-                TVB_SET_ADDRESS(&addr, AT_IPv4, tvb, offset, 4);
+                set_address_tvb(&addr, AT_IPv4, 4, tvb, offset);
                 offset += 4;
 
                 offset_string_start = offset;
@@ -1295,7 +1153,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                 }
 
                 proto_tree_add_item(record_tree, hf_pcapng_record_ipv6, tvb, offset, 16, ENC_NA);
-                TVB_SET_ADDRESS(&addr, AT_IPv6, tvb, offset, 16);
+                set_address_tvb(&addr, AT_IPv6, 16, tvb, offset);
                 offset += 16;
 
                 offset_string_start = offset;
@@ -1369,11 +1227,11 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
             struct interface_description  *interface_description;
             proto_tree *packet_data_tree = proto_item_add_subtree(packet_data_item, ett_pcapng_packet_data);
 
-            pinfo->fd->num = info->frame_number;
+            pinfo->num = info->frame_number;
 
             interface_description = (struct interface_description *) wmem_array_index(info->interfaces, interface_id);
             TRY {
-                call_dissector_with_data(pcap_pseudoheader_handle, tvb_new_subset(tvb, offset, captured_length, reported_length),
+                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset(tvb, offset, captured_length, reported_length),
                                          pinfo, packet_data_tree, &interface_description->link_type);
             }
             CATCH_BOUNDS_ERRORS {
@@ -1405,12 +1263,21 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
     return offset;
 }
 
+#define BLOCK_TYPE_SIZE        4
+#define BYTE_ORDER_MAGIC_SIZE  4
+
 static int
 dissect_pcapng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-    static const guint8 pcapng_premagic[]      = { 0x0A, 0x0D, 0x0D, 0x0A };
-    static const guint8 pcapng_magic[]         = { 0x1A, 0x2B, 0x3C, 0x4D };
-    static const guint8 pcapng_swapped_magic[] = { 0x4D, 0x3C, 0x2B, 0x1A };
+    static const guint8 pcapng_premagic[BLOCK_TYPE_SIZE] = {
+        0x0A, 0x0D, 0x0D, 0x0A
+    };
+    static const guint8 pcapng_big_endian_magic[BYTE_ORDER_MAGIC_SIZE] = {
+        0x1A, 0x2B, 0x3C, 0x4D
+    };
+    static const guint8 pcapng_little_endian_magic[BYTE_ORDER_MAGIC_SIZE] = {
+        0x4D, 0x3C, 0x2B, 0x1A
+    };
     gint             offset = 0;
     guint32          length;
     guint32          encoding;
@@ -1418,13 +1285,15 @@ dissect_pcapng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     proto_item      *main_item;
     struct info      info;
 
-    if (tvb_memeql(tvb, 0, pcapng_premagic, sizeof(pcapng_premagic)) != 0)
+    if (tvb_memeql(tvb, 0, pcapng_premagic, BLOCK_TYPE_SIZE) != 0)
         return 0;
 
-    if (tvb_memeql(tvb, 8, pcapng_magic, sizeof(pcapng_magic)) != 0) {
-        if (tvb_memeql(tvb, 8, pcapng_swapped_magic, sizeof(pcapng_swapped_magic)) != 0) {
-            return 0;
-        }
+    if (tvb_memeql(tvb, 8, pcapng_big_endian_magic, BYTE_ORDER_MAGIC_SIZE) == 0) {
+        encoding = ENC_BIG_ENDIAN;
+    } else if (tvb_memeql(tvb, 8, pcapng_little_endian_magic, BYTE_ORDER_MAGIC_SIZE) == 0) {
+        encoding = ENC_LITTLE_ENDIAN;
+    } else {
+        return 0;
     }
 
     info.file_number = 1;
@@ -1434,16 +1303,6 @@ dissect_pcapng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
     main_item = proto_tree_add_item(tree, proto_pcapng, tvb, offset, -1, ENC_NA);
     main_tree = proto_item_add_subtree(main_item, ett_pcapng);
-
-    encoding = tvb_get_guint32(tvb, offset + 8, ENC_HOST_ENDIAN);
-    if (encoding == 0x1A2B3C4D) {
-        encoding = ENC_LITTLE_ENDIAN;
-    } else if (encoding == 0x4D3C2B1A) {
-        encoding = ENC_BIG_ENDIAN;
-    } else {
-        expert_add_info(pinfo, main_item, &ei_unknown_encoding);
-        return offset;
-    }
 
     while (tvb_captured_length_remaining(tvb, offset)) {
         tvbuff_t  *next_tvb;
@@ -1562,7 +1421,7 @@ proto_register_pcapng(void)
         },
         { &hf_pcapng_section_header_byte_order_magic,
             { "Byte Order Magic",                          "pcapng.section_header.byte_order_magic",
-            FT_UINT32, BASE_HEX, VALS(byte_order_magic_vals), 0x00,
+            FT_BYTES, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_pcapng_section_header_major_version,
@@ -1621,7 +1480,7 @@ proto_register_pcapng(void)
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_ipv6,
-            { "IPv6",                                      "pcapng.options.option.data.ipv4",
+            { "IPv6",                                      "pcapng.options.option.data.ipv6",
             FT_IPv6, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
@@ -1931,7 +1790,6 @@ proto_register_pcapng(void)
     static ei_register_info ei[] = {
         { &ei_invalid_option_length, { "pcapng.invalid_option_length", PI_PROTOCOL, PI_ERROR, "Invalid Option Length", EXPFILL }},
         { &ei_invalid_record_length, { "pcapng.invalid_record_length", PI_PROTOCOL, PI_ERROR, "Invalid Record Length", EXPFILL }},
-        { &ei_unknown_encoding,      { "pcapng.unknown_encoding",      PI_PROTOCOL, PI_ERROR, "Unknown Encoding", EXPFILL }}
     };
 
     static gint *ett[] = {
@@ -1949,7 +1807,7 @@ proto_register_pcapng(void)
     proto_register_field_array(proto_pcapng, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    pcapng_handle = new_register_dissector("file-pcapng", dissect_pcapng, proto_pcapng);
+    register_dissector("file-pcapng", dissect_pcapng, proto_pcapng);
 
     module = prefs_register_protocol(proto_pcapng, NULL);
     prefs_register_static_text_preference(module, "version",
@@ -1969,6 +1827,7 @@ void
 proto_reg_handoff_pcapng(void)
 {
     heur_dissector_add("wtap_file", dissect_pcapng_heur, "PCAPNG File", "pcapng_wtap", proto_pcapng, HEURISTIC_ENABLE);
+    pcap_pktdata_handle = find_dissector("pcap_pktdata");
 }
 
 /*

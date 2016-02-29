@@ -618,7 +618,7 @@ struct tlv_def {
 };
 
 struct tlv_definition {
-	struct tlv_def def[0xff];
+	struct tlv_def def[0x100];
 };
 
 enum abis_nm_ipacc_test_no {
@@ -2378,7 +2378,7 @@ proto_register_abis_oml(void)
 	expert_module = expert_register_protocol(proto_abis_oml);
 	expert_register_field_array(expert_module, ei, array_length(ei));
 
-	new_register_dissector("gsm_abis_oml", dissect_abis_oml, proto_abis_oml);
+	register_dissector("gsm_abis_oml", dissect_abis_oml, proto_abis_oml);
 
 	oml_module = prefs_register_protocol(proto_abis_oml, NULL);
 	prefs_register_enum_preference(oml_module, "oml_dialect",
@@ -2394,7 +2394,7 @@ proto_reg_handoff_abis_oml(void)
 {
 	dissector_handle_t abis_oml_handle;
 
-	abis_oml_handle = new_create_dissector_handle(dissect_abis_oml,
+	abis_oml_handle = create_dissector_handle(dissect_abis_oml,
 						      proto_abis_oml);
 	dissector_add_uint("lapd.gsm.sapi", LAPD_GSM_SAPI_OM_PROC,
 			   abis_oml_handle);

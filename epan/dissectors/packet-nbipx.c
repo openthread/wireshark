@@ -657,7 +657,7 @@ proto_reg_handoff_nbipx(void)
 {
 	dissector_handle_t nbipx_handle;
 
-	nbipx_handle = new_create_dissector_handle(dissect_nbipx, proto_nbipx);
+	nbipx_handle = create_dissector_handle(dissect_nbipx, proto_nbipx);
 	dissector_add_uint("ipx.socket", IPX_SOCKET_NETBIOS, nbipx_handle);
 	netbios_heur_subdissector_list = find_heur_dissector_list("netbios");
 	data_handle = find_dissector("data");
@@ -748,8 +748,8 @@ static gint ett_nmpi = -1;
 static gint ett_nmpi_name_type_flags = -1;
 
 
-static void
-dissect_nmpi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nmpi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*nmpi_tree = NULL;
 	proto_item	*ti;
@@ -843,6 +843,7 @@ dissect_nmpi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		next_tvb = tvb_new_subset_remaining(tvb, offset);
 		dissect_netbios_payload(next_tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

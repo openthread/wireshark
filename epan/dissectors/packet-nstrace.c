@@ -371,12 +371,12 @@ static const value_string ns_httpabortcode_vals[] = {
 	{0, "connection is trackable"},
 	{1, "connection is marked for NOREUSE on receiving CONNECT request"},
 	{2, "no reuse due to HTTP/0.9 Request processing"},
-	{3, "recieved FIN from server in the middle of transaction"},
+	{3, "received FIN from server in the middle of transaction"},
 	{4, "VPN GSLB CONNECTION PROXY connections"},
 	{5, "if http FA moves to unknown on clt req; svr_pcb's http state is also made unknown"},
 	{6, "Incomplete HTTP chunk"},
-	{7, "forward proxy connect url recieved and flagged for noreuse"},
-	{8, "connection is not reused because we recieved more than content-length amount of data from server"},
+	{7, "forward proxy connect url received and flagged for noreuse"},
+	{8, "connection is not reused because we received more than content-length amount of data from server"},
 	{9, "the Incomplete header reassembly failed"},
 	{10, "invalid header"},
 	{11, "RTSP : the Incomplete header reassembly failed"},
@@ -416,8 +416,8 @@ void add35records(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tre
 #define VMNAMERECOFFSET(field)    (guint)(offsetof(nspr_rec_vmname_t, field))
 #define SSLRECOFFSET(field)       (guint)(offsetof(nspr_rec_ssl_t, field))
 #define MPTCPRECOFFSET(field)     (guint)(offsetof(nspr_rec_mptcp_t, field))
-static void
-dissect_nstrace(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nstrace(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree     *ns_tree = NULL, *flagtree = NULL;
 	proto_item     *ti = NULL, *flagitem = NULL;
@@ -564,6 +564,8 @@ dissect_nstrace(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		next_tvb_eth_client = tvb_new_subset_remaining(tvb, offset);
 		call_dissector(eth_withoutfcs_handle, next_tvb_eth_client, pinfo, tree);
 	}
+
+	return tvb_captured_length(tvb);
 }
 
 void add35records(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_tree *ns_tree)
@@ -955,7 +957,7 @@ proto_register_ns(void)
 		},
 
 		{ &hf_ns_tcpdbg_rtrtt,
-		  { "TcpAck", "nstrace.tcpdbg.tcpack",
+		  { "TcpRTT", "nstrace.tcpdbg.rtrtt",
 		    FT_UINT32, BASE_DEC, NULL, 0x0,
 		    NULL, HFILL }
 		},

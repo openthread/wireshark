@@ -35,14 +35,15 @@
 
 #include <string.h>
 
-
 #include <epan/packet.h>
 #include <epan/stat_tap_ui.h>
 #include <epan/addr_resolv.h>
 #include <epan/dissectors/packet-h225.h>
 #include <epan/dissectors/packet-h248.h>
 
-#include "../globals.h"
+#include <wsutil/str_util.h>
+
+#include "../../globals.h"
 
 #include "ui/voip_calls.h"
 
@@ -130,7 +131,7 @@ voip_calls_get_info(void)
 		0, /* SIP */
 		0, 0, 0, /* actrace */
 		FLOW_ALL, /* flow show option */
-		FALSE };
+		0 };
 	if (!the_tapinfo_struct.session) {
 		the_tapinfo_struct.session = cfile.epan;
 	}
@@ -232,7 +233,7 @@ voip_calls_on_filter(GtkButton *button _U_, gpointer user_data _U_)
 			while (listb) {
 				gai = (seq_analysis_item_t *)listb->data;
 				if (gai->conv_num == listinfo->call_num) {
-					g_string_append_printf(filter_string_fwd, "%sframe.number == %u", is_first?"":" or ", gai->fd->num);
+					g_string_append_printf(filter_string_fwd, "%sframe.number == %u", is_first?"":" or ", gai->frame_number);
 					is_first = FALSE;
 				}
 				listb = g_list_next(listb);
@@ -444,7 +445,7 @@ add_to_list_store(voip_calls_info_t* strinfo)
 	isup_calls_info_t *isupinfo;
 	h323_calls_info_t *h323info;
 	gboolean flag = FALSE;
-	char* addr_str = (char*)address_to_display(NULL, &(strinfo->initial_speaker));
+	char* addr_str = address_to_display(NULL, &(strinfo->initial_speaker));
 
 	g_snprintf(field[CALL_COL_INITIAL_SPEAKER], 30, "%s", addr_str);
 	g_snprintf(field[CALL_COL_FROM],            50, "%s", strinfo->from_identity);
@@ -849,7 +850,6 @@ voip_calls_dlg_draw(void *ptr _U_)
 {
 	if (voip_calls_get_info()->redraw) {
 		voip_calls_dlg_update(g_queue_peek_nth_link(voip_calls_get_info()->callsinfos, 0));
-		voip_calls_get_info()->redraw = FALSE;
 	}
 }
 
@@ -870,6 +870,7 @@ voip_calls_dlg_reset(void *ptr _U_)
 
 	/* Clean up memory used by calls tap */
 	voip_calls_reset_all_taps(voip_calls_get_info());
+	sequence_analysis_list_free(voip_calls_get_info()->graph_analysis);
 
 	/* close the graph window if open */
 	if (graph_analysis_data && graph_analysis_data->dlg.window != NULL) {
@@ -884,6 +885,9 @@ static void
 voip_calls_dlg_init_taps(const char *dummy _U_, void* userdata _U_)
 {
 	voip_calls_tapinfo_t* tap_id_base = voip_calls_get_info();
+	if(NULL == tap_id_base->graph_analysis) {
+		tap_id_base->graph_analysis = sequence_analysis_info_new();
+	}
 	tap_id_base->session = cfile.epan;
 
 #ifdef HAVE_LIBPORTAUDIO
@@ -893,6 +897,7 @@ voip_calls_dlg_init_taps(const char *dummy _U_, void* userdata _U_)
 
 	/* Clean up memory used by calls tap */
 	voip_calls_reset_all_taps(tap_id_base);
+	sequence_analysis_list_free(tap_id_base->graph_analysis);
 
 	if (graph_analysis_data == NULL) {
 		/* init the Graph Analysys */
@@ -913,9 +918,9 @@ voip_calls_dlg_init_taps(const char *dummy _U_, void* userdata _U_)
 		reactivate_window(voip_calls_dlg);
 	}
 
-	voip_calls_get_info()->redraw = TRUE;
+	voip_calls_get_info()->redraw = 1;
 	voip_calls_dlg_draw(NULL);
-	voip_calls_get_info()->redraw = TRUE;
+	voip_calls_get_info()->redraw = 0;
 
 	/* Scan for VoIP calls calls (redissect all packets) */
 	cf_retap_packets(&cfile);

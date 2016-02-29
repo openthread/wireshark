@@ -148,7 +148,7 @@ dissect_bmc_cbs_message(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
     offset += 1;
 
     cell_broadcast_tvb = tvb_new_subset_remaining(tvb, offset);
-    dissect_umts_cell_broadcast_message(cell_broadcast_tvb, pinfo, tree);
+    dissect_umts_cell_broadcast_message(cell_broadcast_tvb, pinfo, tree, NULL);
     offset = tvb_reported_length(cell_broadcast_tvb);
 
     return offset;
@@ -336,7 +336,7 @@ proto_register_bmc(void)
     };
 
     proto_bmc = proto_register_protocol("Broadcast/Multicast Control", "BMC", "bmc");
-    new_register_dissector("bmc", dissect_bmc, proto_bmc);
+    register_dissector("bmc", dissect_bmc, proto_bmc);
 
     proto_register_field_array(proto_bmc, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

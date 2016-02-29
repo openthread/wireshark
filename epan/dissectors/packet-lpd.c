@@ -67,8 +67,8 @@ static const value_string lpd_server_code[] = {
 	{ 0, NULL }
 };
 
-static void
-dissect_lpd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_lpd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*lpd_tree;
 	proto_item	*ti, *hidden_item;
@@ -136,6 +136,8 @@ dissect_lpd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		else {
 			call_dissector(data_handle,tvb, pinfo, lpd_tree);
 		}
+
+	return tvb_captured_length(tvb);
 }
 
 

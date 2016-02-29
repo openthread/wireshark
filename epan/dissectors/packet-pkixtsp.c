@@ -577,16 +577,16 @@ void proto_reg_handoff_pkixtsp(void) {
 	dissector_handle_t timestamp_reply_handle;
 	dissector_handle_t timestamp_query_handle;
 
-	timestamp_reply_handle = new_create_dissector_handle(dissect_timestamp_reply, proto_pkixtsp);
+	timestamp_reply_handle = create_dissector_handle(dissect_timestamp_reply, proto_pkixtsp);
 	dissector_add_string("media_type", "application/timestamp-reply", timestamp_reply_handle);
 
-	timestamp_query_handle = new_create_dissector_handle(dissect_timestamp_query, proto_pkixtsp);
+	timestamp_query_handle = create_dissector_handle(dissect_timestamp_query, proto_pkixtsp);
 	dissector_add_string("media_type", "application/timestamp-query", timestamp_query_handle);
 
 
 /*--- Included file: packet-pkixtsp-dis-tab.c ---*/
 #line 1 "../../asn1/pkixtsp/packet-pkixtsp-dis-tab.c"
-  new_register_ber_oid_dissector("1.2.840.113549.1.9.16.1.4", dissect_TSTInfo_PDU, proto_pkixtsp, "id-ct-TSTInfo");
+  register_ber_oid_dissector("1.2.840.113549.1.9.16.1.4", dissect_TSTInfo_PDU, proto_pkixtsp, "id-ct-TSTInfo");
 
 
 /*--- End of included file: packet-pkixtsp-dis-tab.c ---*/

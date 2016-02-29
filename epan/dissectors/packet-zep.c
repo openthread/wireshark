@@ -95,7 +95,7 @@ static dissector_handle_t ieee802154_ccfcs_handle;
  *      void
  *---------------------------------------------------------------
  */
-static void dissect_zep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_zep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     tvbuff_t            *next_tvb;
     proto_item          *proto_root, *pi;
@@ -109,8 +109,7 @@ static void dissect_zep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /*  Determine whether this is a Q51/IEEE 802.15.4 sniffer packet or not */
     if(strcmp(tvb_get_string_enc(wmem_packet_scope(), tvb, 0, 2, ENC_ASCII), ZEP_PREAMBLE)){
         /*  This is not a Q51/ZigBee sniffer packet */
-        call_dissector(data_handle, tvb, pinfo, tree);
-        return;
+        return 0;
     }
 
     memset(&zep_data, 0, sizeof(zep_data)); /* Zero all zep_data fields. */
@@ -155,14 +154,13 @@ static void dissect_zep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 #if 0
 /*??dat*/
     if (zep_data.ntp_time.secs && zep_data.ntp_time.nsecs) {
-        pinfo->fd->abs_ts = zep_data.ntp_time;
+        pinfo->abs_ts = zep_data.ntp_time;
     }
 #endif
 
     if(ieee_packet_len < tvb_reported_length(tvb)-zep_header_len){
         /* Packet's length is mis-reported, abort dissection */
-        call_dissector(data_handle, tvb, pinfo, tree);
-        return;
+        return 0;
     }
 
     /*  Enter name info protocol field */
@@ -215,7 +213,8 @@ static void dissect_zep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 proto_tree_add_uint(zep_tree, hf_zep_seqno, tvb, 17, 4, zep_data.seqno);
             }
         }
-        if (!((zep_data.version==2) && (zep_data.type==ZEP_V2_TYPE_ACK))) proto_tree_add_uint_format_value(zep_tree, hf_zep_ieee_length, tvb, zep_header_len - 1, 1, ieee_packet_len, "%i %s", ieee_packet_len, (ieee_packet_len==1)?"Byte":"Bytes");
+        if (!((zep_data.version==2) && (zep_data.type==ZEP_V2_TYPE_ACK)))
+            proto_tree_add_uint_format_value(zep_tree, hf_zep_ieee_length, tvb, zep_header_len - 1, 1, ieee_packet_len, "%i %s", ieee_packet_len, (ieee_packet_len==1)?"Byte":"Bytes");
     }
 
     /* Determine which dissector to call next. */
@@ -237,6 +236,7 @@ static void dissect_zep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         next_tvb = tvb_new_subset_length(tvb, zep_header_len, ieee_packet_len);
         call_dissector(next_dissector, next_tvb, pinfo, tree);
     }
+    return tvb_captured_length(tvb);
 } /* dissect_ieee802_15_4 */
 
 /*FUNCTION:------------------------------------------------------
@@ -292,7 +292,7 @@ void proto_register_zep(void)
             "The length (in bytes) of the encapsulated IEEE 802.15.4 MAC frame.", HFILL }},
 
         { &hf_zep_protocol_id,
-        { "Protocol ID String",            "zep.seqno", FT_STRING, BASE_NONE, NULL, 0x0,
+        { "Protocol ID String",            "zep.protocol_id", FT_STRING, BASE_NONE, NULL, 0x0,
             NULL, HFILL }},
 
         { &hf_zep_reserved_field,
@@ -344,12 +344,12 @@ void proto_reg_handoff_zep(void)
     if ( !inited) {
         dissector_handle_t h;
         /* Get dissector handles. */
-        if ( !(h = find_dissector("wpan")) ) { /* Try use built-in 802.15.4 disector */
-            h = find_dissector("ieee802154");  /* otherwise use older 802.15.4 plugin disector */
+        if ( !(h = find_dissector("wpan")) ) { /* Try use built-in 802.15.4 dissector */
+            h = find_dissector("ieee802154");  /* otherwise use older 802.15.4 plugin dissector */
         }
         ieee802154_handle = h;
-        if ( !(h = find_dissector("wpan_cc24xx")) ) { /* Try use built-in 802.15.4 (Chipcon) disector */
-            h = find_dissector("ieee802154_ccfcs");   /* otherwise use older 802.15.4 (Chipcon) plugin disector */
+        if ( !(h = find_dissector("wpan_cc24xx")) ) { /* Try use built-in 802.15.4 (Chipcon) dissector */
+            h = find_dissector("ieee802154_ccfcs");   /* otherwise use older 802.15.4 (Chipcon) plugin dissector */
         }
         ieee802154_ccfcs_handle = h;
         data_handle = find_dissector("data");

@@ -61,6 +61,8 @@
 #include <epan/conversation.h>
 #include <epan/expert.h>
 #include <epan/decode_as.h>
+#include <epan/proto_data.h>
+
 #include <wsutil/md5.h>
 #include <wsutil/sha1.h>
 
@@ -204,7 +206,7 @@ static int hf_l2tp_avp_tx_connect_speed_v3 = -1;
 static int hf_l2tp_avp_rx_connect_speed_v3 = -1;
 static int hf_l2tp_lapd_info = -1;
 static int hf_l2tp_session_id = -1;
-static int hf_l2tp_zero_length_bit_message = -1;
+static int hf_l2tp_zero_length_body_message = -1;
 static int hf_l2tp_offset_padding = -1;
 
 static dissector_table_t l2tp_vendor_avp_dissector_table;
@@ -214,7 +216,7 @@ static dissector_table_t pw_type_table;
 
 #define CONTROL_BIT(msg_info)        (msg_info & 0x8000) /* Type bit control = 1 data = 0 */
 #define LENGTH_BIT(msg_info)         (msg_info & 0x4000) /* Length bit = 1  */
-#define RESERVE_BITS(msg_info)       (msg_info &0x37F8)  /* Reserved bit - usused */
+#define RESERVE_BITS(msg_info)       (msg_info &0x37F8)  /* Reserved bit - unused */
 #define SEQUENCE_BIT(msg_info)       (msg_info & 0x0800) /* SEQUENCE bit = 1 Ns and Nr fields */
 #define OFFSET_BIT(msg_info)         (msg_info & 0x0200) /* Offset */
 #define PRIORITY_BIT(msg_info)       (msg_info & 0x0100) /* Priority */
@@ -648,6 +650,7 @@ static const value_string avp_type_vals[] = {
 
 static value_string_ext avp_type_vals_ext = VALUE_STRING_EXT_INIT(avp_type_vals);
 
+#define CISCO_ACK                        0
 #define CISCO_ASSIGNED_CONNECTION_ID     1
 #define CISCO_PW_CAPABILITY_LIST         2
 #define CISCO_LOCAL_SESSION_ID           3
@@ -663,6 +666,7 @@ static value_string_ext avp_type_vals_ext = VALUE_STRING_EXT_INIT(avp_type_vals)
 #define CISCO_INTERFACE_MTU             14
 
 static const value_string cisco_avp_type_vals[] = {
+    { CISCO_ACK,                      "Cisco ACK" },
     { CISCO_ASSIGNED_CONNECTION_ID,   "Assigned Connection ID" },
     { CISCO_PW_CAPABILITY_LIST,       "Pseudowire Capabilities List" },
     { CISCO_LOCAL_SESSION_ID,         "Local Session ID" },
@@ -699,7 +703,7 @@ static const value_string cablelabs_avp_type_vals[] = {
     { 103, "Downstream QAM Channel Modulation" },
     { 104, "Downstream QAM Channel J.83 Annex" },
     { 105, "Downstream QAM Channel Symbol Rate" },
-    { 106, "Downstream QAM Channel Interleaver Depth" },
+    { 106, "Downstream QAM Channel Interleave Depth" },
     { 107, "Downstream QAM Channel RF Block Muting53" },
     /* 7.5.4 DEPI Redundancy Capabilities AVPs */
     { 200, "DEPI Redundancy Capabilities" },
@@ -840,7 +844,7 @@ static void md5_hmac_digest(l2tpv3_tunnel_t *tunnel,
 
     if (msg_type != MESSAGE_TYPE_SCCRQ) {
         if (tunnel->lcce1_nonce != NULL && tunnel->lcce2_nonce != NULL) {
-            if (ADDRESSES_EQUAL(&tunnel->lcce1, &pinfo->src)) {
+            if (addresses_equal(&tunnel->lcce1, &pinfo->src)) {
                 md5_hmac_append(&ms, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
                 md5_hmac_append(&ms, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
             } else {
@@ -880,7 +884,7 @@ static void sha1_hmac_digest(l2tpv3_tunnel_t *tunnel,
 
     if (msg_type != MESSAGE_TYPE_SCCRQ) {
         if (tunnel->lcce1_nonce != NULL && tunnel->lcce2_nonce != NULL) {
-            if (ADDRESSES_EQUAL(&tunnel->lcce1, &pinfo->src)) {
+            if (addresses_equal(&tunnel->lcce1, &pinfo->src)) {
                 sha1_hmac_update(&ms, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
                 sha1_hmac_update(&ms, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
             } else {
@@ -890,7 +894,7 @@ static void sha1_hmac_digest(l2tpv3_tunnel_t *tunnel,
         }
     }
 
-    sha1_hmac_update(&ms, tvb_get_ptr(tvb, 0, idx + 1 - offset), idx + 1 - offset);
+    sha1_hmac_update(&ms, tvb_get_ptr(tvb, offset, idx + 1 - offset), idx + 1 - offset);
     /* Message digest is calculated with an empty message digest field */
     memset(zero, 0, SHA1_DIGEST_LEN);
     sha1_hmac_update(&ms, zero, avp_len - 1);
@@ -1271,7 +1275,7 @@ static gpointer l2tp_value(packet_info *pinfo _U_)
 /*
  * Dissect CISCO AVP:s
  */
-static int dissect_l2tp_cisco_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree) {
+static int dissect_l2tp_cisco_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint32 ccid) {
 
     int offset = 0;
     int         avp_type;
@@ -1311,6 +1315,11 @@ static int dissect_l2tp_cisco_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
     avp_len -= 2;
 
     switch (avp_type) {
+    case CISCO_ACK:
+        /* process_l2tpv3_control does not set COL_INFO for vendor messages */
+        col_add_fstr(pinfo->cinfo, COL_INFO, "%s - Cisco ACK (tunnel id=%u)", control_msg, ccid);
+        break;
+
     case CISCO_ASSIGNED_CONNECTION_ID:
         proto_tree_add_item(l2tp_avp_tree, hf_l2tp_cisco_assigned_control_connection_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         break;
@@ -1501,7 +1510,7 @@ static void process_control_avps(tvbuff_t *tvb,
 
             if (avp_vendor_id == VENDOR_CISCO) {      /* Vendor-Specific AVP */
 
-                dissect_l2tp_cisco_avps(avp_tvb, pinfo, l2tp_tree);
+                dissect_l2tp_cisco_avps(avp_tvb, pinfo, l2tp_tree, ccid);
                 idx += avp_len;
                 continue;
 
@@ -2021,7 +2030,7 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     idx += 4;
 
     if (tunnel) {
-        if (ADDRESSES_EQUAL(&tunnel->lcce1, &pinfo->dst)) {
+        if (addresses_equal(&tunnel->lcce1, &pinfo->dst)) {
             session = find_session(tunnel, sid, 0);
             if (session)
                 lcce = &session->lcce1;
@@ -2311,7 +2320,7 @@ process_l2tpv3_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int 
             proto_tree_add_item(l2tp_tree, hf_l2tp_sid, tvb, 0, 4, ENC_BIG_ENDIAN);
         }
         ctrl_tree = proto_tree_add_subtree_format(l2tp_tree, tvb, baseIdx, 2,
-                                 ett_l2tp_ctrl, NULL, "Packet Type: %s Control Connection Id=%d",
+                                 ett_l2tp_ctrl, NULL, "Packet Type: %s Control Connection Id=%u",
                                  (CONTROL_BIT(control) ? control_msg : data_msg), ccid);
         proto_tree_add_bitmask_list(ctrl_tree, tvb, baseIdx, 2, l2tp_control_fields, ENC_BIG_ENDIAN);
     }
@@ -2333,7 +2342,7 @@ process_l2tpv3_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int 
     }
 
     if (tree && (LENGTH_BIT(control))&&(length==12)) {
-        proto_tree_add_item(l2tp_tree, hf_l2tp_zero_length_bit_message, tvb, 0, 0, ENC_NA);
+        proto_tree_add_item(l2tp_tree, hf_l2tp_zero_length_body_message, tvb, 0, 0, ENC_NA);
     } else {
         avp_type = tvb_get_ntohs(tvb, idx + 4);
         if (avp_type == CONTROL_MESSAGE) {
@@ -2343,8 +2352,8 @@ process_l2tpv3_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int 
                 tunnel = &tmp_tunnel;
                 memset(tunnel, 0, sizeof(l2tpv3_tunnel_t));
                 tunnel->conv = l2tp_conv;
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &tunnel->lcce1, &pinfo->src);
-                WMEM_COPY_ADDRESS(wmem_file_scope(), &tunnel->lcce2, &pinfo->dst);
+                copy_address_wmem(wmem_file_scope(), &tunnel->lcce1, &pinfo->src);
+                copy_address_wmem(wmem_file_scope(), &tunnel->lcce2, &pinfo->dst);
             }
         }
     }
@@ -2407,16 +2416,16 @@ dissect_l2tp_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
         return 0;
     }
 
-    conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, PT_UDP,
+    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
                          pinfo->srcport, pinfo->destport, NO_PORT_B);
 
     if (conv == NULL) {
-        conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, PT_UDP,
+        conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
                              pinfo->srcport, pinfo->destport, 0);
     }
 
-    if ((conv == NULL) || (conv->dissector_handle != l2tp_udp_handle)) {
-        conv = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst, PT_UDP,
+    if ((conv == NULL) || (conversation_get_dissector(conv, pinfo->num) != l2tp_udp_handle)) {
+        conv = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
                         pinfo->srcport, 0, NO_PORT2);
         conversation_set_dissector(conv, l2tp_udp_handle);
     }
@@ -2582,7 +2591,7 @@ dissect_l2tp_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     }
 
     if (tree && (LENGTH_BIT(control))&&(length==12)) {
-        proto_tree_add_item(l2tp_tree, hf_l2tp_zero_length_bit_message, tvb, 0, 0, ENC_NA);
+        proto_tree_add_item(l2tp_tree, hf_l2tp_zero_length_body_message, tvb, 0, 0, ENC_NA);
     }
 
     if (!CONTROL_BIT(control)) {  /* Data Messages so we are done */
@@ -2609,8 +2618,8 @@ dissect_l2tp_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
  * or process_l2tpv3_data_ip for Data Messages over IP, based on the
  * Session ID
  */
-static void
-dissect_l2tp_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_l2tp_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int     idx = 0;
     guint32 sid;                /* Session ID */
@@ -2643,7 +2652,7 @@ dissect_l2tp_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         process_l2tpv3_data_ip(tvb, pinfo, tree, l2tp_conv);
     }
 
-    return;
+    return tvb_captured_length(tvb);
 }
 
 static int dissect_atm_oam_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
@@ -2726,7 +2735,7 @@ proto_register_l2tp(void)
 
         { &hf_l2tp_offset,
           { "Offset","l2tp.offset", FT_UINT16, BASE_DEC, NULL, 0x0,
-            "Number of octest past the L2TP header at which the payload data starts.", HFILL }},
+            "Number of octets past the L2TP header at which the payload data starts.", HFILL }},
 
         { &hf_l2tp_avp_mandatory,
           { "Mandatory", "l2tp.avp.mandatory", FT_BOOLEAN, 16, NULL, 0x8000,
@@ -2966,7 +2975,7 @@ proto_register_l2tp(void)
       { &hf_l2tp_avp_rx_connect_speed_v3, { "Rx Connect Speed v3", "l2tp.avp.rx_connect_speed_v3", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_lapd_info, { "LAPD info", "l2tp.lapd_info", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_session_id, { "Packet Type", "l2tp.session_id", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_l2tp_zero_length_bit_message, { "Zero Length Bit message", "l2tp.zero_length_bit_message", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_l2tp_zero_length_body_message, { "Zero Length Body message", "l2tp.zero_length_body_message", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_offset_padding, { "Offset Padding", "l2tp.offset_padding", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
     };
 
@@ -3002,8 +3011,8 @@ proto_register_l2tp(void)
     expert_l2tp = expert_register_protocol(proto_l2tp);
     expert_register_field_array(expert_l2tp, ei, array_length(ei));
 
-    l2tp_vendor_avp_dissector_table = register_dissector_table("l2tp.vendor_avp", "L2TP vendor AVP dissector table", FT_UINT32, BASE_DEC);
-    pw_type_table = register_dissector_table("l2tp.pw_type", "L2TPv3 payload type", FT_UINT32, BASE_DEC);
+    l2tp_vendor_avp_dissector_table = register_dissector_table("l2tp.vendor_avp", "L2TP vendor AVP dissector table", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    pw_type_table = register_dissector_table("l2tp.pw_type", "L2TPv3 payload type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     l2tp_module = prefs_register_protocol(proto_l2tp, NULL);
 
@@ -3038,7 +3047,7 @@ proto_reg_handoff_l2tp(void)
 {
     dissector_handle_t atm_oam_llc_handle;
 
-    l2tp_udp_handle = new_create_dissector_handle(dissect_l2tp_udp, proto_l2tp);
+    l2tp_udp_handle = create_dissector_handle(dissect_l2tp_udp, proto_l2tp);
     dissector_add_uint("udp.port", UDP_PORT_L2TP, l2tp_udp_handle);
 
     l2tp_ip_handle = create_dissector_handle(dissect_l2tp_ip, proto_l2tp);
@@ -3051,7 +3060,7 @@ proto_reg_handoff_l2tp(void)
     ppp_lcp_options_handle = find_dissector("ppp_lcp_options");
 
     /* Register vendor AVP dissector(s)*/
-    dissector_add_uint("l2tp.vendor_avp", VENDOR_CABLELABS, new_create_dissector_handle(dissect_l2tp_vnd_cablelabs_avps, proto_l2tp));
+    dissector_add_uint("l2tp.vendor_avp", VENDOR_CABLELABS, create_dissector_handle(dissect_l2tp_vnd_cablelabs_avps, proto_l2tp));
 
 
     /*
@@ -3061,7 +3070,7 @@ proto_reg_handoff_l2tp(void)
     llc_handle            = find_dissector("llc");
     data_handle           = find_dissector("data");
 
-    atm_oam_llc_handle = new_create_dissector_handle( dissect_atm_oam_llc, proto_l2tp );
+    atm_oam_llc_handle = create_dissector_handle( dissect_atm_oam_llc, proto_l2tp );
     dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_AAL5, atm_oam_llc_handle);
 }
 

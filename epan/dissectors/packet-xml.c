@@ -33,6 +33,7 @@
 #include <epan/packet.h>
 #include <epan/tvbparse.h>
 #include <epan/dtd.h>
+#include <epan/proto_data.h>
 #include <wsutil/filesystem.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
@@ -75,8 +76,8 @@ static tvbparse_wanted_t *want_heur;
 static GHashTable *xmpli_names;
 static GHashTable *media_types;
 
-static xml_ns_t xml_ns     = {(gchar *)"xml",     "/", -1, -1, -1, NULL, NULL, NULL};
-static xml_ns_t unknown_ns = {(gchar *)"unknown", "?", -1, -1, -1, NULL, NULL, NULL};
+static xml_ns_t xml_ns     = {"xml",     "/", -1, -1, -1, NULL, NULL, NULL};
+static xml_ns_t unknown_ns = {"unknown", "?", -1, -1, -1, NULL, NULL, NULL};
 static xml_ns_t *root_ns;
 
 static gboolean pref_heuristic_unicode    = FALSE;
@@ -104,6 +105,7 @@ static const gchar *default_media_types[] = {
     "application/ccmp+xml",
     "application/cpim-pidf+xml",
     "application/cpl+xml",
+    "application/dds-web+xml",
     "application/mathml+xml",
     "application/media_control+xml",
     "application/note+xml",
@@ -134,6 +136,7 @@ static const gchar *default_media_types[] = {
     "application/vnd.etsi.simservs+xml",
     "application/vnd.oma.xdm-apd+xml",
     "application/vnd.3gpp.cw+xml",
+    "application/vnd.3gpp.sms+xml"
     "application/vnd.3gpp.SRVCC-info+xml",
     "application/vnd.wv.csp+xml",
     "application/vnd.wv.csp.xml",
@@ -1160,7 +1163,7 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
             root_element->attributes = g_hash_table_new(g_str_hash, g_str_equal);
         }
 
-        /* we then create all the sub hierachies to catch the recurred cases */
+        /* we then create all the sub hierarchies to catch the recurred cases */
         g_ptr_array_add(hier, root_name);
 
         while(root_element->element_names->len) {
@@ -1451,7 +1454,7 @@ proto_register_xml(void)
 
     g_array_free(ett_arr, TRUE);
 
-    new_register_dissector("xml", dissect_xml, xml_ns.hf_tag);
+    register_dissector("xml", dissect_xml, xml_ns.hf_tag);
 
     init_xml_parser();
 

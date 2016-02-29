@@ -27,7 +27,8 @@
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/addr_resolv.h>
-#include <epan/color_dissector_filters.h>
+#include <epan/dissector_filters.h>
+#include <epan/proto_data.h>
 #include <epan/dissectors/packet-dcerpc.h>
 #include <epan/dissectors/packet-dcom.h>
 #include "packet-dcom-cba-acco.h"
@@ -336,7 +337,7 @@ GList *cba_pdevs;
 const true_false_string acco_flags_set_truth = { "Set", "Not set" };
 
 static gboolean
-cba_color_filter_valid(packet_info *pinfo)
+cba_filter_valid(packet_info *pinfo)
 {
     void* profinet_type = p_get_proto_data(pinfo->pool, pinfo, proto_ICBAAccoMgt, 0);
 
@@ -344,7 +345,7 @@ cba_color_filter_valid(packet_info *pinfo)
 }
 
 static gchar*
-cba_build_color_filter(packet_info *pinfo)
+cba_build_filter(packet_info *pinfo)
 {
     gboolean is_tcp = proto_is_frame_protocol(pinfo->layers, "tcp");
     void* profinet_type = p_get_proto_data(pinfo->pool, pinfo, proto_ICBAAccoMgt, 0);
@@ -425,7 +426,7 @@ cba_object_dump(void)
 
     for(pdevs = cba_pdevs; pdevs != NULL; pdevs = g_list_next(pdevs)) {
         pdev = pdevs->data;
-        SET_ADDRESS(&addr, AT_IPv4, 4, pdev->ip);
+        set_address(&addr, AT_IPv4, 4, pdev->ip);
         g_warning("PDev #%5u: %s IFs:%u", pdev->first_packet, address_to_str(wmem_packet_scope(), &addr),
             pdev->object ? g_list_length(pdev->object->interfaces) : 0);
 
@@ -508,7 +509,7 @@ cba_pdev_add(packet_info *pinfo, const address *addr)
     /* not found, create a new */
     pdev = (cba_pdev_t *)wmem_alloc(wmem_file_scope(), sizeof(cba_pdev_t));
     memcpy( (void *) (pdev->ip), addr->data, 4);
-    pdev->first_packet = pinfo->fd->num;
+    pdev->first_packet = pinfo->num;
     pdev->ldevs        = NULL;
     pdev->object       = NULL;
     cba_pdevs = g_list_append(cba_pdevs, pdev);
@@ -574,7 +575,7 @@ cba_ldev_add(packet_info *pinfo, cba_pdev_t *pdev, const char *name)
     /* not found, create a new */
     ldev = (cba_ldev_t *)wmem_alloc(wmem_file_scope(), sizeof(cba_ldev_t));
     ldev->name         = wmem_strdup(wmem_file_scope(), name);
-    ldev->first_packet = pinfo->fd->num;
+    ldev->first_packet = pinfo->num;
     ldev->ldev_object  = NULL;
     ldev->acco_object  = NULL;
     ldev->parent       = pdev;
@@ -641,7 +642,7 @@ cba_acco_add(packet_info *pinfo, const char *acco)
         return NULL;
     }
 
-    SET_ADDRESS(&addr, AT_IPv4, 4, &ip);
+    set_address(&addr, AT_IPv4, 4, &ip);
     pdev = cba_pdev_add(pinfo, &addr);
     delim++;
 
@@ -658,16 +659,16 @@ cba_packet_in_range(packet_info *pinfo, guint packet_connect, guint packet_disco
 {
 
     if (packet_connect == 0) {
-        g_warning("cba_packet_in_range#%u: packet_connect not set?", pinfo->fd->num);
+        g_warning("cba_packet_in_range#%u: packet_connect not set?", pinfo->num);
     }
 
-    if (packet_connect == 0 || pinfo->fd->num < packet_connect) {
+    if (packet_connect == 0 || pinfo->num < packet_connect) {
         return FALSE;
     }
-    if (packet_disconnect != 0 && pinfo->fd->num > packet_disconnect) {
+    if (packet_disconnect != 0 && pinfo->num > packet_disconnect) {
         return FALSE;
     }
-    if (packet_disconnectme != 0 && pinfo->fd->num > packet_disconnectme) {
+    if (packet_disconnectme != 0 && pinfo->num > packet_disconnectme) {
         return FALSE;
     }
 
@@ -752,7 +753,7 @@ cba_frame_connect(packet_info *pinfo, cba_ldev_t *cons_ldev, cba_ldev_t *prov_ld
     frame->consparent          = cons_ldev;
     frame->provparent          = prov_ldev;
 
-    frame->packet_connect      = pinfo->fd->num;
+    frame->packet_connect      = pinfo->num;
     frame->packet_disconnect   = 0;
     frame->packet_disconnectme = 0;
     frame->packet_first        = 0;
@@ -782,12 +783,12 @@ cba_frame_disconnect(packet_info *pinfo, cba_frame_t *frame)
 {
 
     if (frame->packet_disconnect == 0) {
-        frame->packet_disconnect = pinfo->fd->num;
+        frame->packet_disconnect = pinfo->num;
     }
 
-    if (frame->packet_disconnect != pinfo->fd->num) {
+    if (frame->packet_disconnect != pinfo->num) {
         g_warning("cba_frame_disconnect#%u: frame already disconnected in #%u",
-            pinfo->fd->num, frame->packet_disconnect);
+            pinfo->num, frame->packet_disconnect);
     }
 }
 
@@ -808,12 +809,12 @@ cba_frame_disconnectme(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, cba_
             cba_frame_info(tvb, pinfo, tree, frame);
 
             if (frame->packet_disconnectme == 0) {
-                frame->packet_disconnectme = pinfo->fd->num;
+                frame->packet_disconnectme = pinfo->num;
             }
 
-            if (frame->packet_disconnectme != pinfo->fd->num) {
+            if (frame->packet_disconnectme != pinfo->num) {
                 g_warning("cba_frame_disconnectme#%u: frame already disconnectme'd in #%u",
-                    pinfo->fd->num, frame->packet_disconnectme);
+                    pinfo->num, frame->packet_disconnectme);
             }
         }
     }
@@ -886,12 +887,12 @@ static void
 cba_frame_incoming_data(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree *tree _U_, cba_frame_t *frame)
 {
     if (frame->packet_first == 0) {
-        frame->packet_first = pinfo->fd->num;
+        frame->packet_first = pinfo->num;
     }
 
-    if ( pinfo->fd->num > frame->packet_last &&
+    if ( pinfo->num > frame->packet_last &&
         cba_packet_in_range(pinfo, frame->packet_connect, frame->packet_disconnect, frame->packet_disconnectme)) {
-        frame->packet_last = pinfo->fd->num;
+        frame->packet_last = pinfo->num;
     }
 }
 
@@ -987,7 +988,7 @@ cba_connection_connect(packet_info *pinfo, cba_ldev_t *cons_ldev, cba_ldev_t *pr
     conn->provparentacco      = prov_ldev;
     conn->parentframe         = cons_frame;
 
-    conn->packet_connect      = pinfo->fd->num;
+    conn->packet_connect      = pinfo->num;
     conn->packet_disconnect   = 0;
     conn->packet_disconnectme = 0;
     conn->packet_first        = 0;
@@ -1024,10 +1025,10 @@ cba_connection_disconnect(packet_info *pinfo, cba_connection_t *conn)
 {
     /* XXX - detect multiple disconnects? */
     if (conn->packet_disconnect == 0) {
-        conn->packet_disconnect = pinfo->fd->num;
+        conn->packet_disconnect = pinfo->num;
     }
 
-    if (conn->packet_disconnect != pinfo->fd->num) {
+    if (conn->packet_disconnect != pinfo->num) {
         g_warning("connection_disconnect#%u: already disconnected",
                   conn->packet_disconnect);
     }
@@ -1050,10 +1051,10 @@ cba_connection_disconnectme(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             cba_connection_info(tvb, pinfo, tree, conn);
 
             if (conn->packet_disconnectme == 0) {
-                conn->packet_disconnectme = pinfo->fd->num;
+                conn->packet_disconnectme = pinfo->num;
             }
 
-            if (conn->packet_disconnectme != pinfo->fd->num) {
+            if (conn->packet_disconnectme != pinfo->num) {
                 g_warning("connection_disconnectme#%u: already disconnectme'd",
                           conn->packet_disconnectme);
             }
@@ -1084,12 +1085,12 @@ static void
 cba_connection_incoming_data(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree *tree _U_, cba_connection_t *conn)
 {
     if (conn->packet_first == 0) {
-        conn->packet_first = pinfo->fd->num;
+        conn->packet_first = pinfo->num;
     }
 
-    if ( pinfo->fd->num > conn->packet_last &&
+    if ( pinfo->num > conn->packet_last &&
         cba_packet_in_range(pinfo, conn->packet_connect, conn->packet_disconnect, conn->packet_disconnectme)) {
-        conn->packet_last = pinfo->fd->num;
+        conn->packet_last = pinfo->num;
     }
 }
 
@@ -5113,7 +5114,7 @@ proto_register_dcom_cba_acco (void)
     proto_ICBAAccoSync = proto_register_protocol ("ICBAAccoSync", "ICBAAccoSync", "cba_acco_sync");
     proto_register_subtree_array (ett5, array_length (ett5));
 
-    register_color_conversation_filter("cba", "PN-CBA", cba_color_filter_valid, cba_build_color_filter);
+    register_conversation_filter("cba", "PN-CBA", cba_filter_valid, cba_build_filter);
 }
 
 

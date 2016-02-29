@@ -805,8 +805,8 @@ dissect_mpeg_pes_pack_header(tvbuff_t *tvb, gint offset,
 	return offset;
 }
 
-static void
-dissect_mpeg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
+static int
+dissect_mpeg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 
 static gboolean
 dissect_mpeg_pes(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -940,7 +940,7 @@ dissect_mpeg_pes(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 			if (tvb_get_ntoh24(es, 0) == PES_PREFIX)
 				dissect_mpeg_pes(es, pinfo, tree, NULL);
 			else if (tvb_get_guint8(es, 0) == 0xff)
-				dissect_mpeg(es, pinfo, tree);
+				dissect_mpeg(es, pinfo, tree, data);
 			else
 				proto_tree_add_item(tree, hf_mpeg_pes_data, es,
 						0, -1, ENC_NA);
@@ -962,17 +962,18 @@ dissect_mpeg_pes(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 
 static heur_dissector_list_t heur_subdissector_list;
 
-static void
-dissect_mpeg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpeg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     heur_dtbl_entry_t *hdtbl_entry;
 
     if (!dissector_try_heuristic(heur_subdissector_list, tvb, pinfo, tree, &hdtbl_entry, NULL)) {
-	col_set_str(pinfo->cinfo, COL_PROTOCOL, "MPEG");
-	col_clear(pinfo->cinfo, COL_INFO);
-	if (tree)
+	    col_set_str(pinfo->cinfo, COL_PROTOCOL, "MPEG");
+	    col_clear(pinfo->cinfo, COL_INFO);
+
 	    proto_tree_add_item(tree, proto_mpeg, tvb, 0, -1, ENC_NA);
     }
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -1184,7 +1185,7 @@ proto_register_mpeg_pes(void)
         "BIT_STRING_SIZE_16", HFILL }},
 
 /*--- End of included file: packet-mpeg-pes-hfarr.c ---*/
-#line 542 "../../asn1/mpeg-pes/packet-mpeg-pes-template.c"
+#line 543 "../../asn1/mpeg-pes/packet-mpeg-pes-template.c"
 		{ &hf_mpeg_pes_pack_header,
 			{ "Pack header", "mpeg-pes.pack",
 				FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
@@ -1234,7 +1235,7 @@ proto_register_mpeg_pes(void)
 				FT_UINT8, BASE_HEX, VALS(mpeg_pes_TrickModeIntraSliceRefresh_vals), 0,
 				"mpeg_pes trick mode intra slice refresh", HFILL }},
 		{ &hf_mpeg_pes_dsm_trick_mode_frequency_truncation,
-			{ "frequency truncation", "mpeg-pes.trick-mode-frequeny-truncation",
+			{ "frequency truncation", "mpeg-pes.trick-mode-frequency-truncation",
 				FT_UINT8, BASE_HEX, VALS(mpeg_pes_TrickModeFrequencyTruncation_vals), 0,
 				"mpeg_pes trick mode frequency truncation", HFILL }},
 		{ &hf_mpeg_pes_dsm_trick_mode_rep_cntrl,
@@ -1302,7 +1303,7 @@ proto_register_mpeg_pes(void)
     &ett_mpeg_pes_Picture,
 
 /*--- End of included file: packet-mpeg-pes-ettarr.c ---*/
-#line 649 "../../asn1/mpeg-pes/packet-mpeg-pes-template.c"
+#line 650 "../../asn1/mpeg-pes/packet-mpeg-pes-template.c"
 		&ett_mpeg_pes_pack_header,
 		&ett_mpeg_pes_header_data,
 		&ett_mpeg_pes_trick_mode
@@ -1317,7 +1318,7 @@ proto_register_mpeg_pes(void)
 			"Packetized Elementary Stream", "MPEG PES", "mpeg-pes");
 	proto_register_field_array(proto_mpeg_pes, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	new_register_dissector("mpeg-pes", dissect_mpeg_pes, proto_mpeg_pes);
+	register_dissector("mpeg-pes", dissect_mpeg_pes, proto_mpeg_pes);
 }
 
 void

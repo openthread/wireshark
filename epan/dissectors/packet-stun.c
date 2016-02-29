@@ -31,6 +31,7 @@
  * - RFC 5766, formerly draft-ietf-behave-turn-16
  * - draft-ietf-behave-turn-ipv6-11
  * - RFC 3489, http://www.faqs.org/rfcs/rfc3489.html  (Addition of deprecated attributes for diagnostics purpose)
+ * - RFC 6062
  *
  * From MS (Lync)
  * MS-TURN: Traversal Using Relay NAT (TURN) Extensions http://msdn.microsoft.com/en-us/library/cc431507.aspx
@@ -61,6 +62,8 @@ static int proto_stun = -1;
 
 static int hf_stun_channel = -1;
 
+
+static int hf_stun_tcp_frame_length = -1;
 static int hf_stun_type = -1;
 static int hf_stun_type_class = -1;
 static int hf_stun_type_method = -1;
@@ -166,6 +169,10 @@ typedef struct _stun_conv_info_t {
 /* Indications */
 #define SEND                    0x0006 /* draft-ietf-behave-turn-10*/
 #define DATA_IND                0x0007 /* draft-ietf-behave-turn-10*/
+/* TCP specific */
+#define CONNECT                 0x000a /* rfc6062 */
+#define CONNECTION_BIND         0x000b /* rfc6062 */
+#define CONNECTION_ATTEMPT      0x000c /* rfc6062 */
 
 
 /* Attribute Types */
@@ -202,6 +209,7 @@ typedef struct _stun_conv_info_t {
 #define PADDING                 0x0026 /* draft-ietf-behave-nat-behavior-discovery-03 */
 #define XOR_RESPONSE_TARGET     0x0027 /* draft-ietf-behave-nat-behavior-discovery-03 */
 #define XOR_REFLECTED_FROM      0x0028 /* draft-ietf-behave-nat-behavior-discovery-03 */
+#define CONNECTION_ID           0x002a /* rfc6062 */
 #define ICMP                    0x0030 /* Moved from TURN to a future I-D */
 /* Comprehension-optional range (0x8000-0xFFFF) */
 #define MS_VERSION              0x8008 /* MS-TURN */
@@ -249,6 +257,7 @@ static gint ett_stun_att_type = -1;
 #define ATTR_HDR_LEN                    4 /* STUN attribute header length */
 #define CHANNEL_DATA_HDR_LEN            4 /* TURN CHANNEL-DATA Message hdr length */
 #define MIN_HDR_LEN                     4
+#define TCP_FRAME_COOKIE_LEN           10 /* min length for cookie with TCP framing */
 
 static const value_string transportnames[] = {
     { 17, "UDP" },
@@ -265,14 +274,17 @@ static const value_string classes[] = {
 };
 
 static const value_string methods[] = {
-    {BINDING      , "Binding"},
-    {ALLOCATE     , "Allocate"},
-    {REFRESH      , "Refresh"},
-    {CHANNELBIND  , "Channel-Bind"},
-    {SEND          , "Send"},
-    {DATA_IND      , "Data"},
-    {CREATE_PERMISSION, "CreatePermission"},
-    {0x00          , NULL}
+    {BINDING           , "Binding"},
+    {ALLOCATE          , "Allocate"},
+    {REFRESH           , "Refresh"},
+    {SEND              , "Send"},
+    {DATA_IND          , "Data"},
+    {CREATE_PERMISSION , "CreatePermission"},
+    {CHANNELBIND       , "Channel-Bind"},
+    {CONNECT           , "Connect"},
+    {CONNECTION_BIND   , "ConnectionBind"},
+    {CONNECTION_ATTEMPT, "ConnectionAttempt"},
+    {0x00              , NULL}
 };
 
 
@@ -309,6 +321,7 @@ static const value_string attributes[] = {
     {PADDING               , "PADDING"},
     {XOR_RESPONSE_TARGET   , "XOR-RESPONSE-TARGET"},
     {XOR_REFLECTED_FROM    , "XOR-REFELECTED-FROM"},
+    {CONNECTION_ID         , "CONNECTION-ID"},
     {ICMP                  , "ICMP"},
 
     {MS_VERSION            , "MS-VERSION"},
@@ -453,8 +466,19 @@ static guint
 get_stun_message_len(packet_info *pinfo _U_, tvbuff_t *tvb,
                      int offset, void *data _U_)
 {
-    guint16 type   = tvb_get_ntohs(tvb, offset);
-    guint   length = tvb_get_ntohs(tvb, offset+2);
+    guint16 type;
+    guint   length;
+    guint   captured_length = tvb_captured_length(tvb);
+
+    if ((captured_length >= TCP_FRAME_COOKIE_LEN) &&
+        (tvb_get_ntohl(tvb, 6) == 0x2112a442)) {
+        /* The magic cookie is off by two, this appears
+           to be RFC4751 framing */
+        return (tvb_get_ntohs(tvb, 0) + 2);
+    }
+
+    type   = tvb_get_ntohs(tvb, offset);
+    length = tvb_get_ntohs(tvb, offset+2);
 
     if (type & 0xC000)
     {
@@ -525,7 +549,9 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
     guint16     att_type;
     guint16     att_length;
     guint       i;
+    guint       offset;
     guint       magic_cookie_first_word;
+    guint       tcp_framing_offset;
     conversation_t     *conversation=NULL;
     stun_conv_info_t   *stun_info;
     stun_transaction_t *stun_trans;
@@ -545,8 +571,15 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
     if (captured_length < MIN_HDR_LEN)
         return 0;
 
-    msg_type     = tvb_get_ntohs(tvb, 0);
-    msg_length   = tvb_get_ntohs(tvb, 2);
+    tcp_framing_offset = 0;
+    if ((!is_udp) && (captured_length >= TCP_FRAME_COOKIE_LEN) &&
+       (tvb_get_ntohl(tvb, 6) == 0x2112a442)) {
+        /* we found ICE TCP framing according to RFC 4571 */
+        tcp_framing_offset = 2;
+    }
+
+    msg_type     = tvb_get_ntohs(tvb, tcp_framing_offset + 0);
+    msg_length   = tvb_get_ntohs(tvb, tcp_framing_offset + 2);
 
     /* TURN ChannelData message ? */
     if (msg_type & 0xC000) {
@@ -567,7 +600,8 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
         /* note that padding is only mandatory over streaming
            protocols */
         if (is_udp) {
-            if (reported_length != (msg_length + CHANNEL_DATA_HDR_LEN))
+            if (reported_length != msg_length + CHANNEL_DATA_HDR_LEN &&
+                reported_length != ((msg_length + CHANNEL_DATA_HDR_LEN + 3) & ~0x3))
                 return 0;
         } else { /* TCP */
             if (reported_length != ((msg_length + CHANNEL_DATA_HDR_LEN + 3) & ~0x3))
@@ -583,11 +617,11 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
         return 0;
 
     /* Check if it is really a STUN message */
-    if ( tvb_get_ntohl(tvb, 4) != 0x2112a442)
+    if ( tvb_get_ntohl(tvb, tcp_framing_offset + 4) != 0x2112a442)
         return 0;
 
     /* check if payload enough */
-    if (reported_length != (msg_length + STUN_HDR_LEN))
+    if (reported_length != (msg_length + STUN_HDR_LEN + tcp_framing_offset))
         return 0;
 
     /* The message seems to be a valid STUN message! */
@@ -596,9 +630,9 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
 
     /* Create the transaction key which may be used
        to track the conversation */
-    transaction_id[0] = tvb_get_ntohl(tvb, 8);
-    transaction_id[1] = tvb_get_ntohl(tvb, 12);
-    transaction_id[2] = tvb_get_ntohl(tvb, 16);
+    transaction_id[0] = tvb_get_ntohl(tvb, tcp_framing_offset + 8);
+    transaction_id[1] = tvb_get_ntohl(tvb, tcp_framing_offset + 12);
+    transaction_id[2] = tvb_get_ntohl(tvb, tcp_framing_offset + 16);
 
     transaction_id_key[0].length = 3;
     transaction_id_key[0].key =  transaction_id;
@@ -616,6 +650,9 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
         case DATA_IND:
         case CREATE_PERMISSION:
         case CHANNELBIND:
+        case CONNECT:
+        case CONNECTION_BIND:
+        case CONNECTION_ATTEMPT:
             is_turn = TRUE;
             break;
     }
@@ -648,7 +685,7 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
             stun_trans=wmem_new(wmem_file_scope(), stun_transaction_t);
             stun_trans->req_frame=0;
             stun_trans->rep_frame=0;
-            stun_trans->req_time=pinfo->fd->abs_ts;
+            stun_trans->req_time=pinfo->abs_ts;
             wmem_tree_insert32_array(stun_info->transaction_pdus,
                                      transaction_id_key,
                                      (void *)stun_trans);
@@ -657,13 +694,13 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
         if (msg_type_class == REQUEST) {
             /* This is a request */
             if (stun_trans->req_frame == 0) {
-                stun_trans->req_frame=pinfo->fd->num;
+                stun_trans->req_frame=pinfo->num;
             }
 
         } else {
             /* This is a catch-all for all non-request messages */
             if (stun_trans->rep_frame == 0) {
-                stun_trans->rep_frame=pinfo->fd->num;
+                stun_trans->rep_frame=pinfo->num;
             }
 
         }
@@ -677,7 +714,7 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
         stun_trans=wmem_new(wmem_packet_scope(), stun_transaction_t);
         stun_trans->req_frame=0;
         stun_trans->rep_frame=0;
-        stun_trans->req_time=pinfo->fd->abs_ts;
+        stun_trans->req_time=pinfo->abs_ts;
     }
 
 
@@ -690,80 +727,85 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                  msg_class_str,
                  COL_ADD_LSTR_TERMINATOR);
 
-    ti = proto_tree_add_item(tree, proto_stun, tvb, 0, -1, ENC_NA);
+    offset = 0;
+    ti = proto_tree_add_item(tree, proto_stun, tvb, offset, -1, ENC_NA);
 
     stun_tree = proto_item_add_subtree(ti, ett_stun);
 
-    if(tree){
-
-        if (msg_type_class == REQUEST) {
-            if (stun_trans->req_frame != pinfo->fd->num) {
+    if (msg_type_class == REQUEST) {
+        if (stun_trans->req_frame != pinfo->num) {
+            proto_item *it;
+            it=proto_tree_add_uint(stun_tree, hf_stun_duplicate,
+                                   tvb, offset, 0,
+                                   stun_trans->req_frame);
+            PROTO_ITEM_SET_GENERATED(it);
+        }
+        if (stun_trans->rep_frame) {
+            proto_item *it;
+            it=proto_tree_add_uint(stun_tree, hf_stun_response_in,
+                                   tvb, offset, 0,
+                                   stun_trans->rep_frame);
+            PROTO_ITEM_SET_GENERATED(it);
+        }
+    }
+    else {
+        /* Retransmission control */
+        if (stun_trans->rep_frame != pinfo->num) {
+            proto_item *it;
+            it=proto_tree_add_uint(stun_tree, hf_stun_duplicate,
+                                   tvb, offset, 0,
+                                   stun_trans->rep_frame);
+            PROTO_ITEM_SET_GENERATED(it);
+        }
+        if (msg_type_class == RESPONSE || msg_type_class == ERROR_RESPONSE) {
+            /* This is a response */
+            if (stun_trans->req_frame) {
                 proto_item *it;
-                it=proto_tree_add_uint(stun_tree, hf_stun_duplicate,
-                                       tvb, 0, 0,
+                nstime_t ns;
+
+                it=proto_tree_add_uint(stun_tree, hf_stun_response_to, tvb,
+                                       offset, 0,
                                        stun_trans->req_frame);
                 PROTO_ITEM_SET_GENERATED(it);
-            }
-            if (stun_trans->rep_frame) {
-                proto_item *it;
-                it=proto_tree_add_uint(stun_tree, hf_stun_response_in,
-                                       tvb, 0, 0,
-                                       stun_trans->rep_frame);
+
+                nstime_delta(&ns, &pinfo->abs_ts, &stun_trans->req_time);
+                it=proto_tree_add_time(stun_tree, hf_stun_time, tvb,
+                                       offset, 0, &ns);
                 PROTO_ITEM_SET_GENERATED(it);
             }
+
         }
-        else {
-            /* Retransmission control */
-            if (stun_trans->rep_frame != pinfo->fd->num) {
-                proto_item *it;
-                it=proto_tree_add_uint(stun_tree, hf_stun_duplicate,
-                                       tvb, 0, 0,
-                                       stun_trans->rep_frame);
-                PROTO_ITEM_SET_GENERATED(it);
-            }
-            if (msg_type_class == RESPONSE || msg_type_class == ERROR_RESPONSE) {
-                /* This is a response */
-                if (stun_trans->req_frame) {
-                    proto_item *it;
-                    nstime_t ns;
-
-                    it=proto_tree_add_uint(stun_tree, hf_stun_response_to, tvb, 0, 0,
-                                           stun_trans->req_frame);
-                    PROTO_ITEM_SET_GENERATED(it);
-
-                    nstime_delta(&ns, &pinfo->fd->abs_ts, &stun_trans->req_time);
-                    it=proto_tree_add_time(stun_tree, hf_stun_time, tvb, 0, 0, &ns);
-                    PROTO_ITEM_SET_GENERATED(it);
-                }
-
-            }
-        }
-
-        ti = proto_tree_add_uint_format_value(stun_tree, hf_stun_type, tvb, 0, 2,
-                                              msg_type, "0x%04x (%s %s)", msg_type, msg_method_str, msg_class_str);
-        stun_type_tree = proto_item_add_subtree(ti, ett_stun_type);
-        ti = proto_tree_add_uint(stun_type_tree, hf_stun_type_class, tvb, 0, 2, msg_type);
-        proto_item_append_text(ti, " %s (%d)", msg_class_str, msg_type_class);
-        ti = proto_tree_add_uint(stun_type_tree, hf_stun_type_method, tvb, 0, 2, msg_type);
-        proto_item_append_text(ti, " %s (0x%03x)", msg_method_str, msg_type_method);
-        proto_tree_add_uint(stun_type_tree, hf_stun_type_method_assignment, tvb, 0, 2, msg_type);
-
-        proto_tree_add_item(stun_tree, hf_stun_length, tvb, 2, 2, ENC_BIG_ENDIAN);
-        proto_tree_add_item(stun_tree, hf_stun_cookie, tvb, 4, 4, ENC_NA);
-        proto_tree_add_item(stun_tree, hf_stun_id, tvb, 8, 12, ENC_NA);
     }
 
+    if (tcp_framing_offset) {
+        proto_tree_add_item(stun_tree, hf_stun_tcp_frame_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+    }
+    ti = proto_tree_add_uint_format_value(stun_tree, hf_stun_type, tvb, offset, 2,
+                                          msg_type, "0x%04x (%s %s)", msg_type, msg_method_str, msg_class_str);
+    stun_type_tree = proto_item_add_subtree(ti, ett_stun_type);
+    ti = proto_tree_add_uint(stun_type_tree, hf_stun_type_class, tvb, offset, 2, msg_type);
+    proto_item_append_text(ti, " %s (%d)", msg_class_str, msg_type_class);
+    ti = proto_tree_add_uint(stun_type_tree, hf_stun_type_method, tvb, offset, 2, msg_type);
+    proto_item_append_text(ti, " %s (0x%03x)", msg_method_str, msg_type_method);
+    proto_tree_add_uint(stun_type_tree, hf_stun_type_method_assignment, tvb, offset, 2, msg_type);
+    offset += 2;
+
+    proto_tree_add_item(stun_tree, hf_stun_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(stun_tree, hf_stun_cookie, tvb, offset, 4, ENC_NA);
+    offset += 4;
+    proto_tree_add_item(stun_tree, hf_stun_id, tvb, offset, 12, ENC_NA);
+    offset += 12;
+
     /* Remember this (in host order) so we can show clear xor'd addresses */
-    magic_cookie_first_word = tvb_get_ntohl(tvb, 4);
+    magic_cookie_first_word = tvb_get_ntohl(tvb, tcp_framing_offset + 4);
 
     if (msg_length != 0) {
-        guint offset;
         const gchar       *attribute_name_str;
 
-        ti = proto_tree_add_item(stun_tree, hf_stun_attributes, tvb, STUN_HDR_LEN, msg_length, ENC_NA);
+        ti = proto_tree_add_item(stun_tree, hf_stun_attributes, tvb, offset, msg_length, ENC_NA);
         att_all_tree = proto_item_add_subtree(ti, ett_stun_att_all);
-
-        offset = STUN_HDR_LEN;
 
         while (offset < (STUN_HDR_LEN + msg_length)) {
             att_type = tvb_get_ntohs(tvb, offset);     /* Type field in attribute header */
@@ -780,7 +822,7 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                 proto_tree_add_uint(att_type_tree, hf_stun_att_type_comprehension, tvb, offset, 2, att_type);
                 proto_tree_add_uint(att_type_tree, hf_stun_att_type_assignment, tvb, offset, 2, att_type);
 
-                if ((offset+ATTR_HDR_LEN+att_length) > (STUN_HDR_LEN+msg_length)) {
+                if ((offset+ATTR_HDR_LEN+att_length) > (STUN_HDR_LEN+msg_length+tcp_framing_offset)) {
                     proto_tree_add_uint_format_value(att_tree,
                                                      hf_stun_att_length, tvb, offset+2, 2,
                                                      att_length,
@@ -1035,7 +1077,7 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                         guint32 ip;
                         guint16 port;
                         ip = tvb_get_ipv4(tvb, offset+4) ^ g_htonl(magic_cookie_first_word);
-                        SET_ADDRESS(&addr, AT_IPv4, 4, &ip);
+                        set_address(&addr, AT_IPv4, 4, &ip);
                         ipstr = address_to_str(wmem_packet_scope(), &addr);
                         port = tvb_get_ntohs(tvb, offset+2) ^ (magic_cookie_first_word >> 16);
                         proto_item_append_text(att_tree, ": %s:%d", ipstr, port);
@@ -1061,7 +1103,7 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                         IPv6[2] = IPv6[2] ^ g_htonl(transaction_id[1]);
                         IPv6[3] = IPv6[3] ^ g_htonl(transaction_id[2]);
                         ti = proto_tree_add_ipv6(att_tree, hf_stun_att_ipv6, tvb, offset+4, 16,
-                                                 (const guint8 *)IPv6);
+                                                 (const struct e_in6_addr *)IPv6);
                         PROTO_ITEM_SET_GENERATED(ti);
                     }
 
@@ -1301,6 +1343,13 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
         }
     }
 
+    if (!PINFO_FD_VISITED(pinfo) && is_turn && (pinfo->ptype == PT_TCP)
+        && (msg_type_method == CONNECTION_BIND) && (msg_type_class == RESPONSE)) {
+        /* RFC 6062: after the ConnectionBind exchange, the connection is no longer framed as TURN;
+           instead, it is an unframed pass-through.
+           Starting from next frame set conversation dissector to data */
+        conversation_set_dissector_from_frame_number(conversation, pinfo->num+1, data_handle);
+    }
     return reported_length;
 }
 
@@ -1348,6 +1397,10 @@ proto_register_stun(void)
         },
 
         /* ////////////////////////////////////// */
+        { &hf_stun_tcp_frame_length,
+          { "TCP Frame Length", "stun.tcp_frame_length", FT_UINT16,
+            BASE_DEC, NULL, 0x0, NULL, HFILL }
+        },
         { &hf_stun_type,
           { "Message Type", "stun.type", FT_UINT16,
             BASE_HEX, NULL,0, NULL, HFILL }
@@ -1671,15 +1724,15 @@ proto_register_stun(void)
     /* heuristic subdissectors (used for the DATA field) */
     heur_subdissector_list = register_heur_dissector_list("stun");
 
-    new_register_dissector("stun-udp", dissect_stun_udp, proto_stun);
-    new_register_dissector("stun-heur", dissect_stun_heur, proto_stun);
+    register_dissector("stun-udp", dissect_stun_udp, proto_stun);
+    register_dissector("stun-heur", dissect_stun_heur, proto_stun);
 }
 
 void
 proto_reg_handoff_stun(void)
 {
-    stun_tcp_handle = new_create_dissector_handle(dissect_stun_tcp, proto_stun);
-    stun_udp_handle = new_create_dissector_handle(dissect_stun_udp, proto_stun);
+    stun_tcp_handle = create_dissector_handle(dissect_stun_tcp, proto_stun);
+    stun_udp_handle = create_dissector_handle(dissect_stun_udp, proto_stun);
 
     dissector_add_uint("tcp.port", TCP_PORT_STUN, stun_tcp_handle);
     dissector_add_uint("udp.port", UDP_PORT_STUN, stun_udp_handle);

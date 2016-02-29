@@ -42,6 +42,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 
+#include <wsutil/str_util.h>
 
 /* PROTOTYPES/FORWARDS */
 
@@ -403,40 +404,46 @@ dissect_evrc_aux(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, evrc_varia
     }
 }
 
-static void
-dissect_evrc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_evrc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_evrc_aux(tvb, pinfo, tree, EVRC_VARIANT_EVRC);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_evrcb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_evrcb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_evrc_aux(tvb, pinfo, tree, EVRC_VARIANT_EVRC_B);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_evrcwb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_evrcwb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_evrc_aux(tvb, pinfo, tree, EVRC_VARIANT_EVRC_WB);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_evrcnw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_evrcnw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_evrc_aux(tvb, pinfo, tree, EVRC_VARIANT_EVRC_NW);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_evrcnw2k(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_evrcnw2k(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_evrc_aux(tvb, pinfo, tree, EVRC_VARIANT_EVRC_NW2k);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_evrc_legacy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_evrc_legacy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_evrc_aux(tvb, pinfo, tree, EVRC_VARIANT_EVRC_LEGACY);
+    return tvb_captured_length(tvb);
 }
 
 

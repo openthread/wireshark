@@ -773,29 +773,28 @@ dissect_hislip_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     case HISLIP_ASYNCLOCKINFO:
 
         /*Request*/
-        hislip_trans = (hislip_transaction_t *)wmem_tree_lookup32(hislip_info->pdus, pinfo->fd->num);
-
-        if(!hislip_trans)
+        if(!PINFO_FD_VISITED(pinfo))
         {
-            DISSECTOR_ASSERT_HINT(!pinfo->fd->flags.visited, "Missing 'Request' Info");
-
             /* This is a new request */
             hislip_trans = (hislip_transaction_t *)wmem_alloc(wmem_file_scope(), sizeof(hislip_transaction_t));
-            hislip_trans->req_frame = pinfo->fd->num;
+            hislip_trans->req_frame = pinfo->num;
             hislip_trans->rep_frame = 0;
             hislip_trans->messagetype = hislip_data.messagetype;
             hislip_trans->controltype = hislip_data.controlcode;
-            wmem_tree_insert32(hislip_info->pdus, pinfo->fd->num , (void *)hislip_trans);
-
+            wmem_tree_insert32(hislip_info->pdus, pinfo->num , (void *)hislip_trans);
         }
-        if(hislip_trans->rep_frame != 0)
+        else
+        {
+            hislip_trans = (hislip_transaction_t *)wmem_tree_lookup32(hislip_info->pdus, pinfo->num);
+        }
+        if(hislip_trans && hislip_trans->rep_frame != 0)
         {
             it = proto_tree_add_uint(hislip_tree, hf_hislip_response, tvb, 0, 0, hislip_trans->rep_frame);
             PROTO_ITEM_SET_GENERATED(it);
         }
 
         /*Retransmisson*/
-        if((frame_number = search_for_retransmission(hislip_info->pdus, &hislip_data , pinfo->fd->num))!=0)
+        if((frame_number = search_for_retransmission(hislip_info->pdus, &hislip_data , pinfo->num))!=0)
         {
             it = proto_tree_add_uint( hislip_tree, hf_hislip_retransmission, tvb, 0, 0, frame_number);
             PROTO_ITEM_SET_GENERATED(it);
@@ -812,10 +811,10 @@ dissect_hislip_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     case HISLIP_ASYNCLOCKINFORESPONSE:
 
         /*Response*/
-        hislip_trans = (hislip_transaction_t *) wmem_tree_lookup32_le( hislip_info->pdus, pinfo->fd->num);
+        hislip_trans = (hislip_transaction_t *) wmem_tree_lookup32_le( hislip_info->pdus, pinfo->num);
         if (hislip_trans)
         {
-            hislip_trans->rep_frame = pinfo->fd->num;
+            hislip_trans->rep_frame = pinfo->num;
             oldcontrolvalue = hislip_trans->controltype;
             it = proto_tree_add_uint( hislip_tree, hf_hislip_request,tvb, 0, 0, hislip_trans->req_frame);
             PROTO_ITEM_SET_GENERATED(it);
@@ -1032,7 +1031,7 @@ proto_reg_handoff_hislip(void)
 
     if (!initialized)
     {
-        hislip_handle = new_create_dissector_handle(dissect_hislip, proto_hislip);
+        hislip_handle = create_dissector_handle(dissect_hislip, proto_hislip);
         /* disabled by default since heuristic is weak */
         heur_dissector_add("tcp", dissect_hislip_heur, "HiSLIP over TCP", "hislip_tcp", proto_hislip, HEURISTIC_DISABLE);
         initialized = TRUE;

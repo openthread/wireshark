@@ -137,8 +137,8 @@ dissect_etv_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int prot
 }
 
 
-static void
-dissect_etv_ddb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_etv_ddb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "ETV-DDB");
 	col_set_str(pinfo->cinfo, COL_INFO, "ETV DDB");
@@ -147,11 +147,12 @@ dissect_etv_ddb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		hf_etv_ddb_reserved, &ei_etv_ddb_invalid_section_syntax_indicator,
 		&ei_etv_ddb_invalid_reserved_bits, &ei_etv_ddb_invalid_section_length,
 		&ei_etv_ddb_filter_info);
+	return tvb_captured_length(tvb);
 }
 
 
-static void
-dissect_etv_dii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_etv_dii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "ETV-DII");
 	col_set_str(pinfo->cinfo, COL_INFO, "ETV DII");
@@ -159,6 +160,7 @@ dissect_etv_dii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		hf_etv_dii_reserved, &ei_etv_dii_invalid_section_syntax_indicator,
 		&ei_etv_dii_invalid_reserved_bits, &ei_etv_dii_invalid_section_length,
 		&ei_etv_dii_filter_info);
+	return tvb_captured_length(tvb);
 }
 
 

@@ -40,8 +40,8 @@ static int hf_newmail_payload = -1;
 static gint ett_newmail = -1;
 
 /* Code to actually dissect the packets */
-static void
-dissect_newmail(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_newmail(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	/* Set up structures needed to add the protocol subtree and manage it */
 	proto_item *ti;
@@ -59,6 +59,8 @@ dissect_newmail(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 		proto_tree_add_item(newmail_tree, hf_newmail_payload, tvb, 0, 8, ENC_NA);
 	}
+
+	return tvb_captured_length(tvb);
 }
 
 

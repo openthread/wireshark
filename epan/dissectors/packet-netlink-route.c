@@ -525,7 +525,7 @@ static header_field_info hfi_netlink_route_ifa_scope NETLINK_ROUTE_HFI_INIT =
 	  NULL, 0x00, NULL, HFILL };
 
 static header_field_info hfi_netlink_route_ifa_index NETLINK_ROUTE_HFI_INIT =
-	{ "Inteface index", "netlink-route.ifa_index", FT_INT32, BASE_DEC,
+	{ "Interface index", "netlink-route.ifa_index", FT_INT32, BASE_DEC,
 	  NULL, 0x00, NULL, HFILL };
 
 static int
@@ -999,7 +999,7 @@ proto_register_netlink_route(void)
 	proto_register_fields(proto_netlink_route, hfi, array_length(hfi));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	netlink_route_handle = new_create_dissector_handle(dissect_netlink_route, proto_netlink_route);
+	netlink_route_handle = create_dissector_handle(dissect_netlink_route, proto_netlink_route);
 }
 
 void

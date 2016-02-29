@@ -30,10 +30,6 @@
 #include <errno.h>
 #include <glib.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
@@ -43,7 +39,8 @@
 #endif
 
 #include <string.h>
-#include "wtap.h"
+
+#include <wiretap/wtap.h>
 
 #ifndef HAVE_GETOPT_LONG
 #include <wsutil/wsgetopt.h>
@@ -59,10 +56,6 @@
 
 #include <wiretap/merge.h>
 #include <wiretap/pcap-encap.h>
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #ifdef _WIN32
 #include <wsutil/unicode-utils.h>
@@ -262,13 +255,11 @@ main(int argc, char *argv[])
   GString            *comp_info_str;
   GString            *runtime_info_str;
   int                 opt;
-DIAG_OFF(cast-qual)
   static const struct option long_options[] = {
-      {(char *)"help", no_argument, NULL, 'h'},
-      {(char *)"version", no_argument, NULL, 'V'},
+      {"help", no_argument, NULL, 'h'},
+      {"version", no_argument, NULL, 'V'},
       {0, 0, 0, 0 }
   };
-DIAG_ON(cast-qual)
   gboolean            do_append          = FALSE;
   gboolean            verbose            = FALSE;
   int                 in_file_count      = 0;
@@ -330,7 +321,7 @@ DIAG_ON(cast-qual)
     case 'h':
       printf("Mergecap (Wireshark) %s\n"
              "Merge two or more capture files into one.\n"
-             "See http://www.wireshark.org for more information.\n",
+             "See https://www.wireshark.org for more information.\n",
              get_ws_vcs_version_info());
       print_usage(stdout);
       exit(0);

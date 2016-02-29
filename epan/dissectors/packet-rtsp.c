@@ -29,8 +29,8 @@
 
 #include "config.h"
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <stdio.h>	/* for sscanf() */
+#include <stdlib.h>	/* for atoi() and strtoul() */
 
 #include <epan/packet.h>
 #include <epan/req_resp_hdrs.h>
@@ -384,7 +384,7 @@ dissect_rtspinterleaved(tvbuff_t *tvb, int offset, packet_info *pinfo,
         length_remaining = rf_len;
     next_tvb = tvb_new_subset(tvb, offset, length_remaining, rf_len);
 
-    conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
+    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
         pinfo->srcport, pinfo->destport, 0);
 
     if (conv &&
@@ -637,13 +637,13 @@ rtsp_create_conversation(packet_info *pinfo, proto_item *ti,
     {
         /* There is always data for RTP */
         rtp_add_address(pinfo, &pinfo->dst, c_data_port, s_data_port,
-                        "RTSP", pinfo->fd->num, is_video, NULL);
+                        "RTSP", pinfo->num, is_video, NULL);
 
         /* RTCP only if indicated */
         if (c_mon_port)
         {
             rtcp_add_address(pinfo, &pinfo->dst, c_mon_port, s_mon_port,
-                             "RTSP", pinfo->fd->num);
+                             "RTSP", pinfo->num);
         }
     }
     else
@@ -724,7 +724,7 @@ dissect_rtspmessage(tvbuff_t *tvb, int offset, packet_info *pinfo,
     voip_packet_info_t *stat_info = NULL;
 
     rtsp_stat_info = wmem_new(wmem_packet_scope(), rtsp_info_value_t);
-    rtsp_stat_info->framenum = pinfo->fd->num;
+    rtsp_stat_info->framenum = pinfo->num;
     rtsp_stat_info->response_code = 0;
     rtsp_stat_info->request_method = NULL;
     rtsp_stat_info->request_uri = NULL;
@@ -1360,8 +1360,8 @@ process_rtsp_reply(tvbuff_t *tvb, int offset, const guchar *data,
                         (gint) (status - status_start), status_i);
 }
 
-static void
-dissect_rtsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rtsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
     int len;
@@ -1381,6 +1381,7 @@ dissect_rtsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          */
         col_set_writable(pinfo->cinfo, FALSE);
     }
+    return tvb_captured_length(tvb);
 }
 
 void

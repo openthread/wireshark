@@ -18,20 +18,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-noinst_LTLIBRARIES = libdirtydissectors.la libfiledissectors.la libdissectors.la
-
-AM_CPPFLAGS = -I$(srcdir)/../.. -I$(srcdir)/.. \
-	$(LIBGNUTLS_CFLAGS) $(LIBGCRYPT_CFLAGS)
-
 include Makefile.common
+include $(top_srcdir)/Makefile.am.inc
+
+AM_CPPFLAGS = $(INCLUDEDIRS) -I$(top_srcdir)/epan $(WS_CPPFLAGS) \
+	$(GLIB_CFLAGS) $(LIBGNUTLS_CFLAGS) $(LIBGCRYPT_CFLAGS)
+
+noinst_LTLIBRARIES = libdirtydissectors.la libfiledissectors.la libdissectors.la
 
 libdirtydissectors_la_SOURCES = \
 	$(DIRTY_ASN1_DISSECTOR_SRC) \
 	$(DIRTY_CORBA_IDL_DISSECTOR_SRC)
 
-if HAVE_WARNINGS_AS_ERRORS
-AM_CLEAN_CFLAGS = -Werror
-endif
+libdirtydissectors_la_CFLAGS = $(GENERATED_CFLAGS)
 
 libfiledissectors_la_SOURCES = \
 	$(FILE_DISSECTOR_SRC)
@@ -42,7 +41,6 @@ libdissectors_la_SOURCES = \
 	$(CORBA_IDL_DISSECTOR_SRC) \
 	$(PIDL_DISSECTOR_SRC) \
 	$(DISSECTOR_SUPPORT_SRC)
-libdissectors_la_CFLAGS = $(AM_CLEAN_CFLAGS)
 
 # include pidl in the source tarball. But nothing to build...
 DIST_SUBDIRS = pidl dcerpc
@@ -58,13 +56,13 @@ EXTRA_DIST = \
 	x11-fields
 
 packet-ncp2222.c : $(top_srcdir)/tools/ncp2222.py
-	$(PYTHON) $(top_srcdir)/tools/ncp2222.py -o $@
+	$(AM_V_python)$(PYTHON) $(top_srcdir)/tools/ncp2222.py -o $@
 
 # Target to rebuild the X11 dissector header files.
 # See README.X11 before using this--it requires the xcb and mesa source.
-x11-dissector: $(top_srcdir)/tools/process-x11-fields.pl x11-fields $(top_srcdir)/tools/process-x11-xcb.pl
-	$(PERL) $(top_srcdir)/tools/process-x11-fields.pl < x11-fields
-	$(PERL) $(top_srcdir)/tools/process-x11-xcb.pl
+x11-dissector: $(top_srcdir)/tools/process-x11-fields.pl $(srcdir)/x11-fields $(top_srcdir)/tools/process-x11-xcb.pl
+	$(PERL) $(top_srcdir)/tools/process-x11-fields.pl $(srcdir) < $(srcdir)/x11-fields
+	$(PERL) $(top_srcdir)/tools/process-x11-xcb.pl $(srcdir)
 
 #
 # Build register.c, which contains a function register_all_protocols()

@@ -44,8 +44,8 @@ static int tap_packet_cb_error_handler(lua_State* L) {
     static gchar* last_error = NULL;
     static int repeated = 0;
     static int next = 2;
-    const gchar* where =  (lua_pinfo) ?
-        wmem_strdup_printf(NULL, "Lua: on packet %i Error During execution of Listener Packet Callback",lua_pinfo->fd->num) :
+    gchar* where =  (lua_pinfo) ?
+        wmem_strdup_printf(NULL, "Lua: on packet %i Error During execution of Listener Packet Callback",lua_pinfo->num) :
         wmem_strdup_printf(NULL, "Lua: Error During execution of Listener Packet Callback") ;
 
     /* show the error the 1st, 3rd, 5th, 9th, 17th, 33th... time it appears to avoid window flooding */
@@ -56,8 +56,7 @@ static int tap_packet_cb_error_handler(lua_State* L) {
         last_error = g_strdup(error);
         repeated = 0;
         next = 2;
-        wmem_free(NULL, (void*) where);
-        where = NULL;
+        wmem_free(NULL, where);
         return 0;
     }
 
@@ -76,7 +75,7 @@ static int tap_packet_cb_error_handler(lua_State* L) {
         report_failure("%s:\n %s",where,error);
     }
 
-    wmem_free(NULL, (void*) where);
+    wmem_free(NULL, where);
     return 0;
 }
 
@@ -193,6 +192,10 @@ static void deregister_Listener (lua_State* L _U_, Listener tap) {
     }
 
     remove_tap_listener(tap);
+
+    g_free(tap->filter);
+    g_free(tap->name);
+    g_free(tap);
 }
 
 WSLUA_CONSTRUCTOR Listener_new(lua_State* L) {
@@ -337,16 +340,7 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(Listener,reset);
 
 
 static int Listener__gc(lua_State* L _U_) {
-    Listener tap = toListener(L, 1);
-
-    if (listeners && g_ptr_array_remove(listeners, tap)) {
-        deregister_Listener(L, tap);
-    }
-
-    g_free(tap->filter);
-    g_free(tap->name);
-    g_free(tap);
-
+    /* do NOT free Listener here, only in deregister_Listener */
     return 0;
 }
 

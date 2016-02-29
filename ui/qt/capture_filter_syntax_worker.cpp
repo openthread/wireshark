@@ -29,6 +29,7 @@
 #endif
 
 #include "capture_filter_syntax_worker.h"
+#include "syntax_line_edit.h"
 
 #include <QMutexLocker>
 #include <QSet>
@@ -43,8 +44,10 @@ static QMutex pcap_compile_mtx_;
 #include <QDebug>
 #include <QThread>
 #define DEBUG_SYNTAX_CHECK(state1, state2) qDebug() << "CF state" << QThread::currentThreadId() << state1 << "->" << state2 << ":" << filter_text_ << ":" << filter
+#define DEBUG_SLEEP_TIME 5000 // ms
 #else
 #define DEBUG_SYNTAX_CHECK(state1, state2)
+#define DEBUG_SLEEP_TIME 0 // ms
 #endif
 
 #define DUMMY_SNAPLENGTH                65535
@@ -58,7 +61,7 @@ void CaptureFilterSyntaxWorker::start() {
         struct bpf_program fcode;
         pcap_t *pd;
         int pc_err;
-        bool ok = true;
+        enum SyntaxLineEdit::SyntaxState state = SyntaxLineEdit::Valid;
         QString err_str;
 
         data_mtx_.lock();
@@ -72,7 +75,7 @@ void CaptureFilterSyntaxWorker::start() {
         data_mtx_.unlock();
 
         if (global_capture_opts.num_selected < 1) {
-            emit syntaxResult(filter, false, QString("No interfaces selected"));
+            emit syntaxResult(filter, SyntaxLineEdit::Invalid, QString("No interfaces selected"));
             DEBUG_SYNTAX_CHECK("unknown", "no interfaces");
             continue;
         }
@@ -82,7 +85,13 @@ void CaptureFilterSyntaxWorker::start() {
 
             device = g_array_index(global_capture_opts.all_ifaces, interface_t, if_idx);
             if (!device.locked && device.selected) {
-                active_dlts.insert(device.active_dlt);
+                if (device.active_dlt >= DLT_USER0 && device.active_dlt <= DLT_USER15) {
+                    // Capture filter for DLT_USER is unknown
+                    state = SyntaxLineEdit::Deprecated;
+                    err_str = "Unable to check capture filter";
+                } else {
+                    active_dlts.insert(device.active_dlt);
+                }
             }
         }
 
@@ -95,9 +104,13 @@ void CaptureFilterSyntaxWorker::start() {
             pc_err = pcap_compile(pd, &fcode, filter.toUtf8().constData(), 1 /* Do optimize */, 0);
 #endif
 
+#if DEBUG_SLEEP_TIME > 0
+            QThread::msleep(DEBUG_SLEEP_TIME);
+#endif
+
             if (pc_err) {
                 DEBUG_SYNTAX_CHECK("unknown", "known bad");
-                ok = false;
+                state = SyntaxLineEdit::Invalid;
                 err_str = pcap_geterr(pd);
             } else {
                 DEBUG_SYNTAX_CHECK("unknown", "known good");
@@ -106,9 +119,9 @@ void CaptureFilterSyntaxWorker::start() {
 
             pcap_compile_mtx_.unlock();
 
-            if (!ok) break;
+            if (state == SyntaxLineEdit::Invalid) break;
         }
-        emit syntaxResult(filter, ok, err_str);
+        emit syntaxResult(filter, state, err_str);
 
         DEBUG_SYNTAX_CHECK("known", "idle");
     }
@@ -124,7 +137,7 @@ void CaptureFilterSyntaxWorker::checkFilter(const QString &filter)
     DEBUG_SYNTAX_CHECK("received", "?");
     data_cond_.wakeOne();
 #else
-    emit syntaxResult(filter, true, QString("Syntax checking unavailable"));
+    emit syntaxResult(filter, SyntaxLineEdit::Deprecated, QString("Syntax checking unavailable"));
 #endif // HAVE_LIBPCAP
 }
 

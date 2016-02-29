@@ -28,8 +28,7 @@
 #include <epan/column.h>
 #include <epan/conversation.h>
 
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 #include "frame_tvbuff.h"
 
 #include <QStringList>
@@ -134,15 +133,19 @@ void PacketListRecord::dissect(capture_file *cap_file, bool dissect_color)
         return;    /* error reading the record */
     }
 
-    create_proto_tree = (dissect_color && color_filters_used()) ||
-                        (dissect_columns && have_custom_cols(cinfo));
+    create_proto_tree = ((dissect_color && color_filters_used()) ||
+                         (dissect_columns && (have_custom_cols(cinfo) ||
+                                              have_field_extractors())));
 
     epan_dissect_init(&edt, cap_file->epan,
                       create_proto_tree,
                       FALSE /* proto_tree_visible */);
 
-    if (dissect_color)
+    /* Re-color when the coloring rules are changed via the UI. */
+    if (dissect_color) {
         color_filters_prime_edt(&edt);
+        fdata_->flags.need_colorize = 1;
+    }
     if (dissect_columns)
         col_custom_prime_edt(&edt, cinfo);
 
@@ -151,9 +154,6 @@ void PacketListRecord::dissect(capture_file *cap_file, bool dissect_color)
      * attempt to recover from it.
      */
     epan_dissect_run(&edt, cap_file->cd_t, &phdr, frame_tvbuff_new_buffer(fdata_, &buf), fdata_, cinfo);
-
-    if (dissect_color)
-        fdata_->color_filter = color_filters_colorize_packet(&edt);
 
     if (dissect_columns) {
         /* "Stringify" non frame_data vals */
@@ -167,7 +167,7 @@ void PacketListRecord::dissect(capture_file *cap_file, bool dissect_color)
     data_ver_ = col_data_ver_;
 
     packet_info *pi = &edt.pi;
-    conv_ = find_conversation(pi->fd->num, &pi->src, &pi->dst, pi->ptype,
+    conv_ = find_conversation(pi->num, &pi->src, &pi->dst, pi->ptype,
                               pi->srcport, pi->destport, 0);
 
     epan_dissect_cleanup(&edt);

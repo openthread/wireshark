@@ -23,28 +23,6 @@
 
 #include "tango_colors.h"
 
-/*
- * Initialize a color with R, G, and B values, including any toolkit-dependent
- * work that needs to be done.
- */
-gboolean
-initialize_color(color_t *color, guint16 red, guint16 green, guint16 blue)
-{
-    QColor qc;
-
-    // color_t uses 16-bit components to match Gtk+. Qt use 8.
-    qc.setRgb(red>>8, green>>8, blue>>8);
-    if (!qc.isValid())
-        return FALSE;
-
-    // Match what color_filters.c does.
-    color->red = red;
-    color->green = green;
-    color->blue = blue;
-    color->pixel = 0;
-    return TRUE;
-}
-
 const QColor ColorUtils::expert_color_comment    = QColor ( 0xb7, 0xf7, 0x74 );        /* Green */
 const QColor ColorUtils::expert_color_chat       = QColor ( 0x80, 0xb7, 0xf7 );        /* Light blue */
 const QColor ColorUtils::expert_color_note       = QColor ( 0xa0, 0xff, 0xff );        /* Bright turquoise */
@@ -76,8 +54,21 @@ ColorUtils::ColorUtils(QObject *parent) :
 {
 }
 
+//
+// A color_t has RGB values in [0,65535].
+// Qt RGB colors have RGB values in [0,255].
+//
+// 65535/255 = 257 = 0x0101, so converting from [0,255] to
+// [0,65535] involves just shifting the 8-bit value left 8 bits
+// and ORing them together.
+//
+// Converting from [0,65535] to [0,255] without rounding involves
+// just shifting the 16-bit value right 8 bits; I guess you could
+// round them by adding 0x80 to the value before shifting.
+//
 QColor ColorUtils::fromColorT (const color_t *color) {
     if (!color) return QColor();
+    // Convert [0,65535] values to [0,255] values
     return QColor(color->red >> 8, color->green >> 8, color->blue >> 8);
 }
 
@@ -89,6 +80,8 @@ QColor ColorUtils::fromColorT(color_t color)
 const color_t ColorUtils::toColorT(const QColor color)
 {
     color_t colort;
+
+    // Convert [0,255] values to [0,65535] values
     colort.red = (color.red() << 8) | color.red();
     colort.green = (color.green() << 8) | color.green();
     colort.blue = (color.blue() << 8) | color.blue();

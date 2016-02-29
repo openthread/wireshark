@@ -378,6 +378,8 @@ static int hf_isis_lsp_clv_sr_cap_sid = -1;
 static int hf_isis_lsp_clv_sr_cap_label = -1;
 static int hf_isis_lsp_clv_sr_alg = -1;
 static int hf_isis_lsp_area_address = -1;
+static int hf_isis_lsp_instance_identifier = -1;
+static int hf_isis_lsp_supported_itid = -1;
 static int hf_isis_lsp_clv_nlpid = -1;
 static int hf_isis_lsp_ip_authentication = -1;
 static int hf_isis_lsp_authentication = -1;
@@ -399,6 +401,7 @@ static gint ett_isis_lsp_att = -1;
 static gint ett_isis_lsp_cksum = -1;
 static gint ett_isis_lsp_clv_area_addr = -1;
 static gint ett_isis_lsp_clv_is_neighbors = -1;
+static gint ett_isis_lsp_clv_instance_identifier = -1;
 static gint ett_isis_lsp_clv_ext_is_reachability = -1; /* CLV 22 */
 static gint ett_isis_lsp_part_of_clv_ext_is_reachability = -1;
 static gint ett_isis_lsp_part_of_clv_ext_is_reachability_subtlv = -1;
@@ -461,6 +464,7 @@ static expert_field ei_isis_lsp_long_packet = EI_INIT;
 static expert_field ei_isis_lsp_subtlv = EI_INIT;
 static expert_field ei_isis_lsp_authentication = EI_INIT;
 static expert_field ei_isis_lsp_clv_mt = EI_INIT;
+static expert_field ei_isis_lsp_clv_unknown = EI_INIT;
 static expert_field ei_isis_lsp_malformed_subtlv = EI_INIT;
 static expert_field ei_isis_lsp_reserved_not_zero = EI_INIT;
 
@@ -585,7 +589,7 @@ dissect_lsp_mt_id(tvbuff_t *tvb, proto_tree *tree, int offset)
  * Name: dissect_metric()
  *
  * Description:
- *    Display a metric prefix portion.  ISIS has the concept of multple
+ *    Display a metric prefix portion.  ISIS has the concept of multiple
  *    metric per prefix (default, delay, expense, and error).  This
  *    routine assists other dissectors by adding a single one of
  *    these to the display tree..
@@ -813,7 +817,7 @@ dissect_lsp_ext_ip_reachability_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tre
     while (length > 0) {
         ctrl_info = tvb_get_guint8(tvb, offset+4);
         bit_length = ctrl_info & 0x3f;
-        byte_length = ipv4_addr_and_mask(tvb, offset+5, prefix, bit_length);
+        byte_length = tvb_get_ipv4_addr_with_prefix_len(tvb, offset+5, prefix, bit_length);
         if (byte_length == -1) {
             proto_tree_add_expert_format(tree, pinfo, &ei_isis_lsp_short_packet, tvb, offset, -1,
                  "IPv4 prefix has an invalid length: %d bits", bit_length );
@@ -827,7 +831,7 @@ dissect_lsp_ext_ip_reachability_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tre
         subtree = proto_tree_add_subtree(tree, tvb, offset, 5+byte_length+subclvs_len,
                             ett_isis_lsp_part_of_clv_ext_ip_reachability, NULL, "Ext. IP Reachability");
 
-        SET_ADDRESS(&prefix_addr, AT_IPv4, 4, prefix);
+        set_address(&prefix_addr, AT_IPv4, 4, prefix);
         proto_tree_add_ipv4_format_value(subtree, hf_isis_lsp_ext_ip_reachability_ipv4_prefix, tvb, offset+5, byte_length,
                              tvb_get_ntohl(tvb, offset+5), "%s/%u", address_to_str(wmem_packet_scope(), &prefix_addr), bit_length);
         proto_tree_add_item(subtree, hf_isis_lsp_ext_ip_reachability_metric, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -1443,7 +1447,7 @@ dissect_lsp_ipv6_reachability_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree 
     while (length > 0) {
         ctrl_info = tvb_get_guint8(tvb, offset+4);
         bit_length = tvb_get_guint8(tvb, offset+5);
-        byte_length = ipv6_addr_and_mask(tvb, offset+6, &prefix, bit_length);
+        byte_length = tvb_get_ipv6_addr_with_prefix_len(tvb, offset+6, &prefix, bit_length);
         if (byte_length == -1) {
             proto_tree_add_expert_format(tree, pinfo, &ei_isis_lsp_short_packet, tvb, offset, -1,
                 "IPv6 prefix has an invalid length: %d bits", bit_length );
@@ -1456,9 +1460,9 @@ dissect_lsp_ipv6_reachability_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree 
         subtree = proto_tree_add_subtree(tree, tvb, offset, 6+byte_length+subclvs_len,
             ett_isis_lsp_part_of_clv_ipv6_reachability, NULL, "IPv6 Reachability");
 
-        SET_ADDRESS(&prefix_addr, AT_IPv6, 16, prefix.bytes);
+        set_address(&prefix_addr, AT_IPv6, 16, prefix.bytes);
         proto_tree_add_ipv6_format_value(subtree, hf_isis_lsp_ipv6_reachability_ipv6_prefix, tvb, offset+6, byte_length,
-                             (guint8*)&prefix, "IPv6 prefix: %s/%u", address_to_str(wmem_packet_scope(), &prefix_addr), bit_length);
+                            &prefix, "IPv6 prefix: %s/%u", address_to_str(wmem_packet_scope(), &prefix_addr), bit_length);
 
         proto_tree_add_item(subtree, hf_isis_lsp_ipv6_reachability_metric, tvb, offset, 4, ENC_BIG_ENDIAN);
         proto_tree_add_item(subtree, hf_isis_lsp_ipv6_reachability_distribution, tvb, offset+4, 1, ENC_NA);
@@ -2125,7 +2129,7 @@ dissect_isis_lsp_clv_sid_label_binding(tvbuff_t *tvb, packet_info* pinfo, proto_
  * Name: dissect_lsp_authentication_clv()
  *
  * Description:
- *    Decode for a lsp packets authenticaion clv.  Calls into the
+ *    Decode for a lsp packets authentication clv.  Calls into the
  *    clv common one.
  *
  * Input:
@@ -2149,7 +2153,7 @@ dissect_lsp_authentication_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tr
  * Name: dissect_lsp_ip_authentication_clv()
  *
  * Description:
- *    Decode for a lsp packets authenticaion clv.  Calls into the
+ *    Decode for a lsp packets authentication clv.  Calls into the
  *    clv common one.
  *
  * Input:
@@ -2358,6 +2362,29 @@ dissect_lsp_l2_is_neighbors_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *t
         length, id_length, FALSE, FALSE);
 }
 
+/*
+ * Name: dissect_lsp_instance_identifier_clv()
+ *
+ * Description:
+ *    Decode for a lsp packets Instance Identifier clv.
+ *      Calls into the CLV common one.
+ *
+ * Input:
+ *    tvbuff_t * : tvbuffer for packet data
+ *    proto_tree * : proto tree to build on (may be null)
+ *    int : current offset into packet data
+ *    int : length of IDs in packet.
+ *    int : length of this clv
+ *
+ * Output:
+ *    void, will modify proto_tree if not null.
+ */
+static void
+dissect_lsp_instance_identifier_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
+    proto_tree *tree, int offset, int id_length _U_, int length)
+{
+    isis_dissect_instance_identifier_clv(tree, pinfo, tvb, &ei_isis_lsp_short_packet, hf_isis_lsp_instance_identifier, hf_isis_lsp_supported_itid, offset, length);
+}
 
 /*
  * Name: dissect_subclv_admin_group ()
@@ -2365,7 +2392,7 @@ dissect_lsp_l2_is_neighbors_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *t
  * Description: Called by function dissect_lsp_ext_is_reachability_clv().
  *
  *   This function is called by dissect_lsp_ext_is_reachability_clv()
- *   for dissect the administrive group sub-CLV (code 3).
+ *   for dissect the administrative group sub-CLV (code 3).
  *
  * Input:
  *   tvbuff_t * : tvbuffer for packet data
@@ -3114,6 +3141,12 @@ static const isis_clv_handle_t clv_l1_lsp_opts[] = {
         dissect_lsp_l1_es_neighbors_clv
     },
     {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_lsp_clv_instance_identifier,
+        dissect_lsp_instance_identifier_clv
+    },
+    {
         ISIS_CLV_LSP_BUFFERSIZE,
         "Originating neighbor buffer size",
         &ett_isis_lsp_clv_originating_buff_size,
@@ -3277,6 +3310,12 @@ static const isis_clv_handle_t clv_l2_lsp_opts[] = {
         "Prefix neighbors",
         &ett_isis_lsp_clv_prefix_neighbors,
         dissect_lsp_prefix_neighbors_clv
+    },
+    {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_lsp_clv_instance_identifier,
+        dissect_lsp_instance_identifier_clv
     },
     {
         ISIS_CLV_LSP_BUFFERSIZE,
@@ -3536,7 +3575,7 @@ dissect_isis_lsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset
      * our list of valid ones!
      */
     isis_dissect_clvs(tvb, pinfo, lsp_tree, offset,
-            opts, &ei_isis_lsp_short_packet, len, id_length, ett_isis_lsp_clv_unknown, hf_isis_lsp_clv_type, hf_isis_lsp_clv_length );
+            opts, &ei_isis_lsp_short_packet, len, id_length, ett_isis_lsp_clv_unknown, hf_isis_lsp_clv_type, hf_isis_lsp_clv_length, ei_isis_lsp_clv_unknown);
 }
 
 static int
@@ -4765,6 +4804,16 @@ proto_register_isis_lsp(void)
               FT_BYTES, BASE_NONE, NULL, 0x0,
               NULL, HFILL }
         },
+        { &hf_isis_lsp_instance_identifier,
+            { "Instance Identifier", "isis.lsp.iid",
+               FT_UINT16, BASE_DEC, NULL, 0x0,
+               NULL, HFILL }
+        },
+        { &hf_isis_lsp_supported_itid,
+            { "Supported ITID", "isis.lsp.supported_itid",
+              FT_UINT16, BASE_DEC, NULL, 0x0,
+              NULL, HFILL }
+        },
         { &hf_isis_lsp_clv_nlpid,
             { "NLPID", "isis.lsp.clv_nlpid",
               FT_BYTES, BASE_NONE, NULL, 0x0,
@@ -4843,6 +4892,7 @@ proto_register_isis_lsp(void)
         &ett_isis_lsp_cksum,
         &ett_isis_lsp_clv_area_addr,
         &ett_isis_lsp_clv_is_neighbors,
+        &ett_isis_lsp_clv_instance_identifier,
         &ett_isis_lsp_clv_ext_is_reachability, /* CLV 22 */
         &ett_isis_lsp_part_of_clv_ext_is_reachability,
         &ett_isis_lsp_part_of_clv_ext_is_reachability_subtlv,
@@ -4907,6 +4957,7 @@ proto_register_isis_lsp(void)
         { &ei_isis_lsp_subtlv, { "isis.lsp.subtlv.unknown", PI_PROTOCOL, PI_WARN, "Unknown SubTLV", EXPFILL }},
         { &ei_isis_lsp_authentication, { "isis.lsp.authentication.unknown", PI_PROTOCOL, PI_WARN, "Unknown authentication type", EXPFILL }},
         { &ei_isis_lsp_clv_mt, { "isis.lsp.clv_mt.malformed", PI_MALFORMED, PI_ERROR, "malformed MT-ID", EXPFILL }},
+        { &ei_isis_lsp_clv_unknown, { "isis.lsp.clv.unknown", PI_UNDECODED, PI_NOTE, "Unknown option", EXPFILL }},
         { &ei_isis_lsp_malformed_subtlv, { "isis.lsp.subtlv.malformed", PI_MALFORMED, PI_ERROR, "malformed SubTLV", EXPFILL }},
         { &ei_isis_lsp_reserved_not_zero, { "isis.lsp.reserved_not_zero", PI_PROTOCOL, PI_WARN, "Reserve bit not 0", EXPFILL }},
     };
@@ -4925,8 +4976,8 @@ proto_register_isis_lsp(void)
 void
 proto_reg_handoff_isis_lsp(void)
 {
-    dissector_add_uint("isis.type", ISIS_TYPE_L1_LSP, new_create_dissector_handle(dissect_isis_l1_lsp, proto_isis_lsp));
-    dissector_add_uint("isis.type", ISIS_TYPE_L2_LSP, new_create_dissector_handle(dissect_isis_l2_lsp, proto_isis_lsp));
+    dissector_add_uint("isis.type", ISIS_TYPE_L1_LSP, create_dissector_handle(dissect_isis_l1_lsp, proto_isis_lsp));
+    dissector_add_uint("isis.type", ISIS_TYPE_L2_LSP, create_dissector_handle(dissect_isis_l2_lsp, proto_isis_lsp));
 }
 
 /*

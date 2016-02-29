@@ -369,8 +369,8 @@ dissect_schedule_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *top_tree
     }
 }
 
-static void
-dissect_cbch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_cbch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data  _U_)
 {
     fragment_head *frag_data = NULL;
     guint8         octet, lb, lpd, seq_num;
@@ -473,6 +473,7 @@ dissect_cbch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         expert_add_info(pinfo, lpd_item, &ei_gsm_cbch_lpd);
         call_dissector(data_handle, tvb, pinfo, cbch_tree);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

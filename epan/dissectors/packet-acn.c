@@ -1319,7 +1319,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
     case ACN_DMP_VECTOR_UNKNOWN:
       break;
     case ACN_DMP_VECTOR_GET_PROPERTY:
-      /* Rip trough property address */
+      /* Rip through property address */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1406,7 +1406,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_UNMAP_PROPERTY:
-      /* Rip trough Actaul Proptery Address */
+      /* Rip through Actual Property Address */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1414,7 +1414,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_SUBSCRIBE:
-      /* Rip trough Proptery Address */
+      /* Rip through Property Address */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1422,7 +1422,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_UNSUBSCRIBE:
-      /* Rip trough Proptery Address */
+      /* Rip through Property Address */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1430,7 +1430,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_GET_PROPERTY_FAIL:
-      /* Rip trough Address-Reason Code Pairs */
+      /* Rip through Address-Reason Code Pairs */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1443,7 +1443,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_SET_PROPERTY_FAIL:
-      /* Rip trough Address-Reason Code Pairs */
+      /* Rip through Address-Reason Code Pairs */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1456,7 +1456,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_MAP_PROPERTY_FAIL:
-      /* Rip trough Address-Reason Code Pairs */
+      /* Rip through Address-Reason Code Pairs */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1469,7 +1469,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_SUBSCRIBE_ACCEPT:
-      /* Rip through Property Addrsses */
+      /* Rip through Property Addresses */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1477,7 +1477,7 @@ dissect_acn_dmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
       }
       break;
     case ACN_DMP_VECTOR_SUBSCRIBE_REJECT:
-      /* Rip trough Address-Reason Code Pairs */
+      /* Rip through Address-Reason Code Pairs */
       while (data_offset < end_offset) {
         old_offset      = data_offset;
         data_offset     = acn_add_dmp_address(tvb, pinfo, pdu_tree, data_offset, &adt);
@@ -1808,7 +1808,7 @@ dissect_acn_sdt_client_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 /*  level    : 8 bit value                                                    */
 /*  string   : pointer to buffer to fill                                      */
 /*  leading_char: character to buffer left of digits                             */
-/*  min_char : mininum number of characters (for filling, not including space)*/
+/*  min_char : minimum number of characters (for filling, not including space)*/
 /*  show_zero: show zeros or dots                                             */
 /* also adds a space to right end                                             */
 /*                                                                            */
@@ -3165,9 +3165,17 @@ proto_register_acn(void)
         "DMX Start Code", HFILL }
     },
 
+    /*
+     * If you want the pretty-printed data in the field, for filtering
+     * purposes, you have to make it an FT_STRING.
+     *
+     * If you want the raw data in the field, for filtering purposes,
+     * you have to make it an FT_BYTES *AND* use "proto_tree_add_bytes_format()"
+     * to put the pretty-printed data into the display but not the field.
+     */
     { &hf_acn_dmx_data,
       { "Data", "acn.dmx.data",
-        FT_BYTES, BASE_NONE, NULL, 0x0,
+        FT_STRING, BASE_NONE, NULL, 0x0,
         NULL, HFILL }
     },
 
@@ -3257,7 +3265,7 @@ void
 proto_reg_handoff_acn(void)
 {
   /* dissector_handle_t acn_handle; */
-  /* acn_handle = new_create_dissector_handle(dissect_acn, proto_acn); */
+  /* acn_handle = create_dissector_handle(dissect_acn, proto_acn); */
   /* dissector_add_for_decode_as("udp.port", acn_handle);                         */
   heur_dissector_add("udp", dissect_acn_heur, "ACN over UDP", "acn_udp", proto_acn, HEURISTIC_DISABLE);
 }

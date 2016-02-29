@@ -2372,6 +2372,8 @@ Francesco Fondelli	<francesco.fondelli[AT]gmail.com> {
 	OpenFlow heuristic logic
 	Path setup type in PCEP messages, draft-ietf-pce-lsp-setup-type-00
 	PCEP Extensions for Segment Routing, draft-ietf-pce-segment-routing-01
+	PCEP Extensions for Association, draft-ietf-pce-association-group-00
+	BGP-LS extensions for Segment Routing, draft-gredler-idr-bgp-ls-segment-routing-ext-01
 }
 
 Artem Tamazov           <artem.tamazov[AT]tellabs.com> {
@@ -2633,7 +2635,7 @@ Balint Reczey		<balint[AT]balintreczey.hu> {
 	Miscellaneous enhancements and fixes
 }
 
-Stephen Fisher		<sfisher[AT]sdf.org> {
+Stephen Fisher		<stephenfisher[AT]centurylink.net> {
 	REXEC support
 	Veritas Low Latency Transport support
 	MAPI new mail protocol support
@@ -3646,7 +3648,7 @@ Enrico Jorns		<ejo[AT]pengutronix.de> {
 	CANopen dissector enhancements and fixes
 }
 
-Hitesh K Maisheri       <maisheri.hitesh[AT]gmail.com> {
+Hitesh K Maisheri	<maisheri.hitesh[AT]gmail.com> {
         EAPOL-MKA support
 }
 
@@ -3656,18 +3658,22 @@ Dario Lombardo		<lomato[AT]gmail.com> {
 	HCrt (Hotline Command-Response Transaction) dissector
 }
 
-
-Manuel Hofer <manuel[AT]mnlhfr.at> {
+Manuel Hofer		<manuel[AT]mnlhfr.at> {
   SSTP Dissection
 }
 
-Pratik Yeole  	<pyeole[AT]ncsu.edu> {
+Pratik Yeole		<pyeole[AT]ncsu.edu> {
          Fixed incorrect decoding of Network Layer Reachability Information (NLRI) in BGP UPDATE message with add-path support
 }
 
-Guillaume Autran <gautran[AT]clearpathrobotics.com> {
+Guillaume Autran	<gautran[AT]clearpathrobotics.com> {
 	TCPROS support
 }
+
+Barbu Paul - Gheorghe	<barbu.paul.gheorghe[AT]gmail.com> {
+	Developer documentation improvements
+}
+
 
 and by:
 
@@ -3917,6 +3923,8 @@ Ibrahim Can Yuce	<canyuce[AT]gmail.com>
 Robert Jongbloed	<robertj[AT]voxlucida.com.au>
 Pavel Moravec		<pmoravec[AT]redhat.com>
 Robert Long		<rlong[AT]sandia.gov>
+James Lynch		<lynch007[AT]gmail.com>
+Chidambaram Arunachalam		<carunach[AT]cisco.com>
 
 Dan Lasley <dlasley[AT]promus.com> gave permission for his
 dumpit() hex-dump routine to be used.

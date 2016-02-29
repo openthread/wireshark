@@ -40,7 +40,6 @@
 #include <epan/in_cksum.h>
 #include "packet-iana-oui.h"
 #include "packet-llc.h"
-#include "packet-nhrp.h"
 #include "packet-gre.h"
 
 void proto_register_nhrp(void);
@@ -952,9 +951,10 @@ skip_switch:
     *pOffset = extEnd;
 }
 
-static void dissect_nhrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_nhrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     _dissect_nhrp(tvb, pinfo, tree, FALSE, TRUE);
+    return tvb_captured_length(tvb);
 }
 
 static void _dissect_nhrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,

@@ -329,7 +329,7 @@ mgcpstat_packet(void *pms, packet_info *pinfo, epan_dissect_t *edt _U_, const vo
 		else {
 			ms->time_stats[0].open_req_num--;
 			/* calculate time delta between request and response */
-			nstime_delta(&delta, &pinfo->fd->abs_ts, &mi->req_time);
+			nstime_delta(&delta, &pinfo->abs_ts, &mi->req_time);
 
 			time_stat_update(&(ms->time_stats[0].rtd[0]), &delta, pinfo);
 
@@ -1127,7 +1127,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 	const gchar *verb_description = "";
 	char code_with_verb[64] = "";  /* To fit "<4-letter-code> (<longest-verb>)" */
 
-	static address null_address = { AT_NONE, 0, NULL };
+	static address null_address = ADDRESS_INIT_NONE;
 	tvb_previous_offset = 0;
 	tvb_len = tvb_reported_length(tvb);
 	tvb_current_offset = tvb_previous_offset;
@@ -1271,7 +1271,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 				   to which the call was sent. */
 				if (pinfo->ptype == PT_TCP)
 				{
-					conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+					conversation = find_conversation(pinfo->num, &pinfo->src,
 					                                 &pinfo->dst, pinfo->ptype, pinfo->srcport,
 					                                 pinfo->destport, 0);
 				}
@@ -1282,7 +1282,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					 * pointer for the second address argument even
 					 * if you do that.
 					 */
-					conversation = find_conversation(pinfo->fd->num, &null_address,
+					conversation = find_conversation(pinfo->num, &null_address,
 					                                 &pinfo->dst, pinfo->ptype, pinfo->srcport,
 					                                 pinfo->destport, 0);
 				}
@@ -1308,7 +1308,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 							                                  "This is a response to a request in frame %u",
 							                                  mgcp_call->req_num);
 							PROTO_ITEM_SET_GENERATED(item);
-							nstime_delta(&delta, &pinfo->fd->abs_ts, &mgcp_call->req_time);
+							nstime_delta(&delta, &pinfo->abs_ts, &mgcp_call->req_time);
 							item = proto_tree_add_time(tree, hf_mgcp_time, tvb, 0, 0, &delta);
 							PROTO_ITEM_SET_GENERATED(item);
 						}
@@ -1318,13 +1318,13 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 							/* We have not yet seen a response to that call, so
 							   this must be the first response; remember its
 							   frame number. */
-							mgcp_call->rsp_num = pinfo->fd->num;
+							mgcp_call->rsp_num = pinfo->num;
 						}
 						else
 						{
 							/* We have seen a response to this call - but was it
 							   *this* response? (disregard provisional responses) */
-							if ((mgcp_call->rsp_num != pinfo->fd->num) &&
+							if ((mgcp_call->rsp_num != pinfo->num) &&
 							    (mi->rspcode >= 200) &&
 							    (mi->rspcode == mgcp_call->rspcode))
 							{
@@ -1374,7 +1374,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 				 */
 				if (pinfo->ptype == PT_TCP)
 				{
-					conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+					conversation = find_conversation(pinfo->num, &pinfo->src,
 					                                 &pinfo->dst, pinfo->ptype, pinfo->srcport,
 					                                 pinfo->destport, 0);
 				}
@@ -1386,7 +1386,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					 * pointer for the second address argument even
 					 * if you do that.
 					 */
-					conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+					conversation = find_conversation(pinfo->num, &pinfo->src,
 					                                 &null_address, pinfo->ptype, pinfo->srcport,
 					                                 pinfo->destport, 0);
 				}
@@ -1395,13 +1395,13 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					/* It's not part of any conversation - create a new one. */
 					if (pinfo->ptype == PT_TCP)
 					{
-						conversation = conversation_new(pinfo->fd->num, &pinfo->src,
+						conversation = conversation_new(pinfo->num, &pinfo->src,
 						                                &pinfo->dst, pinfo->ptype, pinfo->srcport,
 						                                pinfo->destport, 0);
 					}
 					else
 					{
-						conversation = conversation_new(pinfo->fd->num, &pinfo->src,
+						conversation = conversation_new(pinfo->num, &pinfo->src,
 						                                &null_address, pinfo->ptype, pinfo->srcport,
 						                                pinfo->destport, 0);
 					}
@@ -1418,7 +1418,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					/* We've seen a request with this TRANSID, with the same
 					   source and destination, before - but was it
 					   *this* request? */
-					if (pinfo->fd->num != mgcp_call->req_num)
+					if (pinfo->num != mgcp_call->req_num)
 					{
 						/* No, so it's a duplicate request. Mark it as such. */
 						mi->is_duplicate = TRUE;
@@ -1448,11 +1448,11 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					new_mgcp_call_key    = (mgcp_call_info_key *)wmem_alloc(wmem_file_scope(), sizeof(*new_mgcp_call_key));
 					*new_mgcp_call_key   = mgcp_call_key;
 					mgcp_call            = (mgcp_call_t *)wmem_alloc(wmem_file_scope(), sizeof(*mgcp_call));
-					mgcp_call->req_num   = pinfo->fd->num;
+					mgcp_call->req_num   = pinfo->num;
 					mgcp_call->rsp_num   = 0;
 					mgcp_call->transid   = mi->transid;
 					mgcp_call->responded = FALSE;
-					mgcp_call->req_time=pinfo->fd->abs_ts;
+					mgcp_call->req_time=pinfo->abs_ts;
 					g_strlcpy(mgcp_call->code, mi->code, 5);
 
 					/* Store it */
@@ -2308,7 +2308,7 @@ void proto_register_mgcp(void)
 	register_init_routine(&mgcp_init_protocol);
 	register_cleanup_routine(&mgcp_cleanup_protocol);
 
-	new_register_dissector("mgcp", dissect_mgcp, proto_mgcp);
+	mgcp_handle = register_dissector("mgcp", dissect_mgcp, proto_mgcp);
 
 	/* Register our configuration options */
 	mgcp_module = prefs_register_protocol(proto_mgcp, proto_reg_handoff_mgcp);
@@ -2377,8 +2377,7 @@ void proto_reg_handoff_mgcp(void)
 	{
 		/* Get a handle for the SDP dissector. */
 		sdp_handle = find_dissector("sdp");
-		mgcp_handle = new_create_dissector_handle(dissect_mgcp, proto_mgcp);
-		mgcp_tpkt_handle = new_create_dissector_handle(dissect_tpkt_mgcp, proto_mgcp);
+		mgcp_tpkt_handle = create_dissector_handle(dissect_tpkt_mgcp, proto_mgcp);
 		mgcp_prefs_initialized = TRUE;
 	}
 	else

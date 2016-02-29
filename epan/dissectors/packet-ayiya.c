@@ -84,8 +84,8 @@ static const value_string opcodes[] = {
 
 #define UDP_PORT_AYIYA          5072
 
-static void
-dissect_ayiya(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ayiya(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *ayiya_tree;
     int offset = 0;
@@ -132,6 +132,8 @@ dissect_ayiya(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         dissector_try_uint(ip_dissector_table, next_header, payload, pinfo, tree);
         break;
     }
+
+    return tvb_captured_length(tvb);
 }
 
 void

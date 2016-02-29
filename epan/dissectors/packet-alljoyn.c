@@ -23,6 +23,7 @@
 
 #include "config.h"
 #include <epan/packet.h>
+#include <epan/expert.h>
 
 void proto_register_AllJoyn(void);
 void proto_reg_handoff_AllJoyn(void);
@@ -200,7 +201,7 @@ static int proto_AllJoyn_ardp = -1;  /* The top level. Entire AllJoyn Reliable D
 #define ARDP_HEADER_LEN_OFFSET   1 /* Offset into the ARDP header for the actual length of the header. */
 
 /* These are bit masks for ARDP flags. */
-/* These bits are depricated and do not exist for version 1. */
+/* These bits are deprecated and do not exist for version 1. */
 #define ARDP_SYN 0x01
 #define ARDP_ACK 0x02
 #define ARDP_EAK 0x04
@@ -231,10 +232,12 @@ static int hf_ardp_nsa = -1;    /* next sequence to ack */
 static int hf_ardp_fss = -1;    /* fragment starting sequence number */
 static int hf_ardp_fcnt = -1;   /* fragment count */
 static int hf_ardp_bmp = -1;    /* EACK bitmap */
-static int hf_ardp_segmax = -1; /* The maximum number of outstanding segments the other side can send without acknowledgement. */
+static int hf_ardp_segmax = -1; /* The maximum number of outstanding segments the other side can send without acknowledgment. */
 static int hf_ardp_segbmax = -1;/* The maximum segment size we are willing to receive. */
 static int hf_ardp_dackt = -1;  /* Receiver's delayed ACK timeout. Used in TTL estimate prior to sending a message. */
 static int hf_ardp_options = -1;/* Options for the connection. Always Sequenced Delivery Mode (SDM). */
+
+static expert_field ei_alljoyn_empty_arg = EI_INIT;
 
 /* These are the ids of the subtrees we will be creating */
 static gint ett_alljoyn_ns = -1;    /* This is the top NS tree. */
@@ -327,7 +330,7 @@ static const value_string mess_header_field_encoding_vals[] = {
 /* This is used to round up offsets into a packet to an even two byte
  * boundary from starting_offset.
  * @param current_offset is the current offset into the packet.
- * @param starting_offset is offset into the packet from the begining of
+ * @param starting_offset is offset into the packet from the beginning of
  *        the message.
  * @returns the offset rounded up to the next even two byte boundary from
             start of the message.
@@ -343,7 +346,7 @@ static gint round_to_2byte(gint current_offset,
 /* This is used to round up offsets into a packet to an even four byte
  * boundary from starting_offset.
  * @param current_offset is the current offset into the packet.
- * @param starting_offset is offset into the packet from the begining of
+ * @param starting_offset is offset into the packet from the beginning of
  *        the message.
  * @returns the offset rounded up to the next even four byte boundary from
             start of the message.
@@ -359,7 +362,7 @@ static gint round_to_4byte(gint current_offset,
 /* This is used to round up offsets into a packet to an even eight byte
  * boundary from starting_offset.
  * @param current_offset is the current offset into the packet.
- * @param starting_offset is offset into the packet from the begining of
+ * @param starting_offset is offset into the packet from the beginning of
  *        the message.
  * @returns the offset rounded up to the next even eight byte boundary from
             start of the message.
@@ -396,7 +399,7 @@ get_uint32(tvbuff_t *tvb,
 
 /* This is called by dissect_AllJoyn_message() to handle the initial byte for
  * a connect message.
- * If it was the intial byte for a connect message and was handled then return
+ * If it was the initial byte for a connect message and was handled then return
  * the number of bytes consumed out of the packet. If not an connect initial
  * byte message or unhandled return 0.
  * @param tvb is the incoming network data buffer.
@@ -420,7 +423,7 @@ handle_message_connect(tvbuff_t    *tvb,
     if(0 == the_one_byte) {
         col_set_str(pinfo->cinfo, COL_INFO, "CONNECT-initial byte");
 
-        /* Now add the value as a subtree to the inital byte. */
+        /* Now add the value as a subtree to the initial byte. */
         proto_tree_add_item(message_tree, hf_alljoyn_connect_byte_value, tvb, offset, 1, ENC_NA);
         offset += 1;
     }
@@ -704,7 +707,7 @@ pad_according_to_type(gint offset, gint field_starting_offset, gint max_offset, 
  * to an item. This is complicated a bit by the fact that structures can be nested.
  * @param item is the item to append the signature data to.
  * @param signature points to the signature to be appended.
- * @param signature_max_length is the specificied maximum length of this signature.
+ * @param signature_max_length is the specified maximum length of this signature.
  * @param type_stop is the character when indicates the end of the signature.
  */
 static void
@@ -871,6 +874,7 @@ parse_arg(tvbuff_t     *tvb,
 {
     gint length;
     gint padding_start;
+    gint saved_offset = offset;
     const gchar *header_type_name = NULL;
 
     switch(type_id)
@@ -1042,7 +1046,7 @@ parse_arg(tvbuff_t     *tvb,
         header_type_name = "object path";
         length = get_uint32(tvb, offset, encoding) + 1;
 
-        /* The + 4 is for the length specifier. Object pathes may be of "any length"
+        /* The + 4 is for the length specifier. Object paths may be of "any length"
            according to D-Bus spec. But there are practical limits. */
         if(length < 0 || length > MAX_ARRAY_LEN || length + 4 > tvb_reported_length_remaining(tvb, offset)) {
             col_add_fstr(pinfo->cinfo, COL_INFO, "BAD DATA: Object path length is %d. Only %d bytes left in packet.",
@@ -1280,6 +1284,11 @@ parse_arg(tvbuff_t     *tvb,
 
     /* Make sure we never return something longer than the buffer for an offset. */
     if(offset > (gint)tvb_reported_length(tvb)) {
+        offset = (gint)tvb_reported_length(tvb);
+    } else if (offset == saved_offset) {
+        /* The argument has a null size. Let's report the packet length to avoid an infinite loop. */
+        /*expert_add_info(pinfo, header_item, &ei_alljoyn_empty_arg);*/
+        proto_tree_add_expert(field_tree, pinfo, &ei_alljoyn_empty_arg, tvb, offset, 0);
         offset = (gint)tvb_reported_length(tvb);
     }
 
@@ -2154,7 +2163,7 @@ typedef struct _alljoyn_ardp_tree_data
  * @param tvb is the incoming network data buffer.
  * @param pinfo contains information about the incoming packet which
  *         we update as we dissect the packet.
- * @param tree_data is the destinationn of the data..
+ * @param tree_data is the destination of the data..
  */
 static void
 ardp_parse_header(tvbuff_t *tvb,
@@ -2424,6 +2433,8 @@ dissect_AllJoyn_ardp(tvbuff_t    *tvb,
 void
 proto_register_AllJoyn(void)
 {
+    expert_module_t* expert_alljoyn;
+
     /* A header field is something you can search/filter on.
      *
      * We create a structure to register our fields. It consists of an
@@ -2852,7 +2863,7 @@ proto_register_AllJoyn(void)
         },
 
         /*
-         * Strings are composed of a size and a data arrray.
+         * Strings are composed of a size and a data array.
          */
         {&hf_alljoyn_string,
          {"Bus Name", "alljoyn.string",
@@ -2991,6 +3002,12 @@ proto_register_AllJoyn(void)
         &ett_alljoyn_ardp
     };
 
+    static ei_register_info ei[] = {
+        { &ei_alljoyn_empty_arg,
+            { "alljoyn.empty_arg", PI_MALFORMED, PI_ERROR,
+                "Argument is empty", EXPFILL }}
+    };
+
     /* The following are protocols as opposed to data within a protocol. These appear
      * in Wireshark a divider/header between different groups of data.
      */
@@ -3003,6 +3020,8 @@ proto_register_AllJoyn(void)
 
     proto_register_field_array(proto_AllJoyn_ns, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_alljoyn = expert_register_protocol(proto_AllJoyn_mess);
+    expert_register_field_array(expert_alljoyn, ei, array_length(ei));
 
     /* ARDP */                        /* name, short name, abbrev */
     proto_AllJoyn_ardp = proto_register_protocol("AllJoyn Reliable Datagram Protocol", "AllJoyn ARDP", "ardp");
@@ -3016,8 +3035,8 @@ proto_reg_handoff_AllJoyn(void)
     static dissector_handle_t alljoyn_handle_ardp;
 
     if(!initialized) {
-        alljoyn_handle_ns = new_create_dissector_handle(dissect_AllJoyn_name_server, proto_AllJoyn_ns);
-        alljoyn_handle_ardp = new_create_dissector_handle(dissect_AllJoyn_ardp, proto_AllJoyn_ardp);
+        alljoyn_handle_ns = create_dissector_handle(dissect_AllJoyn_name_server, proto_AllJoyn_ns);
+        alljoyn_handle_ardp = create_dissector_handle(dissect_AllJoyn_ardp, proto_AllJoyn_ardp);
     } else {
         dissector_delete_uint("udp.port", name_server_port, alljoyn_handle_ns);
         dissector_delete_uint("tcp.port", name_server_port, alljoyn_handle_ns);

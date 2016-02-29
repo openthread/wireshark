@@ -18,10 +18,24 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+include Makefile.common
+include $(top_srcdir)/Makefile.am.inc
+
 ACLOCAL_AMFLAGS = `../aclocal-flags`
+
+AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) -DWS_BUILD_DLL \
+	-DTOP_SRCDIR=\"$(abs_top_srcdir)\" 	\
+	-DDATAFILE_DIR=\"$(pkgdatadir)\" 	\
+	-DEXTCAP_DIR=\"$(extcapdir)\" 		\
+	-DPLUGIN_INSTALL_DIR=\"$(plugindir)\"	\
+	$(GLIB_CFLAGS) $(LIBGCRYPT_CFLAGS)
 
 # Optional headers for ABI checking
 wsutil_optional_abi_includes =
+
+if HAVE_OS_X_FRAMEWORKS
+wsutil_optional_abi_includes += cfutils.h
+endif
 
 # Header files for functions in libwsutil's ABI on this platform.
 libwsutil_abi_INCLUDES = 	\
@@ -43,43 +57,37 @@ if SSE42_SUPPORTED
 wsutil_optional_objects += libwsutil_sse42.la
 endif
 
-include ../Makefile.am.inc
-
-include Makefile.common
-
-AM_CFLAGS =-DWS_BUILD_DLL
-
-if HAVE_WARNINGS_AS_ERRORS
-AM_CFLAGS += -Werror
-endif
-
 noinst_LTLIBRARIES = libwsutil_sse42.la
 
 lib_LTLIBRARIES = libwsutil.la
 # http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
 libwsutil_la_LDFLAGS = -version-info 0:0:0 @LDFLAGS_SHAREDLIB@
 
-AM_CPPFLAGS = -I$(srcdir)/.. \
-	$(LIBGCRYPT_CFLAGS) \
-	-DTOP_SRCDIR=\"$(abs_top_srcdir)\"
+LIBWSUTIL_SRC = $(LIBWSUTIL_COMMON_SRC)
+LIBWSUTIL_INCLUDES = $(LIBWSUTIL_COMMON_INCLUDES)
 
-libwsutil_la_SOURCES =		\
+if HAVE_OS_X_FRAMEWORKS
+LIBWSUTIL_SRC += cfutils.c
+LIBWSUTIL_INCLUDES += cfutils.h
+endif
+
+libwsutil_la_SOURCES = \
 	$(LIBWSUTIL_SRC)	\
 	$(LIBWSUTIL_INCLUDES)
 
 libwsutil_sse42_la_SOURCES = \
 	ws_mempbrk_sse42.c
 
-libwsutil_sse42_la_CFLAGS = $(AM_CFLAGS) @CFLAGS_SSE42@
+libwsutil_sse42_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_SSE42)
 
-EXTRA_libwsutil_la_SOURCES=	\
+EXTRA_libwsutil_la_SOURCES = \
 	floorl.c		\
 	floorl.h		\
 	inet_aton.c		\
 	inet_aton.h		\
 	inet_ntop.c		\
 	inet_pton.c		\
-	inet_v6defs.h		\
+	inet_addr-int.h		\
 	popcount.c		\
 	popcount.h		\
 	strptime.c		\
@@ -88,16 +96,18 @@ EXTRA_libwsutil_la_SOURCES=	\
 	wsgetopt.h		\
 	wsgetopt_int.h
 
-libwsutil_la_DEPENDENCIES=	\
+libwsutil_la_DEPENDENCIES = \
 	$(wsutil_optional_objects)
 
-libwsutil_la_LIBADD =		\
+libwsutil_la_LIBADD = \
 	@COREFOUNDATION_FRAMEWORKS@	\
 	@GLIB_LIBS@		\
 	@LIBGCRYPT_LIBS@	\
 	$(wsutil_optional_objects)
 
-EXTRA_DIST =		\
+EXTRA_DIST = \
+	cfutils.c	\
+	cfutils.h	\
 	CMakeLists.txt	\
 	Makefile.common	\
 	Makefile.nmake	\
@@ -120,11 +130,18 @@ dumpabi-libwsutil: all abi-descriptor.xml
 	rm -rf abi-check-headers abi_dumps .libs/*.abi.tar.gz
 	mkdir abi-check-headers
 	cp ../config.h ../ws_symbol_export.h $(libwsutil_abi_INCLUDES) abi-check-headers/
-	abi-compliance-checker -l libwsutil -v1 `readlink .libs/libwsutil.so | sed 's/.*\.so\.//'` \
+	abi-compliance-checker -log-path abi_logs/log.txt -l libwsutil -v1 `readlink .libs/libwsutil.so | sed 's/.*\.so\.//'` \
 		-relpath $(abs_srcdir) -dump-abi abi-descriptor.xml || \
 		cat logs/libwsutil/[0-9]*/log.txt
 	cp -f abi_dumps/libwsutil/libwsutil_* .libs/
 	cd .libs && ln -sf libwsutil_*.abi.tar.gz libwsutil.abi.tar.gz
+
+maintainer-clean-local: clean-dumpabi-libwsutil
+
+.PHONY: clean-dumpabi-libwsutil
+
+clean-dumpabi-libwsutil:
+	rm -rf abi-check-headers abi_dumps .libs/*.abi.tar.gz abi_logs abi-descriptor.xml
 
 checkapi:
 	$(PERL) $(top_srcdir)/tools/checkAPIs.pl -g termoutput -build \

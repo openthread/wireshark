@@ -113,6 +113,7 @@
 #include <epan/to_str.h>
 #include <epan/ipproto.h>
 #include <epan/in_cksum.h>
+#include <wsutil/str_util.h>
 #include "packet-igmp.h"
 
 void proto_register_igmp(void);
@@ -904,8 +905,8 @@ dissect_igmp_mtrace(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 	return offset;
 }
 
-static void
-dissect_igmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_igmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	int offset = 0;
 	unsigned char type;
@@ -916,6 +917,7 @@ dissect_igmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	{
 		dissect_igmp_unknown(tvb, pinfo, parent_tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -1107,7 +1109,7 @@ proto_register_igmp(void)
 	proto_register_field_array(proto_igmp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	subdissector_table = register_dissector_table("igmp.type", "IGMP commands", FT_UINT32, BASE_HEX);
+	subdissector_table = register_dissector_table("igmp.type", "IGMP commands", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 }
 
@@ -1123,27 +1125,27 @@ proto_reg_handoff_igmp(void)
 
 	/* IGMP v0 */
 	range_convert_str(&igmpv0_range, "0-15", 15);
-	igmpv0_handle = new_create_dissector_handle(dissect_igmp_v0, proto_igmp);
+	igmpv0_handle = create_dissector_handle(dissect_igmp_v0, proto_igmp);
 	dissector_add_uint_range("igmp.type", igmpv0_range, igmpv0_handle);
 	g_free(igmpv0_range);
 
 	/* IGMP v1 */
-	igmpv1_handle = new_create_dissector_handle(dissect_igmp_v1, proto_igmp);
+	igmpv1_handle = create_dissector_handle(dissect_igmp_v1, proto_igmp);
 	dissector_add_uint("igmp.type", IGMP_V1_HOST_MEMBERSHIP_REPORT, igmpv1_handle);
 
 	/* IGMP v2 */
-	igmpv2_handle = new_create_dissector_handle(dissect_igmp_v2, proto_igmp);
+	igmpv2_handle = create_dissector_handle(dissect_igmp_v2, proto_igmp);
 	dissector_add_uint("igmp.type", IGMP_V2_MEMBERSHIP_REPORT, igmpv2_handle);
 	dissector_add_uint("igmp.type", IGMP_V2_LEAVE_GROUP, igmpv2_handle);
 
 	/* IGMP_V1_HOST_MEMBERSHIP_QUERY, all versions */
-	igmp_mquery_handle = new_create_dissector_handle(dissect_igmp_mquery, proto_igmp);
+	igmp_mquery_handle = create_dissector_handle(dissect_igmp_mquery, proto_igmp);
 	dissector_add_uint("igmp.type", IGMP_V1_HOST_MEMBERSHIP_QUERY, igmp_mquery_handle);
 
-	igmp_report_handle = new_create_dissector_handle(dissect_igmp_v3_report, proto_igmp);
+	igmp_report_handle = create_dissector_handle(dissect_igmp_v3_report, proto_igmp);
 	dissector_add_uint("igmp.type", IGMP_V3_MEMBERSHIP_REPORT, igmp_report_handle);
 
-	igmp_mtrace_handle = new_create_dissector_handle(dissect_igmp_mtrace, proto_igmp);
+	igmp_mtrace_handle = create_dissector_handle(dissect_igmp_mtrace, proto_igmp);
 	dissector_add_uint("igmp.type", IGMP_TRACEROUTE_RESPONSE, igmp_mtrace_handle);
 	dissector_add_uint("igmp.type", IGMP_TRACEROUTE_QUERY_REQ, igmp_mtrace_handle);
 }

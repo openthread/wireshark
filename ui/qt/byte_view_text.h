@@ -29,6 +29,7 @@
 #include <epan/tvbuff.h>
 
 #include "proto_tree.h"
+#include "ui/recent.h"
 
 #include <QAbstractScrollArea>
 #include <QMenu>
@@ -37,17 +38,13 @@ class QActionGroup;
 
 // XXX - Is there any reason we shouldn't add ByteViewImage, etc?
 
-// XXX Copied from gtk/packet_panes.h
-typedef enum {
-    BYTES_HEX,
-    BYTES_BITS
-} bytes_view_type;
-
 class ByteViewText : public QAbstractScrollArea
 {
     Q_OBJECT
 public:
     explicit ByteViewText(QWidget *parent = 0, tvbuff_t *tvb = NULL, proto_tree *tree = NULL, QTreeWidget *protoTree = NULL, packet_char_enc encoding = PACKET_CHAR_ENC_CHAR_ASCII);
+    ~ByteViewText();
+
     bool hasDataSource(const tvbuff_t *ds_tvb = NULL);
     void setEncoding(packet_char_enc encoding);
     void setFormat(bytes_view_type format);
@@ -107,7 +104,6 @@ private:
 
     // Data
     packet_char_enc encoding_;  // ASCII or EBCDIC
-    bytes_view_type format_;    // bytes in hex or bytes as bits
     QActionGroup *format_actions_;
     QMenu ctx_menu_;
 

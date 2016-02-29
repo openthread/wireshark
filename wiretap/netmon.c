@@ -183,7 +183,7 @@ static gboolean netmon_read_atm_pseudoheader(FILE_T fh,
 static void netmon_sequential_close(wtap *wth);
 static gboolean netmon_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
     const guint8 *pd, int *err, gchar **err_info);
-static gboolean netmon_dump_close(wtap_dumper *wdh, int *err);
+static gboolean netmon_dump_finish(wtap_dumper *wdh, int *err);
 
 wtap_open_return_val netmon_open(wtap *wth, int *err, gchar **err_info)
 {
@@ -428,11 +428,11 @@ netmon_set_pseudo_header_info(struct wtap_pkthdr *phdr, Buffer *buf)
 		 *  do not have an FCS).
 		 * An "FCS length" of -2 means "NetMon weirdness".
 		 */
+		memset(&phdr->pseudo_header.ieee_802_11, 0, sizeof(phdr->pseudo_header.ieee_802_11));
 		phdr->pseudo_header.ieee_802_11.fcs_len = -2;
 		phdr->pseudo_header.ieee_802_11.decrypted = FALSE;
 		phdr->pseudo_header.ieee_802_11.datapad = FALSE;
 		phdr->pseudo_header.ieee_802_11.phy = PHDR_802_11_PHY_UNKNOWN;
-		phdr->pseudo_header.ieee_802_11.presence_flags = 0; /* radio data is in the packet data */
 		break;
 	}
 }
@@ -945,7 +945,7 @@ gboolean netmon_dump_open(wtap_dumper *wdh, int *err)
 		return FALSE;
 
 	wdh->subtype_write = netmon_dump;
-	wdh->subtype_close = netmon_dump_close;
+	wdh->subtype_finish = netmon_dump_finish;
 
 	netmon = (netmon_dump_t *)g_malloc(sizeof(netmon_dump_t));
 	wdh->priv = (void *)netmon;
@@ -1208,7 +1208,7 @@ static gboolean netmon_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
 
 /* Finish writing to a dump file.
    Returns TRUE on success, FALSE on failure. */
-static gboolean netmon_dump_close(wtap_dumper *wdh, int *err)
+static gboolean netmon_dump_finish(wtap_dumper *wdh, int *err)
 {
 	netmon_dump_t *netmon = (netmon_dump_t *)wdh->priv;
 	size_t n_to_write;

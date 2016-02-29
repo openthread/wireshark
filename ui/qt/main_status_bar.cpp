@@ -25,24 +25,26 @@
 
 #include "file.h"
 
-#include "epan/expert.h"
-#include "wsutil/filesystem.h"
+#include <epan/expert.h>
+
+#include <wsutil/filesystem.h>
+#include <wsutil/utf8_entities.h>
 
 #include "ui/main_statusbar.h"
 #include "ui/profile.h"
 #include "ui/qt/qt_ui_utils.h"
-#include <wsutil/utf8_entities.h>
+
 
 #include "capture_file.h"
 #include "main_status_bar.h"
 #include "profile_dialog.h"
-
-#include <QSplitter>
-#include <QHBoxLayout>
-#include <QAction>
-
+#include "stock_icon.h"
 #include "tango_colors.h"
 
+#include <QAction>
+#include <QHBoxLayout>
+#include <QSplitter>
+#include <QToolButton>
 
 // XXX - The GTK+ code assigns priorities to these and pushes/pops accordingly.
 
@@ -91,6 +93,7 @@ packets_bar_update(void)
     cur_main_status_bar_->updateCaptureStatistics(NULL);
 }
 
+static const int icon_size = 14; // px
 MainStatusBar::MainStatusBar(QWidget *parent) :
     QStatusBar(parent),
     cap_file_(NULL),
@@ -116,28 +119,41 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
                                 "  border-right: 1px solid palette(mid);"
                                 "}"
                                 ));
-#elif defined(Q_OS_MAC)
-    expert_status_.setAttribute(Qt::WA_MacSmallSize, true);
 #endif
 
-    expert_status_.setTextFormat(Qt::RichText);
-    expert_status_.hide();
+    QString button_ss =
+            "QToolButton {"
+            "  border: none;"
+            "  background: transparent;" // Disables platform style on Windows.
+            "  padding: 0px;"
+            "  margin: 0px;"
+            "}";
+
+    expert_button_ = new QToolButton(this);
+    expert_button_->setIconSize(QSize(icon_size, icon_size));
+    expert_button_->setStyleSheet(button_ss);
+    expert_button_->hide();
 
     // We just want a clickable image. Using a QPushButton or QToolButton would require
     // a lot of adjustment.
-    comment_label_.setText("<a href><img src=\":/comment/capture_comment_update.png\"></img></a>");
-    comment_label_.setToolTip(tr("Open the Capture File Properties dialog"));
-    comment_label_.setEnabled(false);
-    connect(&expert_status_, SIGNAL(linkActivated(QString)), this, SIGNAL(showExpertInfo()));
-    connect(&comment_label_, SIGNAL(linkActivated(QString)), this, SIGNAL(editCaptureComment()));
+    StockIcon comment_icon("x-capture-comment-update");
+    comment_button_ = new QToolButton(this);
+    comment_button_->setIcon(comment_icon);
+    comment_button_->setIconSize(QSize(icon_size, icon_size));
+    comment_button_->setStyleSheet(button_ss);
 
-    info_progress_hb->setContentsMargins(0, 0, 0, 0);
+    comment_button_->setToolTip(tr("Open the Capture File Properties dialog"));
+    comment_button_->setEnabled(false);
+    connect(expert_button_, SIGNAL(clicked(bool)), this, SIGNAL(showExpertInfo()));
+    connect(comment_button_, SIGNAL(clicked(bool)), this, SIGNAL(editCaptureComment()));
+
+    info_progress_hb->setContentsMargins(icon_size / 2, 0, 0, 0);
 
     info_status_.setTemporaryContext(STATUS_CTX_TEMPORARY);
     info_status_.setShrinkable(true);
 
-    info_progress_hb->addWidget(&expert_status_);
-    info_progress_hb->addWidget(&comment_label_);
+    info_progress_hb->addWidget(expert_button_);
+    info_progress_hb->addWidget(comment_button_);
     info_progress_hb->addWidget(&info_status_);
     info_progress_hb->addWidget(&progress_frame_);
     info_progress_hb->addStretch(10);
@@ -197,46 +213,47 @@ void MainStatusBar::showExpert() {
 }
 
 void MainStatusBar::captureFileClosing() {
-    expert_status_.hide();
+    expert_button_->hide();
     progress_frame_.captureFileClosing();
 }
 
 void MainStatusBar::expertUpdate() {
     // <img> won't load @2x versions in Qt versions earlier than 5.4.
+    // https://bugreports.qt.io/browse/QTBUG-36383
     // We might have to switch to a QPushButton.
-    QString img_text = "<a href><img src=\":/expert/expert_";
+    QString stock_name = "x-expert-";
     QString tt_text = tr(" is the highest expert information level");
 
     switch(expert_get_highest_severity()) {
     case(PI_ERROR):
-        img_text.append("error");
+        stock_name.append("error");
         tt_text.prepend(tr("ERROR"));
         break;
     case(PI_WARN):
-        img_text.append("warn");
+        stock_name.append("warn");
         tt_text.prepend(tr("WARNING"));
         break;
     case(PI_NOTE):
-        img_text.append("note");
+        stock_name.append("note");
         tt_text.prepend(tr("NOTE"));
         break;
     case(PI_CHAT):
-        img_text.append("chat");
+        stock_name.append("chat");
         tt_text.prepend(tr("CHAT"));
         break;
 //    case(PI_COMMENT):
 //        m_expertStatus.setText("<img src=\":/expert/expert_comment.png\"></img>");
 //        break;
     default:
-        img_text.append("none");
+        stock_name.append("none");
         tt_text = tr("No expert information");
         break;
     }
 
-    img_text.append(".png\"></img></a>");
-    expert_status_.setText(img_text);
-    expert_status_.setToolTip(tt_text);
-    expert_status_.show();
+    StockIcon expert_icon(stock_name);
+    expert_button_->setIcon(expert_icon);
+    expert_button_->setToolTip(tt_text);
+    expert_button_->show();
 }
 
 // ui/gtk/main_statusbar.c
@@ -254,7 +271,7 @@ void MainStatusBar::setFileName(CaptureFile &cf)
 void MainStatusBar::setCaptureFile(capture_file *cf)
 {
     cap_file_ = cf;
-    comment_label_.setEnabled(cap_file_ != NULL);
+    comment_button_->setEnabled(cap_file_ != NULL);
 }
 
 void MainStatusBar::pushTemporaryStatus(const QString &message) {
@@ -265,7 +282,7 @@ void MainStatusBar::popTemporaryStatus() {
     info_status_.popText(STATUS_CTX_TEMPORARY);
 }
 
-void MainStatusBar::pushFileStatus(const QString &message, const QString &messagetip ) {
+void MainStatusBar::pushFileStatus(const QString &message, const QString &messagetip) {
     info_status_.pushText(message, STATUS_CTX_FILE);
     info_status_.setToolTip(messagetip);
     expertUpdate();
@@ -277,7 +294,7 @@ void MainStatusBar::popFileStatus() {
 }
 
 void MainStatusBar::pushFieldStatus(const QString &message) {
-    if (message.isNull()) {
+    if (message.isEmpty()) {
         popFieldStatus();
     } else {
         info_status_.pushText(message, STATUS_CTX_FIELD);
@@ -290,7 +307,7 @@ void MainStatusBar::popFieldStatus() {
 
 void MainStatusBar::pushByteStatus(const QString &message)
 {
-    if (message.isNull()) {
+    if (message.isEmpty()) {
         popByteStatus();
     } else {
         info_status_.pushText(message, STATUS_CTX_BYTE);
@@ -303,7 +320,11 @@ void MainStatusBar::popByteStatus()
 }
 
 void MainStatusBar::pushFilterStatus(const QString &message) {
-    info_status_.pushText(message, STATUS_CTX_FILTER);
+    if (message.isEmpty()) {
+        popFilterStatus();
+    } else {
+        info_status_.pushText(message, STATUS_CTX_FILTER);
+    }
     expertUpdate();
 }
 
@@ -312,7 +333,11 @@ void MainStatusBar::popFilterStatus() {
 }
 
 void MainStatusBar::pushPacketStatus(const QString &message) {
-    packet_status_.pushText(message, STATUS_CTX_MAIN);
+    if (message.isEmpty()) {
+        popPacketStatus();
+    } else {
+        packet_status_.pushText(message, STATUS_CTX_MAIN);
+    }
 }
 
 void MainStatusBar::popPacketStatus() {
@@ -451,18 +476,31 @@ void MainStatusBar::updateCaptureFixedStatistics(capture_session *cap_session)
 
 void MainStatusBar::showProfileMenu(const QPoint &global_pos, Qt::MouseButton button)
 {
+    const gchar *profile_name = get_profile_name();
+    bool separator_added = false;
     GList *fl_entry;
     profile_def *profile;
     QAction *pa;
 
     init_profile_list();
-    fl_entry = edited_profile_list();
+    fl_entry = current_profile_list();
 
     profile_menu_.clear();
     while (fl_entry && fl_entry->data) {
         profile = (profile_def *) fl_entry->data;
-        pa = profile_menu_.addAction(profile->name);
-        connect(pa, SIGNAL(triggered()), this, SLOT(switchToProfile()));
+        if (!profile->is_global || !profile_exists(profile->name, false)) {
+            if (profile->is_global && !separator_added) {
+                profile_menu_.addSeparator();
+                separator_added = true;
+            }
+            pa = profile_menu_.addAction(profile->name);
+            if (strcmp(profile->name, profile_name) == 0) {
+                /* Current profile */
+                pa->setCheckable(true);
+                pa->setChecked(true);
+            }
+            connect(pa, SIGNAL(triggered()), this, SLOT(switchToProfile()));
+        }
         fl_entry = g_list_next(fl_entry);
     }
 

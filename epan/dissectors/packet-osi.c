@@ -452,31 +452,31 @@ static dissector_table_t osinl_excl_subdissector_table;
 static dissector_handle_t data_handle, ppp_handle;
 
 /* Dissect OSI over TCP over TPKT */
-static void
-dissect_osi_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_osi_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_tpkt_encap(tvb, pinfo, tree, tpkt_desegment, osi_handle);
+  return tvb_captured_length(tvb);
 }
 
-static void dissect_osi_juniper(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_osi_juniper(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint8     nlpid;
   tvbuff_t   *next_tvb;
 
   nlpid = tvb_get_guint8(tvb, 0);
   if(dissector_try_uint(osinl_incl_subdissector_table, nlpid, tvb, pinfo, tree))
-     return;
+    return tvb_captured_length(tvb);
 
   next_tvb = tvb_new_subset_remaining(tvb, 1);
   dissector_try_uint(osinl_excl_subdissector_table, nlpid, next_tvb, pinfo, tree);
+  return tvb_captured_length(tvb);
 }
 
-static void dissect_osi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_osi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint8    nlpid;
   tvbuff_t *new_tvb;
-
-  pinfo->current_proto = "OSI";
 
   nlpid = tvb_get_guint8(tvb, 0);
 
@@ -487,7 +487,7 @@ static void dissect_osi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    * tree itself.
    */
   if (dissector_try_uint(osinl_incl_subdissector_table, nlpid, tvb, pinfo, tree))
-    return;
+    return tvb_captured_length(tvb);
 
   /*
    * Try the subdissector table for protocols in which the NLPID is
@@ -498,7 +498,7 @@ static void dissect_osi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   proto_tree_add_uint(tree, hf_osi_nlpid, tvb, 0, 1, nlpid);
   new_tvb = tvb_new_subset_remaining(tvb, 1);
   if (dissector_try_uint(osinl_excl_subdissector_table, nlpid, new_tvb, pinfo, tree))
-    return;
+    return tvb_captured_length(tvb);
 
   switch (nlpid) {
 
@@ -519,6 +519,7 @@ static void dissect_osi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       call_dissector(data_handle,tvb, pinfo, tree);
       break;
   }
+  return tvb_captured_length(tvb);
 } /* dissect_osi */
 
 void
@@ -582,13 +583,13 @@ proto_register_osi(void)
      should register here
   */
   osinl_incl_subdissector_table = register_dissector_table("osinl.incl",
-                                                           "OSI incl NLPID", FT_UINT8, BASE_HEX);
+                                                           "OSI incl NLPID", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   /* This dissector table is for those protocols whose PDUs
    * aren't* defined to begin with an NLPID.
    * (typically non OSI protocols like IP,IPv6,PPP */
   osinl_excl_subdissector_table = register_dissector_table("osinl.excl",
-                                                           "OSI excl NLPID", FT_UINT8, BASE_HEX);
+                                                           "OSI excl NLPID", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   proto_osi = proto_register_protocol("OSI", "OSI", "osi");
   proto_register_field_array(proto_osi, hf, array_length(hf));

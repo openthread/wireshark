@@ -1,5 +1,7 @@
 /* packet-tlv.c
+ *
  * Routines to Dissect Appendix C TLV's
+ * Copyright 2015, Adrian Simionov <daniel.simionov@gmail.com>
  * Copyright 2002, Anand V. Narwani <anand[AT]narwani.org>
  *
  * Wireshark - Network traffic analyzer
@@ -451,6 +453,9 @@ static const true_false_string ena_dis_tfs = {
 static const value_string docs_ver_vals[] = {
   {0, "v1.0"},
   {1, "v1.1"},
+  {2, "v2.0"},
+  {3, "v3.0"},
+  {4, "v3.1"},
   {0, NULL},
 };
 
@@ -537,14 +542,67 @@ const value_string docsis_conf_code[] = {
   { 18, "Reject: Duplicate reference ID or index in message"},
   { 19, "Reject: Multiple upstream service flows"},
   { 20, "Reject: Multiple downstream service flows"},
-  { 21, "Reject: Classifier for another service flow "},
-  { 22, "Reject: PHS for another service flow "},
+  { 21, "Reject: Classifier for another service flow"},
+  { 22, "Reject: PHS for another service flow"},
   { 23, "Reject: Parameter invalid for context"},
   { 24, "Reject: Authorization failure"},
   { 25, "Reject: Temporary DCC"},
+  { 26, "Reject: Downstream Inconsistency"},
+  { 27, "Reject: Upstream Inconsistency"},
+  { 28, "Reject: Insufficient SID Cluster Resources"},
+  { 29, "Reject: Missing RCP"},
+  { 30, "Partial Service"},
+  { 31, "Reject: Temporary DBC"},
+  { 32, "Reject: Unknown DSID"},
+  { 33, "Reject: Unknown SID Cluster"},
+  { 34, "Reject: Invalid Initialization Technique"},
+  { 35, "Reject: No Change"},
+  { 36, "Reject: Invalid DBC Request"},
+  { 37, "Reject: Mode Switch"},
+  { 38, "Reject: Insufficient Transmitters"},
+  { 40, "Reject: Insufficient DSID Resources"},
+  { 41, "Reject: Invalid DSID Encoding"},
+  { 42, "Reject: Unknown Client MAC Address"},
+  { 43, "Reject: Unknown SAID"},
+  { 44, "Reject: Insufficient SA Resources"},
+  { 45, "Reject: Invalid SA Encoding"},
+  { 46, "Reject: Invalid SA Crypto Suite"},
+  { 47, "Reject: TEK Exists"},
+  { 48, "Reject: Invalid SID Cluster Encoding"},
+  { 49, "Reject: Insufficient SID Resources"},
+  { 50, "Reject: Unsupported Parameter Change"},
+  { 51, "Reject: PHS Rule Fully Defined"},
+  { 52, "Reject: No MAPs Or UCDs"},
+  { 53, "Error: T3 Retries Exceeded"},
+  { 54, "Error: T2 Timeout"},
+  { 55, "Error: T4 Timeout"},
+  { 56, "Error: Ranging Abort"},
+  { 57, "Error: Initialization Channel Timeout"},
+  { 58, "Error: DBC-REQ Incomplete"},
+  { 59, "Reject: Too Many OFDMA Profiles"},
+  { 60, "Reject: Too Many OFDM Profiles"},
+  { 61, "Reject: EM Incorrect Primary DS"},
+  { 62, "Reject: AQM Not Supported"},
+  { 63, "Reject: Invalid DPD"},
+  {100, "Reject: VLAD ID In Use"},
+  {101, "Reject: Multipoint L2VPN"},
+  {102, "Reject: Multipoint NSI"},
+  {160, "Reject: Unknown RCP ID"},
+  {161, "Reject: Multiple RCP IDs"},
+  {162, "Reject: Missing Receive Module Index"},
+  {163, "Reject: Invalid Receive Module Index"},
+  {164, "Reject: Invalid Receive Channel Center Frequency"},
+  {165, "Reject: Invalid Receive Module First Channel Center Frequency"},
+  {166, "Reject: Missing Receive Module First Channel Center Frequency"},
+  {167, "Reject: No Primary Downstream Channel Assigned"},
+  {168, "Reject: Multiple Primary Downstream Channel Assigned"},
+  {169, "Reject: Receive Module Connectivity Error"},
+  {170, "Reject: Invalid Receive Channel Index"},
+  {171, "Reject: Center Frequency Not Multiple of 62500 Hz"},
   {180, "Depart"},
   {181, "Arrive"},
   {182, "Reject: Already There"},
+  {183, "Reject: Reject 2.0 Disable"},
   {200, "Reject: Major Service Flow Error"},
   {201, "Reject: Major Classifier Error"},
   {202, "Reject: Major PHS Rule Error"},
@@ -553,6 +611,12 @@ const value_string docsis_conf_code[] = {
   {205, "Reject: Primary Service Flow Error"},
   {206, "Reject: Message Too Big"},
   {207, "Reject: Invalid Modem Capabilities"},
+  {209, "Reject: Bad RCC"},
+  {209, "Reject: Bad TCC"},
+  {210, "Reject: Dynamic Range Window Violation"},
+  {211, "Reject: Unable to support Queue Depth"},
+  {212, "Reject: Energy Management Parameters"},
+  {213, "Reject: Invalid Backup Primary Downstream"},
   {0, NULL}
 };
 
@@ -636,8 +700,9 @@ static const value_string docsis_freq_rng_vals[] = {
 };
 
 static const value_string mc_dsid_fwd_vals[] = {
-  {0, "Support for GMAC explicit multicast DCID Forwarding"},
-  {1, "Support for GMAC promiscuous multicast DCID Forwarding"},
+  {0, "No support for multicast DSID forwarding"},
+  {1, "Support for GMAC explicit multicast DSID forwarding"},
+  {2, "Support for GMAC promiscuous multicast DSID forwarding"},
   {0, NULL},
 };
 
@@ -3814,8 +3879,8 @@ dissect_cmts_mc_sess_enc(tvbuff_t * tvb, proto_tree *tree, int start, guint16 le
 }
 
 
-static void
-dissect_tlv (tvbuff_t * tvb, packet_info * pinfo _U_, proto_tree * tree)
+static int
+dissect_tlv (tvbuff_t * tvb, packet_info * pinfo _U_, proto_tree * tree, void* data _U_)
 {
 
   proto_item *it;
@@ -4254,6 +4319,7 @@ dissect_tlv (tvbuff_t * tvb, packet_info * pinfo _U_, proto_tree * tree)
       }                         /* while (pos < total_len) */
   }                             /*if (tree) */
 
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -4553,7 +4619,7 @@ proto_register_docsis_tlv (void)
       "Multicast Downstream Service ID (DSID) Support", HFILL}
     },
     {&hf_docsis_tlv_mcap_mc_dsid_fwd,
-     {".33 Mulitcast DSID Forwarding","docsis_tlv.mcap.mcdsidfwd",
+     {".33 Multicast DSID Forwarding","docsis_tlv.mcap.mcdsidfwd",
       FT_UINT8, BASE_DEC, VALS (mc_dsid_fwd_vals), 0x0,
       "Mulitcast DSID Forwarding", HFILL}
     },

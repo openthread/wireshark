@@ -36,8 +36,15 @@
 #include <wsutil/str_util.h>
 
 #include <QAction>
+#include <QApplication>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QDesktopWidget>
+#include <QDir>
+#include <QFileInfo>
 #include <QFontDatabase>
+#include <QProcess>
+#include <QUrl>
 #include <QUuid>
 
 /* Make the format_size_flags_e enum usable in C++ */
@@ -107,9 +114,9 @@ const QString address_to_display_qstring(const _address *address)
 {
     QString address_qstr = QString();
     if (address) {
-        const gchar *address_gchar_p = address_to_display(NULL, address);
+        gchar *address_gchar_p = address_to_display(NULL, address);
         address_qstr = address_gchar_p;
-        wmem_free(NULL, (void *) address_gchar_p);
+        wmem_free(NULL, address_gchar_p);
     }
     return address_qstr;
 }
@@ -138,9 +145,9 @@ const QString range_to_qstring(const epan_range *range)
 {
     QString range_qstr = QString();
     if (range) {
-        const gchar *range_gchar_p = range_convert_range(NULL, range);
+        gchar *range_gchar_p = range_convert_range(NULL, range);
         range_qstr = range_gchar_p;
-        wmem_free(NULL, (void *) range_gchar_p);
+        wmem_free(NULL, range_gchar_p);
     }
     return range_qstr;
 }
@@ -191,6 +198,50 @@ bool qActionLessThan(const QAction * a1, const QAction * a2) {
 bool qStringCaseLessThan(const QString &s1, const QString &s2)
 {
     return s1.compare(s2, Qt::CaseInsensitive) < 0;
+}
+
+// http://stackoverflow.com/questions/3490336/how-to-reveal-in-finder-or-show-in-explorer-with-qt
+void desktop_show_in_folder(const QString file_path)
+{
+    bool success = false;
+
+#if defined(Q_OS_WIN)
+    QString path = QDir::toNativeSeparators(file_path);
+    QString command = "explorer.exe /select," + path;
+    success = QProcess::startDetached(command);
+#elif defined(Q_OS_MAC)
+    QStringList script_args;
+    QString escaped_path = file_path;
+
+    escaped_path.replace('"', "\\\"");
+    script_args << "-e"
+               << QString("tell application \"Finder\" to reveal POSIX file \"%1\"")
+                                     .arg(escaped_path);
+    if (QProcess::execute("/usr/bin/osascript", script_args) == 0) {
+        success = true;
+        script_args.clear();
+        script_args << "-e"
+                   << "tell application \"Finder\" to activate";
+        QProcess::execute("/usr/bin/osascript", script_args);
+    }
+#else
+    // Is there a way to highlight the file using xdg-open?
+#endif
+    if (!success) { // Last resort
+        QFileInfo file_info = file_path;
+        QDesktopServices::openUrl(QUrl::fromLocalFile(file_info.dir().absolutePath()));
+    }
+}
+
+bool rect_on_screen(const QRect &rect)
+{
+    QDesktopWidget *desktop = qApp->desktop();
+    for (int i = 0; i < desktop->screenCount(); i++) {
+        if (desktop->availableGeometry(i).contains(rect))
+            return true;
+    }
+
+    return false;
 }
 
 /*

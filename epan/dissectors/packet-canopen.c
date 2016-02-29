@@ -1120,12 +1120,12 @@ proto_register_canopen(void)
             NULL, HFILL }
         },
         { &hf_canopen_pdo_data,
-          { "Data", "canopen.pdo.data",
+          { "Data", "canopen.pdo.data.bytes",
             FT_BYTES, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_canopen_pdo_data_string,
-          { "Data", "canopen.pdo.data",
+          { "Data", "canopen.pdo.data.string",
             FT_STRINGZ, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
@@ -1180,12 +1180,12 @@ proto_register_canopen(void)
             NULL, HFILL }
         },
         { &hf_canopen_sdo_data,
-          { "Data", "canopen.sdo.data",
+          { "Data", "canopen.sdo.data.bytes",
             FT_BYTES, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_canopen_sdo_abort_code,
-          { "Abort code", "canopen.sdo.data",
+          { "Abort code", "canopen.sdo.abort_code",
             FT_UINT32, BASE_HEX, VALS(sdo_abort_code), 0x0,
             NULL, HFILL }
         },
@@ -1385,7 +1385,7 @@ proto_reg_handoff_canopen(void)
 {
    dissector_handle_t canopen_handle;
 
-   canopen_handle = new_create_dissector_handle( dissect_canopen, proto_canopen );
+   canopen_handle = create_dissector_handle( dissect_canopen, proto_canopen );
    dissector_add_for_decode_as("can.subdissector", canopen_handle );
 }
 

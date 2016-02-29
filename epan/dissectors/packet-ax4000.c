@@ -43,8 +43,8 @@ static int hf_ax4000_crc = -1;
 static gint ett_ax4000 = -1;
 
 /* Code to actually dissect the packets */
-static void
-dissect_ax4000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ax4000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *ax4000_tree;
@@ -91,6 +91,7 @@ dissect_ax4000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		    hf_ax4000_crc, tvb, 14, 2, tvb_get_letohs(tvb, 14));
 	}
 
+	return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

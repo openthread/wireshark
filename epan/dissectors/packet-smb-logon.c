@@ -891,8 +891,8 @@ static int (*dissect_smb_logon_cmds[])(tvbuff_t *tvb, packet_info *pinfo, proto_
 };
 
 
-static void
-dissect_smb_logon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_smb_logon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int        offset = 0;
 	guint8     cmd;
@@ -929,6 +929,7 @@ dissect_smb_logon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dissect_smb_unknown(tvb, pinfo, smb_logon_tree,
 		    offset);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

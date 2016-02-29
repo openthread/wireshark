@@ -222,10 +222,10 @@ dissect_ata_pdu(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset,
       ata_info=wmem_new(wmem_file_scope(), ata_info_t);
       ata_info->tag=tag;
       ata_info->conversation=conversation;
-      ata_info->request_frame=pinfo->fd->num;
+      ata_info->request_frame=pinfo->num;
       ata_info->response_frame=0;
       ata_info->cmd=tvb_get_guint8(tvb, offset+3);
-      ata_info->req_time=pinfo->fd->abs_ts;
+      ata_info->req_time=pinfo->abs_ts;
 
       tmp_ata_info=(ata_info_t *)g_hash_table_lookup(ata_cmd_unmatched, ata_info);
       if(tmp_ata_info){
@@ -242,14 +242,14 @@ dissect_ata_pdu(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset,
       /* woo hoo we could, so no need to store this in unmatched any more,
          move both request and response to the matched table */
       if(ata_info){
-        ata_info->response_frame=pinfo->fd->num;
+        ata_info->response_frame=pinfo->num;
         g_hash_table_remove(ata_cmd_unmatched, ata_info);
         g_hash_table_insert(ata_cmd_matched, GUINT_TO_POINTER(ata_info->request_frame), ata_info);
         g_hash_table_insert(ata_cmd_matched, GUINT_TO_POINTER(ata_info->response_frame), ata_info);
       }
     }
   } else {
-    ata_info=(ata_info_t *)g_hash_table_lookup(ata_cmd_matched, GUINT_TO_POINTER(pinfo->fd->num));
+    ata_info=(ata_info_t *)g_hash_table_lookup(ata_cmd_matched, GUINT_TO_POINTER(pinfo->num));
   }
 
   if(ata_info){
@@ -258,7 +258,7 @@ dissect_ata_pdu(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset,
         nstime_t delta_ts;
         tmp_item=proto_tree_add_uint(tree, hf_aoe_response_to, tvb, 0, 0, ata_info->request_frame);
         PROTO_ITEM_SET_GENERATED(tmp_item);
-        nstime_delta(&delta_ts, &pinfo->fd->abs_ts, &ata_info->req_time);
+        nstime_delta(&delta_ts, &pinfo->abs_ts, &ata_info->req_time);
         tmp_item=proto_tree_add_time(tree, hf_aoe_time, tvb, offset, 0, &delta_ts);
         PROTO_ITEM_SET_GENERATED(tmp_item);
       }
@@ -365,20 +365,18 @@ dissect_aoe_v1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 }
 
-static void
-dissect_aoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_aoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
-  proto_item *item=NULL;
-  proto_tree *tree=NULL;
+  proto_item *item;
+  proto_tree *tree;
   guint8 version;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "AoE");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  if (parent_tree) {
-    item = proto_tree_add_item(parent_tree, proto_aoe, tvb, 0, -1, ENC_NA);
-    tree = proto_item_add_subtree(item, ett_aoe);
-  }
+  item = proto_tree_add_item(parent_tree, proto_aoe, tvb, 0, -1, ENC_NA);
+  tree = proto_item_add_subtree(item, ett_aoe);
 
   version=tvb_get_guint8(tvb, 0)>>4;
   proto_tree_add_uint(tree, hf_aoe_version, tvb, 0, 1, version);
@@ -387,6 +385,8 @@ dissect_aoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
     dissect_aoe_v1(tvb, pinfo, tree);
     break;
   }
+
+  return tvb_captured_length(tvb);
 }
 
 static void

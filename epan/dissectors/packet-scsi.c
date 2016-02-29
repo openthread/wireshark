@@ -2797,8 +2797,8 @@ const value_string scsi_senddiag_st_code_val[] = {
 };
 
 const true_false_string scsi_senddiag_pf_val = {
-    "Vendor-specific Page Format",
     "Standard Page Format",
+    "Vendor-specific Page Format",
 };
 
 static gint scsi_def_devtype = SCSI_DEV_SBC;
@@ -5823,7 +5823,7 @@ dissect_scsi_rsp(tvbuff_t *tvb, packet_info *pinfo,
         nstime_t delta_time;
         ti = proto_tree_add_uint(scsi_tree, hf_scsi_request_frame, tvb, 0, 0, itlq->first_exchange_frame);
         PROTO_ITEM_SET_GENERATED(ti);
-        nstime_delta(&delta_time, &pinfo->fd->abs_ts, &itlq->fc_time);
+        nstime_delta(&delta_time, &pinfo->abs_ts, &itlq->fc_time);
         ti = proto_tree_add_time(scsi_tree, hf_scsi_time, tvb, 0, 0, &delta_time);
         PROTO_ITEM_SET_GENERATED(ti);
     }
@@ -6404,7 +6404,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                    more_frags);
     next_tvb = process_reassembled_data(tvb, offset, pinfo, "Reassembled SCSI DATA", ipfd_head, &scsi_frag_items, &update_col_info, tree);
 
-    if ( ipfd_head && (ipfd_head->reassembled_in != pinfo->fd->num) ) {
+    if ( ipfd_head && (ipfd_head->reassembled_in != pinfo->num) ) {
         col_prepend_fstr(pinfo->cinfo, COL_INFO, "[Reassembled in #%u] ",
                              ipfd_head->reassembled_in);
     }

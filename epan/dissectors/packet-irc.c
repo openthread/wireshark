@@ -444,8 +444,8 @@ dissect_irc_response(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int of
     }
 }
 
-static void
-dissect_irc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_irc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *irc_tree, *ti;
     gint        offset = 0;
@@ -494,6 +494,7 @@ dissect_irc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
         offset = next_offset;
     }
+    return tvb_captured_length(tvb);
 }
 
 void

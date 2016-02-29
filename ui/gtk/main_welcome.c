@@ -56,7 +56,10 @@
 #include "ui/gtk/help_dlg.h"
 #include "ui/gtk/capture_file_dlg.h"
 #include "ui/gtk/stock_icons.h"
-#include "ui/gtk/wssplash.h"
+#ifndef HAVE_GDK_GRESOURCE
+#include "ui/gtk/pixbuf-csource.h"
+#endif
+
 #ifdef HAVE_LIBPCAP
 #include "ui/gtk/capture_dlg.h"
 #include "ui/gtk/capture_if_dlg.h"
@@ -74,9 +77,6 @@
 #include <caputils/airpcap.h>
 #include <caputils/airpcap_loader.h>
 #include "airpcap_gui_utils.h"
-#endif
-#if defined(HAVE_PCAP_REMOTE)
-#include "ui/gtk/remote_icons.h"
 #endif
 
 /* XXX */
@@ -372,7 +372,11 @@ welcome_header_new(void)
     item_hb = ws_gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0, FALSE);
     gtk_box_pack_start(GTK_BOX(item_vb), item_hb, FALSE, FALSE, 10);
 
+#ifdef HAVE_GDK_GRESOURCE
+    icon = pixbuf_to_widget("/org/wireshark/image/wssplash_dev.png");
+#else
     icon = pixbuf_to_widget(wssplash_pb_data);
+#endif
     gtk_box_pack_start(GTK_BOX(item_hb), icon, FALSE, FALSE, 10);
 
     header_lb = gtk_label_new(NULL);
@@ -877,7 +881,11 @@ add_interface_to_list(guint indx)
     interface_t device;
 
     device = g_array_index(global_capture_opts.all_ifaces, interface_t, indx);
+#ifdef HAVE_GDK_GRESOURCE
+    icon = pixbuf_to_widget("/org/wireshark/image/toolbar/remote_sat_16.png");
+#else
     icon = pixbuf_to_widget(remote_sat_pb_data);
+#endif
     view = g_object_get_data(G_OBJECT(welcome_hb), TREE_VIEW_INTERFACES);
     model = gtk_tree_view_get_model(GTK_TREE_VIEW(view));
     size = gtk_tree_model_iter_n_children(model, NULL);
@@ -1236,30 +1244,10 @@ welcome_new(void)
     GtkWidget *file_child_box;
 
     /* prepare colors */
-#if 0
-    /* Allocating color isn't necessary? */
-
-    /* "page" background */
-    get_color(&welcome_bg);
-
-    /* header bar background color */
-    get_color(&header_bar_bg);
-
-    /* topic header background color */
-    get_color(&topic_header_bg);
-
-    /* topic content background color */
-    get_color(&topic_content_bg);
-#endif
 #if GTK_CHECK_VERSION(3,0,0)
     rgba_topic_item_idle_bg = rgba_topic_content_bg;
 #else
     topic_item_idle_bg = topic_content_bg;
-#endif
-#if 0
-    /* Allocating collor isn't necessary? */
-    /* topic item entered color */
-    get_color(&topic_item_entered_bg);
 #endif
     welcome_scrollw = scrolled_window_new(NULL, NULL);
 

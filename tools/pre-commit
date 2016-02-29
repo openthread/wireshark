@@ -16,10 +16,22 @@
 # http://mark-story.com/posts/view/using-git-commit-hooks-to-prevent-stupid-mistakes
 #
 
-unset GREP_OPTIONS
-
 # If the commit identifier is not given, use HEAD instead.
 COMMIT_ID="${1:-HEAD}"
+
+UNAME=`uname -a`
+
+case "$UNAME" in
+    *\ Msys)
+        pyvar="pythonw.exe"
+        ;;
+    *)
+        pyvar="python"
+        ;;
+esac
+
+PYBIN=${WS_GITHOOK_PYTHON:-$pyvar}
+
 # Path to hook script in the .git directory
 hook_script=${GIT_DIR:-.git}/hooks/pre-commit
 
@@ -35,7 +47,26 @@ fi
 
 exit_status=0
 
-for FILE in `git diff-index --cached --name-status ${COMMIT_ID} | grep -v "^D" | cut -f2 | grep "\.[ch]$" | grep -v "extcap/"` ; do
+COMMIT_FILES=`git diff-index --cached --name-status ${COMMIT_ID} | grep -v "^D" | cut -f2 | grep "\.[ch]$"`
+
+# Path to filter script in the tools directory
+filter_script=${PWD}/tools/pre-commit-ignore.py
+filter_conf=${PWD}/tools/pre-commit-ignore.conf
+
+if [ ! -e "$filter_script" ]; then
+    echo "File '$filter_script' does not exist. Aborting."
+    exit 1
+fi
+
+CHECK_FILES=`echo "$COMMIT_FILES" | "$PYBIN" "$filter_script" "$filter_conf"`
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+
+# On windows python will output \r\n line endings - we don't want that
+CHECK_FILES=`echo "$CHECK_FILES" | sed 's/\r//g'`
+
+for FILE in $CHECK_FILES; do
 
     #Check if checkhf is good
     ./tools/checkhf.pl $FILE            || exit_status=1

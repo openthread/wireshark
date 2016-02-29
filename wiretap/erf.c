@@ -53,6 +53,7 @@
 #include "wtap-int.h"
 #include "file_wrappers.h"
 #include "pcap-encap.h"
+#include "pcapng.h"
 #include "erf.h"
 
 static gboolean erf_read_header(FILE_T fh,
@@ -92,7 +93,7 @@ extern wtap_open_return_val erf_open(wtap *wth, int *err, gchar **err_info)
   erf_timestamp_t  prevts,ts;
   erf_header_t     header;
   guint32          mc_hdr;
-  guint16          eth_hdr;
+  struct erf_eth_hdr eth_hdr;
   guint32          packet_size;
   guint16          rlen;
   guint64          erf_ext_header;
@@ -168,11 +169,6 @@ extern wtap_open_return_val erf_open(wtap *wth, int *err, gchar **err_info)
       return WTAP_OPEN_NOT_MINE;
     }
 
-    /* The ERF_TYPE_MAX is the PAD record, but the last used type is ERF_TYPE_INFINIBAND_LINK */
-    if ((header.type & 0x7F) > ERF_TYPE_INFINIBAND_LINK) {
-      return WTAP_OPEN_NOT_MINE;
-    }
-
     if ((ts = pletoh64(&header.ts)) < prevts) {
       /* reassembled AALx records may not be in time order, also records are not in strict time order between physical interfaces, so allow 1 sec fudge */
       if ( ((prevts-ts)>>32) > 1 ) {
@@ -224,6 +220,7 @@ extern wtap_open_return_val erf_open(wtap *wth, int *err, gchar **err_info)
       case ERF_TYPE_ETH:
       case ERF_TYPE_COLOR_ETH:
       case ERF_TYPE_DSM_COLOR_ETH:
+      case ERF_TYPE_COLOR_HASH_ETH:
         if (!wtap_read_bytes(wth->fh,&eth_hdr,sizeof(eth_hdr),err,err_info)) {
           if (*err == WTAP_ERR_SHORT_READ) {
             /* Subheader missing, not an ERF file */
@@ -342,11 +339,12 @@ static gboolean erf_read_header(FILE_T fh,
                                 guint32 *packet_size)
 {
   union wtap_pseudo_header *pseudo_header = &phdr->pseudo_header;
-  guint32 mc_hdr;
   guint8  erf_exhdr[8];
   guint64 erf_exhdr_sw;
   guint8  type    = 0;
-  guint16 eth_hdr;
+  guint32 mc_hdr;
+  guint32 aal2_hdr;
+  struct wtap_erf_eth_hdr eth_hdr;
   guint32 skiplen = 0;
   int     i       = 0;
   int     max     = sizeof(pseudo_header->erf.ehdr_list)/sizeof(struct erf_ehdr);
@@ -429,6 +427,7 @@ static gboolean erf_read_header(FILE_T fh,
     case ERF_TYPE_RAW_LINK:
     case ERF_TYPE_INFINIBAND:
     case ERF_TYPE_INFINIBAND_LINK:
+    case ERF_TYPE_META:
 #if 0
       {
         phdr->len =  g_htons(erf_header->wlen);
@@ -441,6 +440,7 @@ static gboolean erf_read_header(FILE_T fh,
     case ERF_TYPE_HDLC_POS:
     case ERF_TYPE_COLOR_HDLC_POS:
     case ERF_TYPE_DSM_COLOR_HDLC_POS:
+    case ERF_TYPE_COLOR_HASH_POS:
     case ERF_TYPE_ATM:
     case ERF_TYPE_AAL5:
       break;
@@ -448,13 +448,14 @@ static gboolean erf_read_header(FILE_T fh,
     case ERF_TYPE_ETH:
     case ERF_TYPE_COLOR_ETH:
     case ERF_TYPE_DSM_COLOR_ETH:
+    case ERF_TYPE_COLOR_HASH_ETH:
       if (!wtap_read_bytes(fh, &eth_hdr, sizeof(eth_hdr), err, err_info))
         return FALSE;
       if (bytes_read != NULL)
         *bytes_read += (guint32)sizeof(eth_hdr);
       *packet_size -=  (guint32)sizeof(eth_hdr);
       skiplen += (guint32)sizeof(eth_hdr);
-      pseudo_header->erf.subhdr.eth_hdr = g_htons(eth_hdr);
+      pseudo_header->erf.subhdr.eth_hdr = eth_hdr;
       break;
 
     case ERF_TYPE_MC_HDLC:
@@ -464,14 +465,23 @@ static gboolean erf_read_header(FILE_T fh,
     case ERF_TYPE_MC_AAL5:
     case ERF_TYPE_MC_AAL2:
     case ERF_TYPE_COLOR_MC_HDLC_POS:
-    case ERF_TYPE_AAL2: /* not an MC type but has a similar 'AAL2 ext' header */
       if (!wtap_read_bytes(fh, &mc_hdr, sizeof(mc_hdr), err, err_info))
         return FALSE;
       if (bytes_read != NULL)
         *bytes_read += (guint32)sizeof(mc_hdr);
       *packet_size -=  (guint32)sizeof(mc_hdr);
       skiplen += (guint32)sizeof(mc_hdr);
-      pseudo_header->erf.subhdr.mc_hdr = g_htonl(mc_hdr);
+      pseudo_header->erf.subhdr.mc_hdr = g_ntohl(mc_hdr);
+      break;
+
+    case ERF_TYPE_AAL2:
+      if (!wtap_read_bytes(fh, &aal2_hdr, sizeof(aal2_hdr), err, err_info))
+        return FALSE;
+      if (bytes_read != NULL)
+        *bytes_read += (guint32)sizeof(aal2_hdr);
+      *packet_size -=  (guint32)sizeof(aal2_hdr);
+      skiplen += (guint32)sizeof(aal2_hdr);
+      pseudo_header->erf.subhdr.aal2_hdr = g_ntohl(aal2_hdr);
       break;
 
     case ERF_TYPE_IP_COUNTER:
@@ -485,9 +495,9 @@ static gboolean erf_read_header(FILE_T fh,
   }
 
   {
-    phdr->len = g_htons(erf_header->wlen);
-    phdr->caplen = MIN( g_htons(erf_header->wlen),
-                        g_htons(erf_header->rlen) - (guint32)sizeof(*erf_header) - skiplen );
+    phdr->len = g_ntohs(erf_header->wlen);
+    phdr->caplen = MIN( g_ntohs(erf_header->wlen),
+                        g_ntohs(erf_header->rlen) - (guint32)sizeof(*erf_header) - skiplen );
   }
 
   if (*packet_size > WTAP_MAX_PACKET_SIZE) {
@@ -517,8 +527,7 @@ static int wtap_wtap_encap_to_erf_encap(int encap)
 static gboolean erf_write_phdr(wtap_dumper *wdh, int encap, const union wtap_pseudo_header *pseudo_header, int * err)
 {
   guint8 erf_hdr[sizeof(struct erf_mc_phdr)];
-  guint8 erf_subhdr[((sizeof(struct erf_mc_hdr) > sizeof(struct erf_eth_hdr))?
-    sizeof(struct erf_mc_hdr) : sizeof(struct erf_eth_hdr))];
+  guint8 erf_subhdr[sizeof(union erf_subhdr)];
   guint8 ehdr[8*MAX_ERF_EHDR];
   size_t size        = 0;
   size_t subhdr_size = 0;
@@ -547,10 +556,15 @@ static gboolean erf_write_phdr(wtap_dumper *wdh, int encap, const union wtap_pse
           phtonl(&erf_subhdr[0], pseudo_header->erf.subhdr.mc_hdr);
           subhdr_size += (int)sizeof(struct erf_mc_hdr);
           break;
+        case ERF_TYPE_AAL2:
+          phtonl(&erf_subhdr[0], pseudo_header->erf.subhdr.aal2_hdr);
+          subhdr_size += (int)sizeof(struct erf_aal2_hdr);
+          break;
         case ERF_TYPE_ETH:
         case ERF_TYPE_COLOR_ETH:
         case ERF_TYPE_DSM_COLOR_ETH:
-          phtons(&erf_subhdr[0], pseudo_header->erf.subhdr.eth_hdr);
+        case ERF_TYPE_COLOR_HASH_ETH:
+          memcpy(&erf_subhdr[0], &pseudo_header->erf.subhdr.eth_hdr, sizeof pseudo_header->erf.subhdr.eth_hdr);
           subhdr_size += (int)sizeof(struct erf_eth_hdr);
           break;
         default:
@@ -722,7 +736,6 @@ int erf_dump_can_write_encap(int encap)
 int erf_dump_open(wtap_dumper *wdh, int *err)
 {
   wdh->subtype_write = erf_dump;
-  wdh->subtype_close = NULL;
 
   switch(wdh->file_type_subtype){
     case WTAP_FILE_TYPE_SUBTYPE_ERF:
@@ -739,42 +752,47 @@ int erf_dump_open(wtap_dumper *wdh, int *err)
 
 int erf_populate_interfaces(wtap *wth)
 {
-  wtapng_if_descr_t int_data;
+  wtap_optionblock_t int_data;
+  wtapng_if_descr_mandatory_t* int_data_mand;
   int i;
+  char* tmp;
 
   if (!wth)
     return -1;
 
-  memset(&int_data, 0, sizeof(int_data)); /* Zero all fields */
-
-  int_data.wtap_encap = WTAP_ENCAP_ERF;
-  /* int_data.time_units_per_second = (1LL<<32);  ERF format resolution is 2^-32, capture resolution is unknown */
-  int_data.time_units_per_second = 1000000000; /* XXX Since Wireshark only supports down to nanosecond resolution we have to dilute to this */
-  int_data.link_type = wtap_wtap_encap_to_pcap_encap(WTAP_ENCAP_ERF);
-  int_data.snap_len = 65535; /* ERF max length */
-  int_data.opt_comment = NULL;
-  /* XXX: if_IPv4addr opt 4  Interface network address and netmask.*/
-  /* XXX: if_IPv6addr opt 5  Interface network address and prefix length (stored in the last byte).*/
-  /* XXX: if_MACaddr  opt 6  Interface Hardware MAC address (48 bits).*/
-  /* XXX: if_EUIaddr  opt 7  Interface Hardware EUI address (64 bits)*/
-  int_data.if_speed = 0; /* Unknown */
-  /* int_data.if_tsresol = 0xa0;  ERF format resolution is 2^-32 = 0xa0, capture resolution is unknown */
-  int_data.if_tsresol = 0x09; /* XXX Since Wireshark only supports down to nanosecond resolution we have to dilute to this */
-  /* XXX: if_tzone      10  Time zone for GMT support (TODO: specify better). */
-  int_data.if_filter_str = NULL;
-  int_data.bpf_filter_len = 0;
-  int_data.if_filter_bpf_bytes = NULL;
-  int_data.if_os = NULL;
-  int_data.if_fcslen = 0; /* unknown! */
-  /* XXX if_tsoffset; opt 14  A 64 bits integer value that specifies an offset (in seconds)...*/
-  /* Interface statistics */
-  int_data.num_stat_entries = 0;
-  int_data.interface_statistics = NULL;
-
   /* Preemptively create interface entries for 4 interfaces, since this is the max number in ERF */
   for (i=0; i<4; i++) {
-    int_data.if_name = g_strdup_printf("Port %c", 'A'+i);
-    int_data.if_description = g_strdup_printf("ERF Interface Id %d (Port %c)", i, 'A'+i);
+
+    int_data = wtap_optionblock_create(WTAP_OPTION_BLOCK_IF_DESCR);
+    int_data_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(int_data);
+
+    int_data_mand->wtap_encap = WTAP_ENCAP_ERF;
+    /* int_data.time_units_per_second = (1LL<<32);  ERF format resolution is 2^-32, capture resolution is unknown */
+    int_data_mand->time_units_per_second = 1000000000; /* XXX Since Wireshark only supports down to nanosecond resolution we have to dilute to this */
+    int_data_mand->link_type = wtap_wtap_encap_to_pcap_encap(WTAP_ENCAP_ERF);
+    int_data_mand->snap_len = 65535; /* ERF max length */
+
+    /* XXX: if_IPv4addr opt 4  Interface network address and netmask.*/
+    /* XXX: if_IPv6addr opt 5  Interface network address and prefix length (stored in the last byte).*/
+    /* XXX: if_MACaddr  opt 6  Interface Hardware MAC address (48 bits).*/
+    /* XXX: if_EUIaddr  opt 7  Interface Hardware EUI address (64 bits)*/
+    wtap_optionblock_set_option_uint64(int_data, OPT_IDB_SPEED, 0); /* Unknown  - XXX should be left at default? */
+    /* int_data.if_tsresol = 0xa0;  ERF format resolution is 2^-32 = 0xa0, capture resolution is unknown */
+    wtap_optionblock_set_option_uint8(int_data, OPT_IDB_TSRESOL, 0x09); /* XXX Since Wireshark only supports down to nanosecond resolution we have to dilute to this */
+
+    /* XXX: if_tzone      10  Time zone for GMT support (TODO: specify better). */
+
+    /* XXX if_tsoffset; opt 14  A 64 bits integer value that specifies an offset (in seconds)...*/
+    /* Interface statistics */
+    int_data_mand->num_stat_entries = 0;
+    int_data_mand->interface_statistics = NULL;
+
+    tmp = g_strdup_printf("Port %c", 'A'+i);
+    wtap_optionblock_set_option_string(int_data, OPT_IDB_NAME, tmp);
+    g_free(tmp);
+    tmp = g_strdup_printf("ERF Interface Id %d (Port %c)", i, 'A'+i);
+    wtap_optionblock_set_option_string(int_data, OPT_IDB_DESCR, tmp);
+    g_free(tmp);
 
     g_array_append_val(wth->interface_data, int_data);
   }

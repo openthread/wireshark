@@ -145,8 +145,6 @@ my %APIs = (
         # once they've been removed from all existing code.
         'soft-deprecated' => { 'count_errors' => 0, 'functions' => [
                 'tvb_length_remaining', # replaced with tvb_captured_length_remaining
-                'tvb_get_string', # replaced with tvb_get_string_enc
-                'tvb_get_stringz', # replaced with tvb_get_stringz_enc
 
                 # Locale-unsafe APIs
                 # These may have unexpected behaviors in some locales (e.g.,
@@ -1384,6 +1382,7 @@ my @ShadowVariable = (
         'index',
         'time',
         'strlen',
+        'system'
 );
 
 sub checkShadowVariable($$$)
@@ -1393,7 +1392,7 @@ sub checkShadowVariable($$$)
         for my $api ( @{$groupHashRef} )
         {
                 my $cnt = 0;
-                while (${$fileContentsRef} =~ m/ \s $api \s* [^\(\w] /gx)
+                while (${$fileContentsRef} =~ m/ \s $api \s*+ [^\(\w] /gx)
                 {
                         $cnt += 1;
                 }
@@ -1738,27 +1737,27 @@ sub check_hf_entries($$)
                         $errorCount++;
                 }
                 if ($name eq $abbrev) {
-                        print STDERR "Error: the abbreviation for $hf matches the field name in $filename\n";
+                        print STDERR "Error: the abbreviation for $hf ($abbrev) matches the field name ($name) in $filename\n";
                         $errorCount++;
                 }
                 if (lc($name) eq lc($blurb)) {
-                        print STDERR "Error: the blurb for $hf ($abbrev) matches the field name in $filename\n";
+                        print STDERR "Error: the blurb for $hf ($blurb) matches the field name ($name) in $filename\n";
                         $errorCount++;
                 }
                 if ($name =~ m/"\s+/) {
-                        print STDERR "Error: the name for $hf ($abbrev) has leading space in $filename\n";
+                        print STDERR "Error: the name for $hf ($name) has leading space in $filename\n";
                         $errorCount++;
                 }
                 if ($name =~ m/\s+"/) {
-                        print STDERR "Error: the name for $hf ($abbrev) has trailing space in $filename\n";
+                        print STDERR "Error: the name for $hf ($name) has trailing space in $filename\n";
                         $errorCount++;
                 }
                 if ($blurb =~ m/"\s+/) {
-                        print STDERR "Error: the blurb for $hf ($abbrev) has leading space in $filename\n";
+                        print STDERR "Error: the blurb for $hf ($blurb) has leading space in $filename\n";
                         $errorCount++;
                 }
                 if ($blurb =~ m/\s+"/) {
-                        print STDERR "Error: the blurb for $hf ($abbrev) has trailing space in $filename\n";
+                        print STDERR "Error: the blurb for $hf ($blurb) has trailing space in $filename\n";
                         $errorCount++;
                 }
                 if ($abbrev =~ m/\s+/) {

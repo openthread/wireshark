@@ -2078,7 +2078,7 @@ gint dissect_ulmap_ie( proto_tree *ie_tree, packet_info* pinfo, gint offset, gin
     return (nibble - offset);
 }
 
-static void dissect_mac_mgmt_msg_ulmap_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+static int dissect_mac_mgmt_msg_ulmap_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
     /* 6.3.2.3.4 [2] UL-MAP table 18 */
     guint offset = 0;
@@ -2118,6 +2118,7 @@ static void dissect_mac_mgmt_msg_ulmap_decoder(tvbuff_t *tvb, packet_info *pinfo
         proto_tree_add_bytes_format(ulmap_tree, hf_ulmap_padding, tvb, NIBHI(nib,1), NULL, "Padding nibble");
         nib++;
     }
+    return tvb_captured_length(tvb);
 }
 
 /*gint wimax_decode_ulmapc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)*/

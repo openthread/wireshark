@@ -141,8 +141,8 @@ tvb_aarpproaddr_to_str(tvbuff_t *tvb, gint offset, int ad_len, guint16 type)
 #define AR_OP           6
 #define MIN_AARP_HEADER_SIZE    8
 
-static void
-dissect_aarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_aarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   guint16     ar_hrd;
   guint16     ar_pro;
   guint8      ar_hln;
@@ -253,6 +253,7 @@ dissect_aarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
       }
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void

@@ -9,7 +9,7 @@
 %option nounput
 
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
 
@@ -18,6 +18,11 @@
  * can coexist with other scanners.
  */
 %option prefix="df_"
+
+/*
+ * We're reading from a string, so we don't need yywrap.
+ */
+%option noyywrap
 
 %{
 /*

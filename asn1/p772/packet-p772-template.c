@@ -59,8 +59,8 @@ static gint ett_p772 = -1;
 /*
 * Dissect STANAG 4406 PDUs inside a PPDU.
 */
-static void
-dissect_p772(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_p772(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	int offset = 0;
 	proto_item *item=NULL;
@@ -68,7 +68,7 @@ dissect_p772(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	asn1_ctx_t asn1_ctx;
 	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
-	if(parent_tree){
+	if (parent_tree) {
 		item = proto_tree_add_item(parent_tree, proto_p772, tvb, 0, -1, ENC_NA);
 		tree = proto_item_add_subtree(item, ett_p772);
 	}
@@ -77,6 +77,7 @@ dissect_p772(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	col_set_str(pinfo->cinfo, COL_INFO, "Military");
 
 	dissect_p772_InformationObject(TRUE, tvb, offset, &asn1_ctx , tree, -1);
+	return tvb_captured_length(tvb);
 }
 
 

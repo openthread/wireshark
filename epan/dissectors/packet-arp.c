@@ -26,6 +26,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/arptypes.h>
 #include <epan/addr_resolv.h>
 #include "packet-arp.h"
@@ -34,6 +35,7 @@
 #include <epan/ax25_pids.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 
 void proto_register_arp(void);
 void proto_reg_handoff_arp(void);
@@ -113,6 +115,7 @@ static guint32  global_arp_detect_request_storm_packets = 30;
 static guint32  global_arp_detect_request_storm_period = 100;
 
 static gboolean global_arp_detect_duplicate_ip_addresses = TRUE;
+static gboolean global_arp_register_network_address_binding = TRUE;
 
 static guint32  arp_request_count = 0;
 static nstime_t time_at_start_of_count;
@@ -385,14 +388,14 @@ arpproaddr_to_str(const guint8 *ad, int ad_len, guint16 type)
     return "<No address>";
   if (ARP_PRO_IS_IPv4(type, ad_len)) {
     /* IPv4 address.  */
-    SET_ADDRESS(&addr, AT_IPv4, 4, ad);
+    set_address(&addr, AT_IPv4, 4, ad);
 
     return address_to_str(wmem_packet_scope(), &addr);
   }
   if (ARP_HW_IS_AX25(type, ad_len)) {
     {
     /* AX.25 address */
-    SET_ADDRESS(&addr, AT_AX25, AX25_ADDR_LEN, ad);
+    set_address(&addr, AT_AX25, AX25_ADDR_LEN, ad);
 
     return address_to_str(wmem_packet_scope(), &addr);
     }
@@ -644,7 +647,7 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
 {
   address_hash_value   *value;
   address_hash_value   *result     = NULL;
-  duplicate_result_key  result_key = {pinfo->fd->num, ip};
+  duplicate_result_key  result_key = {pinfo->num, ip};
 
   /* Look up existing result */
   if (pinfo->fd->flags.visited) {
@@ -661,13 +664,13 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
       /* If MAC matches table, just update details */
       if (value != NULL)
       {
-        if (pinfo->fd->num > value->frame_num)
+        if (pinfo->num > value->frame_num)
         {
           if ((memcmp(value->mac, mac, 6) == 0))
           {
             /* Same MAC as before - update existing entry */
-            value->frame_num = pinfo->fd->num;
-            value->time_of_entry = pinfo->fd->abs_ts.secs;
+            value->frame_num = pinfo->num;
+            value->time_of_entry = pinfo->abs_ts.secs;
           }
           else
           {
@@ -687,8 +690,8 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
         /* No existing entry. Prepare one */
         value = wmem_new(wmem_file_scope(), struct address_hash_value);
         memcpy(value->mac, mac, 6);
-        value->frame_num = pinfo->fd->num;
-        value->time_of_entry = pinfo->fd->abs_ts.secs;
+        value->frame_num = pinfo->num;
+        value->time_of_entry = pinfo->abs_ts.secs;
 
         /* Add it */
         g_hash_table_insert(address_hash_table, GUINT_TO_POINTER(ip), value);
@@ -701,8 +704,8 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
     proto_item *ti;
     address mac_addr, result_mac_addr;
 
-    SET_ADDRESS(&mac_addr, AT_ETHER, 6, mac);
-    SET_ADDRESS(&result_mac_addr, AT_ETHER, 6, result->mac);
+    set_address(&mac_addr, AT_ETHER, 6, mac);
+    set_address(&result_mac_addr, AT_ETHER, 6, result->mac);
 
     /* Create subtree */
     duplicate_tree = proto_tree_add_subtree_format(tree, tvb, 0, 0, ett_arp_duplicate_address, &ti,
@@ -726,7 +729,7 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
     ti = proto_tree_add_uint(duplicate_tree,
                              hf_arp_duplicate_ip_address_seconds_since_earlier_frame,
                              tvb, 0, 0,
-                             (guint32)(pinfo->fd->abs_ts.secs - result->time_of_entry));
+                             (guint32)(pinfo->abs_ts.secs - result->time_of_entry));
     PROTO_ITEM_SET_GENERATED(ti);
 
     /* Set out parameter */
@@ -784,8 +787,8 @@ check_for_storm_count(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   else
   {
     /* Seeing packet for first time - check against preference settings */
-    gint seconds_delta  = (gint) (pinfo->fd->abs_ts.secs - time_at_start_of_count.secs);
-    gint nseconds_delta = pinfo->fd->abs_ts.nsecs - time_at_start_of_count.nsecs;
+    gint seconds_delta  = (gint) (pinfo->abs_ts.secs - time_at_start_of_count.secs);
+    gint nseconds_delta = pinfo->abs_ts.nsecs - time_at_start_of_count.nsecs;
     gint gap = (seconds_delta*1000) + (nseconds_delta / 1000000);
 
     /* Reset if gap exceeds period or -ve gap (indicates we're rescanning from start) */
@@ -794,7 +797,7 @@ check_for_storm_count(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
       /* Time period elapsed without threshold being exceeded */
       arp_request_count = 1;
-      time_at_start_of_count = pinfo->fd->abs_ts;
+      time_at_start_of_count = pinfo->abs_ts;
       p_add_proto_data(wmem_file_scope(), pinfo, proto_arp, 0, (void*)NO_STORM);
       return;
     }
@@ -804,7 +807,7 @@ check_for_storm_count(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         /* Storm detected, record and reset start time. */
         report_storm = TRUE;
         p_add_proto_data(wmem_file_scope(), pinfo, proto_arp, 0, (void*)STORM);
-        time_at_start_of_count = pinfo->fd->abs_ts;
+        time_at_start_of_count = pinfo->abs_ts;
       }
       else
       {
@@ -828,8 +831,8 @@ check_for_storm_count(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 /*
  * RFC 2225 ATMARP - it's just like ARP, except where it isn't.
  */
-static void
-dissect_atmarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_atmarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint16       ar_hrd;
   guint16       ar_pro;
@@ -853,9 +856,6 @@ dissect_atmarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   const gchar  *sha_str, *ssa_str, *spa_str;
   const gchar  *tha_str, *tsa_str, *tpa_str;
   proto_tree   *tl_tree;
-
-  /* Override the setting to "ARP/RARP". */
-  pinfo->current_proto = "ATMARP";
 
   ar_hrd = tvb_get_ntohs(tvb, ATM_AR_HRD);
   ar_pro = tvb_get_ntohs(tvb, ATM_AR_PRO);
@@ -1188,13 +1188,14 @@ dissect_atmarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                           tvb, tpa_offset, ar_tpln, ENC_BIG_ENDIAN);
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 /*
  * AX.25 ARP - it's just like ARP, except where it isn't.
  */
-static void
-dissect_ax25arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ax25arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 #define ARP_AX25 204
 
@@ -1357,12 +1358,20 @@ dissect_ax25arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   {
     check_for_storm_count(tvb, pinfo, arp_tree);
   }
+  return tvb_captured_length(tvb);
+}
+
+gboolean
+capture_arp(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+{
+  capture_dissector_increment_count(cpinfo, proto_arp);
+  return TRUE;
 }
 
 static const guint8 mac_allzero[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-static void
-dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint16       ar_hrd;
   guint16       ar_pro;
@@ -1391,11 +1400,11 @@ dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   ar_hrd = tvb_get_ntohs(tvb, AR_HRD);
   if (ar_hrd == ARPHRD_ATM2225) {
     call_dissector(atmarp_handle, tvb, pinfo, tree);
-    return;
+    return tvb_captured_length(tvb);
   }
   if (ar_hrd == ARPHRD_AX25) {
     call_dissector(ax25arp_handle, tvb, pinfo, tree);
-    return;
+    return tvb_captured_length(tvb);
   }
   /* Protocol Address Type */
   ar_pro = tvb_get_ntohs(tvb, AR_PRO);
@@ -1488,7 +1497,10 @@ dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     mac = tvb_get_ptr(tvb, sha_offset, 6);
     if ((mac[0] & 0x01) == 0 && memcmp(mac, mac_allzero, 6) != 0 && ip != 0)
     {
-      add_ether_byip(ip, mac);
+      if (global_arp_register_network_address_binding)
+      {
+        add_ether_byip(ip, mac);
+      }
       if (global_arp_detect_duplicate_ip_addresses)
       {
         duplicate_detected =
@@ -1510,7 +1522,10 @@ dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if ((mac[0] & 0x01) == 0 && memcmp(mac, mac_allzero, 6) != 0 && ip != 0
         && ar_op != ARPOP_REQUEST)
     {
-      add_ether_byip(ip, mac);
+      if (global_arp_register_network_address_binding)
+      {
+        add_ether_byip(ip, mac);
+      }
       /* If Gratuitous, don't report duplicate for same IP address twice */
       if (global_arp_detect_duplicate_ip_addresses && (duplicate_ip!=ip))
       {
@@ -1745,6 +1760,7 @@ dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     col_append_fstr(pinfo->cinfo, COL_INFO, " (duplicate use of %s detected!)",
                     arpproaddr_to_str((guint8*)&duplicate_ip, 4, ETHERTYPE_IP));
   }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -1957,16 +1973,20 @@ proto_register_arp(void)
 
   module_t *arp_module;
   expert_module_t* expert_arp;
+  int proto_atmarp;
 
   proto_arp = proto_register_protocol("Address Resolution Protocol",
                                       "ARP/RARP", "arp");
+  proto_atmarp = proto_register_protocol("ATM Address Resolution Protocol",
+                                      "ATMARP", "atmarp");
+
   proto_register_field_array(proto_arp, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
   expert_arp = expert_register_protocol(proto_arp);
   expert_register_field_array(expert_arp, ei, array_length(ei));
 
-  atmarp_handle = create_dissector_handle(dissect_atmarp, proto_arp);
+  atmarp_handle = create_dissector_handle(dissect_atmarp, proto_atmarp);
   ax25arp_handle = create_dissector_handle(dissect_ax25arp, proto_arp);
 
   arp_handle = register_dissector( "arp" , dissect_arp, proto_arp );
@@ -1994,6 +2014,11 @@ proto_register_arp(void)
                                  "Attempt to detect duplicate use of IP addresses",
                                  &global_arp_detect_duplicate_ip_addresses);
 
+  prefs_register_bool_preference(arp_module, "register_network_address_binding",
+                                 "Register network address mappings",
+                                 "Try to resolve physical addresses to host names from ARP requests/responses",
+                                 &global_arp_register_network_address_binding);
+
   /* TODO: define a minimum time between sightings that is worth reporting? */
 
   register_init_routine(&arp_init_protocol);
@@ -2009,6 +2034,8 @@ proto_reg_handoff_arp(void)
   dissector_add_uint("arcnet.protocol_id", ARCNET_PROTO_ARP_1201, arp_handle);
   dissector_add_uint("arcnet.protocol_id", ARCNET_PROTO_RARP_1201, arp_handle);
   dissector_add_uint("ax25.pid", AX25_P_ARP, arp_handle);
+  register_capture_dissector("ethertype", ETHERTYPE_ARP, capture_arp, proto_arp);
+  register_capture_dissector("ax25.pid", AX25_P_ARP, capture_arp, proto_arp);
 }
 
 /*

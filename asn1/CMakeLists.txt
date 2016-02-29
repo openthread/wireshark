@@ -19,6 +19,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
+ADD_CUSTOM_CMAKE_INCLUDE()
 
 set(ASN1_SRC_DIRS
 	HI2Operations
@@ -123,6 +124,7 @@ set(ASN1_SRC_DIRS
 	x509ce
 	x509if
 	x509sat
+	${CUSTOM_ASN1_SRC_DIR}
 )
 
 set( BROKEN_ASN1_SRC_DIRS
@@ -130,7 +132,11 @@ set( BROKEN_ASN1_SRC_DIRS
 	x721
 )
 
+set(_asn1_deps)
 foreach(ASN1_DIR ${ASN1_SRC_DIRS})
 	add_subdirectory( ${ASN1_DIR} )
+	list(APPEND _asn1_deps ${ASN1_DIR}/generate_dissector-${ASN1_DIR})
 endforeach()
 
+# Target to regenerate all outdated ASN.1 dissectors
+add_custom_target(asn1 DEPENDS ${_asn1_deps})

@@ -99,8 +99,8 @@ dissect_dccrsp_cm_jump_time (tvbuff_t * tvb, proto_tree * tree, int start, guint
     }
 }
 
-static void
-dissect_dccrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_dccrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   guint16 pos;
   guint8 type, length;
@@ -158,6 +158,7 @@ dissect_dccrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
         }                       /* while (pos < len) */
     }                           /* if (tree) */
 
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

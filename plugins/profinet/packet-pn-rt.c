@@ -323,8 +323,6 @@ dissect_CSF_SDU_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
     return FALSE;
 
 }
-static void
-dissect_pn_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 
 /* for reasemble processing we need some inits.. */
 /* Register PNIO defrag table init routine.      */
@@ -418,7 +416,7 @@ dissect_FRAG_PDU_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
             if (uFragNumber == 0)
             { /* this is the first "new" fragment, so set up a new key Id */
                 guint32 u32FrameKey;
-                u32FrameKey = (pinfo->fd->num << 2) | u32FragID;
+                u32FrameKey = (pinfo->num << 2) | u32FragID;
                 /* store it in the array */
                 start_frag_OR_ID[u32FragID] = u32FrameKey;
             }
@@ -430,12 +428,12 @@ dissect_FRAG_PDU_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
 
             if (pdu_frag && !bMoreFollows) /* PDU is complete! and last fragment */
             {   /* store this fragment as the completed fragment in hash table */
-                g_hash_table_insert(reasembled_frag_table, GUINT_TO_POINTER(pinfo->fd->num), pdu_frag);
+                g_hash_table_insert(reasembled_frag_table, GUINT_TO_POINTER(pinfo->num), pdu_frag);
                 start_frag_OR_ID[u32FragID] = 0; /* reset the starting frame counter */
             }
             if (!bMoreFollows) /* last fragment */
             {
-                pdu_frag = (fragment_head *)g_hash_table_lookup(reasembled_frag_table, GUINT_TO_POINTER(pinfo->fd->num));
+                pdu_frag = (fragment_head *)g_hash_table_lookup(reasembled_frag_table, GUINT_TO_POINTER(pinfo->num));
                 if (pdu_frag)    /* found a matching fragment; dissect it */
                 {
                     guint16   type;
@@ -464,8 +462,8 @@ dissect_FRAG_PDU_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
 /*
  * dissect_pn_rt - The dissector for the Soft-Real-Time protocol
  */
-static void
-dissect_pn_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pn_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gint         pdu_len;
     gint         data_len;
@@ -520,7 +518,7 @@ dissect_pn_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     pdu_len = tvb_reported_length(tvb);
     if (pdu_len < 6) {
         dissect_pn_malformed(tvb, 0, pinfo, tree, pdu_len);
-        return;
+        return 0;
     }
 
     /* build some "raw" data */
@@ -797,6 +795,7 @@ dissect_pn_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         /* Oh, well, we don't know this; dissect it as data. */
         dissect_pn_undecoded(next_tvb, 0, pinfo, tree, tvb_captured_length(next_tvb));
     }
+    return tvb_captured_length(tvb);
 }
 
 

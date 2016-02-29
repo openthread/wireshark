@@ -1,13 +1,13 @@
 -- MAP-LCS-DataTypes.asn
 --
--- Taken from 3GPP TS 29.002  V12.3.0 (2013-12) 
+-- Taken from 3GPP TS 29.002  V13.2.0 (2015-12)
 --
 -- 17.7.13 Location service data types
 --
 
 MAP-LCS-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-LCS-DataTypes (25) version15 (15)}
+   gsm-Network (1) modules (3) map-LCS-DataTypes (25) version16 (16)}
 
 DEFINITIONS
 IMPLICIT TAGS
@@ -59,30 +59,30 @@ PLMN-Id,
 	DiameterIdentity
 FROM MAP-CommonDataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-CommonDataTypes (18) version15 (15)}
+   gsm-Network (1) modules (3) map-CommonDataTypes (18) version16 (16)}
 
 	ExtensionContainer,
 	SLR-ArgExtensionContainer
 FROM MAP-ExtensionDataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-ExtensionDataTypes (21) version15 (15)}
+   gsm-Network (1) modules (3) map-ExtensionDataTypes (21) version16 (16)}
 
 	USSD-DataCodingScheme,
 USSD-String
 FROM MAP-SS-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0) gsm-Network (1) modules (3)
-   map-SS-DataTypes (14) version15 (15)}
+   map-SS-DataTypes (14) version16 (16)}
 
 	APN,
 	SupportedLCS-CapabilitySets
 FROM MAP-MS-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-MS-DataTypes (11) version15 (15)}
+   gsm-Network (1) modules (3) map-MS-DataTypes (11) version16 (16)}
 
 	Additional-Number
 FROM MAP-SM-DataTypes {
    itu-t identified-organization (4) etsi (0) mobileDomain (0)
-   gsm-Network (1) modules (3) map-SM-DataTypes (16) version15 (15)}
+   gsm-Network (1) modules (3) map-SM-DataTypes (16) version16 (16)}
 ;
 
 
@@ -410,7 +410,10 @@ ProvideSubscriberLocation-Res ::= SEQUENCE {
 	velocityEstimate	[9] VelocityEstimate	OPTIONAL,
 	mo-lrShortCircuitIndicator	[10] NULL		OPTIONAL,
 	geranGANSSpositioningData	[11] GeranGANSSpositioningData	OPTIONAL,
-	utranGANSSpositioningData	[12] UtranGANSSpositioningData	OPTIONAL,	targetServingNodeForHandover	[13] ServingNodeAddress	OPTIONAL }
+	utranGANSSpositioningData	[12] UtranGANSSpositioningData	OPTIONAL,	targetServingNodeForHandover	[13] ServingNodeAddress	OPTIONAL,
+	utranAdditionalPositioningData	[14] UtranAdditionalPositioningData	OPTIONAL,
+	utranBaroPressureMeas	[15] UtranBaroPressureMeas	OPTIONAL,
+	utranCivicAddress	[16] UtranCivicAddress	OPTIONAL }
 
 --	if deferredmt-lrResponseIndicator is set, locationEstimate is ignored.
 
@@ -551,6 +554,23 @@ UtranGANSSpositioningData ::= OCTET STRING (SIZE (1..maxUtranGANSSpositioningDat
 maxUtranGANSSpositioningData INTEGER ::= 9
 	-- 
 
+UtranAdditionalPositioningData ::= OCTET STRING (SIZE (1..maxUtranAdditionalPositioningData))
+	-- Refers to the Position Data defined in 3GPP TS 25.413.
+	-- This is composed of the Additional-PositioningDataSet only, included in PositionData
+	-- as defined in 3GPP TS 25.413.
+
+maxUtranAdditionalPositioningData INTEGER ::= 8
+	-- 
+
+UtranBaroPressureMeas ::= INTEGER (30000..115000)
+	-- Refers to the barometric pressure measurement defined in 3GPP TS 25.413.
+	-- This is composed of the BarometricPressureMeasurement only as defined in 3GPP TS
+	-- 25.413. 
+
+UtranCivicAddress ::= OCTET STRING 
+	-- Refers to the civic address defined in 3GPP TS 25.413.
+	-- This is composed of the CivicAddress only as defined in 3GPP TS 25.413.
+
 Add-GeographicalInformation ::= OCTET STRING (SIZE (1..maxAdd-GeographicalInformation))
 	-- Refers to geographical Information defined in 3GPP TS 23.032.
 	-- This is composed of 1 or more octets with an internal structure according to 
@@ -602,7 +622,10 @@ SubscriberLocationReport-Arg ::= SEQUENCE {
 	mo-lrShortCircuitIndicator	[23] NULL		OPTIONAL,
 	geranGANSSpositioningData	[24] GeranGANSSpositioningData	OPTIONAL,
 	utranGANSSpositioningData	[25] UtranGANSSpositioningData	OPTIONAL,
-	targetServingNodeForHandover	[26] ServingNodeAddress	OPTIONAL }
+	targetServingNodeForHandover	[26] ServingNodeAddress	OPTIONAL,
+	utranAdditionalPositioningData	[27] UtranAdditionalPositioningData	OPTIONAL,
+	utranBaroPressureMeas 	[28] UtranBaroPressureMeas	OPTIONAL,
+	utranCivicAddress	[29] UtranCivicAddress	OPTIONAL }
 
 	-- one of msisdn or imsi is mandatory
 	-- a location estimate that is valid for the locationEstimate parameter should 

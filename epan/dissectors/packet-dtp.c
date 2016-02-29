@@ -154,8 +154,8 @@ static const value_string dtp_tat_vals[] = {
 	{ 0,			NULL }
 };
 
-static void
-dissect_dtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *dtp_tree;
@@ -205,6 +205,7 @@ dissect_dtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dissect_dtp_tlv(pinfo, tvb, offset, valuelength, tlv_tree, ti, tlv_length_item, (guint8) type);
 		offset += valuelength;
 	}
+	return tvb_captured_length(tvb);
 }
 
 static void

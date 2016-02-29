@@ -35,6 +35,8 @@
 #include <epan/tap.h>
 #include <epan/to_str.h>
 
+#include <wsutil/str_util.h>
+
 #include "packet-mtp3.h"
 #include "packet-sccp.h"
 void proto_register_sua(void);
@@ -2241,14 +2243,14 @@ dissect_sua_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *sua_t
 
   if (set_addresses) {
     if (sua_opc->type)
-      SET_ADDRESS(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) sua_opc);
+      set_address(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) sua_opc);
     if (sua_dpc->type)
-      SET_ADDRESS(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) sua_dpc);
+      set_address(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) sua_dpc);
 
     if (sua_source_gt)
-      SET_ADDRESS(&pinfo->src, AT_STRINGZ, 1+(int)strlen(sua_source_gt), wmem_strdup(pinfo->pool, sua_source_gt));
+      set_address(&pinfo->src, AT_STRINGZ, 1+(int)strlen(sua_source_gt), wmem_strdup(pinfo->pool, sua_source_gt));
     if (sua_destination_gt)
-      SET_ADDRESS(&pinfo->dst, AT_STRINGZ, 1+(int)strlen(sua_destination_gt), wmem_strdup(pinfo->pool, sua_destination_gt));
+      set_address(&pinfo->dst, AT_STRINGZ, 1+(int)strlen(sua_destination_gt), wmem_strdup(pinfo->pool, sua_destination_gt));
   }
 
   /* If there was SUA data it could be dissected */
@@ -2270,8 +2272,8 @@ dissect_sua_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *sua_t
   }
 }
 
-static void
-dissect_sua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *sua_item;
   proto_tree *sua_tree;
@@ -2290,19 +2292,13 @@ dissect_sua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
   /* Clear entries in Info column on summary display */
   col_clear(pinfo->cinfo, COL_INFO);
 
-  /* In the interest of speed, if "tree" is NULL, don't do any work not
-     necessary to generate protocol tree items. */
-  if (tree) {
-    /* create the sua protocol tree */
-    sua_item = proto_tree_add_item(tree, proto_sua, message_tvb, 0, -1, ENC_NA);
-    sua_tree = proto_item_add_subtree(sua_item, ett_sua);
-  } else {
-    sua_tree = NULL;
-  }
+  /* create the sua protocol tree */
+  sua_item = proto_tree_add_item(tree, proto_sua, message_tvb, 0, -1, ENC_NA);
+  sua_tree = proto_item_add_subtree(sua_item, ett_sua);
 
   /* dissect the message */
   dissect_sua_message(message_tvb, pinfo, sua_tree, tree);
-
+  return tvb_captured_length(message_tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -2472,7 +2468,7 @@ proto_register_sua(void)
                                  "  This may affect TCAP's ability to recognize which messages belong to which TCAP session.", &set_addresses);
 
   heur_subdissector_list = register_heur_dissector_list("sua");
-  sua_parameter_table = register_dissector_table("sua.prop.tags", "SUA Proprietary Tags", FT_UINT16, BASE_DEC);
+  sua_parameter_table = register_dissector_table("sua.prop.tags", "SUA Proprietary Tags", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
   sua_tap = register_tap("sua");
 
   assocs = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());

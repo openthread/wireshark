@@ -34,9 +34,9 @@
 
 #include "ui/tap-sequence-analysis.h"
 
+#include "geometry_state_dialog.h"
 #include "sequence_diagram.h"
 
-#include <QDialog>
 #include <QMenu>
 
 namespace Ui
@@ -44,7 +44,7 @@ namespace Ui
     class LBMUIMFlowDialog;
 }
 
-class LBMUIMFlowDialog : public QDialog
+class LBMUIMFlowDialog : public GeometryStateDialog
 {
         Q_OBJECT
 
@@ -110,10 +110,10 @@ class LBMUIMFlowDialog : public QDialog
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

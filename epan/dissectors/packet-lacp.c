@@ -113,8 +113,8 @@ static gint ett_lacp_p_flags = -1;
  *
  * Notes:
  */
-static void
-dissect_lacp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_lacp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int     offset = 0;
     guint16 raw_word;
@@ -314,6 +314,7 @@ dissect_lacp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_item(lacpdu_tree, hf_lacp_term_reserved, tvb,
                 offset, 50, ENC_NA);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

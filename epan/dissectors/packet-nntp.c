@@ -36,8 +36,8 @@ static gint ett_nntp = -1;
 
 #define TCP_PORT_NNTP			119
 
-static void
-dissect_nntp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nntp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	const gchar     *type;
 	proto_tree	*nntp_tree;
@@ -101,6 +101,7 @@ dissect_nntp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			offset = next_offset;
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

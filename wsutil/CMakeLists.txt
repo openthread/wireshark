@@ -36,7 +36,6 @@ set(WSUTIL_FILES
 	base64.c
 	bitswap.c
 	buffer.c
-	cfutils.c
 	clopts_common.c
 	cmdarg_err.c
 	copyright_info.c
@@ -54,6 +53,7 @@ set(WSUTIL_FILES
 	filesystem.c
 	frequency-utils.c
 	g711.c
+	inet_addr.c
 	jsmn.c
 	md4.c
 	md5.c
@@ -63,6 +63,7 @@ set(WSUTIL_FILES
 	plugins.c
 	privileges.c
 	sha1.c
+	sha2.c
 	sober128.c
 	strnatcmp.c
 	str_util.c
@@ -77,6 +78,10 @@ set(WSUTIL_FILES
 	ws_version_info.c
 	${WSUTIL_PLATFORM_FILES}
 )
+
+if(HAVE_OS_X_FRAMEWORKS)
+	set(WSUTIL_FILES ${WSUTIL_FILES} cfutils.c)
+endif()
 
 #
 # XXX - we're assuming MSVC doesn't require a flag to enable SSE 4.2
@@ -165,6 +170,7 @@ if(APPLE)
 endif()
 
 set(wsutil_LIBS
+	${CMAKE_DL_LIBS}
 	${APPLE_CORE_FOUNDATION_LIBRARY}
 	${GMODULE2_LIBRARIES}
 	${GLIB2_LIBRARIES}
@@ -179,11 +185,11 @@ set(CLEAN_FILES
 	${WSUTIL_FILES}
 )
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${CLEAN_FILES}
 		PROPERTIES
-		COMPILE_FLAGS -Werror
+		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
 	)
 else()
 	#

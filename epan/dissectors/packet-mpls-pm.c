@@ -660,22 +660,24 @@ dissect_mpls_pm_loss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 }
 
-static void
-dissect_mpls_pm_dlm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpls_pm_dlm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* the message formats for direct and inferred LM are identical */
     dissect_mpls_pm_loss(tvb, pinfo, tree, DLM);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_mpls_pm_ilm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpls_pm_ilm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* the message formats for direct and inferred LM are identical */
     dissect_mpls_pm_loss(tvb, pinfo, tree, ILM);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_mpls_pm_delay(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpls_pm_delay(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *pm_tree;
@@ -693,10 +695,6 @@ dissect_mpls_pm_delay(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     mpls_pm_build_cinfo(tvb, pinfo,
                         "DM",
                         &query, &response, &class_specific, &sid, &code);
-
-    if (!tree) {
-        return;
-    }
 
     /* create display subtree for the protocol */
     ti = proto_tree_add_item(tree, proto_mpls_pm_dm, tvb, 0, -1, ENC_NA);
@@ -758,6 +756,7 @@ dissect_mpls_pm_delay(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         mpls_pm_dissect_timestamp(tvb, pm_tree, offset, qtf, rtf, query, i);
         offset += 8;
     }
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -878,18 +877,20 @@ dissect_mpls_pm_combined(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 }
 
-static void
-dissect_mpls_pm_dlm_dm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpls_pm_dlm_dm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* the formats of the DLM+DM and ILM+DM messages are also identical */
     dissect_mpls_pm_combined(tvb, pinfo, tree, DLMDM);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_mpls_pm_ilm_dm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpls_pm_ilm_dm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* the formats of the DLM+DM and ILM+DM messages are also identical */
     dissect_mpls_pm_combined(tvb, pinfo, tree, ILMDM);
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -1053,7 +1054,7 @@ proto_register_mpls_pm(void)
             {
                 "Origin Timestamp",
                 "mpls_pm.origin.timestamp.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }
@@ -1223,7 +1224,7 @@ proto_register_mpls_pm(void)
             {
                 "Timestamp 1 (T1)",
                 "mpls_pm.timestamp1.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }
@@ -1233,7 +1234,7 @@ proto_register_mpls_pm(void)
             {
                 "Timestamp 1 (T3)",
                 "mpls_pm.timestamp1.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }
@@ -1313,7 +1314,7 @@ proto_register_mpls_pm(void)
             {
                 "Timestamp 2 (T2)",
                 "mpls_pm.timestamp2.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }
@@ -1323,7 +1324,7 @@ proto_register_mpls_pm(void)
             {
                 "Timestamp 2 (T4)",
                 "mpls_pm.timestamp2.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }
@@ -1393,7 +1394,7 @@ proto_register_mpls_pm(void)
             {
                 "Timestamp 3 (T1)",
                 "mpls_pm.timestamp3.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }
@@ -1453,7 +1454,7 @@ proto_register_mpls_pm(void)
             {
                 "Timestamp 4 (T2)",
                 "mpls_pm.timestamp4.ntp",
-                FT_RELATIVE_TIME, BASE_NONE,
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC,
                 NULL, 0x0,
                 NULL, HFILL
             }

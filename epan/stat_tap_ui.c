@@ -133,13 +133,13 @@ static GSList *registered_stat_tables = NULL;
 static gint
 insert_sorted_by_cli_string(gconstpointer aparam, gconstpointer bparam)
 {
-    const new_stat_tap_ui *a = (new_stat_tap_ui *)aparam;
-    const new_stat_tap_ui *b = (new_stat_tap_ui *)bparam;
+    const stat_tap_table_ui *a = (const stat_tap_table_ui *)aparam;
+    const stat_tap_table_ui *b = (const stat_tap_table_ui *)bparam;
 
     return g_ascii_strcasecmp(a->cli_string, b->cli_string);
 }
 
-void register_new_stat_tap_ui(new_stat_tap_ui *ui)
+void register_stat_tap_table_ui(stat_tap_table_ui *ui)
 {
     registered_stat_tables = g_slist_insert_sorted(registered_stat_tables, ui, insert_sorted_by_cli_string);
 }
@@ -149,7 +149,7 @@ void new_stat_tap_iterate_tables(GFunc func, gpointer user_data)
     g_slist_foreach(registered_stat_tables, func, user_data);
 }
 
-void new_stat_tap_get_filter(new_stat_tap_ui* new_stat, const char *opt_arg, const char **filter, char** err)
+void new_stat_tap_get_filter(stat_tap_table_ui* new_stat, const char *opt_arg, const char **filter, char** err)
 {
     guint len = (guint) strlen(new_stat->cli_string);
     *filter=NULL;
@@ -163,14 +163,14 @@ void new_stat_tap_get_filter(new_stat_tap_ui* new_stat, const char *opt_arg, con
         }
     }
 
-    if (new_stat->new_stat_filter_check_cb)
-        new_stat->new_stat_filter_check_cb(opt_arg, filter, err);
+    if (new_stat->stat_filter_check_cb)
+        new_stat->stat_filter_check_cb(opt_arg, filter, err);
 }
 
-new_stat_tap_table* new_stat_tap_init_table(const char *name, int num_fields, int num_elements,
+stat_tap_table* new_stat_tap_init_table(const char *name, int num_fields, int num_elements,
                 const char *filter_string, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
-    new_stat_tap_table* new_table = g_new0(new_stat_tap_table, 1);
+    stat_tap_table* new_table = g_new0(stat_tap_table, 1);
 
     new_table->title = name;
     new_table->num_elements = num_elements;
@@ -184,15 +184,15 @@ new_stat_tap_table* new_stat_tap_init_table(const char *name, int num_fields, in
     return new_table;
 }
 
-void new_stat_tap_add_table(new_stat_tap_ui* new_stat, new_stat_tap_table* table)
+void new_stat_tap_add_table(stat_tap_table_ui* new_stat, stat_tap_table* table)
 {
     if (new_stat->tables == NULL)
-        new_stat->tables = g_array_new(FALSE, TRUE, sizeof(new_stat_tap_table*));
+        new_stat->tables = g_array_new(FALSE, TRUE, sizeof(stat_tap_table*));
 
     g_array_insert_val(new_stat->tables, new_stat->tables->len, table);
 }
 
-void new_stat_tap_init_table_row(new_stat_tap_table *stat_table, guint table_index, guint num_fields, const stat_tap_table_item_type* fields)
+void new_stat_tap_init_table_row(stat_tap_table *stat_table, guint table_index, guint num_fields, const stat_tap_table_item_type* fields)
 {
     /* we have discovered a new procedure. Extend the table accordingly */
     if(table_index>=stat_table->num_elements){
@@ -209,7 +209,7 @@ void new_stat_tap_init_table_row(new_stat_tap_table *stat_table, guint table_ind
 
 }
 
-stat_tap_table_item_type* new_stat_tap_get_field_data(const new_stat_tap_table *stat_table, guint table_index, guint field_index)
+stat_tap_table_item_type* new_stat_tap_get_field_data(const stat_tap_table *stat_table, guint table_index, guint field_index)
 {
     stat_tap_table_item_type* field_value;
     g_assert(table_index < stat_table->num_elements);
@@ -221,7 +221,7 @@ stat_tap_table_item_type* new_stat_tap_get_field_data(const new_stat_tap_table *
     return &field_value[field_index];
 }
 
-void new_stat_tap_set_field_data(new_stat_tap_table *stat_table, guint table_index, guint field_index, stat_tap_table_item_type* field_data)
+void new_stat_tap_set_field_data(stat_tap_table *stat_table, guint table_index, guint field_index, stat_tap_table_item_type* field_data)
 {
     stat_tap_table_item_type* field_value;
     g_assert(table_index < stat_table->num_elements);
@@ -233,14 +233,14 @@ void new_stat_tap_set_field_data(new_stat_tap_table *stat_table, guint table_ind
     field_value[field_index] = *field_data;
 }
 
-void reset_stat_table(new_stat_tap_ui* new_stat, new_stat_tap_gui_reset_cb gui_callback, void *callback_data)
+void reset_stat_table(stat_tap_table_ui* new_stat, new_stat_tap_gui_reset_cb gui_callback, void *callback_data)
 {
     guint i = 0;
-    new_stat_tap_table *stat_table;
+    stat_tap_table *stat_table;
 
     for (i = 0; i < new_stat->tables->len; i++)
     {
-        stat_table = g_array_index(new_stat->tables, new_stat_tap_table*, i);
+        stat_table = g_array_index(new_stat->tables, stat_tap_table*, i);
 
         /* Give GUI the first crack at it before we clean up */
         if (gui_callback)
@@ -251,15 +251,15 @@ void reset_stat_table(new_stat_tap_ui* new_stat, new_stat_tap_gui_reset_cb gui_c
     }
 }
 
-void free_stat_tables(new_stat_tap_ui* new_stat, new_stat_tap_gui_free_cb gui_callback, void *callback_data)
+void free_stat_tables(stat_tap_table_ui* new_stat, new_stat_tap_gui_free_cb gui_callback, void *callback_data)
 {
     guint i = 0, element, field_index;
-    new_stat_tap_table *stat_table;
+    stat_tap_table *stat_table;
     stat_tap_table_item_type* field_data;
 
     for (i = 0; i < new_stat->tables->len; i++)
     {
-        stat_table = g_array_index(new_stat->tables, new_stat_tap_table*, i);
+        stat_table = g_array_index(new_stat->tables, stat_tap_table*, i);
 
         /* Give GUI the first crack at it before we clean up */
         if (gui_callback)

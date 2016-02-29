@@ -22,10 +22,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <string.h>
 
 #include <gtk/gtk.h>
@@ -35,8 +31,7 @@
 #include <epan/prefs.h>
 
 #include "globals.h"
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 
 #include <wsutil/file_util.h>
 
@@ -44,6 +39,7 @@
 
 #include "ui/util.h"
 #include "ui/alert_box.h"
+#include "ui/simple_dialog.h"
 #include "ui/file_dialog.h"
 #include "ui/recent.h"
 #include "ui/ui_util.h"
@@ -1009,7 +1005,7 @@ file_merge_cmd(GtkWidget *w _U_)
       /* Attach the new read filter to "cf" ("cf_open()" succeeded, so
          it closed the previous capture file, and thus destroyed any
          previous read filter attached to "cf"). */
-      cfile.rfcode = rfcode;
+      cf_set_rfcode(&cfile, rfcode);
 
       switch (cf_read(&cfile, FALSE)) {
 
@@ -2249,7 +2245,7 @@ file_color_import_cmd_cb(GtkWidget *color_filters, gpointer filter_list _U_)
   win32_import_color_file(GDK_WINDOW_HWND(gtk_widget_get_window(top_level)), color_filters);
 #else /* USE_WIN32_FILE_DIALOGS */
   GtkWidget *main_vb, *cfglobal_but;
-  gchar     *cf_name, *s;
+  gchar     *cf_name, *s, *err_msg = NULL;
 
   /* No Apply button, and "OK" just sets our text widget, it doesn't
      activate it (i.e., it doesn't cause us to try to open the file). */
@@ -2281,11 +2277,13 @@ file_color_import_cmd_cb(GtkWidget *color_filters, gpointer filter_list _U_)
     }
 
     /* Try to open the color filter file. */
-    if (!color_filters_import(cf_name, color_filters)) {
+    if (!color_filters_import(cf_name, color_filters, &err_msg, color_filter_add_cb)) {
       /* We couldn't open it; don't dismiss the open dialog box,
          just leave it around so that the user can, after they
          dismiss the alert box popped up for the open error,
          try again. */
+      simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+      g_free(err_msg);
       g_free(cf_name);
       continue;
     }
@@ -2345,6 +2343,7 @@ file_color_export_cmd_cb(GtkWidget *w _U_, gpointer filter_list)
   GtkWidget *cfselect_cb;
   gchar     *cf_name;
   gchar     *dirname;
+  gchar     *err_msg = NULL;
 
   color_selected   = FALSE;
 
@@ -2394,10 +2393,12 @@ file_color_export_cmd_cb(GtkWidget *w _U_, gpointer filter_list)
 
     /* Write out the filters (all, or only the ones that are currently
        displayed or selected) to the file with the specified name. */
-    if (!color_filters_export(cf_name, (GSList *)filter_list, color_selected)) {
+    if (!color_filters_export(cf_name, (GSList *)filter_list, color_selected, &err_msg)) {
       /* The write failed; don't dismiss the open dialog box,
          just leave it around so that the user can, after they
          dismiss the alert box popped up for the error, try again. */
+      simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+      g_free(err_msg);
       g_free(cf_name);
       continue;
     }

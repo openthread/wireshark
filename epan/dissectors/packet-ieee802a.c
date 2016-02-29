@@ -62,7 +62,7 @@ ieee802a_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
 
 	new_info = (oui_info_t *)g_malloc(sizeof (oui_info_t));
 	new_info->table = register_dissector_table(table_name,
-	    table_ui_name, FT_UINT16, BASE_HEX);
+	    table_ui_name, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	new_info->field_info = hf_item;
 
 	/*
@@ -76,8 +76,8 @@ ieee802a_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
 	g_hash_table_insert(oui_info_table, GUINT_TO_POINTER(oui), new_info);
 }
 
-static void
-dissect_ieee802a(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ieee802a(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*ieee802a_tree;
 	proto_item	*ti;
@@ -128,16 +128,15 @@ dissect_ieee802a(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		hf = hf_ieee802a_pid;
 		subdissector_table = NULL;
 	}
-	if (tree)
-		proto_tree_add_uint(ieee802a_tree, hf, tvb, 3, 2, pid);
+
+	proto_tree_add_uint(ieee802a_tree, hf, tvb, 3, 2, pid);
 	next_tvb = tvb_new_subset_remaining(tvb, 5);
-	if (subdissector_table != NULL) {
+	if ((subdissector_table == NULL) ||
 		/* do lookup with the subdissector table */
-		if (dissector_try_uint(subdissector_table, pid, next_tvb,
-		    pinfo, tree))
-			return;
+		(!dissector_try_uint(subdissector_table, pid, next_tvb, pinfo, tree))) {
+			call_dissector(data_handle, next_tvb, pinfo, tree);
 	}
-	call_dissector(data_handle, next_tvb, pinfo, tree);
+	return tvb_captured_length(tvb);
 }
 
 void

@@ -18,6 +18,9 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+include $(top_srcdir)/Makefile.am.inc
+
+AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) $(GLIB_CFLAGS)
 
 EXTRA_DIST = \
 	CMakeLists.txt				\
@@ -46,7 +49,7 @@ bin_PROGRAMS = idl2wrs
 
 idl2wrs_SOURCES = idl2wrs.c
 
-idl2wrs_LDADD = @GLIB_LIBS@
+idl2wrs_LDADD = $(GLIB_LIBS)
 
 #
 # Editor modelines  -  https://www.wireshark.org/tools/modelines.html

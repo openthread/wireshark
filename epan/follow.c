@@ -25,570 +25,178 @@
 #include "config.h"
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 
 #include <glib.h>
 #include <epan/packet.h>
-#include <epan/to_str.h>
-#include <epan/dissectors/packet-tcp.h>
-#include <epan/dissectors/packet-udp.h>
 #include "follow.h"
-#include <epan/conversation.h>
 #include <epan/tap.h>
 
-#define MAX_IPADDR_LEN  16
+struct register_follow {
+    int proto_id;              /* protocol id (0-indexed) */
+    const char* tap_listen_str;      /* string used in register_tap_listener */
+    follow_conv_filter_func conv_filter;  /* generate "conversation" filter to follow */
+    follow_index_filter_func index_filter; /* generate stream/index filter to follow */
+    follow_address_filter_func address_filter; /* generate address filter to follow */
+    follow_port_to_display_func port_to_display; /* port to name resolution for follow type */
+    follow_tap_func tap_handler; /* tap listener handler */
+};
 
-typedef struct _tcp_frag {
-  guint32             seq;
-  guint32             len;
-  guint32             data_len;
-  gchar              *data;
-  struct _tcp_frag   *next;
-} tcp_frag;
+static GSList *registered_followers = NULL;
 
-WS_DLL_PUBLIC_DEF
-FILE* data_out_file = NULL;
-
-gboolean empty_tcp_stream;
-gboolean incomplete_tcp_stream;
-
-static guint32 stream_to_follow[MAX_STREAM] = {0};
-static gboolean find_addr[MAX_STREAM] = {FALSE};
-static gboolean find_index[MAX_STREAM] = {FALSE};
-static address tcp_addr[2];
-static guint8  ip_address[2][MAX_IPADDR_LEN];
-static guint   port[2];
-static guint   bytes_written[2];
-static gboolean is_ipv6 = FALSE;
-
-static int check_fragments( int, tcp_stream_chunk *, guint32 );
-static void write_packet_data( int, tcp_stream_chunk *, const char * );
-
-void
-follow_stats(follow_stats_t* stats)
+static gint
+insert_sorted_by_name(gconstpointer aparam, gconstpointer bparam)
 {
-  int i;
+    const register_follow_t *a = (const register_follow_t *)aparam;
+    const register_follow_t *b = (const register_follow_t *)bparam;
 
-  for (i = 0; i < 2 ; i++) {
-    memcpy(stats->ip_address[i], ip_address[i], MAX_IPADDR_LEN);
-    stats->port[i] = port[i];
-    stats->bytes_written[i] = bytes_written[i];
-    stats->is_ipv6 = is_ipv6;
-  }
+    return g_ascii_strcasecmp(proto_get_protocol_short_name(find_protocol_by_id(a->proto_id)), proto_get_protocol_short_name(find_protocol_by_id(b->proto_id)));
 }
 
-/* This will build a display filter text that will only
-   pass the packets related to the stream. There is a
-   chance that two streams could intersect, but not a
-   very good one */
-gchar*
-build_follow_conv_filter( packet_info *pi ) {
-  char* buf;
-  int len;
-  conversation_t *conv=NULL;
-  struct tcp_analysis *tcpd;
-  struct udp_analysis *udpd;
-  wmem_list_frame_t* protos;
-  int proto_id;
-  const char* proto_name;
-  gboolean is_tcp = FALSE, is_udp = FALSE;
-
-  protos = wmem_list_head(pi->layers);
-
-  /* walk the list of a available protocols in the packet to
-      figure out if any of them affect context sensitivity */
-  while (protos != NULL)
-  {
-    proto_id = GPOINTER_TO_INT(wmem_list_frame_data(protos));
-    proto_name = proto_get_protocol_filter_name(proto_id);
-
-    if (!strcmp(proto_name, "tcp")) {
-        is_tcp = TRUE;
-    } else if (!strcmp(proto_name, "udp")) {
-        is_udp = TRUE;
-    }
-
-    protos = wmem_list_frame_next(protos);
-  }
-
-  if( ((pi->net_src.type == AT_IPv4 && pi->net_dst.type == AT_IPv4) ||
-       (pi->net_src.type == AT_IPv6 && pi->net_dst.type == AT_IPv6))
-       && is_tcp && (conv=find_conversation(pi->fd->num, &pi->src, &pi->dst, pi->ptype,
-              pi->srcport, pi->destport, 0)) != NULL ) {
-    /* TCP over IPv4/6 */
-    tcpd=get_tcp_conversation_data(conv, pi);
-    if (tcpd) {
-      buf = g_strdup_printf("tcp.stream eq %d", tcpd->stream);
-      stream_to_follow[TCP_STREAM] = tcpd->stream;
-      if (pi->net_src.type == AT_IPv4) {
-        len = 4;
-        is_ipv6 = FALSE;
-      } else {
-        len = 16;
-        is_ipv6 = TRUE;
-      }
-    } else {
-      return NULL;
-    }
-  }
-  else if( ((pi->net_src.type == AT_IPv4 && pi->net_dst.type == AT_IPv4) ||
-            (pi->net_src.type == AT_IPv6 && pi->net_dst.type == AT_IPv6))
-          && is_udp && (conv=find_conversation(pi->fd->num, &pi->src, &pi->dst, pi->ptype,
-              pi->srcport, pi->destport, 0)) != NULL ) {
-    /* UDP over IPv4/6 */
-    udpd=get_udp_conversation_data(conv, pi);
-    if (udpd) {
-      buf = g_strdup_printf("udp.stream eq %d", udpd->stream);
-      stream_to_follow[UDP_STREAM] = udpd->stream;
-      if (pi->net_src.type == AT_IPv4) {
-        len = 4;
-        is_ipv6 = FALSE;
-      } else {
-        len = 16;
-        is_ipv6 = TRUE;
-      }
-    } else {
-      return NULL;
-    }
-  }
-  else {
-    return NULL;
-  }
-  memcpy(ip_address[0], pi->net_src.data, len);
-  memcpy(ip_address[1], pi->net_dst.data, len);
-  port[0] = pi->srcport;
-  port[1] = pi->destport;
-  return buf;
-}
-
-static gboolean
-udp_follow_packet(void *tapdata _U_, packet_info *pinfo,
-                  epan_dissect_t *edt _U_, const void *data _U_)
+void register_follow_stream(const int proto_id, const char* tap_listener,
+                            follow_conv_filter_func conv_filter, follow_index_filter_func index_filter, follow_address_filter_func address_filter,
+                            follow_port_to_display_func port_to_display, follow_tap_func tap_handler)
 {
-  if (find_addr[UDP_STREAM]) {
-    if (pinfo->net_src.type == AT_IPv6) {
-      is_ipv6 = TRUE;
-    } else {
-      is_ipv6 = FALSE;
-    }
-    memcpy(ip_address[0], pinfo->net_src.data, pinfo->net_src.len);
-    memcpy(ip_address[1], pinfo->net_dst.data, pinfo->net_dst.len);
-    port[0] = pinfo->srcport;
-    port[1] = pinfo->destport;
-    find_addr[UDP_STREAM] = FALSE;
-  }
+  register_follow_t *follower;
+  DISSECTOR_ASSERT(tap_listener);
+  DISSECTOR_ASSERT(conv_filter);
+  DISSECTOR_ASSERT(index_filter);
+  DISSECTOR_ASSERT(address_filter);
+  DISSECTOR_ASSERT(port_to_display);
+  DISSECTOR_ASSERT(tap_handler);
 
-  return FALSE;
+  follower = g_new(register_follow_t,1);
+
+  follower->proto_id       = proto_id;
+  follower->tap_listen_str = tap_listener;
+  follower->conv_filter    = conv_filter;
+  follower->index_filter   = index_filter;
+  follower->address_filter = address_filter;
+  follower->port_to_display = port_to_display;
+  follower->tap_handler    = tap_handler;
+
+  registered_followers = g_slist_insert_sorted(registered_followers, follower, insert_sorted_by_name);
 }
 
-void
-reset_udp_follow(void) {
-  remove_tap_listener(&stream_to_follow[UDP_STREAM]);
-  find_addr[UDP_STREAM] = FALSE;
-  find_index[UDP_STREAM] = FALSE;
-}
-
-gchar*
-build_follow_index_filter(stream_type stream) {
-  gchar *buf;
-
-  find_addr[stream] = TRUE;
-  if (stream == TCP_STREAM) {
-    buf = g_strdup_printf("tcp.stream eq %d", stream_to_follow[TCP_STREAM]);
-  } else {
-    GString * error_string;
-    buf = g_strdup_printf("udp.stream eq %d", stream_to_follow[UDP_STREAM]);
-    error_string = register_tap_listener("udp_follow", &stream_to_follow[UDP_STREAM], buf, 0, NULL, udp_follow_packet, NULL);
-    if (error_string) {
-      g_string_free(error_string, TRUE);
-    }
-  }
-  return buf;
-}
-
-/* select a tcp stream to follow via it's address/port pairs */
-gboolean
-follow_addr(stream_type stream, const address *addr0, guint port0,
-            const address *addr1, guint port1)
+int get_follow_proto_id(register_follow_t* follower)
 {
-  if (addr0 == NULL || addr1 == NULL || addr0->type != addr1->type ||
-      port0 > G_MAXUINT16 || port1 > G_MAXUINT16 )  {
-    return FALSE;
-  }
+  if (follower == NULL)
+    return -1;
 
-  if (find_index[stream] || find_addr[stream]) {
-    return FALSE;
-  }
-
-  switch (addr0->type) {
-  default:
-    return FALSE;
-  case AT_IPv4:
-  case AT_IPv6:
-    is_ipv6 = addr0->type == AT_IPv6;
-    break;
-  }
-
-
-  memcpy(ip_address[0], addr0->data, addr0->len);
-  port[0] = port0;
-
-  memcpy(ip_address[1], addr1->data, addr1->len);
-  port[1] = port1;
-
-  if (stream == TCP_STREAM) {
-    find_index[TCP_STREAM] = TRUE;
-    SET_ADDRESS(&tcp_addr[0], addr0->type, addr0->len, ip_address[0]);
-    SET_ADDRESS(&tcp_addr[1], addr1->type, addr1->len, ip_address[1]);
-  }
-
-  return TRUE;
+  return follower->proto_id;
 }
 
-/* select a stream to follow via its index */
-gboolean
-follow_index(stream_type stream, guint32 indx)
+const char* get_follow_tap_string(register_follow_t* follower)
 {
-  if (find_index[stream] || find_addr[stream]) {
-    return FALSE;
-  }
+  if (follower == NULL)
+    return "";
 
-  find_addr[stream] = TRUE;
-  stream_to_follow[stream] = indx;
-  memset(ip_address, 0, sizeof ip_address);
-  port[0] = port[1] = 0;
-
-  return TRUE;
+  return follower->tap_listen_str;
 }
 
-guint32
-get_follow_index(stream_type stream) {
-  return stream_to_follow[stream];
+follow_conv_filter_func get_follow_conv_func(register_follow_t* follower)
+{
+  return follower->conv_filter;
+}
+
+follow_index_filter_func get_follow_index_func(register_follow_t* follower)
+{
+  return follower->index_filter;
+}
+
+follow_address_filter_func get_follow_address_func(register_follow_t* follower)
+{
+  return follower->address_filter;
+}
+
+follow_port_to_display_func get_follow_port_to_display(register_follow_t* follower)
+{
+  return follower->port_to_display;
+}
+
+follow_tap_func get_follow_tap_handler(register_follow_t* follower)
+{
+  return follower->tap_handler;
+}
+
+
+register_follow_t* get_follow_by_name(const char* proto_short_name)
+{
+  guint i, size = g_slist_length(registered_followers);
+  register_follow_t *follower;
+  GSList   *slist;
+
+  for (i = 0; i < size; i++) {
+    slist = g_slist_nth(registered_followers, i);
+    follower = (register_follow_t*)slist->data;
+
+    if (strcmp(proto_short_name, proto_get_protocol_short_name(find_protocol_by_id(follower->proto_id))) == 0)
+      return follower;
+  }
+
+  return NULL;
+}
+
+void follow_iterate_followers(GFunc func, gpointer user_data)
+{
+    g_slist_foreach(registered_followers, func, user_data);
+}
+
+gchar* follow_get_stat_tap_string(register_follow_t* follower)
+{
+    GString *cmd_str = g_string_new("follow,");
+    g_string_append(cmd_str, proto_get_protocol_filter_name(follower->proto_id));
+    return g_string_free(cmd_str, FALSE);
 }
 
 /* here we are going to try and reconstruct the data portion of a TCP
    session. We will try and handle duplicates, TCP fragments, and out
    of order packets in a smart way. */
-
-static tcp_frag *frags[2] = { 0, 0 };
-static guint32 seq[2];
-static guint8 src_addr[2][MAX_IPADDR_LEN];
-static guint src_port[2] = { 0, 0 };
-
 void
-reassemble_tcp( guint32 tcp_stream, guint32 sequence, guint32 acknowledgement,
-                guint32 length, const char* data, guint32 data_length,
-                int synflag, address *net_src, address *net_dst,
-                guint srcport, guint dstport, guint32 packet_num) {
-  guint8 srcx[MAX_IPADDR_LEN], dstx[MAX_IPADDR_LEN];
-  int src_index, j, first = 0, len;
-  guint32 newseq;
-  tcp_frag *tmp_frag;
-  tcp_stream_chunk sc;
-
-  src_index = -1;
-
-  /* First, check if this packet should be processed. */
-  if (find_index[TCP_STREAM]) {
-    if ((port[0] == srcport && port[1] == dstport &&
-         ADDRESSES_EQUAL(&tcp_addr[0], net_src) &&
-         ADDRESSES_EQUAL(&tcp_addr[1], net_dst))
-        ||
-        (port[1] == srcport && port[0] == dstport &&
-         ADDRESSES_EQUAL(&tcp_addr[1], net_src) &&
-         ADDRESSES_EQUAL(&tcp_addr[0], net_dst))) {
-      find_index[TCP_STREAM] = FALSE;
-      stream_to_follow[TCP_STREAM] = tcp_stream;
-    }
-    else {
-      return;
-    }
-  }
-  else if ( tcp_stream != stream_to_follow[TCP_STREAM] )
-    return;
-
-  if ((net_src->type != AT_IPv4 && net_src->type != AT_IPv6) ||
-      (net_dst->type != AT_IPv4 && net_dst->type != AT_IPv6))
-    return;
-
-  if (net_src->type == AT_IPv4)
-    len = 4;
-  else
-    len = 16;
-
-  memcpy(srcx, net_src->data, len);
-  memcpy(dstx, net_dst->data, len);
-
-  /* follow_tcp_index() needs to learn address/port pairs */
-  if (find_addr[TCP_STREAM]) {
-    find_addr[TCP_STREAM] = FALSE;
-    memcpy(ip_address[0], net_src->data, net_src->len);
-    port[0] = srcport;
-    memcpy(ip_address[1], net_dst->data, net_dst->len);
-    port[1] = dstport;
-    if (net_src->type == AT_IPv6 && net_dst->type == AT_IPv6) {
-      is_ipv6 = TRUE;
-    } else {
-      is_ipv6 = FALSE;
-    }
-  }
-
-  /* Check to see if we have seen this source IP and port before.
-     (Yes, we have to check both source IP and port; the connection
-     might be between two different ports on the same machine.) */
-  for( j=0; j<2; j++ ) {
-    if (memcmp(src_addr[j], srcx, len) == 0 && src_port[j] == srcport ) {
-      src_index = j;
-    }
-  }
-  /* we didn't find it if src_index == -1 */
-  if( src_index < 0 ) {
-    /* assign it to a src_index and get going */
-    for( j=0; j<2; j++ ) {
-      if( src_port[j] == 0 ) {
-        memcpy(src_addr[j], srcx, len);
-        src_port[j] = srcport;
-        src_index = j;
-        first = 1;
-        break;
-      }
-    }
-  }
-  if( src_index < 0 ) {
-    fprintf( stderr, "ERROR in reassemble_tcp: Too many addresses!\n");
-    return;
-  }
-
-  if( data_length < length ) {
-    incomplete_tcp_stream = TRUE;
-  }
-
-  /* Before adding data for this flow to the data_out_file, check whether
-   * this frame acks fragments that were already seen. This happens when
-   * frames are not in the capture file, but were actually seen by the
-   * receiving host (Fixes bug 592).
-   */
-  if( frags[1-src_index] ) {
-    memcpy(sc.src_addr, dstx, len);
-    sc.src_port = dstport;
-    sc.dlen     = 0;        /* Will be filled in in check_fragments */
-    while ( check_fragments( 1-src_index, &sc, acknowledgement ) )
-      ;
-  }
-
-  /* Initialize our stream chunk.  This data gets written to disk. */
-  memcpy(sc.src_addr, srcx, len);
-  sc.src_port   = srcport;
-  sc.dlen       = data_length;
-  sc.packet_num = packet_num;
-
-  /* now that we have filed away the srcs, lets get the sequence number stuff
-     figured out */
-  if( first ) {
-    /* this is the first time we have seen this src's sequence number */
-    seq[src_index] = sequence + length;
-    if( synflag ) {
-      seq[src_index]++;
-    }
-    /* write out the packet data */
-    write_packet_data( src_index, &sc, data );
-    return;
-  }
-  /* if we are here, we have already seen this src, let's
-     try and figure out if this packet is in the right place */
-  if( LT_SEQ(sequence, seq[src_index]) ) {
-    /* this sequence number seems dated, but
-       check the end to make sure it has no more
-       info than we have already seen */
-    newseq = sequence + length;
-    if( GT_SEQ(newseq, seq[src_index]) ) {
-      guint32 new_len;
-
-      /* this one has more than we have seen. let's get the
-         payload that we have not seen. */
-
-      new_len = seq[src_index] - sequence;
-
-      if ( data_length <= new_len ) {
-        data = NULL;
-        data_length = 0;
-        incomplete_tcp_stream = TRUE;
-      } else {
-        data += new_len;
-        data_length -= new_len;
-      }
-      sc.dlen = data_length;
-      sequence = seq[src_index];
-      length = newseq - seq[src_index];
-
-      /* this will now appear to be right on time :) */
-    }
-  }
-  if ( EQ_SEQ(sequence, seq[src_index]) ) {
-    /* right on time */
-    seq[src_index] += length;
-    if( synflag ) seq[src_index]++;
-    if( data ) {
-      write_packet_data( src_index, &sc, data );
-    }
-    /* done with the packet, see if it caused a fragment to fit */
-    while( check_fragments( src_index, &sc, 0 ) )
-      ;
-  }
-  else {
-    /* out of order packet */
-    if(data_length > 0 && GT_SEQ(sequence, seq[src_index]) ) {
-      tmp_frag = (tcp_frag *)g_malloc( sizeof( tcp_frag ) );
-      tmp_frag->data = (gchar *)g_malloc( data_length );
-      tmp_frag->seq = sequence;
-      tmp_frag->len = length;
-      tmp_frag->data_len = data_length;
-      memcpy( tmp_frag->data, data, data_length );
-      if( frags[src_index] ) {
-        tmp_frag->next = frags[src_index];
-      } else {
-        tmp_frag->next = NULL;
-      }
-      frags[src_index] = tmp_frag;
-    }
-  }
-} /* end reassemble_tcp */
-
-/* here we search through all the frag we have collected to see if
-   one fits */
-static int
-check_fragments( int idx, tcp_stream_chunk *sc, guint32 acknowledged ) {
-  tcp_frag *prev = NULL;
-  tcp_frag *current;
-  guint32 lowest_seq;
-  gchar *dummy_str;
-
-  current = frags[idx];
-  if( current ) {
-    lowest_seq = current->seq;
-    while( current ) {
-      if( GT_SEQ(lowest_seq, current->seq) ) {
-        lowest_seq = current->seq;
-      }
-
-      if( LT_SEQ(current->seq, seq[idx]) ) {
-        guint32 newseq;
-        /* this sequence number seems dated, but
-           check the end to make sure it has no more
-           info than we have already seen */
-        newseq = current->seq + current->len;
-        if( GT_SEQ(newseq, seq[idx]) ) {
-          guint32 new_pos;
-
-          /* this one has more than we have seen. let's get the
-             payload that we have not seen. This happens when
-             part of this frame has been retransmitted */
-
-          new_pos = seq[idx] - current->seq;
-
-          if ( current->data_len > new_pos ) {
-            sc->dlen = current->data_len - new_pos;
-            write_packet_data( idx, sc, current->data + new_pos );
-          }
-
-          seq[idx] += (current->len - new_pos);
-        }
-
-        /* Remove the fragment from the list as the "new" part of it
-         * has been processed or its data has been seen already in
-         * another packet. */
-        if( prev ) {
-          prev->next = current->next;
-        } else {
-          frags[idx] = current->next;
-        }
-        g_free( current->data );
-        g_free( current );
-        return 1;
-      }
-
-      if( EQ_SEQ(current->seq, seq[idx]) ) {
-        /* this fragment fits the stream */
-        if( current->data ) {
-          sc->dlen = current->data_len;
-          write_packet_data( idx, sc, current->data );
-        }
-        seq[idx] += current->len;
-        if( prev ) {
-          prev->next = current->next;
-        } else {
-          frags[idx] = current->next;
-        }
-        g_free( current->data );
-        g_free( current );
-        return 1;
-      }
-      prev = current;
-      current = current->next;
-    }
-    if( GT_SEQ(acknowledged, lowest_seq) ) {
-      /* There are frames missing in the capture file that were seen
-       * by the receiving host. Add dummy stream chunk with the data
-       * "[xxx bytes missing in capture file]".
-       */
-      dummy_str = g_strdup_printf("[%d bytes missing in capture file]",
-                        (int)(lowest_seq - seq[idx]) );
-      sc->dlen = (guint32) strlen(dummy_str);
-      write_packet_data( idx, sc, dummy_str );
-      g_free(dummy_str);
-      seq[idx] = lowest_seq;
-      return 1;
-    }
-  }
-  return 0;
+follow_reset_stream(follow_info_t* info)
+{
+    info->bytes_written[0] = info->bytes_written[1] = 0;
+    info->client_port = 0;
+    info->server_port = 0;
+    info->client_ip.type = FT_NONE;
+    info->client_ip.len = 0;
+    info->server_ip.type = FT_NONE;
+    info->server_ip.len = 0;
 }
 
-/* this should always be called before we start to reassemble a stream */
-void
-reset_tcp_reassembly(void)
+gboolean
+follow_tvb_tap_listener(void *tapdata, packet_info *pinfo,
+                      epan_dissect_t *edt _U_, const void *data)
 {
-  tcp_frag *current, *next;
-  int i;
+    follow_record_t *follow_record;
+    follow_info_t *follow_info = (follow_info_t *)tapdata;
+    tvbuff_t *next_tvb = (tvbuff_t *)data;
 
-  empty_tcp_stream = TRUE;
-  incomplete_tcp_stream = FALSE;
-  find_addr[TCP_STREAM] = FALSE;
-  find_index[TCP_STREAM] = FALSE;
-  for( i=0; i<2; i++ ) {
-    seq[i] = 0;
-    memset(src_addr[i], '\0', MAX_IPADDR_LEN);
-    src_port[i] = 0;
-    memset(ip_address[i], '\0', MAX_IPADDR_LEN);
-    port[i] = 0;
-    bytes_written[i] = 0;
-    current = frags[i];
-    while( current ) {
-      next = current->next;
-      g_free( current->data );
-      g_free( current );
-      current = next;
+    follow_record = g_new(follow_record_t,1);
+
+    follow_record->data = g_byte_array_sized_new(tvb_captured_length(next_tvb));
+    follow_record->data = g_byte_array_append(follow_record->data,
+                                              tvb_get_ptr(next_tvb, 0, -1),
+                                              tvb_captured_length(next_tvb));
+    follow_record->packet_num = pinfo->fd->num;
+
+    if (follow_info->client_port == 0) {
+        follow_info->client_port = pinfo->srcport;
+        copy_address(&follow_info->client_ip, &pinfo->src);
+        follow_info->server_port = pinfo->destport;
+        copy_address(&follow_info->server_ip, &pinfo->dst);
     }
-    frags[i] = NULL;
-  }
-}
 
-static void
-write_packet_data( int idx, tcp_stream_chunk *sc, const char *data )
-{
-  size_t ret;
+    if (addresses_equal(&follow_info->client_ip, &pinfo->src) && follow_info->client_port == pinfo->srcport)
+        follow_record->is_server = FALSE;
+    else
+        follow_record->is_server = TRUE;
 
-  ret = fwrite( sc, 1, sizeof(tcp_stream_chunk), data_out_file );
-  DISSECTOR_ASSERT(sizeof(tcp_stream_chunk) == ret);
+    /* update stream counter */
+    follow_info->bytes_written[follow_record->is_server] += follow_record->data->len;
 
-  ret = fwrite( data, 1, sc->dlen, data_out_file );
-  DISSECTOR_ASSERT(sc->dlen == ret);
-
-  bytes_written[idx] += sc->dlen;
-  empty_tcp_stream = FALSE;
+    follow_info->payload = g_list_append(follow_info->payload, follow_record);
+    return FALSE;
 }
 
 /*

@@ -88,8 +88,8 @@ static const value_string exported_pdu_tag_vals[] = {
 };
 
 /* Code to actually dissect the packets */
-static void
-dissect_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *exported_pdu_tree, *tag_tree;
@@ -131,23 +131,23 @@ dissect_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
             case EXP_PDU_TAG_IPV4_SRC:
                 proto_tree_add_item(tag_tree, hf_exported_pdu_ipv4_src, tvb, offset, 4, ENC_BIG_ENDIAN);
-                TVB_SET_ADDRESS(&pinfo->net_src, AT_IPv4, tvb, offset, 4);
-                COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+                set_address_tvb(&pinfo->net_src, AT_IPv4, 4, tvb, offset);
+                copy_address_shallow(&pinfo->src, &pinfo->net_src);
                 break;
             case EXP_PDU_TAG_IPV4_DST:
                 proto_tree_add_item(tag_tree, hf_exported_pdu_ipv4_dst, tvb, offset, 4, ENC_BIG_ENDIAN);
-                TVB_SET_ADDRESS(&pinfo->net_dst, AT_IPv4, tvb, offset, 4);
-                COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+                set_address_tvb(&pinfo->net_dst, AT_IPv4, 4, tvb, offset);
+                copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
                 break;
             case EXP_PDU_TAG_IPV6_SRC:
                 proto_tree_add_item(tag_tree, hf_exported_pdu_ipv6_src, tvb, offset, 16, ENC_NA);
-                TVB_SET_ADDRESS(&pinfo->net_src, AT_IPv6, tvb, offset, 16);
-                COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+                set_address_tvb(&pinfo->net_src, AT_IPv6, 16, tvb, offset);
+                copy_address_shallow(&pinfo->src, &pinfo->net_src);
                 break;
             case EXP_PDU_TAG_IPV6_DST:
                 proto_tree_add_item(tag_tree, hf_exported_pdu_ipv6_dst, tvb, offset, 16, ENC_NA);
-                TVB_SET_ADDRESS(&pinfo->net_dst, AT_IPv6, tvb, offset, 16);
-                COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+                set_address_tvb(&pinfo->net_dst, AT_IPv6, 16, tvb, offset);
+                copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
                 break;
             case EXP_PDU_TAG_PORT_TYPE:
                 pinfo->ptype = (port_type)tvb_get_ntohl(tvb, offset);
@@ -168,7 +168,7 @@ dissect_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 mtp3_addr->pc = tvb_get_ntohl(tvb, offset);
                 mtp3_addr->type = (Standard_Type)tvb_get_ntohs(tvb, offset+4);
                 mtp3_addr->ni = tvb_get_guint8(tvb, offset+6);
-                SET_ADDRESS(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr);
+                set_address(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr);
                 break;
             case EXP_PDU_TAG_SS7_DPC:
                 proto_tree_add_item(tag_tree, hf_exported_pdu_ss7_dpc, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -176,7 +176,7 @@ dissect_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 mtp3_addr->pc = tvb_get_ntohl(tvb, offset);
                 mtp3_addr->type = (Standard_Type)tvb_get_ntohs(tvb, offset+4);
                 mtp3_addr->ni = tvb_get_guint8(tvb, offset+6);
-                SET_ADDRESS(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr);
+                set_address(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr);
                 break;
             case EXP_PDU_TAG_ORIG_FNO:
                 proto_tree_add_item(tag_tree, hf_exported_pdu_orig_fno, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -223,6 +223,7 @@ dissect_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     proto_tree_add_item(exported_pdu_tree, hf_exported_pdu_exported_pdu, payload_tvb, 0, -1, ENC_NA);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark.
@@ -245,7 +246,7 @@ proto_register_exported_pdu(void)
               NULL, HFILL }
         },
         { &hf_exported_pdu_unknown_tag,
-            { "Unkown tag", "exported_pdu.unknown_tag",
+            { "Unknown tag", "exported_pdu.unknown_tag",
                FT_BYTES, BASE_NONE, NULL, 0,
               NULL, HFILL }
         },

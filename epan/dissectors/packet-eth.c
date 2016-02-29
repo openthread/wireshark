@@ -29,7 +29,8 @@
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
 #include <epan/conversation_table.h>
-#include <epan/color_dissector_filters.h>
+#include <epan/dissector_filters.h>
+#include <epan/capture_dissectors.h>
 #include <wsutil/pint.h>
 #include "packet-eth.h"
 #include "packet-ieee8023.h"
@@ -131,7 +132,7 @@ eth_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, 
   conv_hash_t *hash = (conv_hash_t*) pct;
   const eth_hdr *ehdr=(const eth_hdr *)vip;
 
-  add_conversation_table_data(hash, &ehdr->src, &ehdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &eth_ct_dissector_info, PT_NONE);
+  add_conversation_table_data(hash, &ehdr->src, &ehdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &eth_ct_dissector_info, PT_NONE);
 
   return 1;
 }
@@ -162,13 +163,13 @@ eth_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, cons
 }
 
 static gboolean
-eth_color_filter_valid(packet_info *pinfo)
+eth_filter_valid(packet_info *pinfo)
 {
     return (pinfo->dl_src.type == AT_ETHER);
 }
 
 static gchar*
-eth_build_color_filter(packet_info *pinfo)
+eth_build_filter(packet_info *pinfo)
 {
     return g_strdup_printf("eth.addr eq %s and eth.addr eq %s",
                 address_to_str(pinfo->pool, &pinfo->dl_src),
@@ -190,16 +191,14 @@ eth_build_color_filter(packet_info *pinfo)
 #define ETHERNET_802_3  2
 #define ETHERNET_SNAP   3
 
-void
-capture_eth(const guchar *pd, int offset, int len, packet_counts *ld)
+gboolean
+capture_eth(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
   guint16 etype, length;
   int ethhdr_type;          /* the type of ethernet frame */
 
-  if (!BYTES_ARE_IN_FRAME(offset, len, ETH_HEADER_SIZE)) {
-    ld->other++;
-    return;
-  }
+  if (!BYTES_ARE_IN_FRAME(offset, len, ETH_HEADER_SIZE))
+    return FALSE;
 
   etype = pntoh16(&pd[offset+12]);
 
@@ -211,8 +210,7 @@ capture_eth(const guchar *pd, int offset, int len, packet_counts *ld)
     if ((pd[offset] == 0x01 || pd[offset] == 0x0C) && pd[offset+1] == 0x00
         && pd[offset+2] == 0x0C && pd[offset+3] == 0x00
         && pd[offset+4] == 0x00) {
-      capture_isl(pd, offset, len, ld);
-      return;
+      return capture_isl(pd, offset, len, cpinfo, pseudo_header);
     }
   }
 
@@ -235,10 +233,8 @@ capture_eth(const guchar *pd, int offset, int len, packet_counts *ld)
    * frame; the dissector for those frames registers itself with
    * an ethernet type of ETHERTYPE_UNK.
    */
-  if (etype > IEEE_802_3_MAX_LEN && etype < ETHERNET_II_MIN_LEN) {
-    ld->other++;
-    return;
-  }
+  if (etype > IEEE_802_3_MAX_LEN && etype < ETHERNET_II_MIN_LEN)
+    return FALSE;
 
   if (etype <= IEEE_802_3_MAX_LEN && etype != ETHERTYPE_UNK) {
     length = etype;
@@ -271,15 +267,14 @@ capture_eth(const guchar *pd, int offset, int len, packet_counts *ld)
 
   switch (ethhdr_type) {
     case ETHERNET_802_3:
-      capture_ipx(ld);
-      break;
+      return capture_ipx(pd, offset, len, cpinfo, pseudo_header);
     case ETHERNET_802_2:
-      capture_llc(pd, offset, len, ld);
-      break;
+      return capture_llc(pd, offset, len, cpinfo, pseudo_header);
     case ETHERNET_II:
-      capture_ethertype(etype, pd, offset, len, ld);
-      break;
+      return try_capture_dissector("ethertype", etype, pd, offset, len, cpinfo, pseudo_header);
   }
+
+  return FALSE;
 }
 
 static gboolean check_is_802_2(tvbuff_t *tvb, int fcs_len);
@@ -312,15 +307,15 @@ dissect_eth_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "Ethernet");
 
-  TVB_SET_ADDRESS(&pinfo->dl_dst, AT_ETHER, tvb, 0, 6);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
-  COPY_ADDRESS_SHALLOW(&ehdr->dst, &pinfo->dl_dst);
+  set_address_tvb(&pinfo->dl_dst, AT_ETHER, 6, tvb, 0);
+  copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
+  copy_address_shallow(&ehdr->dst, &pinfo->dl_dst);
   dst_addr = (const guint8*)pinfo->dst.data;
   dst_addr_name = get_ether_name(dst_addr);
 
-  TVB_SET_ADDRESS(&pinfo->dl_src, AT_ETHER, tvb, 6, 6);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-  COPY_ADDRESS_SHALLOW(&ehdr->src, &pinfo->dl_src);
+  set_address_tvb(&pinfo->dl_src, AT_ETHER, 6, tvb, 6);
+  copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+  copy_address_shallow(&ehdr->src, &pinfo->dl_src);
   src_addr = (const guint8*)pinfo->src.data;
   src_addr_name = get_ether_name(src_addr);
 
@@ -425,7 +420,7 @@ dissect_eth_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
 
     is_802_2 = check_is_802_2(tvb, fcs_len);
 
-     col_add_fstr(pinfo->cinfo, COL_INFO, "IEEE 802.3 Ethernet %s",
+    col_add_fstr(pinfo->cinfo, COL_INFO, "IEEE 802.3 Ethernet %s",
         (is_802_2 ? "" : "Raw "));
     if (tree) {
       ti = proto_tree_add_protocol_format(tree, proto_eth, tvb, 0, ETH_HEADER_SIZE,
@@ -686,7 +681,7 @@ add_ethernet_trailer(packet_info *pinfo, proto_tree *tree, proto_tree *fh_tree,
     if (fcs_len != 0) {
       /* If fcs_len is 4, we assume we definitely have an FCS.
          Otherwise, then, if the frame is big enough that, if we
-         have a trailer, it probably inclues an FCS, and we have
+         have a trailer, it probably includes an FCS, and we have
          enough space in the trailer for the FCS, we assume we
          have an FCS.
 
@@ -799,9 +794,10 @@ add_ethernet_trailer(packet_info *pinfo, proto_tree *tree, proto_tree *fh_tree,
 
 /* Called for the Ethernet Wiretap encapsulation type; pass the FCS length
    reported to us, or, if the "assume_fcs" preference is set, pass 4. */
-static void
-dissect_eth_maybefcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_eth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
+  struct eth_phdr   *eth = (struct eth_phdr *)data;
   proto_tree        *fh_tree;
 
   /* Some devices slice the packet and add their own trailer before
@@ -812,6 +808,10 @@ dissect_eth_maybefcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tvbuff_t *next_tvb;
     guint total_trailer_length;
 
+    /*
+     * XXX - this overrides Wiretap saying "this packet definitely has
+     * no FCS".
+     */
     total_trailer_length = eth_trailer_length + (eth_assume_fcs ? 4 : 0);
 
     /* Dissect the tvb up to, but not including the trailer */
@@ -822,26 +822,45 @@ dissect_eth_maybefcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* Now handle the ethernet trailer and optional FCS */
     next_tvb = tvb_new_subset_remaining(tvb, tvb_captured_length(tvb) - total_trailer_length);
+    /*
+     * XXX - this overrides Wiretap saying "this packet definitely has
+     * no FCS".
+     */
     add_ethernet_trailer(pinfo, tree, fh_tree, hf_eth_trailer, tvb, next_tvb,
-                         eth_assume_fcs ? 4 : pinfo->pseudo_header->eth.fcs_len);
+                         eth_assume_fcs ? 4 : eth->fcs_len);
   } else {
-    dissect_eth_common(tvb, pinfo, tree, eth_assume_fcs ? 4 : pinfo->pseudo_header->eth.fcs_len);
+    /*
+     * XXX - this overrides Wiretap saying "this packet definitely has
+     * no FCS".
+     */
+    dissect_eth_common(tvb, pinfo, tree, eth_assume_fcs ? 4 : eth->fcs_len);
   }
+  return tvb_captured_length(tvb);
 }
 
 /* Called by other dissectors  This one's for encapsulated Ethernet
    packets that don't include an FCS. */
-static void
-dissect_eth_withoutfcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_eth_withoutfcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_eth_common(tvb, pinfo, tree, 0);
+  return tvb_captured_length(tvb);
 }
 
 /* ...and this one's for encapsulated packets that do. */
-static void
-dissect_eth_withfcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_eth_withfcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_eth_common(tvb, pinfo, tree, 4);
+  return tvb_captured_length(tvb);
+}
+
+/* ...and this one's for encapsulated packets that might or might not. */
+static int
+dissect_eth_maybefcs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
+{
+  dissect_eth_common(tvb, pinfo, tree, eth_assume_fcs ? 4 : -1);
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -905,7 +924,7 @@ proto_register_eth(void)
 
     { &hf_eth_fcs_bad,
       { "FCS Bad", "eth.fcs_bad", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-        "True: checksum doesn't matche packet content; False: does match content or not checked", HFILL }},
+        "True: checksum doesn't match packet content; False: does match content or not checked", HFILL }},
 
     { &hf_eth_lg,
       { "LG bit", "eth.lg", FT_BOOLEAN, 24,
@@ -1009,17 +1028,17 @@ proto_register_eth(void)
 
   register_dissector("eth_withoutfcs", dissect_eth_withoutfcs, proto_eth);
   register_dissector("eth_withfcs", dissect_eth_withfcs, proto_eth);
-  register_dissector("eth", dissect_eth_maybefcs, proto_eth);
+  register_dissector("eth_maybefcs", dissect_eth_maybefcs, proto_eth);
   eth_tap = register_tap("eth");
 
   register_conversation_table(proto_eth, TRUE, eth_conversation_packet, eth_hostlist_packet);
-  register_color_conversation_filter("eth", "Ethernet", eth_color_filter_valid, eth_build_color_filter);
+  register_conversation_filter("eth", "Ethernet", eth_filter_valid, eth_build_filter);
 }
 
 void
 proto_reg_handoff_eth(void)
 {
-  dissector_handle_t eth_maybefcs_handle, eth_withoutfcs_handle;
+  dissector_handle_t eth_handle, eth_withoutfcs_handle;
 
   /* Get a handle for the Firewall-1 dissector. */
   fw1_handle = find_dissector("fw1");
@@ -1030,8 +1049,8 @@ proto_reg_handoff_eth(void)
   /* Get a handle for the generic data dissector. */
   data_handle = find_dissector("data");
 
-  eth_maybefcs_handle = find_dissector("eth");
-  dissector_add_uint("wtap_encap", WTAP_ENCAP_ETHERNET, eth_maybefcs_handle);
+  eth_handle = create_dissector_handle(dissect_eth, proto_eth);
+  dissector_add_uint("wtap_encap", WTAP_ENCAP_ETHERNET, eth_handle);
 
   eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
   dissector_add_uint("ethertype", ETHERTYPE_ETHBRIDGE, eth_withoutfcs_handle);
@@ -1052,6 +1071,12 @@ proto_reg_handoff_eth(void)
   dissector_add_for_decode_as("udp.port", eth_withoutfcs_handle);
 
   dissector_add_for_decode_as("pcli.payload", eth_withoutfcs_handle);
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_ETHERNET, capture_eth, proto_eth);
+  register_capture_dissector("atm_lane", TRAF_ST_LANE_802_3, capture_eth, proto_eth);
+  register_capture_dissector("atm_lane", TRAF_ST_LANE_802_3_MC, capture_eth, proto_eth);
+  register_capture_dissector("ppi", 1 /* DLT_EN10MB */, capture_eth, proto_eth);
+  register_capture_dissector("sll.ltype", LINUX_SLL_P_ETHERNET, capture_eth, proto_eth);
 }
 
 /*

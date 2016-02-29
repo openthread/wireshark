@@ -34,6 +34,7 @@
 
 #include <epan/prefs.h>
 #include <epan/plugin_if.h>
+#include <epan/timestamp.h>
 
 #ifdef HAVE_LIBPCAP
 #include "capture_opts.h"
@@ -86,11 +87,13 @@ public:
     QString getFilter();
 #ifdef HAVE_LIBPCAP
     capture_session *captureSession() { return &cap_session_; }
+    info_data_t *captureInfoData() { return &info_data_; }
 #endif
 
     virtual QMenu *createPopupMenu();
 
     void gotoFrame(int packet_num);
+    CaptureFile *captureFile() { return &capture_file_; }
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event);
@@ -118,6 +121,13 @@ private:
         CopySelectedValue
     };
 
+    enum FileCloseContext {
+        Default,
+        Quit,
+        Restart,
+        Reload
+    };
+
     Ui::MainWindow *main_ui_;
     QMenu *open_recent_menu_;
     QSplitter master_split_;
@@ -140,12 +150,17 @@ private:
     QActionGroup *time_display_actions_;
     QActionGroup *time_precision_actions_;
     FunnelStatistics *funnel_statistics_;
+    QList<QPair<QAction *, bool> > freeze_actions_;
+    QWidget *freeze_focus_;
+    QMap<QAction *, ts_type> td_actions;
+    QMap<QAction *, ts_precision> tp_actions;
 
     bool capture_stopping_;
     bool capture_filter_valid_;
 #ifdef HAVE_LIBPCAP
     capture_session cap_session_;
     CaptureInterfacesDialog capture_interfaces_dialog_;
+    info_data_t info_data_;
 #endif
 
     // Pipe input
@@ -161,6 +176,9 @@ private:
 
     QWidget* getLayoutWidget(layout_pane_content_e type);
 
+    void freeze();
+    void thaw();
+
     void mergeCaptureFile();
     void importCaptureFile();
     void saveCaptureFile(capture_file *cf, bool dont_reopen);
@@ -169,22 +187,23 @@ private:
     void exportDissections(export_type_e export_type);
 
     void fileAddExtension(QString &file_name, int file_type, bool compressed);
-    bool testCaptureFileClose(bool from_quit = false, QString before_what = QString());
+    bool testCaptureFileClose(QString before_what, FileCloseContext context = Default);
     void captureStop();
 
     void initMainToolbarIcons();
     void initShowHideMainWidgets();
     void initTimeDisplayFormatMenu();
     void initTimePrecisionFormatMenu();
+    void initFreezeActions();
 
-    void setTitlebarForSelectedTreeRow();
-    void setTitlebarForCaptureFile();
     void setTitlebarForCaptureInProgress();
     void setMenusForCaptureFile(bool force_disable = false);
     void setMenusForCaptureInProgress(bool capture_in_progress = false);
     void setMenusForCaptureStopping();
     void setForCapturedPackets(bool have_captured_packets);
     void setMenusForFileSet(bool enable_list_files);
+    void setWindowIcon(const QIcon &icon);
+    QString replaceWindowTitleVariables(QString title);
 
     void externalMenuHelper(ext_menu_t * menu, QMenu  * subMenu, gint depth);
 
@@ -196,6 +215,7 @@ private:
 
     void addMenuActions(QList<QAction *> &actions, int menu_group);
     void removeMenuActions(QList<QAction *> &actions, int menu_group);
+    void goToConversationFrame(bool go_next);
 
 signals:
     void setCaptureFile(capture_file *cf);
@@ -223,6 +243,10 @@ public slots:
     void applyRecentPaneGeometry();
     void layoutToolbars();
     void updatePreferenceActions();
+    void updateRecentActions();
+
+    void setTitlebarForCaptureFile();
+    void setWSWindowTitle(QString title = QString());
 
     void captureCapturePrepared(capture_session *);
     void captureCaptureUpdateStarted(capture_session *);
@@ -236,14 +260,18 @@ public slots:
     void captureFileReadStarted() { captureFileReadStarted(tr("Loading")); }
     void captureFileReadFinished();
     void captureFileReloadStarted() { captureFileReadStarted(tr("Reloading")); }
-    void captureFileRescanStarted() { captureFileReadStarted(tr("Rescanning")); }
+    void captureFileRescanStarted() { setMenusForCaptureFile(true); captureFileReadStarted(tr("Rescanning")); }
     void captureFileRetapStarted();
     void captureFileRetapFinished();
+    void captureFileFlushTapsData();
     void captureFileClosing();
     void captureFileClosed();
     void captureFileSaveStarted(const QString &file_path);
 
     void filterExpressionsChanged();
+
+    void launchRLCGraph(bool channelKnown, guint16 ueid, guint8 rlcMode,
+                        guint16 channelType, guint16 channelId, guint8 direction);
 
 private slots:
     // Manually connected slots (no "on_<object>_<signal>").
@@ -251,6 +279,11 @@ private slots:
     void initViewColorizeMenu();
 
     // in main_window_slots.cpp
+    /**
+     * @brief startCapture
+     * Start capturing from the selected interfaces using the capture filter
+     * shown in the main welcome screen.
+     */
     void startCapture();
     void pipeTimeout();
     void pipeActivated(int source);
@@ -267,7 +300,9 @@ private slots:
     void interfaceSelectionChanged();
     void captureFilterSyntaxChanged(bool valid);
     void redissectPackets();
+    void checkDisplayFilter();
     void fieldsChanged();
+    void reloadLuaPlugins();
     void showAccordionFrame(AccordionFrame *show_frame, bool toggle = false);
     void showColumnEditor(int column);
     void showPreferenceEditor(); // module_t *, pref *
@@ -277,11 +312,12 @@ private slots:
     void addExternalMenus();
     QMenu * searchSubMenu(QString objectName);
 
-    void startInterfaceCapture(bool valid);
+    void startInterfaceCapture(bool valid, const QString capture_filter);
 
     void setFeaturesEnabled(bool enabled = true);
 
     void on_actionDisplayFilterExpression_triggered();
+    void on_actionNewDisplayFilterExpression_triggered();
     void displayFilterButtonClicked();
 
     // Handle FilterAction signals
@@ -389,7 +425,7 @@ private slots:
     void colorizeConversation(bool create_rule = false);
     void colorizeWithFilter();
     void on_actionViewColorizeResetColorization_triggered();
-    void on_actionViewColorizeNewConversationRule_triggered();
+    void on_actionViewColorizeNewColoringRule_triggered();
     void on_actionViewResizeColumns_triggered();
 
     void on_actionViewInternalsConversationHashTables_triggered();
@@ -400,9 +436,12 @@ private slots:
     void on_actionViewShowPacketInNewWindow_triggered();
     void on_actionContextShowLinkedPacketInNewWindow_triggered();
     void on_actionViewReload_triggered();
+    void on_actionViewReload_as_File_Format_or_Capture_triggered();
 
     void on_actionGoGoToPacket_triggered();
     void on_actionGoGoToLinkedPacket_triggered();
+    void on_actionGoNextConversationPacket_triggered();
+    void on_actionGoPreviousConversationPacket_triggered();
     void on_actionGoAutoScroll_toggled(bool checked);
     void resetPreviousFocus();
 
@@ -433,14 +472,13 @@ private slots:
 
     void on_actionAnalyzeEnabledProtocols_triggered();
     void on_actionAnalyzeDecodeAs_triggered();
-#ifdef HAVE_LUA
     void on_actionAnalyzeReloadLuaPlugins_triggered();
-#endif
 
     void openFollowStreamDialog(follow_type_t type);
     void on_actionAnalyzeFollowTCPStream_triggered();
     void on_actionAnalyzeFollowUDPStream_triggered();
     void on_actionAnalyzeFollowSSLStream_triggered();
+    void on_actionAnalyzeFollowHTTPStream_triggered();
     void statCommandExpertInfo(const char *, void *);
     void on_actionAnalyzeExpertInfo_triggered();
 
@@ -540,6 +578,7 @@ private slots:
     void on_actionTelephonyLteRlcStatistics_triggered();
     void statCommandLteRlcStatistics(const char *arg, void *);
     void on_actionTelephonyLteMacStatistics_triggered();
+    void on_actionTelephonyLteRlcGraph_triggered();
     void on_actionTelephonyIax2StreamAnalysis_triggered();
     void on_actionTelephonyISUPMessages_triggered();
     void on_actionTelephonyMtp3Summary_triggered();
@@ -550,9 +589,9 @@ private slots:
     void on_actionTelephonyUCPMessages_triggered();
     void on_actionTelephonySipFlows_triggered();
 
-    void on_actionATT_Server_Attributes_triggered();
-    void on_actionDevices_triggered();
-    void on_actionHCI_Summary_triggered();
+    void on_actionBluetoothATT_Server_Attributes_triggered();
+    void on_actionBluetoothDevices_triggered();
+    void on_actionBluetoothHCI_Summary_triggered();
 
     void externalMenuItem_triggered();
 
@@ -561,6 +600,8 @@ private slots:
     void on_actionContextCopyBytesPrintableText_triggered();
     void on_actionContextCopyBytesHexStream_triggered();
     void on_actionContextCopyBytesBinary_triggered();
+
+    void on_actionContextShowPacketBytes_triggered();
 
     void on_actionContextWikiProtocolPage_triggered();
     void on_actionContextFilterFieldReference_triggered();

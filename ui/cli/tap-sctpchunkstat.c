@@ -27,10 +27,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "epan/packet_info.h"
+#include <glib.h>
+
+#include <epan/packet_info.h>
 #include <epan/tap.h>
 #include <epan/stat_tap_ui.h>
-#include "epan/value_string.h"
+#include <epan/value_string.h>
 #include <epan/dissectors/packet-sctp.h>
 #include <epan/to_str.h>
 
@@ -52,29 +54,6 @@ typedef struct _sctpstat_t {
 	guint32    number_of_packets;
 	sctp_ep_t *ep_list;
 } sctpstat_t;
-
-
-#define SCTP_DATA_CHUNK_ID               0
-#define SCTP_INIT_CHUNK_ID               1
-#define SCTP_INIT_ACK_CHUNK_ID           2
-#define SCTP_SACK_CHUNK_ID               3
-#define SCTP_HEARTBEAT_CHUNK_ID          4
-#define SCTP_HEARTBEAT_ACK_CHUNK_ID      5
-#define SCTP_ABORT_CHUNK_ID              6
-#define SCTP_SHUTDOWN_CHUNK_ID           7
-#define SCTP_SHUTDOWN_ACK_CHUNK_ID       8
-#define SCTP_ERROR_CHUNK_ID              9
-#define SCTP_COOKIE_ECHO_CHUNK_ID       10
-#define SCTP_COOKIE_ACK_CHUNK_ID        11
-#define SCTP_ECNE_CHUNK_ID              12
-#define SCTP_CWR_CHUNK_ID               13
-#define SCTP_SHUTDOWN_COMPLETE_CHUNK_ID 14
-#define SCTP_AUTH_CHUNK_ID            0x16
-#define SCTP_ASCONF_ACK_CHUNK_ID      0x80
-#define SCTP_PKTDROP_CHUNK_ID         0x81
-#define SCTP_FORWARD_TSN_CHUNK_ID     0xC0
-#define SCTP_ASCONF_CHUNK_ID          0xC1
-#define SCTP_IETF_EXT                 0xFF
 
 #define CHUNK_TYPE_OFFSET 0
 #define CHUNK_TYPE(x)(tvb_get_guint8((x), CHUNK_TYPE_OFFSET))
@@ -110,8 +89,8 @@ alloc_sctp_ep(const struct _sctp_info *si)
 	if (!(ep = g_new(sctp_ep_t, 1)))
 		return NULL;
 
-	COPY_ADDRESS(&ep->src, &si->ip_src);
-	COPY_ADDRESS(&ep->dst, &si->ip_dst);
+	copy_address(&ep->src, &si->ip_src);
+	copy_address(&ep->dst, &si->ip_dst);
 	ep->sport = si->sport;
 	ep->dport = si->dport;
 	ep->next  = NULL;
@@ -144,8 +123,8 @@ sctpstat_packet(void *phs, packet_info *pinfo _U_, epan_dissect_t *edt _U_, cons
 	} else {
 		for (tmp = hs->ep_list; tmp; tmp = tmp->next)
 		{
-			if ((!CMP_ADDRESS(&tmp->src, &si->ip_src)) &&
-			   (!CMP_ADDRESS(&tmp->dst, &si->ip_dst)) &&
+			if ((!cmp_address(&tmp->src, &si->ip_src)) &&
+			   (!cmp_address(&tmp->dst, &si->ip_dst)) &&
 			   (tmp->sport == si->sport) &&
 			   (tmp->dport == si->dport))
 			{

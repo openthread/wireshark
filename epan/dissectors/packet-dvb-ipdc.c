@@ -48,8 +48,8 @@ static dissector_handle_t sub_handles[DVB_IPDC_SUB_MAX];
 
 
 /* Code to actually dissect the packets */
-static void
-dissect_ipdc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ipdc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     tvbuff_t   *next_tvb;
     proto_tree *esg_tree = NULL;
@@ -68,6 +68,7 @@ dissect_ipdc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     next_tvb = tvb_new_subset_remaining(tvb, 0);
     call_dissector(sub_handles[DVB_IPDC_SUB_FLUTE], next_tvb, pinfo, esg_tree);
+    return tvb_captured_length(tvb);
 }
 
 void

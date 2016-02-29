@@ -21,7 +21,7 @@
 
 include(WiresharkPlugin)
 
-# This info is from moduleinfo.nmake
+# Plugin name and version info (major minor micro extra)
 set_module_info(gryphon 0 0 4 0)
 
 set(DISSECTOR_SRC
@@ -37,11 +37,11 @@ set(CLEAN_FILES
 	${PLUGIN_FILES}
 )
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${CLEAN_FILES}
 		PROPERTIES
-		COMPILE_FLAGS -Werror
+		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
 	)
 endif()
 

@@ -33,8 +33,8 @@ static int proto_pcapng_block = -1;
 
 static dissector_table_t pcapng_block_type_dissector_table;
 
-static void
-dissect_pcapng_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pcapng_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	/*
 	 * Call the dissector for the block type of this block, if there
@@ -51,6 +51,7 @@ dissect_pcapng_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 		proto_tree_add_item(tree, proto_pcapng_block, tvb, 0, -1, ENC_NA);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_pcapng_block(void)
@@ -58,7 +59,7 @@ void proto_register_pcapng_block(void)
 	proto_pcapng_block = proto_register_protocol("PCAP-NG block",
 	    "PCAP-NG", "pcapng");
 	pcapng_block_type_dissector_table = register_dissector_table("pcapng.block_type",
-	    "pcap-ng block type", FT_UINT32, BASE_DEC);
+	    "pcap-ng block type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void

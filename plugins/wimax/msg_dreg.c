@@ -366,7 +366,7 @@ void proto_register_mac_mgmt_msg_dreg_cmd(void)
 }
 
 /* Decode DREG-REQ messages. */
-static void dissect_mac_mgmt_msg_dreg_req_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_dreg_req_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint tlv_offset;
@@ -435,10 +435,11 @@ static void dissect_mac_mgmt_msg_dreg_req_decoder(tvbuff_t *tvb, packet_info *pi
 		if (!hmac_found)
 			proto_item_append_text(dreg_req_tree, " (HMAC Tuple is missing !)");
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Decode DREG-CMD messages. */
-static void dissect_mac_mgmt_msg_dreg_cmd_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_dreg_cmd_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint tlv_offset;
@@ -509,6 +510,7 @@ static void dissect_mac_mgmt_msg_dreg_cmd_decoder(tvbuff_t *tvb, packet_info *pi
 		if (!hmac_found)
 			proto_item_append_text(dreg_cmd_tree, " (HMAC Tuple is missing !)");
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

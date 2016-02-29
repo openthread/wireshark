@@ -38,7 +38,7 @@ class SyntaxLineEdit : public QLineEdit
     Q_ENUMS(SyntaxState)
 public:
     explicit SyntaxLineEdit(QWidget *parent = 0);
-    enum SyntaxState { Empty, Invalid, Deprecated, Valid };
+    enum SyntaxState { Empty, Busy, Invalid, Deprecated, Valid };
 
     SyntaxState syntaxState() const { return syntax_state_; }
     void setSyntaxState(SyntaxState state = Empty);
@@ -57,6 +57,7 @@ public slots:
     // Built-in syntax checks. Connect textChanged to these as needed.
     void checkDisplayFilter(QString filter);
     void checkFieldName(QString field);
+    void checkCustomColumn(QString fields);
     void checkInteger(QString number);
 
 protected:
@@ -75,9 +76,9 @@ private:
     SyntaxState syntax_state_;
     QString style_sheet_;
     QString state_style_sheet_;
-    QString deprecated_token_;
     QString syntax_error_message_;
     QString token_chars_;
+    QColor busy_fg_;
 
 private slots:
     void insertFieldCompletion(const QString &completion_text);

@@ -1,6 +1,6 @@
 /* packet-kink.c
  * Routines for KINK packet disassembly
- * It is referrenced draft-ietf-kink-kink-jp-04.txt,v 1.14 2003/02/10
+ * It is referenced draft-ietf-kink-kink-jp-04.txt,v 1.14 2003/02/10
  *
  * Copyright 2004, Takeshi Nakashima <T.Nakashima@jp.yokogawa.com>
  *
@@ -198,8 +198,8 @@ static void dissect_decrypt_kink_encrypt(packet_info *pinfo, tvbuff_t *tvb, prot
 #endif
 
 /* This function is dissecting the kink header. */
-static void
-dissect_kink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree){
+static int
+dissect_kink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_){
   proto_item *ti = NULL;
   proto_tree *kink_tree = NULL;
   guint8 type;
@@ -251,7 +251,7 @@ dissect_kink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree){
   proto_tree_add_uint(kink_tree, hf_kink_next_payload, tvb, offset, 1, next_payload);
   offset ++;
 
-  /* A is 1bit field. The caluculation of A is shown below.
+  /* A is 1bit field. The calculation of A is shown below.
    * The logical product of 1octet value and 0x80 is performed.
    * And It is performed 7bit right shift.
    */
@@ -278,6 +278,7 @@ dissect_kink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree){
 
   control_payload(pinfo, tvb, offset, next_payload, kink_tree);
 
+  return tvb_captured_length(tvb);
 }
 
 /* This part call the dissect payload function by next_payload value.

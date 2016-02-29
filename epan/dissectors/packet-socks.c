@@ -61,6 +61,7 @@
 
 #include <epan/packet.h>
 #include <epan/exceptions.h>
+#include <epan/proto_data.h>
 
 #include "packet-tcp.h"
 #include "packet-udp.h"
@@ -230,7 +231,7 @@ static const value_string gssapi_command_table[] = {
 
 static const char *get_auth_method_name( guint Number){
 
-/* return the name of the authenication method */
+/* return the name of the authentication method */
 
     if ( Number == 0) return "No authentication";
     if ( Number == 1) return "GSSAPI";
@@ -295,16 +296,16 @@ static int get_address_v5(tvbuff_t *tvb, int offset,
     {
     case 1: /* IPv4 address */
         if ( hash_info) {
-            TVB_SET_ADDRESS(&addr, AT_IPv4, tvb, offset, 4);
-            WMEM_COPY_ADDRESS(wmem_file_scope(), &hash_info->dst_addr, &addr);
+            set_address_tvb(&addr, AT_IPv4, 4, tvb, offset);
+            copy_address_wmem(wmem_file_scope(), &hash_info->dst_addr, &addr);
         }
         offset += 4;
         break;
 
     case 4: /* IPv6 address */
         if ( hash_info) {
-            TVB_SET_ADDRESS(&addr, AT_IPv6, tvb, offset, 16);
-            WMEM_COPY_ADDRESS(wmem_file_scope(), &hash_info->dst_addr, &addr);
+            set_address_tvb(&addr, AT_IPv6, 16, tvb, offset);
+            copy_address_wmem(wmem_file_scope(), &hash_info->dst_addr, &addr);
         }
         offset += 16;
         break;
@@ -320,8 +321,8 @@ static int get_address_v5(tvbuff_t *tvb, int offset,
 
 /********************* V5 UDP Associate handlers ***********************/
 
-static void
-socks_udp_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+socks_udp_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
 
 /* Conversation dissector called from UDP dissector. Decode and display */
 /* the socks header, the pass the rest of the data to the udp port  */
@@ -334,7 +335,7 @@ socks_udp_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     proto_tree         *socks_tree;
     proto_item         *ti;
 
-    conversation = find_conversation( pinfo->fd->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
+    conversation = find_conversation( pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
         pinfo->srcport, pinfo->destport, 0);
 
     DISSECTOR_ASSERT( conversation);    /* should always find a conversation */
@@ -380,13 +381,14 @@ socks_udp_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     decode_udp_ports( tvb, offset, pinfo, tree, pinfo->srcport, pinfo->destport, -1);
 
     *ptr = hash_info->udp_port;
+    return tvb_captured_length(tvb);
 }
 
 
 static void
 new_udp_conversation( socks_hash_entry_t *hash_info, packet_info *pinfo){
 
-    conversation_t *conversation = conversation_new( pinfo->fd->num, &pinfo->src, &pinfo->dst,  PT_UDP,
+    conversation_t *conversation = conversation_new( pinfo->num, &pinfo->src, &pinfo->dst,  PT_UDP,
             hash_info->udp_port, hash_info->port, 0);
 
     DISSECTOR_ASSERT( conversation);
@@ -698,8 +700,8 @@ state_machine_v4( socks_hash_entry_t *hash_info, tvbuff_t *tvb,
             hash_info->port =  tvb_get_ntohs(tvb, offset + 2);
 
         /* get remote address */
-        TVB_SET_ADDRESS(&addr, AT_IPv4, tvb, offset, 4);
-        WMEM_COPY_ADDRESS(wmem_file_scope(), &hash_info->dst_addr, &addr);
+        set_address_tvb(&addr, AT_IPv4, 4, tvb, offset);
+        copy_address_wmem(wmem_file_scope(), &hash_info->dst_addr, &addr);
 
         hash_info->clientState = clientDone;
     }
@@ -930,7 +932,7 @@ static void call_next_dissector(tvbuff_t *tvb, int offset, packet_info *pinfo,
 /* Call TCP dissector for the port that was passed during the           */
 /* connect process                                  */
 /* Load pointer to pinfo->XXXport depending upon the direction,     */
-/* change pinfo port to the remote port, call next dissecotr to decode  */
+/* change pinfo port to the remote port, call next dissector to decode  */
 /* the payload, and restore the pinfo port after that is done.      */
 
     guint32 *ptr;
@@ -1001,7 +1003,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
     if (state_info->in_socks_dissector_flag)
         return 0;
 
-    conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                      pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
     if (conversation == NULL) {
         /* If we don't already have a conversation, make sure the first
@@ -1010,7 +1012,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
         if ((version != 4) && (version != 5))
             return 0;
 
-        conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                         pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
     }
 
@@ -1079,7 +1081,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
 
         if ((hash_info->clientState == clientDone) &&
             (hash_info->serverState == serverDone)) {   /* if done now  */
-            hash_info->start_done_frame = pinfo->fd->num;
+            hash_info->start_done_frame = pinfo->num;
         }
     }
 
@@ -1103,7 +1105,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
         }
 
         /* if past startup, add the faked stuff */
-        if ( pinfo->fd->num > hash_info->start_done_frame){
+        if ( pinfo->num > hash_info->start_done_frame){
                         /*  add info to tree */
             ti = proto_tree_add_uint( socks_tree, hf_socks_cmd, tvb, offset, 0, hash_info->command);
             PROTO_ITEM_SET_GENERATED(ti);
@@ -1114,7 +1116,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
                 PROTO_ITEM_SET_GENERATED(ti);
             } else if (hash_info->dst_addr.type == AT_IPv6) {
                 ti = proto_tree_add_ipv6( socks_tree, hf_socks_ip6_dst, tvb,
-                    offset, 0, (const guint8*)hash_info->dst_addr.data);
+                    offset, 0, (const struct e_in6_addr *)hash_info->dst_addr.data);
                 PROTO_ITEM_SET_GENERATED(ti);
             }
 
@@ -1131,7 +1133,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
 
 
     /* call next dissector if ready */
-    if ( pinfo->fd->num > hash_info->start_done_frame){
+    if ( pinfo->num > hash_info->start_done_frame){
         call_next_dissector(tvb, offset, pinfo, tree, socks_tree,
             hash_info, state_info, tcpinfo);
     }
@@ -1307,7 +1309,7 @@ proto_reg_handoff_socks(void) {
 
     /* dissector install routine */
     socks_udp_handle = create_dissector_handle(socks_udp_dissector, proto_socks);
-    socks_handle = new_create_dissector_handle(dissect_socks, proto_socks);
+    socks_handle = create_dissector_handle(dissect_socks, proto_socks);
 
     dissector_add_uint("tcp.port", TCP_PORT_SOCKS, socks_handle);
 }

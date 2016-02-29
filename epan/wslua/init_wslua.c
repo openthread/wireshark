@@ -896,6 +896,7 @@ void wslua_init(register_cb cb, gpointer client_data) {
         lua_close(L);
         L = NULL;
         first_time = FALSE;
+        return;
     }
     lua_pop(L,1);  /* pop the getglobal result */
 
@@ -1004,10 +1005,10 @@ lua_State* wslua_state(void) { return L; }
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

@@ -56,8 +56,8 @@ static int hf_h261_data        = -1;
 /* H.261 fields defining a sub tree */
 static gint ett_h261           = -1;
 
-static void
-dissect_h261( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int
+dissect_h261( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
 	proto_item *ti            = NULL;
 	proto_tree *h261_tree     = NULL;
@@ -109,6 +109,7 @@ dissect_h261( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
 		/* The rest of the packet is the H.261 stream */
 		proto_tree_add_item( h261_tree, hf_h261_data, tvb, offset, -1, ENC_NA );
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -124,7 +125,7 @@ proto_register_h261(void)
 				FT_UINT8,
 				BASE_DEC,
 				NULL,
-				0x0,
+				0xe0,
 				NULL, HFILL
 			}
 		},
@@ -136,7 +137,7 @@ proto_register_h261(void)
 				FT_UINT8,
 				BASE_DEC,
 				NULL,
-				0x0,
+				0x1c,
 				NULL, HFILL
 			}
 		},
@@ -146,9 +147,9 @@ proto_register_h261(void)
 				"Intra frame encoded data flag",
 				"h261.i",
 				FT_BOOLEAN,
-				BASE_NONE,
+				8,
 				NULL,
-				0x0,
+				0x02,
 				NULL, HFILL
 			}
 		},
@@ -158,9 +159,9 @@ proto_register_h261(void)
 				"Motion vector flag",
 				"h261.v",
 				FT_BOOLEAN,
-				BASE_NONE,
+				8,
 				NULL,
-				0x0,
+				0x01,
 				NULL, HFILL
 			}
 		},

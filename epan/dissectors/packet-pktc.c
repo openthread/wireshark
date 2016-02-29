@@ -48,6 +48,7 @@ void proto_register_pktc_mtafqdn(void);
 void proto_reg_handoff_pktc_mtafqdn(void);
 
 static int proto_pktc = -1;
+static int proto_pktc_mtafqdn = -1;
 static gint hf_pktc_app_spec_data = -1;
 static gint hf_pktc_list_of_ciphersuites = -1;
 static gint hf_pktc_list_of_ciphersuites_len = -1;
@@ -228,7 +229,6 @@ dissect_pktc_app_specific_data(packet_info *pinfo, proto_tree *parent_tree, tvbu
             break;
         default:
             proto_tree_add_expert(tree, pinfo, &ei_pktc_unknown_kmmid, tvb, offset, 1);
-            THROW(ReportedBoundsError); /* bail out and inform user we can't dissect the packet */
         };
         break;
     case DOI_IPSEC:
@@ -246,12 +246,10 @@ dissect_pktc_app_specific_data(packet_info *pinfo, proto_tree *parent_tree, tvbu
             break;
         default:
             proto_tree_add_expert(tree, pinfo, &ei_pktc_unknown_kmmid, tvb, offset, 1);
-            THROW(ReportedBoundsError); /* bail out and inform user we can't dissect the packet */
         };
         break;
     default:
         proto_tree_add_expert(tree, pinfo, &ei_pktc_unknown_doi, tvb, offset, 1);
-        THROW(ReportedBoundsError); /* bail out and inform user we can't dissect the packet */
     }
 
     proto_item_set_len(item, offset-old_offset);
@@ -307,7 +305,6 @@ dissect_pktc_list_of_ciphersuites(packet_info *pinfo _U_, proto_tree *parent_tre
         break;
     default:
         proto_tree_add_expert(tree, pinfo, &ei_pktc_unknown_doi, tvb, offset, 1);
-            THROW(ReportedBoundsError); /* bail out and inform user we can't dissect the packet */
     }
 
     proto_item_set_len(item, offset-old_offset);
@@ -526,8 +523,6 @@ dissect_pktc_mtafqdn_krbsafeuserdata(packet_info *pinfo, tvbuff_t *tvb, proto_tr
     case PKTC_MTAFQDN_REP:
         /* MTA FQDN */
         string_len = tvb_reported_length_remaining(tvb, offset) - 4;
-        if (string_len <= 0)
-                THROW(ReportedBoundsError);
         proto_tree_add_item(tree, hf_pktc_mtafqdn_fqdn, tvb, offset, string_len, ENC_ASCII|ENC_NA);
         offset+=string_len;
 
@@ -546,8 +541,8 @@ static kerberos_callbacks cb[] = {
     { 0, NULL }
 };
 
-static void
-dissect_pktc_mtafqdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pktc_mtafqdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset=0;
     proto_tree *pktc_mtafqdn_tree;
@@ -571,11 +566,12 @@ dissect_pktc_mtafqdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += dissect_kerberos_main(pktc_mtafqdn_tvb, pinfo, pktc_mtafqdn_tree, FALSE, cb);
 
     proto_item_set_len(item, offset);
+    return tvb_captured_length(tvb);
 }
 
 
-static void
-dissect_pktc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pktc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8 kmmid, doi, version;
     int offset=0;
@@ -633,6 +629,7 @@ dissect_pktc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     };
 
     proto_item_set_len(item, offset);
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -777,15 +774,17 @@ proto_register_pktc_mtafqdn(void)
     };
 
     static ei_register_info ei[] = {
-        { &ei_pktc_unknown_kmmid, { "pktc.unknown_kmmid", PI_PROTOCOL, PI_WARN, "Unknown KMMID", EXPFILL }},
-        { &ei_pktc_unknown_doi, { "pktc.unknown_doi", PI_PROTOCOL, PI_WARN, "Unknown DOI", EXPFILL }},
+        { &ei_pktc_unknown_kmmid, { "pktc.mtafqdn.unknown_kmmid", PI_PROTOCOL, PI_WARN, "Unknown KMMID", EXPFILL }},
+        { &ei_pktc_unknown_doi, { "pktc.mtafqdn.unknown_doi", PI_PROTOCOL, PI_WARN, "Unknown DOI", EXPFILL }},
     };
 
     expert_module_t* expert_pktc;
 
-    proto_register_field_array(proto_pktc, hf, array_length(hf));
+    proto_pktc_mtafqdn = proto_register_protocol("PacketCable MTA FQDN", "PKTC MTA FQDN", "pktc.mtafqdn");
+
+    proto_register_field_array(proto_pktc_mtafqdn, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    expert_pktc = expert_register_protocol(proto_pktc);
+    expert_pktc = expert_register_protocol(proto_pktc_mtafqdn);
     expert_register_field_array(expert_pktc, ei, array_length(ei));
 }
 
@@ -794,7 +793,7 @@ proto_reg_handoff_pktc_mtafqdn(void)
 {
     dissector_handle_t pktc_mtafqdn_handle;
 
-    pktc_mtafqdn_handle = create_dissector_handle(dissect_pktc_mtafqdn, proto_pktc);
+    pktc_mtafqdn_handle = create_dissector_handle(dissect_pktc_mtafqdn, proto_pktc_mtafqdn);
     dissector_add_uint("udp.port", PKTC_MTAFQDN_PORT, pktc_mtafqdn_handle);
 }
 

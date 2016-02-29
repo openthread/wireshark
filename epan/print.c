@@ -37,6 +37,7 @@
 #include <epan/charsets.h>
 #include <wsutil/filesystem.h>
 #include <wsutil/ws_version_info.h>
+#include <wsutil/utf8_entities.h>
 #include <ftypes/ftypes-int.h>
 #include <epan/tvbuff-int.h>
 
@@ -122,7 +123,7 @@ proto_tree_print(print_args_t *print_args, epan_dissect_t *edt,
     data.stream             = stream;
     data.success            = TRUE;
     data.src_list           = edt->pi.data_src;
-    data.encoding           = edt->pi.fd->flags.encoding;
+    data.encoding           = (packet_char_enc)edt->pi.fd->flags.encoding;
     data.print_dissections  = print_args->print_dissections;
     /* If we're printing the entire packet in hex, don't
        print uninterpreted data fields in hex as well. */
@@ -655,7 +656,7 @@ static gchar *csv_massage_str(const gchar *source, const gchar *exceptions)
     csv_str = g_strescape(source, exceptions);
     tmp_str = csv_str;
     /* Locate the UTF-8 right arrow character and replace it by an ASCII equivalent */
-    while ( (tmp_str = strstr(tmp_str, "\xe2\x86\x92")) != NULL ) {
+    while ( (tmp_str = strstr(tmp_str, UTF8_RIGHTWARDS_ARROW)) != NULL ) {
         tmp_str[0] = ' ';
         tmp_str[1] = '>';
         tmp_str[2] = ' ';
@@ -670,8 +671,8 @@ static void csv_write_str(const char *str, char sep, FILE *fh)
 {
     gchar *csv_str;
 
-    /* Do not escape the UTF-8 righ arrow character */
-    csv_str = csv_massage_str(str, "\xe2\x86\x92");
+    /* Do not escape the UTF-8 right arrow character */
+    csv_str = csv_massage_str(str, UTF8_RIGHTWARDS_ARROW);
     fprintf(fh, "\"%s\"%c", csv_str, sep);
     g_free(csv_str);
 }
@@ -904,7 +905,7 @@ print_hex_data(print_stream_t *stream, epan_dissect_t *edt)
             return TRUE;
         cp = tvb_get_ptr(tvb, 0, length);
         if (!print_hex_data_buffer(stream, cp, length,
-                                   edt->pi.fd->flags.encoding))
+                                   (packet_char_enc)edt->pi.fd->flags.encoding))
             return FALSE;
     }
     return TRUE;

@@ -1619,8 +1619,8 @@ dissect_qnet6_lr(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, gint * 
         {
           col_add_fstr(pinfo->cinfo, COL_INFO,
                         "Who is \"%s.%s\"? Tell \"%s.%s\"@%02x:%02x:%02x:%02x:%02x:%02x",
-                        name[3] ? (char*)name[3] : "?", name[4] ? (char*)name[4] : "?",
-                        name[0] ? (char*)name[0] : "?", name[1] ? (char*)name[1] : "?",
+                        name[3] ? (const char*)name[3] : "?", name[4] ? (const char*)name[4] : "?",
+                        name[0] ? (const char*)name[0] : "?", name[1] ? (const char*)name[1] : "?",
                         *(p + 2), *(p + 3), *(p + 4),
                         *(p + 5), *(p + 6), *(p + 7));
         }
@@ -1631,8 +1631,8 @@ dissect_qnet6_lr(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, gint * 
         {
           col_add_fstr(pinfo->cinfo, COL_INFO,
                         "To \"%s.%s\", \"%s.%s\" is at %02x:%02x:%02x:%02x:%02x:%02x",
-                        name[3] ? (char*)name[3] : "?", name[4] ? (char*)name[4] : "?",
-                        name[0] ? (char*)name[0] : "?", name[1] ? (char*)name[1] : "?",
+                        name[3] ? (const char*)name[3] : "?", name[4] ? (const char*)name[4] : "?",
+                        name[0] ? (const char*)name[0] : "?", name[1] ? (const char*)name[1] : "?",
                         *(p + 2), *(p + 3), *(p + 4),
                         *(p + 5), *(p + 6), *(p + 7));
         }
@@ -5989,7 +5989,7 @@ proto_reg_handoff_qnet6(void)
 {
   dissector_handle_t qnet6_handle;
 
-  qnet6_handle = new_create_dissector_handle(dissect_qnet6, proto_qnet6_l4);
+  qnet6_handle = create_dissector_handle(dissect_qnet6, proto_qnet6_l4);
   dissector_add_uint("ethertype", ETHERTYPE_QNX_QNET6, qnet6_handle);
   dissector_add_uint("ip.proto", IP_PROTO_QNX, qnet6_handle);
 }

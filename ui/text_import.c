@@ -113,10 +113,6 @@
 #include <time.h>
 #include <glib.h>
 
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif
-
 #include <errno.h>
 #include <assert.h>
 
@@ -569,6 +565,10 @@ append_to_preamble(char *str)
             return;    /* no room to add more preamble */
         /* Add a blank separator between the previous token and this token. */
         packet_preamble[packet_preamble_len++] = ' ';
+    }
+    if(str == NULL){
+        fprintf(stderr, "FATAL ERROR: str is NULL\n");
+        exit(1);
     }
     toklen = strlen(str);
     if (toklen != 0) {

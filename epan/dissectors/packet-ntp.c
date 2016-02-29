@@ -67,7 +67,7 @@ void proto_reg_handoff_ntp(void);
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |                 Key Identifier (optional) (32)                |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                 Message Digest (optional) (128)               |
+ * |                 Message Digest (optional) (128/160)           |
  * |                                                               |
  * |                                                               |
  * |                                                               |
@@ -145,7 +145,7 @@ static const value_string ver_nums[] = {
 	{ 0,	NULL}
 };
 
-/* Mode, 3bit field representing mode of comunication.
+/* Mode, 3bit field representing mode of communication.
  */
 #define NTP_MODE_MASK   7
 
@@ -331,7 +331,7 @@ static const true_false_string tfs_ctrl_peer_status_reach = {"reachability okay 
 
 static const value_string ctrl_peer_status_selection_types[] = {
 	{ 0,		"rejected" },
-	{ 1,		"passed sanity checks (tests 1 trough 8 in Section 3.4.3)" },
+	{ 1,		"passed sanity checks (tests 1 through 8 in Section 3.4.3)" },
 	{ 2,		"passed correctness checks (intersection algorithm in Section 4.2.1)" },
 	{ 3,		"passed candidate checks (if limit check implemented)" },
 	{ 4,		"passed outlyer checks (clustering algorithm in Section 4.2.2)" },
@@ -473,9 +473,9 @@ static const value_string authentication_types[] = {
 
 
 /*
- * Maximum MAC length.
+ * Maximum MAC length : 160 bits MAC + 32 bits Key ID
  */
-#define MAX_MAC_LEN	(5 * sizeof (guint32))
+#define MAX_MAC_LEN	(6 * sizeof (guint32))
 
 static int proto_ntp = -1;
 
@@ -1357,8 +1357,8 @@ dissect_ntp_priv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ntp_tree)
  * pinfo - packet info
  * proto_tree - resolved protocol tree
  */
-static void
-dissect_ntp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ntp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree      *ntp_tree;
 	proto_item      *ti = NULL;
@@ -1399,6 +1399,7 @@ dissect_ntp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Dissect according to mode */
 	(*dissector)(tvb, pinfo, ntp_tree);
+	return tvb_captured_length(tvb);
 }
 
 void

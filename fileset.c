@@ -22,18 +22,6 @@
 
 #include <config.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
-
 #ifdef HAVE_SYS_WAIT_H
 # include <sys/wait.h>
 #endif
@@ -266,7 +254,7 @@ void fileset_update_dlg(void *window)
     GList         *le;
 
 
-    /* add all entires to the dialog */
+    /* add all entries to the dialog */
     le = g_list_first(set.entries);
     while(le) {
         fileset_dlg_add_file((fileset_entry *)le->data, window);
@@ -287,8 +275,8 @@ fileset_add_dir(const char *fname, void *window)
 
 
     /* get (convert) directory name, but don't touch the given string */
-    fname_dup = get_dirname(g_strdup(fname));
-    dirname = g_string_new(fname_dup);
+    fname_dup = g_strdup(fname);
+    dirname = g_string_new(get_dirname(fname_dup));
     g_free(fname_dup);
 
     set.dirname = g_strdup(dirname->str);
@@ -339,7 +327,7 @@ fileset_get_current(void)
     fileset_entry *entry;
 
 
-    /* add all entires to the dialog */
+    /* add all entries to the dialog */
     le = g_list_first(set.entries);
     while(le) {
         entry = (fileset_entry *)le->data;

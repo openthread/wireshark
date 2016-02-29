@@ -40,6 +40,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/asn1.h>
+#include <epan/proto_data.h>
 #include "packet-x509af.h"
 
 void proto_register_mikey(void);
@@ -1459,7 +1460,7 @@ proto_register_mikey(void)
 		    FT_UINT8, BASE_DEC, VALS(payload_vals), 0x0,
 		    NULL, HFILL }},
 		{ &hf_mikey[POS_HDR_V],
-		  { "V", "mikey.v",
+		  { "V", "mikey.v.set",
 		    FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x80,
 		    NULL, HFILL }},
 		{ &hf_mikey[POS_HDR_PRF_FUNC],
@@ -1844,7 +1845,7 @@ proto_register_mikey(void)
 	proto_mikey = proto_register_protocol("Multimedia Internet KEYing",
 		"MIKEY", "mikey");
 
-	mikey_handle = new_register_dissector("mikey", dissect_mikey, proto_mikey);
+	mikey_handle = register_dissector("mikey", dissect_mikey, proto_mikey);
 
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_mikey, hf, array_length(hf));

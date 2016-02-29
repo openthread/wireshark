@@ -247,8 +247,8 @@ dissect_eiss_descriptors(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gu
 	}
 }
 
-static void
-dissect_eiss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_eiss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint       offset = 0, packet_length, sect_len;
 	proto_item *ti;
@@ -360,6 +360,7 @@ dissect_eiss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	}
 
 	packet_mpeg_sect_crc(tvb, pinfo, eiss_tree, 0, sect_len - 1);
+	return tvb_captured_length(tvb);
 }
 
 

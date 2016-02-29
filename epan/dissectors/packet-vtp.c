@@ -136,8 +136,8 @@ set_vtp_info_col(tvbuff_t *tvb, packet_info *pinfo)
 	}
 }
 
-static void
-dissect_vtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_vtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *vtp_tree = NULL, *vtp_pruning_tree = NULL;
@@ -264,6 +264,7 @@ dissect_vtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 		break;
 	}
+	return tvb_captured_length(tvb);
 }
 
 #define	VLAN_SUSPENDED	0x01

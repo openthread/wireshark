@@ -548,8 +548,8 @@ dissect_rtnet_tdma(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root) {
   }
 }
 
-static void
-dissect_rtmac(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_rtmac(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   gint offset = 0;
   guint8 ver,flags;
   guint16 type;
@@ -629,7 +629,7 @@ dissect_rtmac(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
   next_tvb = tvb_new_subset_remaining(tvb, offset);
 
-  if (ver == 1)
+  if (ver == 1) {
     switch (type) {
       case RTMAC_TYPE_TDMA_V1:
         dissect_rtnet_tdma_v1(next_tvb, pinfo, tree);
@@ -639,10 +639,10 @@ dissect_rtmac(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
         call_dissector(dissector, next_tvb, pinfo, tree);
         break;
     }
-  else
+  } else {
     if (flags & RTMAC_FLAG_TUNNEL)
       call_dissector(dissector, next_tvb, pinfo, tree);
-    else
+    else {
       switch (type) {
         case RTMAC_TYPE_TDMA:
           dissect_rtnet_tdma(next_tvb, pinfo, tree);
@@ -652,10 +652,14 @@ dissect_rtmac(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
           call_dissector(data_handle, next_tvb, pinfo, tree);
           break;
       }
+    }
+  }
+
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_rtcfg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_rtcfg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   gint offset = 0;
   proto_tree *vers_id_tree, *vers_id_item, *flags_tree, *flags_item;
   guint8 vers_id;
@@ -858,7 +862,7 @@ dissect_rtcfg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
              break;
          }
 
-         switch (pinfo->fd->lnk_t) {
+         switch (pinfo->pkt_encap) {
            case WTAP_ENCAP_ETHERNET:
              proto_tree_add_bytes_format_value( rtcfg_tree, hf_rtcfg_client_hw_address, tvb, offset, 32,
                                           NULL, "%s",
@@ -875,6 +879,7 @@ dissect_rtcfg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void

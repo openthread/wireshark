@@ -48,8 +48,9 @@ typedef gint16 SAMPLE;
 
 /* Defines an RTP packet */
 typedef struct _rtp_packet {
+    guint32 frame_num;      /* Qt only */
     struct _rtp_info *info;	/* the RTP dissected info */
-    double arrive_offset;	/* arrive offset time since the beginning of the stream in ms */
+    double arrive_offset;	/* arrive offset time since the beginning of the stream as ms in GTK UI and s in Qt UI */
     guint8* payload_data;
 } rtp_packet_t;
 

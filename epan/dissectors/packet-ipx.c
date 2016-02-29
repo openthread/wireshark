@@ -28,6 +28,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include "packet-ipx.h"
 #include "packet-sll.h"
 #include <epan/addr_resolv.h>
@@ -38,6 +39,8 @@
 #include <epan/arcnet_pids.h>
 #include <epan/conversation.h>
 #include <epan/conversation_table.h>
+#include <epan/proto_data.h>
+
 void proto_register_ipx(void);
 void proto_reg_handoff_ipx(void);
 
@@ -137,21 +140,6 @@ static int hf_msg_sigchar = -1;
 
 static dissector_handle_t data_handle;
 
-static void
-dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
-static void
-dissect_ipxrip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
-static void
-dissect_serialization(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
-static void
-dissect_ipxsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
-static void
-dissect_ipxmsg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
 #define UDP_PORT_IPX    213		/* RFC 1234 */
 
 #define IPX_HEADER_LEN	30		/* It's *always* 30 bytes */
@@ -178,7 +166,7 @@ ipx_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, 
 	conv_hash_t *hash = (conv_hash_t*) pct;
 	const ipxhdr_t *ipxh=(const ipxhdr_t *)vip;
 
-	add_conversation_table_data(hash, &ipxh->ipx_src, &ipxh->ipx_dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &ipx_ct_dissector_info, PT_NONE);
+	add_conversation_table_data(hash, &ipxh->ipx_src, &ipxh->ipx_dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &ipx_ct_dissector_info, PT_NONE);
 
 	return 1;
 }
@@ -287,14 +275,15 @@ static const value_string ipxmsg_sigchar_vals[] = {
 	{ 0, NULL }
 };
 
-void
-capture_ipx(packet_counts *ld)
+gboolean
+capture_ipx(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
-	ld->ipx++;
+	capture_dissector_increment_count(cpinfo, proto_ipx);
+	return TRUE;
 }
 
-static void
-dissect_ipx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ipx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	tvbuff_t	*next_tvb;
 
@@ -332,12 +321,12 @@ dissect_ipx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	/* Adjust the tvbuff length to include only the IPX datagram. */
 	set_actual_length(tvb, ipxh->ipx_length);
 
-	TVB_SET_ADDRESS(&pinfo->net_src,	AT_IPX, tvb, 18, 10);
-    COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
-    COPY_ADDRESS_SHALLOW(&ipxh->ipx_src, &pinfo->net_src);
-	TVB_SET_ADDRESS(&pinfo->net_dst,	AT_IPX, tvb, 6,  10);
-    COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
-    COPY_ADDRESS_SHALLOW(&ipxh->ipx_dst, &pinfo->net_dst);
+	set_address_tvb(&pinfo->net_src, AT_IPX, 10, tvb, 18);
+    copy_address_shallow(&pinfo->src, &pinfo->net_src);
+    copy_address_shallow(&ipxh->ipx_src, &pinfo->net_src);
+	set_address_tvb(&pinfo->net_dst, AT_IPX, 10, tvb, 6);
+    copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
+    copy_address_shallow(&ipxh->ipx_dst, &pinfo->net_dst);
 
 	col_add_str(pinfo->cinfo, COL_INFO, val_to_str_ext(ipxh->ipx_dsocket, &ipx_socket_vals_ext, "Unknown (0x%04x)"));
 
@@ -441,11 +430,11 @@ dissect_ipx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (second_socket != IPX_SOCKET_NWLINK_SMB_NAMEQUERY) {
 		if (dissector_try_uint_new(ipx_socket_dissector_table, first_socket,
 			next_tvb, pinfo, tree, FALSE, ipxh))
-			return;
+			return tvb_captured_length(tvb);
 	}
 	if (dissector_try_uint_new(ipx_socket_dissector_table, second_socket,
 		next_tvb, pinfo, tree, FALSE, ipxh))
-		return;
+		return tvb_captured_length(tvb);
 
 	/*
 	 * Neither of them are known; try the packet type, which will
@@ -453,9 +442,10 @@ dissect_ipx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	 */
 	if (dissector_try_uint_new(ipx_type_dissector_table, ipxh->ipx_type, next_tvb,
 		pinfo, tree, FALSE, ipxh))
-		return;
+		return tvb_captured_length(tvb);
 
 	call_dissector(data_handle,next_tvb, pinfo, tree);
+	return tvb_captured_length(tvb);
 }
 /* ================================================================= */
 /* SPX Hash Functions                                                */
@@ -601,8 +591,8 @@ spx_datastream(guint8 type)
 #define SPX_HEADER_LEN	12
 #define SPX2_HEADER_LEN	14
 
-static void
-dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*spx_tree;
 	proto_item	*ti;
@@ -740,7 +730,7 @@ dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		 * Not a system packet - check for retransmissions.
 		 */
 		if (!pinfo->fd->flags.visited) {
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+			conversation = find_conversation(pinfo->num, &pinfo->src,
 			    &pinfo->dst, PT_NCP, pinfo->srcport,
 			    pinfo->srcport, 0);
 			if (conversation == NULL) {
@@ -748,7 +738,7 @@ dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				 * It's not part of any conversation - create
 				 * a new one.
 				 */
-				conversation = conversation_new(pinfo->fd->num, &pinfo->src,
+				conversation = conversation_new(pinfo->num, &pinfo->src,
 				    &pinfo->dst, PT_NCP, pinfo->srcport,
 				    pinfo->srcport, 0);
 			}
@@ -778,7 +768,7 @@ dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				    spx_seq);
 				pkt_value->spx_ack = tvb_get_ntohs(tvb, 8);
 				pkt_value->spx_all = tvb_get_ntohs(tvb, 10);
-				pkt_value->num = pinfo->fd->num;
+				pkt_value->num = pinfo->num;
 
 				/*
 				 * This is not a retransmission, so we shouldn't
@@ -826,7 +816,7 @@ dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				proto_tree_add_item(spx_tree, hf_spx_rexmt_data, tvb, hdr_len, -1, ENC_NA);
 			}
 		}
-		return;
+		return tvb_captured_length(tvb);
 	}
 
 	if (tvb_reported_length_remaining(tvb, hdr_len) > 0) {
@@ -863,22 +853,23 @@ dissect_spx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		if (dissector_try_uint_new(spx_socket_dissector_table, low_socket,
 		    next_tvb, pinfo, tree, FALSE, &spx_infox))
 		{
-			return;
+			return tvb_captured_length(tvb);
 		}
 		if (dissector_try_uint_new(spx_socket_dissector_table, high_socket,
 		    next_tvb, pinfo, tree, FALSE, &spx_infox))
 		{
-			return;
+			return tvb_captured_length(tvb);
 		}
 		call_dissector(data_handle, next_tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* ================================================================= */
 /* IPX Message                                                       */
 /* ================================================================= */
-static void
-dissect_ipxmsg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ipxmsg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*msg_tree;
 	proto_item	*ti;
@@ -901,6 +892,7 @@ dissect_ipxmsg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		proto_tree_add_uint(msg_tree, hf_msg_conn, tvb, 0, 1, conn_number);
 		proto_tree_add_uint(msg_tree, hf_msg_sigchar, tvb, 1, 1, sig_char);
 	}
+	return tvb_captured_length(tvb);
 }
 
 
@@ -913,8 +905,8 @@ static const value_string ipxrip_packet_vals[] = {
 	{ 0,            NULL}
 };
 
-static void
-dissect_ipxrip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ipxrip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*rip_tree;
 	proto_item	*ti, *hidden_item;
@@ -967,13 +959,14 @@ dissect_ipxrip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* ================================================================= */
 /* IPX Serialization                                                 */
 /* ================================================================= */
-static void
-dissect_serialization(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_serialization(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*ser_tree = NULL;
 	proto_item	*ti;
@@ -991,6 +984,7 @@ dissect_serialization(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		    tvb_bytes_to_str(wmem_packet_scope(), tvb, 0, 6));
 
 	proto_tree_add_item(ser_tree, hf_serial_number, tvb, 0, 6, ENC_NA);
+	return tvb_captured_length(tvb);
 }
 
 /*
@@ -1239,8 +1233,8 @@ static const value_string ipxsap_packet_vals[] = {
 	{ 0,            NULL}
 };
 
-static void
-dissect_ipxsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ipxsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*sap_tree, *s_tree;
 	proto_item	*ti, *hidden_item;
@@ -1299,6 +1293,7 @@ dissect_ipxsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			proto_tree_add_item(sap_tree, hf_sap_server_type, tvb, 2, 2, ENC_BIG_ENDIAN);
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -1580,11 +1575,11 @@ proto_register_ipx(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 	ipx_type_dissector_table = register_dissector_table("ipx.packet_type",
-	    "IPX packet type", FT_UINT8, BASE_HEX);
+	    "IPX packet type", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	ipx_socket_dissector_table = register_dissector_table("ipx.socket",
-	    "IPX socket", FT_UINT16, BASE_HEX);
+	    "IPX socket", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	spx_socket_dissector_table = register_dissector_table("spx.socket",
-	    "SPX socket", FT_UINT16, BASE_HEX);
+	    "SPX socket", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	register_init_routine(&spx_init_protocol);
 	register_postseq_cleanup_routine(&spx_postseq_cleanup);
@@ -1631,6 +1626,11 @@ proto_reg_handoff_ipx(void)
 	dissector_add_uint("ipx.socket", IPX_SOCKET_IPX_MESSAGE, ipxmsg_handle);
 	dissector_add_uint("ipx.socket", IPX_SOCKET_IPX_MESSAGE1, ipxmsg_handle);
 
+	register_capture_dissector("ethertype", ETHERTYPE_IPX, capture_ipx, proto_ipx);
+	register_capture_dissector("ppp_hdlc", PPP_IPX, capture_ipx, proto_ipx);
+	register_capture_dissector("sll.ltype", LINUX_SLL_P_802_3, capture_ipx, proto_ipx);
+	register_capture_dissector("llc.dsap", SAP_NETWARE1, capture_ipx, proto_ipx);
+	register_capture_dissector("llc.dsap", SAP_NETWARE2, capture_ipx, proto_ipx);
 	data_handle = find_dissector("data");
 }
 

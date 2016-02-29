@@ -61,7 +61,7 @@ typedef struct lookup_entry {
  */
 typedef struct dissector_delete_item {
     /* The name of the dissector table */
-    const gchar *ddi_table_name;
+    gchar *ddi_table_name;
     /* The type of the selector in that dissector table */
     ftenum_t ddi_selector_type;
     /* The selector in the dissector table */
@@ -80,7 +80,8 @@ change_dissector_if_matched(gpointer item, gpointer user_data)
 {
     dissector_handle_t handle = (dissector_handle_t)item;
     lookup_entry_t * lookup = (lookup_entry_t *)user_data;
-    if (strcmp(lookup->dissector_short_name, dissector_handle_get_short_name(handle)) == 0) {
+    const gchar *proto_short_name = dissector_handle_get_short_name(handle);
+    if (proto_short_name && strcmp(lookup->dissector_short_name, proto_short_name) == 0) {
         lookup->handle = handle;
     }
 }
@@ -146,8 +147,7 @@ read_set_decode_as_entries(gchar *key, const gchar *value,
                 }
             }
             if (is_valid) {
-                decode_build_reset_list(g_strdup(values[0]), selector_type,
-                        g_strdup(values[1]), NULL, NULL);
+                decode_build_reset_list(values[0], selector_type, values[1], NULL, NULL);
             }
         } else {
             retval = PREFS_SET_SYNTAX_ERR;
@@ -189,7 +189,7 @@ decode_build_reset_list (const gchar *table_name, ftenum_t selector_type,
     dissector_delete_item_t *item;
 
     item = g_new(dissector_delete_item_t,1);
-    item->ddi_table_name = table_name;
+    item->ddi_table_name = g_strdup(table_name);
     item->ddi_selector_type = selector_type;
     switch (selector_type) {
 
@@ -204,7 +204,7 @@ decode_build_reset_list (const gchar *table_name, ftenum_t selector_type,
     case FT_STRINGZ:
     case FT_UINT_STRING:
     case FT_STRINGZPAD:
-        item->ddi_selector.sel_string = (char *)key;
+        item->ddi_selector.sel_string = g_strdup((char *)key);
         break;
 
     default:
@@ -240,11 +240,13 @@ decode_clear_all(void)
         case FT_STRINGZPAD:
             dissector_reset_string(item->ddi_table_name,
                                    item->ddi_selector.sel_string);
+            g_free(item->ddi_selector.sel_string);
             break;
 
         default:
             g_assert_not_reached();
         }
+        g_free(item->ddi_table_name);
         g_free(item);
     }
     g_slist_free(dissector_reset_list);
@@ -310,28 +312,26 @@ decode_as_write_entry (const gchar *table_name, ftenum_t selector_type,
     }
 }
 
-void
-save_decode_as_entries(void)
+int
+save_decode_as_entries(gchar** err)
 {
     char *pf_dir_path;
     char *daf_path;
     FILE *da_file;
 
     if (create_persconffile_dir(&pf_dir_path) == -1) {
-        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-                "Can't create directory\n\"%s\"\nfor recent file: %s.", pf_dir_path,
-                g_strerror(errno));
+        *err = g_strdup_printf("Can't create directory\n\"%s\"\nfor recent file: %s.",
+                                pf_dir_path, g_strerror(errno));
         g_free(pf_dir_path);
-        return;
+        return -1;
     }
 
     daf_path = get_persconffile_path(DECODE_AS_ENTRIES_FILE_NAME, TRUE);
     if ((da_file = ws_fopen(daf_path, "w")) == NULL) {
-        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-            "Can't open decode_as_entries file\n\"%s\": %s.", daf_path,
-            g_strerror(errno));
+        *err = g_strdup_printf("Can't open decode_as_entries file\n\"%s\": %s.",
+                                daf_path, g_strerror(errno));
         g_free(daf_path);
-        return;
+        return -1;
     }
 
     fputs("# \"Decode As\" entries file for Wireshark " VERSION ".\n"
@@ -342,6 +342,7 @@ save_decode_as_entries(void)
 
     dissector_all_tables_foreach_changed(decode_as_write_entry, da_file);
     fclose(da_file);
+    return 0;
 }
 
 /*

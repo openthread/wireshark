@@ -31,6 +31,7 @@
 #include <epan/packet.h>
 #include <epan/conversation.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 /* NOTE:
  * packet-spice.h is auto-generated from a Spice protocol definition by a tool
  * included in the spice-common repository
@@ -1834,7 +1835,7 @@ dissect_spice_display_server(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo
 
             offset += dissect_Mask(tvb, pinfo, tree, offset);
 
-            if (data_size != 5) { /* if it's not a SOLID brush, it's a PATTERN, dissect its image descriptior */
+            if (data_size != 5) { /* if it's not a SOLID brush, it's a PATTERN, dissect its image descriptor */
                 offset += dissect_Image(tvb, tree, pinfo, offset);
             }
             break;
@@ -2780,7 +2781,7 @@ dissect_spice_data_client_pdu(tvbuff_t *tvb, proto_tree *tree, packet_info *pinf
     }
     col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", get_message_type_string(message_type, spice_info, TRUE));
     offset += header_size;
-        /* TODO: deal with sub-messages list first. As implementation does not uses sub-messsages list yet, */
+        /* TODO: deal with sub-messages list first. As implementation does not uses sub-messages list yet, */
         /*       it cannot be implemented in the dissector yet. */
 
     if (message_type < SPICE_FIRST_AVAIL_MESSAGE) { /* this is a common message */
@@ -2885,58 +2886,49 @@ dissect_spice_link_capabilities(tvbuff_t *tvb, packet_info* pinfo, proto_tree *t
     for(i = 0; i < caps_len; i++) {
         switch (spice_info->channel_type) {
             case SPICE_CHANNEL_PLAYBACK:
-                switch (i) {
-                    case 0:
-                        {
-                        const int * playback[] = {
-                            &hf_common_cap_auth_select,
-                            &hf_common_cap_auth_spice,
-                            NULL
-                        };
+                {
+                const int * playback[] = {
+                    &hf_common_cap_auth_select,
+                    &hf_common_cap_auth_spice,
+                    NULL
+                };
 
-                        proto_tree_add_bitmask_list(tree, tvb, offset, 4, playback, ENC_LITTLE_ENDIAN);
-                        }
-                        break;
-                    default:
-                        break;
+                if (i != 0)
+                    return;
+
+                proto_tree_add_bitmask_list(tree, tvb, offset, 4, playback, ENC_LITTLE_ENDIAN);
                 }
                 break;
             case SPICE_CHANNEL_MAIN:
-                switch (i) {
-                    case 0:
-                        {
-                        const int * main_cap[] = {
-                            &hf_main_cap_semi_migrate,
-                            &hf_main_cap_vm_name_uuid, /*Note: only relevant for client. TODO: dissect only for client */
-                            &hf_main_cap_agent_connected_tokens,
-                            &hf_main_cap_seamless_migrate,
-                            NULL
-                        };
+                {
+                const int * main_cap[] = {
+                    &hf_main_cap_semi_migrate,
+                    &hf_main_cap_vm_name_uuid, /*Note: only relevant for client. TODO: dissect only for client */
+                    &hf_main_cap_agent_connected_tokens,
+                    &hf_main_cap_seamless_migrate,
+                    NULL
+                };
 
-                        proto_tree_add_bitmask_list(tree, tvb, offset, 4, main_cap, ENC_LITTLE_ENDIAN);
-                        }
-                        break;
-                    default:
-                        break;
+                if (i != 0)
+                    return;
+
+                proto_tree_add_bitmask_list(tree, tvb, offset, 4, main_cap, ENC_LITTLE_ENDIAN);
                 }
                 break;
             case SPICE_CHANNEL_DISPLAY:
-                switch (i) {
-                    case 0:
-                        {
-                        const int * display_cap[] = {
-                            &hf_display_cap_sized_stream,
-                            &hf_display_cap_monitors_config,
-                            &hf_display_cap_composite,
-                            &hf_display_cap_a8_surface,
-                            NULL
-                        };
+                {
+                const int * display_cap[] = {
+                    &hf_display_cap_sized_stream,
+                    &hf_display_cap_monitors_config,
+                    &hf_display_cap_composite,
+                    &hf_display_cap_a8_surface,
+                    NULL
+                };
 
-                        proto_tree_add_bitmask_list(tree, tvb, offset, 4, display_cap, ENC_LITTLE_ENDIAN);
-                        }
-                        break;
-                    default:
-                        break;
+                if (i != 0)
+                    return;
+
+                proto_tree_add_bitmask_list(tree, tvb, offset, 4, display_cap, ENC_LITTLE_ENDIAN);
                 }
                 break;
             case SPICE_CHANNEL_INPUTS:
@@ -2946,25 +2938,22 @@ dissect_spice_link_capabilities(tvbuff_t *tvb, packet_info* pinfo, proto_tree *t
                 proto_tree_add_item(tree, hf_cursor_cap, tvb, offset, 4, ENC_LITTLE_ENDIAN);
                 break;
             case SPICE_CHANNEL_RECORD:
-                switch (i) {
-                    case 0:
-                        {
-                        const int * record_cap[] = {
-                            &hf_record_cap_celt,
-                            &hf_record_cap_volume,
-                            NULL
-                        };
+                {
+                const int * record_cap[] = {
+                    &hf_record_cap_celt,
+                    &hf_record_cap_volume,
+                    NULL
+                };
 
-                        proto_tree_add_bitmask_list(tree, tvb, offset, 4, record_cap, ENC_LITTLE_ENDIAN);
-                        }
-                        break;
-                    default:
-                        break;
+                if (i != 0)
+                    return;
+
+                proto_tree_add_bitmask_list(tree, tvb, offset, 4, record_cap, ENC_LITTLE_ENDIAN);
                 }
                 break;
             default:
                 proto_tree_add_expert(tree, pinfo, &ei_spice_unknown_channel, tvb, offset, -1);
-                break;
+                return;
         }
         offset += 4;
     }
@@ -3577,7 +3566,7 @@ proto_register_spice(void)
             NULL, HFILL }
         },
         { &hf_main_cap_semi_migrate,
-          { "Semi-seamless migratation capability", "spice.main_cap_semi_migrate",
+          { "Semi-seamless migration capability", "spice.main_cap_semi_migrate",
             FT_BOOLEAN, 4, TFS(&tfs_set_notset), SPICE_MAIN_CAP_SEMI_SEAMLESS_MIGRATE_MASK,
             NULL, HFILL }
         },
@@ -3787,7 +3776,7 @@ proto_register_spice(void)
             NULL, HFILL }
         },
         { &hf_cursor_trail_visible,
-          { "Cursor trail visiblity", "spice.cursor_trail_visible",
+          { "Cursor trail visibility", "spice.cursor_trail_visible",
             FT_UINT8, BASE_DEC, VALS(cursor_visible_vs), 0x0,
             NULL, HFILL }
         },
@@ -3877,7 +3866,7 @@ proto_register_spice(void)
             NULL, HFILL }
         },
         { &hf_pixmap_address,
-          { "Pixmap palettte pointer", "spice.pixmap_palette_address",
+          { "Pixmap palette pointer", "spice.pixmap_palette_address",
             FT_UINT32, BASE_HEX_DEC, NULL, 0x0,
             NULL, HFILL }
         },
@@ -4412,7 +4401,7 @@ proto_register_spice(void)
             NULL, HFILL }
         },
         { &hf_vd_agent_cap_sparse_monitors_config,
-          { "Sparse monitors config", "spice.vd_agent_cap_sparese_monitors_config",
+          { "Sparse monitors config", "spice.vd_agent_cap_sparse_monitors_config",
             FT_BOOLEAN, 32, TFS(&tfs_set_notset), VD_AGENT_CAP_SPARSE_MONITORS_CONFIG,
             NULL, HFILL }
         },
@@ -4573,7 +4562,7 @@ proto_register_spice(void)
 void
 proto_reg_handoff_spice(void)
 {
-    spice_handle = new_create_dissector_handle(dissect_spice, proto_spice);
+    spice_handle = create_dissector_handle(dissect_spice, proto_spice);
     dissector_add_for_decode_as("tcp.port", spice_handle);
     heur_dissector_add("tcp", test_spice_protocol, "Spice over TCP", "spice_tcp", proto_spice, HEURISTIC_ENABLE);
     jpeg_handle  = find_dissector("image-jfif");

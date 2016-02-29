@@ -658,7 +658,7 @@ static guint32 dissect_memdatacomp(tvbuff_t *tvb, proto_tree *pay_load, guint32 
     lab_len = tvb_get_guint8(tvb, offset+23);
 
     memdatacomp = proto_tree_add_ipv6_format(pay_load, hf_sasp_memdatacomp_ip,
-        tvb, offset, 24+lab_len, (guint8*)&ipv6_address,
+        tvb, offset, 24+lab_len, &ipv6_address,
         "Member Data Comp (%s)", ip_str);
 
     memdatacomp_tree = proto_item_add_subtree(memdatacomp, ett_sasp_memdatacomp);
@@ -1544,7 +1544,7 @@ proto_reg_handoff_sasp(void)
 {
     dissector_handle_t sasp_handle;
 
-    sasp_handle = new_create_dissector_handle(dissect_sasp, proto_sasp);
+    sasp_handle = create_dissector_handle(dissect_sasp, proto_sasp);
     dissector_add_uint("tcp.port", SASP_GLOBAL_PORT, sasp_handle);
 }
 

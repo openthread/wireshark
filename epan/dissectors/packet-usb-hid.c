@@ -1336,7 +1336,7 @@ dissect_usb_hid_control_std_intf(tvbuff_t *tvb, packet_info *pinfo,
 
     /* we can't use usb_conv_info->is_request since usb_conv_info
        was replaced with the interface conversation */
-    if (usb_trans_info->request_in == pinfo->fd->num) {
+    if (usb_trans_info->request_in == pinfo->num) {
         /* the tvb that we see here is the setup packet
            without the request type byte */
 
@@ -1956,9 +1956,9 @@ proto_register_usb_hid(void)
     proto_register_field_array(proto_usb_hid, hf, array_length(hf));
     proto_register_subtree_array(usb_hid_subtrees, array_length(usb_hid_subtrees));
 
-    /*usb_hid_boot_keyboard_input_report_handle  =*/ new_register_dissector("usbhid.boot_report.keyboard.input",  dissect_usb_hid_boot_keyboard_input_report,  proto_usb_hid);
-    /*usb_hid_boot_keyboard_output_report_handle =*/ new_register_dissector("usbhid.boot_report.keyboard.output", dissect_usb_hid_boot_keyboard_output_report, proto_usb_hid);
-    /*usb_hid_boot_mouse_input_report_handle     =*/ new_register_dissector("usbhid.boot_report.mouse.input",     dissect_usb_hid_boot_mouse_input_report,     proto_usb_hid);
+    /*usb_hid_boot_keyboard_input_report_handle  =*/ register_dissector("usbhid.boot_report.keyboard.input",  dissect_usb_hid_boot_keyboard_input_report,  proto_usb_hid);
+    /*usb_hid_boot_keyboard_output_report_handle =*/ register_dissector("usbhid.boot_report.keyboard.output", dissect_usb_hid_boot_keyboard_output_report, proto_usb_hid);
+    /*usb_hid_boot_mouse_input_report_handle     =*/ register_dissector("usbhid.boot_report.mouse.input",     dissect_usb_hid_boot_mouse_input_report,     proto_usb_hid);
 
 }
 
@@ -1967,11 +1967,11 @@ proto_reg_handoff_usb_hid(void)
 {
     dissector_handle_t usb_hid_control_handle, usb_hid_descr_handle;
 
-    usb_hid_control_handle = new_create_dissector_handle(
+    usb_hid_control_handle = create_dissector_handle(
                         dissect_usb_hid_control, proto_usb_hid);
     dissector_add_uint("usb.control", IF_CLASS_HID, usb_hid_control_handle);
 
-    usb_hid_descr_handle = new_create_dissector_handle(
+    usb_hid_descr_handle = create_dissector_handle(
                         dissect_usb_hid_class_descriptors, proto_usb_hid);
     dissector_add_uint("usb.descriptor", IF_CLASS_HID, usb_hid_descr_handle);
 }

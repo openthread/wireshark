@@ -71,8 +71,8 @@ static const value_string hf_mifare_commands[] = {
 /* Subtree handles: set by register_subtree_array */
 static gint ett_mifare = -1;
 
-static void
-dissect_mifare(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mifare(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *item;
     proto_tree *mifare_tree;
@@ -152,6 +152,7 @@ dissect_mifare(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "Unknown");
             break;
     }
+    return tvb_captured_length(tvb);
 }
 
 void

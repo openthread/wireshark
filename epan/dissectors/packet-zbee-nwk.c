@@ -31,6 +31,7 @@
 #include <epan/prefs.h>
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 #include "packet-zbee.h"
 #include "packet-zbee-nwk.h"
 #include "packet-zbee-security.h"
@@ -62,6 +63,8 @@ static guint       dissect_zbee_nwk_rejoin_resp(tvbuff_t *tvb, packet_info *pinf
 static guint       dissect_zbee_nwk_link_status(tvbuff_t *tvb, proto_tree *tree, guint offset);
 static guint       dissect_zbee_nwk_report     (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
 static guint       dissect_zbee_nwk_update     (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
+static guint       dissect_zbee_nwk_ed_timeout_request(tvbuff_t *tvb, proto_tree *tree, guint offset);
+static guint       dissect_zbee_nwk_ed_timeout_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
 static void        proto_init_zbee_nwk         (void);
 static void        proto_cleanup_zbee_nwk(void);
 void               proto_register_zbee_nwk(void);
@@ -83,6 +86,7 @@ static int hf_zbee_nwk_security = -1;
 static int hf_zbee_nwk_source_route = -1;
 static int hf_zbee_nwk_ext_dst = -1;
 static int hf_zbee_nwk_ext_src = -1;
+static int hf_zbee_nwk_end_device_initiator = -1;
 static int hf_zbee_nwk_dst = -1;
 static int hf_zbee_nwk_src = -1;
 static int hf_zbee_nwk_radius = -1;
@@ -142,6 +146,12 @@ static int hf_zbee_nwk_cmd_update_count = -1;
 static int hf_zbee_nwk_cmd_update_id = -1;
 static int hf_zbee_nwk_panid = -1;
 static int hf_zbee_nwk_cmd_epid = -1;
+static int hf_zbee_nwk_cmd_end_device_timeout_request_enum = -1;
+static int hf_zbee_nwk_cmd_end_device_configuration = -1;
+static int hf_zbee_nwk_cmd_end_device_timeout_resp_status = -1;
+static int hf_zbee_nwk_cmd_end_device_timeout_resp_parent_info = -1;
+static int hf_zbee_nwk_cmd_prnt_info_mac_data_poll_keepalive_supported = -1;
+static int hf_zbee_nwk_cmd_prnt_info_ed_to_req_keepalive_supported = -1;
 
 /*  ZigBee Beacons */
 static int hf_zbee_beacon_protocol = -1;
@@ -186,6 +196,7 @@ static gint ett_zbee_nwk_cmd = -1;
 static gint ett_zbee_nwk_cmd_options = -1;
 static gint ett_zbee_nwk_cmd_cinfo = -1;
 static gint ett_zbee_nwk_cmd_link = -1;
+static gint ett_zbee_nwk_cmd_ed_to_rsp_prnt_info = -1;
 
 static gint ett_thread_beacon_tlv = -1;
 
@@ -225,6 +236,8 @@ static const value_string zbee_nwk_cmd_names[] = {
     { ZBEE_NWK_CMD_LINK_STATUS,     "Link Status" },
     { ZBEE_NWK_CMD_NWK_REPORT,      "Network Report" },
     { ZBEE_NWK_CMD_NWK_UPDATE,      "Network Update" },
+    { ZBEE_NWK_CMD_ED_TIMEOUT_REQUEST,  "End Device Timeout Request" },
+    { ZBEE_NWK_CMD_ED_TIMEOUT_RESPONSE, "End Device Timeout Response" },
     { 0, NULL }
 };
 
@@ -295,6 +308,35 @@ static const value_string thread_beacon_tlv_vals[] = {
 { THREAD_BEACON_TLV_STEERING_DATA,           "Steering Data" }
 };
 
+/* ED Requested Timeout Enumerated Values */
+static const value_string zbee_nwk_end_device_timeout_request[] = {
+    { 0, "10 sec" },
+    { 1, "1 min" },
+    { 2, "4 min" },
+    { 3, "8 min" },
+    { 4, "16 min" },
+    { 5, "32 min" },
+    { 6, "64 min" },
+    { 7, "128 min" },
+    { 8, "256 min" },
+    { 9, "512 min" },
+    { 10, "1024 min" },
+    { 11, "2048 min" },
+    { 12, "4096 min" },
+    { 13, "8192 min" },
+    { 14, "16384 min" },
+    { 0, NULL }
+};
+
+
+/* End Device Timeout Response Status Codes */
+static const value_string zbee_nwk_end_device_timeout_resp_status[] = {
+    { 0,      "Success" },
+    { 1,      "Incorrect value" },
+    { 0, NULL }
+};
+
+
 /* TODO: much of the following copied from ieee80154 dissector */
 /*-------------------------------------
  * Hash Tables and Lists
@@ -304,20 +346,10 @@ ieee802154_map_tab_t zbee_nwk_map = { NULL, NULL };
 GHashTable *zbee_table_nwk_keyring = NULL;
 GHashTable *zbee_table_link_keyring = NULL;
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_get_bit_field
- *  DESCRIPTION
- *      Extracts an integer sub-field from an int with a given mask
- *      if the mask is 0, this will return 0, if the mask is non-
- *      continuous the output is undefined.
- *  PARAMETERS
- *      guint       input
- *      guint       mask
- *  RETURNS
- *      guint
- *---------------------------------------------------------------
- */
+/**
+ *Extracts an integer sub-field from an int with a given mask
+ *
+*/
 guint
 zbee_get_bit_field(guint input, guint mask)
 {
@@ -331,19 +363,14 @@ zbee_get_bit_field(guint input, guint mask)
     return (input & mask);
 } /* zbee_get_bit_field */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_heur
- *  DESCRIPTION
- *      Heuristic interpreter for the ZigBee network dissectors.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      Boolean value, whether it handles the packet or not.
- *---------------------------------------------------------------
- */
+/**
+ *Heuristic interpreter for the ZigBee network dissectors.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@return Boolean value, whether it handles the packet or not.
+*/
 static gboolean
 dissect_zbee_nwk_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -367,20 +394,14 @@ dissect_zbee_nwk_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
     return TRUE;
 } /* dissect_zbee_heur */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_full
- *  DESCRIPTION
- *      ZigBee NWK packet dissection routine for 2006, 2007 and Pro stack versions.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *      void *data          - raw packet private data.
- *  RETURNS
- *      int
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee NWK packet dissection routine for 2006, 2007 and Pro stack versions.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param data raw packet private data.
+*/
 
 static int
 dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
@@ -415,6 +436,7 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
         &hf_zbee_nwk_source_route,
         &hf_zbee_nwk_ext_dst,
         &hf_zbee_nwk_ext_src,
+        &hf_zbee_nwk_end_device_initiator,
         NULL
     };
 
@@ -465,9 +487,9 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
 
     /* Display the FCF. */
     if (packet.version >= ZBEE_VERSION_2007) {
-        ti = proto_tree_add_bitmask(tree, tvb, offset, hf_zbee_nwk_fcf, ett_zbee_nwk_fcf, fcf_flags_2007, ENC_LITTLE_ENDIAN);
+        ti = proto_tree_add_bitmask(nwk_tree, tvb, offset, hf_zbee_nwk_fcf, ett_zbee_nwk_fcf, fcf_flags_2007, ENC_LITTLE_ENDIAN);
     } else {
-        ti = proto_tree_add_bitmask(tree, tvb, offset, hf_zbee_nwk_fcf, ett_zbee_nwk_fcf, fcf_flags, ENC_LITTLE_ENDIAN);
+        ti = proto_tree_add_bitmask(nwk_tree, tvb, offset, hf_zbee_nwk_fcf, ett_zbee_nwk_fcf, fcf_flags, ENC_LITTLE_ENDIAN);
     }
     proto_item_append_text(ti, " %s", val_to_str_const(packet.type, zbee_nwk_frame_types, "Unknown"));
     offset += 2;
@@ -492,8 +514,8 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
         dst_addr = wmem_strdup_printf(pinfo->pool, "0x%04x", packet.dst);
     }
 
-    SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, (int)strlen(dst_addr)+1, dst_addr);
-    COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+    set_address(&pinfo->net_dst, AT_STRINGZ, (int)strlen(dst_addr)+1, dst_addr);
+    copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
     proto_item_append_text(proto_root, ", Dst: %s", dst_addr);
     col_append_fstr(pinfo->cinfo, COL_INFO, ", Dst: %s", dst_addr);
@@ -519,8 +541,8 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
         unicast_src = TRUE;
     }
 
-    SET_ADDRESS(&pinfo->net_src, AT_STRINGZ, (int)strlen(src_addr)+1, src_addr);
-    COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+    set_address(&pinfo->net_src, AT_STRINGZ, (int)strlen(src_addr)+1, src_addr);
+    copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
     proto_item_append_text(proto_root, ", Src: %s", src_addr);
     col_append_fstr(pinfo->cinfo, COL_INFO, ", Src: %s", src_addr);
@@ -558,7 +580,7 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
                 /* Update nwk extended address hash table */
                 if ( unicast_src ) {
                     nwk_hints->map_rec = ieee802154_addr_update(&zbee_nwk_map,
-                            packet.src, addr16.pan, packet.src64, pinfo->current_proto, pinfo->fd->num);
+                            packet.src, addr16.pan, packet.src64, pinfo->current_proto, pinfo->num);
                 }
             }
         }
@@ -701,20 +723,14 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
     return tvb_captured_length(tvb);
 } /* dissect_zbee_nwk */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk
- *  DESCRIPTION
- *      ZigBee packet dissection with proto version determination.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *      void *data          - raw packet private data.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee packet dissection with proto version determination.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param data raw packet private data.
+*/
 static int
 dissect_zbee_nwk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
@@ -732,21 +748,13 @@ dissect_zbee_nwk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     return tvb_captured_length(tvb);
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_cmd
- *  DESCRIPTION
- *      ZigBee Network command packet dissection routine for Wireshark.
- *          note: this dissector differs from others in that it shouldn't be
- *                  passed the main tree pointer, but the nwk tree instead.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee Network command packet dissection routine for Wireshark.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+*/
 static void dissect_zbee_nwk_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet* packet)
 {
     proto_tree  *cmd_tree;
@@ -819,6 +827,16 @@ static void dissect_zbee_nwk_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             offset = dissect_zbee_nwk_update(tvb, pinfo, cmd_tree, offset);
             break;
 
+        case ZBEE_NWK_CMD_ED_TIMEOUT_REQUEST:
+            /* Network End Device Timeout Request Command. */
+            offset = dissect_zbee_nwk_ed_timeout_request(tvb, cmd_tree, offset);
+            break;
+
+        case ZBEE_NWK_CMD_ED_TIMEOUT_RESPONSE:
+            /* Network End Device Timeout Response Command. */
+            offset = dissect_zbee_nwk_ed_timeout_response(tvb, pinfo, cmd_tree, offset);
+            break;
+
         default:
             /* Just break out and let the overflow handler deal with the payload. */
             break;
@@ -839,21 +857,16 @@ static void dissect_zbee_nwk_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
 } /* dissect_zbee_nwk_cmd */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_route_req
- *  DESCRIPTION
- *      Helper dissector for the Route Request command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      zbee_nwk_packet *packet - pointer to the network packet struct.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Route Request command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param packet pointer to the network packet struct.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_route_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet * packet, guint offset)
 {
@@ -907,20 +920,15 @@ dissect_zbee_nwk_route_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     return offset;
 } /* dissect_zbee_nwk_route_req */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_route_rep
- *  DESCRIPTION
- *      Helper dissector for the Route Reply command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Route Reply command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_route_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset, guint8 version)
 {
@@ -986,20 +994,15 @@ dissect_zbee_nwk_route_rep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     return offset;
 } /* dissect_zbee_nwk_route_rep */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_status
- *  DESCRIPTION
- *      Helper dissector for the Network Status command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Network Status command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_status(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset)
 {
@@ -1023,19 +1026,14 @@ dissect_zbee_nwk_status(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
     return offset;
 } /* dissect_zbee_nwk_status */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_leave
- *  DESCRIPTION
- *      Helper dissector for the Leave command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Leave command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_leave(tvbuff_t *tvb, proto_tree *tree, guint offset)
 {
@@ -1054,21 +1052,16 @@ dissect_zbee_nwk_leave(tvbuff_t *tvb, proto_tree *tree, guint offset)
     return offset;
 } /* dissect_zbee_nwk_leave */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_route_rec
- *  DESCRIPTION
- *      Helper dissector for the Reoute Record command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      zbee_nwk_packet *packet - pointer to the network packet struct.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Route Record command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param packet pointer to the network packet struct.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_route_rec(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet * packet, guint offset)
 {
@@ -1097,21 +1090,16 @@ dissect_zbee_nwk_route_rec(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     return offset;
 } /* dissect_zbee_nwk_route_rec */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_rejoin_req
- *  DESCRIPTION
- *      Helper dissector for the Rejoin Request command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      zbee_nwk_packet *packet - pointer to the network packet struct.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Rejoin Request command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param packet pointer to the network packet struct.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_rejoin_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet * packet, guint offset)
 {
@@ -1135,27 +1123,24 @@ dissect_zbee_nwk_rejoin_req(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     return offset;
 } /* dissect_zbee_nwk_rejoin_req */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_rejoin_resp
- *  DESCRIPTION
- *      Helper dissector for the Rejoin Response command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      zbee_nwk_packet *packet - pointer to the network packet struct.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Rejoin Response command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param packet pointer to the network packet struct.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
-dissect_zbee_nwk_rejoin_resp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet * packet, guint offset)
+dissect_zbee_nwk_rejoin_resp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, zbee_nwk_packet * packet _U_, guint offset)
 {
     guint8  status;
+    guint16 new_address;
 
     /* Get and display the short address. */
+    new_address = tvb_get_guint16(tvb, offset, ENC_LITTLE_ENDIAN);
     proto_tree_add_item(tree, hf_zbee_nwk_cmd_addr, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
 
@@ -1166,7 +1151,7 @@ dissect_zbee_nwk_rejoin_resp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
     /* Update the info column. */
     if (status == IEEE802154_CMD_ASRSP_AS_SUCCESS) {
-       col_append_fstr(pinfo->cinfo, COL_INFO, ", Address: 0x%04x", packet->src);
+        col_append_fstr(pinfo->cinfo, COL_INFO, ", New Address: 0x%04x", new_address);
     }
     else {
         col_append_fstr(pinfo->cinfo, COL_INFO, ", %s", val_to_str_const(status, zbee_nwk_rejoin_codes, "Unknown Rejoin Response"));
@@ -1176,19 +1161,14 @@ dissect_zbee_nwk_rejoin_resp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     return offset;
 } /* dissect_zbee_nwk_rejoin_resp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_link_status
- *  DESCRIPTION
- *      Helper dissector for the Link Status command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Link Status command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_link_status(tvbuff_t *tvb, proto_tree *tree, guint offset)
 {
@@ -1222,20 +1202,72 @@ dissect_zbee_nwk_link_status(tvbuff_t *tvb, proto_tree *tree, guint offset)
     return offset;
 } /* dissect_zbee_nwk_link_status */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_report
- *  DESCRIPTION
- *      Helper dissector for the Network Report command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the End Device Timeout Request command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
+static guint
+dissect_zbee_nwk_ed_timeout_request(tvbuff_t *tvb, proto_tree *tree, guint offset)
+{
+    /* See 3.4.11 End Device Timeout Request Command */
+
+    /* 3.4.11.3.1 Requested Timeout Field */
+    proto_tree_add_item(tree, hf_zbee_nwk_cmd_end_device_timeout_request_enum, tvb, offset, 1, ENC_NA);
+    offset++;
+
+    /* 3.4.11.3.2 End Device Configuration Field */
+    proto_tree_add_item(tree, hf_zbee_nwk_cmd_end_device_configuration, tvb, offset, 1, ENC_NA);
+    offset++;
+
+    return offset;
+} /* dissect_zbee_nwk_ed_timeout_request */
+
+/**
+ *Helper dissector for the End Device Timeout Response command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
+static guint
+dissect_zbee_nwk_ed_timeout_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset)
+{
+    static const int * end_device_parent_info[] = {
+        &hf_zbee_nwk_cmd_prnt_info_mac_data_poll_keepalive_supported,
+        &hf_zbee_nwk_cmd_prnt_info_ed_to_req_keepalive_supported,
+        NULL
+    };
+    guint status = tvb_get_guint8(tvb, offset);
+    /* 3.4.12 End Device Timeout Response Command */
+
+    /* status */
+    proto_tree_add_item(tree, hf_zbee_nwk_cmd_end_device_timeout_resp_status, tvb, offset, 1, ENC_NA);
+    offset++;
+
+    /* Parent Information bitmask */
+    proto_tree_add_bitmask(tree, tvb, offset, hf_zbee_nwk_cmd_end_device_timeout_resp_parent_info, ett_zbee_nwk_cmd_ed_to_rsp_prnt_info, end_device_parent_info, ENC_NA);
+    offset++;
+
+    proto_item_append_text(tree, ", %s", val_to_str_const(status, zbee_nwk_end_device_timeout_resp_status, "Unknown Status"));
+    col_append_fstr(pinfo->cinfo, COL_INFO, ", %s", val_to_str_const(status, zbee_nwk_end_device_timeout_resp_status, "Unknown Status"));
+
+    return offset;
+} /* dissect_zbee_nwk_ed_timeout_response */
+
+/**
+ *Helper dissector for the Network Report command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_report(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset)
 {
@@ -1272,20 +1304,15 @@ dissect_zbee_nwk_report(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
     return offset;
 } /* dissect_zbee_nwk_report */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_update
- *  DESCRIPTION
- *      Helper dissector for the Network Update command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to the command subtree.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for the Network Update command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to the command subtree.
+ *@param  offset into the tvb to begin dissection.
+ *@return offset after command dissection.
+*/
 static guint
 dissect_zbee_nwk_update(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset)
 {
@@ -1328,19 +1355,14 @@ dissect_zbee_nwk_update(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
     return offset;
 } /* dissect_zbee_nwk_update */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_beacon_heur
- *  DESCRIPTION
- *      Heuristic interpreter for the ZigBee PRO beacon dissectors.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      Boolean value, whether it handles the packet or not.
- *---------------------------------------------------------------
- */
+/**
+ *Heuristic interpreter for the ZigBee PRO beacon dissectors.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@return Boolean value, whether it handles the packet or not.
+*/
 static gboolean
 dissect_zbee_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -1359,19 +1381,13 @@ dissect_zbee_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     return FALSE;
 } /* dissect_zbee_beacon_heur */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_beacon
- *  DESCRIPTION
- *      Dissector for ZigBee network beacons.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee network beacons.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+*/
 static int dissect_zbee_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     ieee802154_packet   *packet;
@@ -1465,19 +1481,14 @@ static int dissect_zbee_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     return tvb_captured_length(tvb);
 } /* dissect_zbee_beacon */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbip_beacon_heur
- *  DESCRIPTION
- *      Heuristic interpreter for the ZigBee IP beacon dissectors.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      Boolean value, whether it handles the packet or not.
- *---------------------------------------------------------------
- */
+/**
+ *Heuristic interpreter for the ZigBee IP beacon dissectors.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@return Boolean value, whether it handles the packet or not.
+*/
 static gboolean
 dissect_zbip_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -1496,19 +1507,13 @@ dissect_zbip_beacon_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     return FALSE;
 } /* dissect_zbip_beacon_heur */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbip_beacon
- *  DESCRIPTION
- *      Dissector for ZigBee IP beacons.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee IP beacons.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree Wireshark uses to display packet.
+*/
 static int dissect_zbip_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     ieee802154_packet   *packet = (ieee802154_packet *)data;
@@ -1755,6 +1760,10 @@ static int dissect_thread_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
  *      void
  *---------------------------------------------------------------
  */
+/**
+ *ZigBee protocol registration routine.
+ *
+*/
 void proto_register_zbee_nwk(void)
 {
     static hf_register_info hf[] = {
@@ -1796,6 +1805,10 @@ void proto_register_zbee_nwk(void)
             { "Extended Source",        "zbee_nwk.ext_src", FT_BOOLEAN, 16, NULL, ZBEE_NWK_FCF_EXT_SOURCE,
                 NULL, HFILL }},
 
+            { &hf_zbee_nwk_end_device_initiator,
+            { "End Device Initiator",   "zbee_nwk.end_device_initiator", FT_BOOLEAN, 16, NULL, ZBEE_NWK_FCF_END_DEVICE_INITIATOR,
+                NULL, HFILL }},
+
             { &hf_zbee_nwk_dst,
             { "Destination",            "zbee_nwk.dst", FT_UINT16, BASE_HEX, NULL, 0x0,
                 NULL, HFILL }},
@@ -1813,7 +1826,7 @@ void proto_register_zbee_nwk(void)
                 NULL, HFILL }},
 
             { &hf_zbee_nwk_mcast,
-            { "Multicast Control Field",         "zbee_nwk.multicast", FT_UINT8, BASE_HEX, NULL, 0x0,
+            { "Multicast Control Field",         "zbee_nwk.multicast.cf", FT_UINT8, BASE_HEX, NULL, 0x0,
                 NULL, HFILL }},
 
             { &hf_zbee_nwk_mcast_mode,
@@ -2040,6 +2053,32 @@ void proto_register_zbee_nwk(void)
             { "Extended PAN ID",        "zbee_nwk.cmd.epid", FT_EUI64, BASE_NONE, NULL, 0x0,
                 NULL, HFILL }},
 
+            { &hf_zbee_nwk_cmd_end_device_timeout_request_enum,
+            { "Requested Timeout Enumeration",        "zbee_nwk.cmd.ed_tmo_req", FT_UINT8, BASE_DEC,
+              VALS(zbee_nwk_end_device_timeout_request), 0, NULL, HFILL }},
+
+            { &hf_zbee_nwk_cmd_end_device_configuration,
+            { "End Device Configuration",        "zbee_nwk.cmd.ed_config", FT_UINT8, BASE_HEX, NULL, 0x0,
+                NULL, HFILL }},
+
+            { &hf_zbee_nwk_cmd_end_device_timeout_resp_status,
+            { "Status",        "zbee_nwk.cmd.ed_tmo_rsp_status", FT_UINT8, BASE_DEC,
+              VALS(zbee_nwk_end_device_timeout_resp_status), 0, NULL, HFILL }},
+
+            { &hf_zbee_nwk_cmd_end_device_timeout_resp_parent_info,
+            { "Parent Information",        "zbee_nwk.cmd.ed_prnt_info", FT_UINT8, BASE_HEX, NULL, 0x0,
+                NULL, HFILL }},
+
+            { &hf_zbee_nwk_cmd_prnt_info_mac_data_poll_keepalive_supported,
+            { "MAC Data Poll Keepalive",           "zbee_nwk.cmd.ed_prnt_info.mac_data_poll_keepalive", FT_BOOLEAN, 8, NULL,
+              ZBEE_NWK_CMD_ED_TIMEO_RSP_PRNT_INFO_MAC_DATA_POLL_KEEPAL_SUPP,
+              NULL, HFILL }},
+
+            { &hf_zbee_nwk_cmd_prnt_info_ed_to_req_keepalive_supported,
+            { "End Device Timeout Request Keepalive",           "zbee_nwk.cmd.ed_prnt_info.ed_tmo_req_keepalive", FT_BOOLEAN, 8, NULL,
+              ZBEE_NWK_CMD_ED_TIMEO_RSP_PRNT_INFO_ED_TIMOU_REQ_KEEPAL_SUPP,
+              NULL, HFILL }},
+
             { &hf_zbee_beacon_protocol,
             { "Protocol ID",            "zbee_beacon.protocol", FT_UINT8, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }},
@@ -2157,7 +2196,8 @@ void proto_register_zbee_nwk(void)
         &ett_zbee_nwk_cmd_options,
         &ett_zbee_nwk_cmd_cinfo,
         &ett_zbee_nwk_cmd_link,
-        &ett_thread_beacon_tlv
+        &ett_thread_beacon_tlv,
+        &ett_zbee_nwk_cmd_ed_to_rsp_prnt_info
     };
 
     static ei_register_info ei[] = {
@@ -2181,26 +2221,19 @@ void proto_register_zbee_nwk(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Register the dissectors with Wireshark. */
-    new_register_dissector(ZBEE_PROTOABBREV_NWK, dissect_zbee_nwk, proto_zbee_nwk);
-    new_register_dissector("zbee_beacon", dissect_zbee_beacon, proto_zbee_beacon);
-    new_register_dissector("zbip_beacon", dissect_zbip_beacon, proto_zbip_beacon);
-    new_register_dissector("thread_beacon", dissect_thread_beacon, proto_thread_beacon);
+    register_dissector(ZBEE_PROTOABBREV_NWK, dissect_zbee_nwk, proto_zbee_nwk);
+    register_dissector("zbee_beacon", dissect_zbee_beacon, proto_zbee_beacon);
+    register_dissector("zbip_beacon", dissect_zbip_beacon, proto_zbip_beacon);
+    register_dissector("thread_beacon", dissect_thread_beacon, proto_thread_beacon);
 
     /* Register the Security dissector. */
     zbee_security_register(NULL, proto_zbee_nwk);
 } /* proto_register_zbee_nwk */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_reg_handoff_zbee_nwk
- *  DESCRIPTION
- *      Registers the zigbee dissector with Wireshark.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Registers the zigbee dissector with Wireshark.
+ *
+*/
 void proto_reg_handoff_zbee_nwk(void)
 {
     /* Find the other dissectors we need. */
@@ -2236,20 +2269,10 @@ static void free_keyring_val(gpointer a)
     g_free(slist);
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_init_zbee_nwk
- *  DESCRIPTION
- *      Init routine for the nwk dissector. Creates a
- *      hash table for mapping 16-bit to 64-bit addresses and
- *      populates it with static address pairs from a UAT
- *      preference table.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Init routine for the nwk dissector. Creates a
+ *
+*/
 static void
 proto_init_zbee_nwk(void)
 {

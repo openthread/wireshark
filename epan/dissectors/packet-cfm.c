@@ -1208,7 +1208,7 @@ static int dissect_cfm_slr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
 
 
 /* Main CFM EOAM protocol dissector */
-static void dissect_cfm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_cfm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	gint offset = 0;
 	guint8 cfm_pdu_type;
@@ -1550,6 +1550,7 @@ static void dissect_cfm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register CFM EOAM protocol */

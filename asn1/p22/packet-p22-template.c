@@ -88,8 +88,8 @@ static gint ett_p22 = -1;
 /*
 * Dissect P22 PDUs inside a PPDU.
 */
-static void
-dissect_p22(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_p22(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	int offset = 0;
 	proto_item *item=NULL;
@@ -97,7 +97,7 @@ dissect_p22(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	asn1_ctx_t asn1_ctx;
 	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
-	if(parent_tree){
+	if (parent_tree) {
 		item = proto_tree_add_item(parent_tree, proto_p22, tvb, 0, -1, ENC_NA);
 		tree = proto_item_add_subtree(item, ett_p22);
 	}
@@ -106,6 +106,7 @@ dissect_p22(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	col_set_str(pinfo->cinfo, COL_INFO, "InterPersonal");
 
 	dissect_p22_InformationObject(TRUE, tvb, offset, &asn1_ctx , tree, -1);
+	return tvb_captured_length(tvb);
 }
 
 

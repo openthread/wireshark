@@ -112,11 +112,23 @@ static int	(*p_pcap_set_datalink)(pcap_t *, int);
 #endif
 
 #ifdef HAVE_PCAP_FREE_DATALINKS
-static int 	(*p_pcap_free_datalinks)(int *);
+static int	(*p_pcap_free_datalinks)(int *);
 #endif
 
 #ifdef HAVE_BPF_IMAGE
-static char     *(*p_bpf_image) (const struct bpf_insn *, int);
+static char	*(*p_bpf_image)(const struct bpf_insn *, int);
+#endif
+
+#ifdef HAVE_PCAP_CREATE
+static pcap_t	*(*p_pcap_create)(const char *, char *);
+static int	(*p_pcap_set_snaplen)(pcap_t *, int);
+static int	(*p_pcap_set_promisc)(pcap_t *, int);
+static int	(*p_pcap_can_set_rfmon)(pcap_t *);
+static int	(*p_pcap_set_rfmon)(pcap_t *, int);
+static int	(*p_pcap_set_timeout)(pcap_t *, int);
+static int	(*p_pcap_set_buffer_size)(pcap_t *, int);
+static int	(*p_pcap_activate)(pcap_t *);
+static const char *(*p_pcap_statustostr)(int);
 #endif
 
 typedef struct {
@@ -193,6 +205,17 @@ load_wpcap(void)
 #endif
 #ifdef HAVE_BPF_IMAGE
 		SYM(bpf_image, FALSE),
+#endif
+#ifdef HAVE_PCAP_CREATE
+		SYM(pcap_create, TRUE),
+		SYM(pcap_set_snaplen, TRUE),
+		SYM(pcap_set_promisc, TRUE),
+		SYM(pcap_can_set_rfmon, TRUE),
+		SYM(pcap_set_rfmon, TRUE),
+		SYM(pcap_set_timeout, FALSE),
+		SYM(pcap_set_buffer_size, FALSE),
+		SYM(pcap_activate, TRUE),
+		SYM(pcap_statustostr, TRUE),
 #endif
 		{ NULL, NULL, FALSE }
 	};
@@ -446,6 +469,83 @@ pcap_freealldevs(pcap_if_t *a)
 }
 #endif
 
+#ifdef HAVE_PCAP_CREATE
+pcap_t *
+pcap_create(const char *a, char *b)
+{
+	g_assert(has_wpcap && p_pcap_create != NULL);
+	return p_pcap_create(a, b);
+}
+
+int
+pcap_set_snaplen(pcap_t *a, int b)
+{
+	g_assert(has_wpcap && p_pcap_set_snaplen != NULL);
+	return p_pcap_set_snaplen(a, b);
+}
+
+int
+pcap_set_promisc(pcap_t *a, int b)
+{
+	g_assert(has_wpcap && p_pcap_set_promisc != NULL);
+	return p_pcap_set_promisc(a, b);
+}
+
+int
+pcap_can_set_rfmon(pcap_t *a)
+{
+	g_assert(has_wpcap);
+	if (p_pcap_can_set_rfmon != NULL) {
+		return p_pcap_can_set_rfmon(a);
+	}
+	return 0;
+}
+
+int
+pcap_set_rfmon(pcap_t *a, int b)
+{
+	g_assert(has_wpcap && p_pcap_set_rfmon != NULL);
+	return p_pcap_set_rfmon(a, b);
+}
+
+int
+pcap_set_timeout(pcap_t *a, int b)
+{
+	g_assert(has_wpcap && pcap_set_timeout != NULL);
+	return p_pcap_set_timeout(a, b);
+}
+int
+pcap_set_buffer_size(pcap_t *a, int b)
+{
+	g_assert(has_wpcap && pcap_set_timeout != NULL);
+	return p_pcap_set_buffer_size(a, b);
+}
+
+int
+pcap_activate(pcap_t *a)
+{
+	g_assert(has_wpcap && pcap_activate != NULL);
+	return p_pcap_activate(a);
+
+}
+
+const char *
+pcap_statustostr(int a)
+{
+    static char ebuf[15 + 10 + 1];
+
+    g_assert(has_wpcap);
+    if (pcap_statustostr != NULL) {
+        return pcap_statustostr(a);
+    }
+
+    /* XXX copy routine from pcap.c ??? */
+    (void)g_snprintf(ebuf, sizeof ebuf, "Don't have pcap_statustostr(), can't translate error: %d", a);
+    return(ebuf);
+
+}
+#endif
+
 #if defined(HAVE_PCAP_DATALINK_NAME_TO_VAL) || defined(HAVE_PCAP_DATALINK_VAL_TO_NAME) || defined(HAVE_PCAP_DATALINK_VAL_TO_DESCRIPTION)
 /*
  * Table of DLT_ types, names, and descriptions, for use if the version
@@ -553,9 +653,7 @@ pcap_datalink_name_to_val(const char *name)
 {
 	int i;
 
-	g_assert(has_wpcap);
-
-	if (p_pcap_datalink_name_to_val != NULL)
+	if (has_wpcap && (p_pcap_datalink_name_to_val != NULL))
 		return p_pcap_datalink_name_to_val(name);
 	else {
 		/*
@@ -605,9 +703,7 @@ pcap_datalink_val_to_name(int dlt)
 {
 	int i;
 
-	g_assert(has_wpcap);
-
-	if (p_pcap_datalink_val_to_name != NULL)
+	if (has_wpcap && (p_pcap_datalink_val_to_name != NULL))
 		return p_pcap_datalink_val_to_name(dlt);
 	else {
 		/*
@@ -628,9 +724,7 @@ pcap_datalink_val_to_description(int dlt)
 {
 	int i;
 
-	g_assert(has_wpcap);
-
-	if (p_pcap_datalink_val_to_description != NULL)
+	if (has_wpcap && (p_pcap_datalink_val_to_description != NULL))
 		return p_pcap_datalink_val_to_description(dlt);
 	else {
 		/*
@@ -719,7 +813,8 @@ get_interface_list(int *err, char **err_str)
 		 * interfaces.
 		 */
 		*err = DONT_HAVE_PCAP;
-		*err_str = cant_load_winpcap_err("you");
+		if (err_str != NULL)
+			*err_str = cant_load_winpcap_err("you");
 		return NULL;
 	}
 
@@ -885,6 +980,40 @@ cant_get_if_list_error_message(const char *err_str)
 		    err_str);
 	}
 	return g_strdup_printf("Can't get list of interfaces: %s", err_str);
+}
+
+if_capabilities_t *
+get_if_capabilities_local(interface_options *interface_opts, char **err_str)
+{
+	/*
+	 * We're not getting capaibilities for a remote device; use
+	 * pcap_create() and pcap_activate() if we have them, so that
+	 * we can set various options, otherwise use pcap_open_live().
+	 */
+#ifdef HAVE_PCAP_CREATE
+	if (p_pcap_create != NULL)
+		return get_if_capabilities_pcap_create(interface_opts, err_str);
+#endif
+	return get_if_capabilities_pcap_open_live(interface_opts, err_str);
+}
+
+pcap_t *
+open_capture_device_local(capture_options *capture_opts,
+    interface_options *interface_opts, int timeout,
+    char (*open_err_str)[PCAP_ERRBUF_SIZE])
+{
+	/*
+	 * We're not opening a remote device; use pcap_create() and
+	 * pcap_activate() if we have them, so that we can set various
+	 * options, otherwise use pcap_open_live().
+	 */
+#ifdef HAVE_PCAP_CREATE
+	if (p_pcap_create != NULL)
+		return open_capture_device_pcap_create(capture_opts,
+		    interface_opts, timeout, open_err_str);
+#endif
+	return open_capture_device_pcap_open_live(interface_opts, timeout,
+	    open_err_str);
 }
 
 /*

@@ -681,7 +681,7 @@ dissect_pppoe_tags(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *tr
 
 
 /* Discovery protocol, i.e. PPP session not yet established */
-static void dissect_pppoed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_pppoed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint8  pppoe_code;
 	guint16 reported_payload_length;
@@ -719,6 +719,7 @@ static void dissect_pppoed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dissect_pppoe_tags(tvb, pinfo, 6, pppoe_tree, 6+reported_payload_length);
 	}
 
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_pppoed(void)
@@ -1035,7 +1036,7 @@ void proto_reg_handoff_pppoed(void)
 
 
 /* Session protocol, i.e. PPP session established */
-static void dissect_pppoes(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_pppoes(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint8  pppoe_code;
 	guint16 reported_payload_length;
@@ -1183,6 +1184,7 @@ static void dissect_pppoes(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				(length - credit_offset),
 				(reported_length - credit_offset));
 	call_dissector(ppp_handle,next_tvb,pinfo,tree);
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_pppoes(void)

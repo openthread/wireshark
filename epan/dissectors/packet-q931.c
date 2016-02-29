@@ -2483,7 +2483,7 @@ dissect_q931_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     proto_item  *ti;
     guint8      prot_discr;
     guint8      call_ref_len;
-    guint8      call_ref[15];
+    guint8      call_ref[16];
     guint32     call_ref_val;
     guint8      message_type, segmented_message_type;
     guint8      info_element;
@@ -2587,7 +2587,7 @@ dissect_q931_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     tvb, offset, pinfo, call_ref_val, NULL,
                     frag_len, more_frags);
     if (fd_head) {
-        if (pinfo->fd->num == fd_head->reassembled_in) {  /* last fragment */
+        if (pinfo->num == fd_head->reassembled_in) {  /* last fragment */
             if (fd_head->next != NULL) {  /* 2 or more segments */
                 next_tvb = tvb_new_chain(tvb, fd_head->tvb_data);
                 add_new_data_source(pinfo, next_tvb, "Reassembled Q.931 IEs");
@@ -3146,40 +3146,46 @@ dissect_q931_tpkt_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     return TRUE;
 }
 
-static void
-dissect_q931_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q931_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_q931_tpkt_heur(tvb, pinfo, tree, NULL);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_q931_tpkt_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q931_tpkt_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_q931_pdu(tvb, pinfo, tree, TRUE);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_q931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_q931_pdu(tvb, pinfo, tree, FALSE);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_q931_over_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q931_over_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_q931_pdu(tvb, pinfo, tree, TRUE);
+	return tvb_captured_length(tvb);
 }
 
-static void
-dissect_q931_ie_cs0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q931_ie_cs0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_q931_IEs(tvb, pinfo, NULL, tree, FALSE, 0, 0);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_q931_ie_cs7(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q931_ie_cs7(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_q931_IEs(tvb, pinfo, NULL, tree, FALSE, 0, 7);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -3969,8 +3975,8 @@ proto_register_q931(void)
     register_dissector("q931.ie.cs7", dissect_q931_ie_cs7, proto_q931);
 
     /* subdissector code */
-    codeset_dissector_table = register_dissector_table("q931.codeset", "Q.931 Codeset", FT_UINT8, BASE_HEX);
-    ie_dissector_table = register_dissector_table("q931.ie", "Q.931 IE", FT_UINT16, BASE_HEX);
+    codeset_dissector_table = register_dissector_table("q931.codeset", "Q.931 Codeset", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+    ie_dissector_table = register_dissector_table("q931.ie", "Q.931 IE", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
     q931_user_heur_subdissector_list = register_heur_dissector_list("q931_user");
 
     q931_module = prefs_register_protocol(proto_q931, NULL);
@@ -3996,6 +4002,7 @@ proto_reg_handoff_q931(void)
 {
     dissector_add_uint("lapd.sapi", LAPD_SAPI_Q931, q931_handle);
     dissector_add_uint("sctp.ppi", H323_PAYLOAD_PROTOCOL_ID, q931_over_ip_handle);
+    dissector_add_uint("osinl.incl", NLPID_Q_931, q931_handle);
 
     /*
      * Attempt to get a handle for the H.225 dissector.

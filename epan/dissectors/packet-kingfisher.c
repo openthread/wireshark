@@ -212,7 +212,7 @@ dissect_kingfisher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
             proto_tree_add_protocol_format(tree, proto_kingfisher, tvb, 0, -1, "Kingfisher Protocol, %s", func_string);
             return TRUE;
         }
-        /* othervise it is way too short to be kingfisger */
+        /* otherwise it is way too short to be kingfisher */
         return FALSE;
     }
 
@@ -371,7 +371,7 @@ proto_reg_handoff_kingfisher( void )
 {
     dissector_handle_t kingfisher_handle=NULL;
 
-    kingfisher_handle = new_create_dissector_handle(dissect_kingfisher_heur, proto_kingfisher);
+    kingfisher_handle = create_dissector_handle(dissect_kingfisher_heur, proto_kingfisher);
     dissector_add_uint("tcp.port", TCP_PORT_KINGFISHER, kingfisher_handle);
     dissector_add_uint("udp.port", UDP_PORT_KINGFISHER, kingfisher_handle);
 
@@ -379,7 +379,7 @@ proto_reg_handoff_kingfisher( void )
     dissector_add_uint("tcp.port", TCP_PORT_KINGFISHER_OLD, kingfisher_handle);
     dissector_add_uint("udp.port", UDP_PORT_KINGFISHER_OLD, kingfisher_handle);
 #endif
-    kingfisher_conv_handle = new_create_dissector_handle(dissect_kingfisher_conv, proto_kingfisher);
+    kingfisher_conv_handle = create_dissector_handle(dissect_kingfisher_conv, proto_kingfisher);
 
 }
 

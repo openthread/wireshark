@@ -27,7 +27,7 @@
 #include <glib.h>
 #include "capture_opts.h"
 
-#include <QDialog>
+#include "geometry_state_dialog.h"
 #include <QStyledItemDelegate>
 
 class QTreeWidget;
@@ -54,7 +54,7 @@ public:
 
 protected:
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const;
-    void updateEditorGeometry ( QWidget * editor, const QStyleOptionViewItem & option, const QModelIndex & index ) const;
+    void updateEditorGeometry (QWidget * editor, const QStyleOptionViewItem & option, const QModelIndex & index) const;
 
 private slots:
     void stopEditor();
@@ -66,7 +66,7 @@ namespace Ui {
 class ManageInterfacesDialog;
 }
 
-class ManageInterfacesDialog : public QDialog
+class ManageInterfacesDialog : public GeometryStateDialog
 {
     Q_OBJECT
 
@@ -106,6 +106,8 @@ private slots:
     void on_pipeList_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous);
 
     void localAccepted();
+    void localListItemDoubleClicked(QTreeWidgetItem * item, int column);
+
 #ifdef HAVE_PCAP_REMOTE
     void on_addRemote_clicked();
     void on_delRemote_clicked();

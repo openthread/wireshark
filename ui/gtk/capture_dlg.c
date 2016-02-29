@@ -39,7 +39,7 @@
 #include "ui/capture.h"
 #include "caputils/capture_ifinfo.h"
 #include "caputils/capture-pcap-util.h"
-#include "../ringbuffer.h"
+#include "../../ringbuffer.h"
 
 #include "ui/capture_ui_utils.h"
 #include "ui/capture_globals.h"
@@ -55,23 +55,24 @@
 #include "ui/gtk/filter_dlg.h"
 #include "ui/gtk/dlg_utils.h"
 #include "ui/gtk/file_dlg.h"
-#include "ui/gtk/stock_icons.h"
 #include "ui/gtk/capture_file_dlg.h"
 #include "ui/gtk/help_dlg.h"
 #include "ui/gtk/gtkglobals.h"
 #include "ui/gtk/cfilter_combo_utils.h"
 #include "ui/gtk/capture_if_dlg.h"
 #include "ui/gtk/main_welcome.h"
-#include "ui/gtk/network_icons.h"
 #include "ui/gtk/menus.h"
 #include "ui/gtk/prefs_dlg.h"
 #include "ui/gtk/main_80211_toolbar.h"
+#include "ui/gtk/stock_icons.h"
+#ifndef HAVE_GDK_GRESOURCE
+#include "ui/gtk/pixbuf-csource.h"
+#endif
 #include "simple_dialog.h"
 
 #include "ui/gtk/keys.h"
 
 #include "ui/gtk/old-gtk-compat.h"
-#include "ui/gtk/expert_indicators.h"
 
 #ifdef HAVE_AIRPCAP
 #include <caputils/airpcap.h>
@@ -765,6 +766,7 @@ capture_all_filter_check_syntax_cb(GtkWidget *w _U_, gpointer user_data _U_)
         colorize_filter_te_as_empty(filter_te);
         if (strlen(device.cfilter) > 0) {
           g_array_remove_index(global_capture_opts.all_ifaces, i);
+          g_free(device.cfilter);
           device.cfilter = g_strdup(filter_text);
           g_array_insert_val(global_capture_opts.all_ifaces, i, device);
           update_filter_string(device.name, filter_text);
@@ -774,6 +776,7 @@ capture_all_filter_check_syntax_cb(GtkWidget *w _U_, gpointer user_data _U_)
       }
       g_assert(filter_text != NULL);
       g_array_remove_index(global_capture_opts.all_ifaces, i);
+      g_free(device.cfilter);
       device.cfilter = g_strdup(filter_text);
       g_array_insert_val(global_capture_opts.all_ifaces, i, device);
       g_mutex_lock(cfc_data_mtx);
@@ -1244,6 +1247,7 @@ insert_new_rows(GList *list)
     ip_str = g_string_new("");
     str = "";
     ips = 0;
+    memset(&device, 0, sizeof(device));
     device.name = g_strdup(if_info->name);
     /* Is this interface hidden and, if so, should we include it
        anyway? */
@@ -1300,12 +1304,12 @@ insert_new_rows(GList *list)
 
       switch (addr->ifat_type) {
         case IF_AT_IPv4:
-          SET_ADDRESS(&addr_str, AT_IPv4, 4, &addr->addr.ip4_addr);
+          set_address(&addr_str, AT_IPv4, 4, &addr->addr.ip4_addr);
           temp_addr_str = (char*)address_to_str(NULL, &addr_str);
           g_string_append(ip_str, temp_addr_str);
           break;
         case IF_AT_IPv6:
-          SET_ADDRESS(&addr_str, AT_IPv6, 16, addr->addr.ip6_addr);
+          set_address(&addr_str, AT_IPv6, 16, addr->addr.ip6_addr);
           temp_addr_str = (char*)address_to_str(NULL, &addr_str);
           g_string_append(ip_str, temp_addr_str);
           break;
@@ -1970,10 +1974,18 @@ add_page(gchar *name, gchar *text, gboolean error)
   model = gtk_tree_view_get_model(GTK_TREE_VIEW(view));
   gtk_list_store_append (GTK_LIST_STORE(model), &iter);
   if (error) {
+#ifdef HAVE_GDK_GRESOURCE
+    icon = pixbuf_to_widget("/org/wireshark/image/toolbar/14x14/x-expert-error.png");
+#else
     icon = pixbuf_to_widget(expert_error_pb_data);
+#endif
     gtk_list_store_set(GTK_LIST_STORE(model), &iter, COMPILE_ERROR, 1, SIGN, gtk_image_get_pixbuf(GTK_IMAGE(icon)), INAME, name, -1);
   } else {
+#ifdef HAVE_GDK_GRESOURCE
+    icon = pixbuf_to_widget("/org/wireshark/image/expert_ok.png");
+#else
     icon = pixbuf_to_widget(expert_ok_pb_data);
+#endif
     gtk_list_store_set(GTK_LIST_STORE(model), &iter, COMPILE_ERROR, 0, SIGN, gtk_image_get_pixbuf(GTK_IMAGE(icon)), INAME, name, -1);
   }
   g_hash_table_insert(compile_results, name, text);
@@ -2446,9 +2458,7 @@ save_options_cb(GtkWidget *win _U_, gpointer user_data _U_)
   device.has_snaplen = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(snap_cb));
   if (device.has_snaplen) {
     device.snaplen = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(snap_sb));
-    if (device.snaplen < 1)
-      device.snaplen = WTAP_MAX_PACKET_SIZE;
-    else if (device.snaplen < MIN_PACKET_SIZE)
+    if (device.snaplen < MIN_PACKET_SIZE)
       device.snaplen = MIN_PACKET_SIZE;
   } else {
     device.snaplen = WTAP_MAX_PACKET_SIZE;
@@ -3199,6 +3209,7 @@ static void capture_all_cb(GtkToggleButton *button, gpointer d _U_)
             device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
             if (strcmp(device.name, interface) == 0) {
               g_array_remove_index(global_capture_opts.all_ifaces, i);
+              g_free(device.cfilter);
               device.cfilter = g_strdup(filter_text);
               g_array_insert_val(global_capture_opts.all_ifaces, i, device);
               update_filter_string(device.name, filter_text);
@@ -3355,6 +3366,8 @@ static void change_pipe_name_cb(gpointer dialog _U_, gint btn, gpointer data)
     for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
       device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
       if (strcmp(pipe_name, device.name) == 0) {
+        g_free(device.name);
+        g_free(device.display_name);
         device.name = g_strdup((gchar *)data);
         device.display_name = g_strdup_printf("%s", device.name);
         g_array_remove_index(global_capture_opts.all_ifaces, i);
@@ -3464,6 +3477,7 @@ add_pipe_cb(gpointer w _U_)
       }
     }
     pipe_name           = g_strdup(g_save_file);
+    memset(&device, 0, sizeof(device));
     device.name         = g_strdup(g_save_file);
     device.display_name = g_strdup_printf("%s", device.name);
     device.hidden       = FALSE;
@@ -3947,7 +3961,7 @@ ok_remote_cb(GtkWidget *win _U_, gpointer *data _U_)
     } while (gtk_tree_model_iter_next(model, &iter));
     g_free(name);
   }
-  hide_interface(g_strdup(new_hide));
+  hide_interface(new_hide);
 
   /* Refresh all places that are displaying an interface list
      that includes interfaces other than local interfaces
@@ -4006,6 +4020,7 @@ remove_remote_host(GtkWidget *w _U_, gpointer data _U_)
       } else {
         if (strcmp(host, device.remote_opts.remote_host_opts.remote_host) == 0) {
           g_array_remove_index(global_capture_opts.all_ifaces, i);
+          capture_opts_free_interface_t(&device);
         }
       }
     }
@@ -5386,7 +5401,7 @@ capture_start_cb(GtkWidget *w _U_, gpointer d _U_)
      this capture. */
   collect_ifaces(&global_capture_opts);
 
-  if (capture_start(&global_capture_opts, &global_capture_session, main_window_update)) {
+  if (capture_start(&global_capture_opts, &global_capture_session, &global_info_data, main_window_update)) {
     /* The capture succeeded, which means the capture filters specified are
        valid; add them to the recent capture filter lists for the interfaces.
 

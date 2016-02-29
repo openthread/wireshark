@@ -32,16 +32,9 @@
 #include <epan/ppptypes.h>
 #include <epan/show_exception.h>
 #include <epan/decode_as.h>
-#include "packet-bpq.h"
+#include <epan/capture_dissectors.h>
+#include <epan/proto_data.h>
 #include "packet-eth.h"
-#include "packet-ip.h"
-#include "packet-ipv6.h"
-#include "packet-ipx.h"
-#include "packet-vlan.h"
-#include "packet-ieee8021ah.h"
-#include "packet-vines.h"
-#include "packet-llc.h"
-
 
 void proto_register_ethertype(void);
 void proto_reg_handoff_ethertype(void);
@@ -58,7 +51,7 @@ const value_string etype_vals[] = {
 	{ ETHERTYPE_VLAN,                 "802.1Q Virtual LAN" },
 	{ ETHERTYPE_ARP,                  "ARP" },
 	{ ETHERTYPE_WLCCP,                "Cisco Wireless Lan Context Control Protocol" },
-	{ ETHERTYPE_MINT,                 "Motorola Media Indepentent Network Transport" },
+	{ ETHERTYPE_MINT,                 "Motorola Media Independent Network Transport" },
 	{ ETHERTYPE_CENTRINO_PROMISC,     "IEEE 802.11 (Centrino promiscuous)" },
 	{ ETHERTYPE_XNS_IDP,              "XNS Internet Datagram Protocol" },
 	{ ETHERTYPE_X25L3,                "X.25 Layer 3" },
@@ -203,46 +196,6 @@ static gpointer eth_value(packet_info *pinfo)
 static void add_dix_trailer(packet_info *pinfo, proto_tree *tree, proto_tree *fh_tree,
 			    int trailer_id, tvbuff_t *tvb, tvbuff_t *next_tvb, int offset_after_etype,
 			    guint length_before, gint fcs_len);
-
-void
-capture_ethertype(guint16 etype, const guchar *pd, int offset, int len,
-		  packet_counts *ld)
-{
-	switch (etype) {
-	case ETHERTYPE_ARP:
-		ld->arp++;
-		break;
-	case ETHERTYPE_IP:
-		capture_ip(pd, offset, len, ld);
-		break;
-	case ETHERTYPE_IPv6:
-		capture_ipv6(pd, offset, len, ld);
-		break;
-	case ETHERTYPE_IPX:
-		capture_ipx(ld);
-		break;
-	case ETHERTYPE_VLAN:
-		capture_vlan(pd, offset, len, ld);
-		break;
-	case ETHERTYPE_IEEE_802_1AD:
-	case ETHERTYPE_IEEE_802_1AH:
-		capture_ieee8021ah(pd, offset, len, ld);
-		break;
-	case ETHERTYPE_VINES_IP:
-	case ETHERTYPE_VINES_ECHO:
-		capture_vines(ld);
-		break;
-	case ETHERTYPE_BPQ:
-		capture_bpq(pd, offset, len, ld);
-		break;
-	case ETHERTYPE_JUMBO_LLC:
-		capture_llc(pd, offset, len, ld);
-		break;
-	default:
-		ld->other++;
-		break;
-	}
-}
 
 /*
 void
@@ -392,12 +345,15 @@ proto_register_ethertype(void)
 
 
 	proto_ethertype = proto_register_protocol("Ethertype", "Ethertype", "ethertype");
+	/* This isn't a real protocol, so you can't disable its dissection. */
+	proto_set_cant_toggle(proto_ethertype);
 
-	new_register_dissector("ethertype", dissect_ethertype, proto_ethertype);
+	register_dissector("ethertype", dissect_ethertype, proto_ethertype);
 
 	/* subdissector code */
 	ethertype_dissector_table = register_dissector_table("ethertype",
-								"Ethertype", FT_UINT16, BASE_HEX);
+								"Ethertype", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	register_capture_dissector_table("ethertype", "Ethertype");
 
 	register_decode_as(&ethertype_da);
 }

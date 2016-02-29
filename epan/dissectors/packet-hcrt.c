@@ -303,7 +303,7 @@ static gboolean dissect_hcrt_message(tvbuff_t* tvb, packet_info* pinfo, proto_tr
     return last;
 }
 
-static void dissect_hcrt(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree)
+static int dissect_hcrt(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data _U_)
 {
     guint8 type;
     proto_item* ti;
@@ -343,6 +343,7 @@ static void dissect_hcrt(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree)
     while (!dissect_hcrt_message(tvb, pinfo, hcrt_tree, &offset, b0_first, i)) {
         i++;
     }
+    return tvb_captured_length(tvb);
 }
 
 void proto_register_hcrt(void)
@@ -436,7 +437,7 @@ void proto_register_hcrt(void)
             NULL, HFILL }
         },
         { &hf_hcrt_data_64,
-            { "Data", "hcrt.data32",
+            { "Data", "hcrt.data64",
             FT_UINT64, BASE_HEX,
             NULL, 0x0,
             NULL, HFILL }

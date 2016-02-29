@@ -33,7 +33,6 @@
 #include "config.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 
 #include <epan/packet.h>
 #include <epan/prefs.h>
@@ -581,7 +580,7 @@ iscsi_dissect_TargetAddress(packet_info *pinfo, proto_tree *tree _U_,char *val)
     if (addr && !pinfo->fd->flags.visited) {
         conversation_t *conv;
 
-        conv = conversation_new(pinfo->fd->num, addr, addr, PT_TCP, port, port, NO_ADDR2|NO_PORT2);
+        conv = conversation_new(pinfo->num, addr, addr, PT_TCP, port, port, NO_ADDR2|NO_PORT2);
         if (conv == NULL) {
             return;
         }
@@ -746,7 +745,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
     key[0].length = 1;
     key[0].key = &itt;
     key[1].length = 1;
-    key[1].key = &pinfo->fd->num;
+    key[1].key = &pinfo->num;
     key[2].length = 0;
     key[2].key = NULL;
 
@@ -758,7 +757,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
             cdata->itlq.task_flags = 0;
             cdata->itlq.data_length = 0;
             cdata->itlq.bidir_data_length = 0;
-            cdata->itlq.fc_time = pinfo->fd->abs_ts;
+            cdata->itlq.fc_time = pinfo->abs_ts;
             cdata->itlq.first_exchange_frame = 0;
             cdata->itlq.last_exchange_frame = 0;
             cdata->itlq.flags = 0;
@@ -789,7 +788,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
         cdata->itlq.task_flags = 0;
         cdata->itlq.data_length = 0;
         cdata->itlq.bidir_data_length = 0;
-        cdata->itlq.fc_time = pinfo->fd->abs_ts;
+        cdata->itlq.fc_time = pinfo->abs_ts;
         cdata->itlq.first_exchange_frame = 0;
         cdata->itlq.last_exchange_frame = 0;
         cdata->itlq.flags = 0;
@@ -811,17 +810,17 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
         /* first time we see this packet. check if we can find the request */
         switch(opcode){
         case ISCSI_OPCODE_SCSI_RESPONSE:
-            cdata->itlq.last_exchange_frame=pinfo->fd->num;
+            cdata->itlq.last_exchange_frame=pinfo->num;
             break;
         case ISCSI_OPCODE_SCSI_DATA_IN:
             /* a bit ugly but we need to check the S bit here */
             if(tvb_get_guint8(tvb, offset+1)&ISCSI_SCSI_DATA_FLAG_S){
-                cdata->itlq.last_exchange_frame=pinfo->fd->num;
+                cdata->itlq.last_exchange_frame=pinfo->num;
             }
-            cdata->data_in_frame=pinfo->fd->num;
+            cdata->data_in_frame=pinfo->num;
             break;
         case ISCSI_OPCODE_SCSI_DATA_OUT:
-            cdata->data_out_frame=pinfo->fd->num;
+            cdata->data_out_frame=pinfo->num;
             break;
         }
 
@@ -836,7 +835,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
 
           We need to keep track of this on a per transaction basis since
           for error recoverylevel 0 and when the A bit is clear in a
-          Data-In PDU, there will not be a LUN field in teh iscsi layer.
+          Data-In PDU, there will not be a LUN field in the iscsi layer.
         */
         if(tvb_get_guint8(tvb, offset+8)&0x40){
             /* volume set addressing */
@@ -848,7 +847,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
         }
 
         cdata->itlq.lun=lun;
-        cdata->itlq.first_exchange_frame=pinfo->fd->num;
+        cdata->itlq.first_exchange_frame=pinfo->num;
 
         itl=(itl_nexus_t *)wmem_map_lookup(iscsi_session->itl, GUINT_TO_POINTER((gulong)lun));
         if(!itl){
@@ -1584,7 +1583,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
         if (cdata->itlq.first_exchange_frame){
             nstime_t delta_time;
             proto_tree_add_uint(ti, hf_iscsi_request_frame, tvb, 0, 0, cdata->itlq.first_exchange_frame);
-            nstime_delta(&delta_time, &pinfo->fd->abs_ts, &cdata->itlq.fc_time);
+            nstime_delta(&delta_time, &pinfo->abs_ts, &cdata->itlq.fc_time);
             proto_tree_add_time(ti, hf_iscsi_time, tvb, 0, 0, &delta_time);
         }
         if (cdata->data_in_frame)
@@ -1604,7 +1603,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
             if (cdata->itlq.first_exchange_frame){
                 nstime_t delta_time;
                 proto_tree_add_uint(ti, hf_iscsi_request_frame, tvb, 0, 0, cdata->itlq.first_exchange_frame);
-                nstime_delta(&delta_time, &pinfo->fd->abs_ts, &cdata->itlq.fc_time);
+                nstime_delta(&delta_time, &pinfo->abs_ts, &cdata->itlq.fc_time);
                 proto_tree_add_time(ti, hf_iscsi_time, tvb, 0, 0, &delta_time);
             }
         }
@@ -1669,7 +1668,7 @@ dissect_iscsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint off
             cdb_tvb=tvb_new_subset(tvb, cdb_offset, tvb_len, tvb_rlen);
         }
         dissect_scsi_cdb(cdb_tvb, pinfo, tree, SCSI_DEV_UNKNOWN, &cdata->itlq, itl);
-        /* we don't want the immediata below to overwrite our CDB info */
+        /* we don't want the immediate below to overwrite our CDB info */
         col_set_fence(pinfo->cinfo, COL_INFO);
 
         /* where there any ImmediateData ? */
@@ -3076,7 +3075,7 @@ proto_register_iscsi(void)
 
     /* Register the protocol name and description */
     proto_iscsi = proto_register_protocol("iSCSI", "iSCSI", "iscsi");
-    new_register_dissector("iscsi", dissect_iscsi_handle, proto_iscsi);
+    iscsi_handle = register_dissector("iscsi", dissect_iscsi_handle, proto_iscsi);
 
     /* Required function calls to register the header fields and
      * subtrees used */
@@ -3169,7 +3168,6 @@ proto_reg_handoff_iscsi(void)
 {
     heur_dissector_add("tcp", dissect_iscsi_heur, "iSCSI over TCP", "iscsi_tcp", proto_iscsi, HEURISTIC_ENABLE);
 
-    iscsi_handle = new_create_dissector_handle(dissect_iscsi_handle, proto_iscsi);
     dissector_add_for_decode_as("tcp.port", iscsi_handle);
 }
 

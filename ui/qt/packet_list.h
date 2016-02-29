@@ -71,10 +71,10 @@ public:
     QString packetComment();
     void setPacketComment(QString new_comment);
     QString allPacketComments();
-    void recolorPackets();
-    void setAutoScroll(bool enabled = true);
+    void setVerticalAutoScroll(bool enabled = true);
     void setCaptureInProgress(bool in_progress = false) { capture_in_progress_ = in_progress; tail_at_end_ = in_progress; }
     void captureFileReadFinished();
+    void resetColumns();
 
 protected:
     void showEvent(QShowEvent *);
@@ -82,10 +82,11 @@ protected:
     void contextMenuEvent(QContextMenuEvent *event);
     void timerEvent(QTimerEvent *event);
     void paintEvent(QPaintEvent *event);
+    virtual void mousePressEvent (QMouseEvent * event);
 
 protected slots:
     void rowsInserted(const QModelIndex &parent, int start, int end);
-    void drawRow(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index ) const;
+    void drawRow(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const;
 
 private:
     PacketListModel *packet_list_model_;
@@ -117,11 +118,16 @@ private:
     int tail_timer_id_;
     bool tail_at_end_;
     bool rows_inserted_;
+    bool columns_changed_;
+    bool set_column_visibility_;
 
     void setFrameReftime(gboolean set, frame_data *fdata);
     void setColumnVisibility();
     int sizeHintForColumn(int column) const;
+    void setRecentColumnWidth(int column);
     void initHeaderContextMenu();
+    void drawCurrentPacket();
+    void applyRecentColumnWidths();
 
 signals:
     void packetDissectionChanged();
@@ -147,11 +153,12 @@ public slots:
     void ignoreAllDisplayedFrames(bool set);
     void setTimeReference();
     void unsetAllTimeReferences();
+    void applyTimeShift();
+    void recolorPackets();
     void redrawVisiblePackets();
     void columnsChanged();
     void fieldsChanged(capture_file *cf);
-    void applyRecentColumnWidths();
-    void elideModeChanged();
+    void preferencesChanged();
 
 private slots:
     void showHeaderMenu(QPoint pos);

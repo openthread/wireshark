@@ -79,13 +79,14 @@ set(WIRETAP_FILES
 	vms.c
 	vwr.c
 	wtap.c
+	wtap_opttypes.c
 )
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${WIRETAP_FILES}
 		PROPERTIES
-		COMPILE_FLAGS -Werror
+		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
 	)
 endif()
 

@@ -98,6 +98,8 @@
 
 
 #include <epan/packet.h>
+#include <epan/proto_data.h>
+
 #include <wiretap/wtap.h>
 #include <wsutil/pint.h>
 #include <epan/circuit.h>
@@ -300,7 +302,7 @@ static void wcp_save_data( tvbuff_t *tvb, packet_info *pinfo, circuit_type ctype
 }
 
 
-static void dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
 
 	proto_tree	*wcp_tree;
 	proto_item	*ti;
@@ -311,7 +313,7 @@ static void dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "WCP");
 	col_clear(pinfo->cinfo, COL_INFO);
 
-	temp =tvb_get_ntohs(tvb, 0);
+	temp = tvb_get_ntohs(tvb, 0);
 
 	cmd = (temp & 0xf000) >> 12;
 	ext_cmd = (temp & 0x0f00) >> 8;
@@ -363,7 +365,7 @@ static void dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
 					/* exit if done */
 	if ( cmd != 1 && cmd != 0 && !(cmd == 0xf && ext_cmd == 0))
-		return;
+		return 2;
 
 	if ( cmd == 1) {		/* uncompressed data */
 		if ( !pinfo->fd->flags.visited){	/* if first pass */
@@ -376,7 +378,7 @@ static void dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 		next_tvb = wcp_uncompress( tvb, wcp_header_len, pinfo, wcp_tree, pinfo->ctype, pinfo->circuit_id);
 
 		if ( !next_tvb){
-			return;
+			return tvb_captured_length(tvb);
 		}
 	}
 
@@ -386,7 +388,7 @@ static void dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
 	call_dissector(fr_uncompressed_handle, next_tvb, pinfo, tree);
 
-	return;
+	return tvb_captured_length(tvb);
 }
 
 
@@ -437,10 +439,10 @@ wcp_window_t *get_wcp_window_ptr(packet_info *pinfo, circuit_type ctype, guint32
 	wcp_circuit_data_t *wcp_circuit_data;
 
 	circuit = find_circuit( ctype, circuit_id,
-		pinfo->fd->num);
+		pinfo->num);
 	if ( !circuit){
 		circuit = circuit_new( ctype, circuit_id,
-			pinfo->fd->num);
+			pinfo->num);
 	}
 	wcp_circuit_data = (wcp_circuit_data_t *)circuit_get_proto_data(circuit, proto_wcp);
 	if ( !wcp_circuit_data){
@@ -491,7 +493,7 @@ static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pin
 	}
 
 	/*
-	 * XXX - this will thow an exception if a snapshot length cut short
+	 * XXX - this will throw an exception if a snapshot length cut short
 	 * the data.  We may want to try to dissect the data in that case,
 	 * and we may even want to try to decompress it, *but* we will
 	 * want to mark the buffer of decompressed data as incomplete, so
@@ -517,7 +519,7 @@ static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pin
 					 * The data offset runs past the
 					 * end of the data.
 					 */
-					THROW(ReportedBoundsError);
+					return NULL;
 				}
 				data_offset = pntoh16(src) & WCP_OFFSET_MASK;
 				if ((*src & 0xf0) == 0x10){
@@ -531,7 +533,7 @@ static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pin
 						 * The data count runs past the
 						 * end of the data.
 						 */
-						THROW(ReportedBoundsError);
+						return NULL;
 					}
 					data_cnt = *(src + 2) + 1;
 					if ( tree) {
@@ -608,7 +610,7 @@ static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pin
 					/*
 					 * This is the first pass through
 					 * the packets, so copy it to the
-					 * buffer of unco,pressed data.
+					 * buffer of uncompressed data.
 					 */
 					*dst = *src;
 					if ( dst++ == buf_end)

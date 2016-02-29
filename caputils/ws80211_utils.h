@@ -41,25 +41,25 @@ enum ws80211_channel_type {
 
 /* XXX This doesn't match AirpcapValidationType. Should it? */
 enum ws80211_fcs_validation {
-        WS80211_FCS_ALL,
-        WS80211_FCS_VALID,
-        WS80211_FCS_INVALID
+	WS80211_FCS_ALL,
+	WS80211_FCS_VALID,
+	WS80211_FCS_INVALID
 };
 
 struct ws80211_interface
 {
 	char *ifname;
 	gboolean can_set_freq;
-        gboolean can_check_fcs;
-        GArray *frequencies; /* Array of guint32? */
+	gboolean can_check_fcs;
+	GArray *frequencies; /* Array of guint32? */
 	int channel_types; /* Union for all bands */
-        int cap_monitor;
+	int cap_monitor;
 };
 
 struct ws80211_iface_info {
-        int current_freq;
+	int current_freq;
 	enum ws80211_channel_type current_chan_type;
-        enum ws80211_fcs_validation current_fcs_validation;
+	enum ws80211_fcs_validation current_fcs_validation;
 };
 
 /** Initialize the 802.11 environment.
@@ -86,13 +86,6 @@ int ws80211_get_iface_info(const char *name, struct ws80211_iface_info *iface_in
  * @param interfaces A list of interfaces created with ws80211_find_interfaces().
  */
 void ws80211_free_interfaces(GArray *interfaces);
-
-/** Convert a frequency to a channel number
- *
- * @param freq Frequency in MHz.
- * @return The 802.11 channel number matching the provided frequency.
- */
-int ws80211_frequency_to_channel(int freq);
 
 /** Set the frequency and channel width for an interface.
  *

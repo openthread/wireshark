@@ -45,17 +45,16 @@
 
 #include <epan/packet.h>
 #include <epan/to_str.h>
+#include <epan/capture_dissectors.h>
 #include <epan/ax25_pids.h>
-
-#include "packet-netrom.h"
 
 void proto_register_netrom(void);
 void proto_reg_handoff_netrom(void);
 
 #define STRLEN 80
 
-#define NETROM_MIN_SIZE		   7	/* minumum payload for a routing packet */
-#define NETROM_HEADER_SIZE	  20	/* minumum payload for a normal packet */
+#define NETROM_MIN_SIZE		   7	/* minimum payload for a routing packet */
+#define NETROM_HEADER_SIZE	  20	/* minimum payload for a normal packet */
 
 #define	NETROM_PROTOEXT		0x00
 #define	NETROM_CONNREQ		0x01
@@ -206,14 +205,14 @@ dissect_netrom_proto(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	offset = 0;
 
 	/* source */
-	TVB_SET_ADDRESS(&pinfo->dl_src,	AT_AX25, tvb, offset, AX25_ADDR_LEN);
-	TVB_SET_ADDRESS(&pinfo->src,	AT_AX25, tvb, offset, AX25_ADDR_LEN);
+	set_address_tvb(&pinfo->dl_src,	AT_AX25, AX25_ADDR_LEN, tvb, offset);
+	set_address_tvb(&pinfo->src,	AT_AX25, AX25_ADDR_LEN, tvb, offset);
 	/* src_ssid = tvb_get_guint8(tvb, offset+6); */
 	offset += AX25_ADDR_LEN; /* step over src addr */
 
 	/* destination */
-	TVB_SET_ADDRESS(&pinfo->dl_dst,	AT_AX25, tvb, offset, AX25_ADDR_LEN);
-	TVB_SET_ADDRESS(&pinfo->dst,	AT_AX25, tvb, offset, AX25_ADDR_LEN);
+	set_address_tvb(&pinfo->dl_dst,	AT_AX25, AX25_ADDR_LEN, tvb, offset);
+	set_address_tvb(&pinfo->dst,	AT_AX25, AX25_ADDR_LEN, tvb, offset);
 	/* dst_ssid = tvb_get_guint8(tvb, offset+6); */
 	offset += AX25_ADDR_LEN; /* step over dst addr */
 
@@ -477,37 +476,30 @@ dissect_netrom_routing(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 }
 
 /* Code to actually dissect the packets */
-static void
-dissect_netrom(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_netrom(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	if ( tvb_get_guint8( tvb, 0 ) == 0xff )
 		dissect_netrom_routing( tvb, pinfo, tree );
 	else
 		dissect_netrom_proto( tvb, pinfo, tree );
+
+	return tvb_captured_length(tvb);
 }
 
-void
-capture_netrom( const guchar *pd _U_, int offset, int len, packet_counts *ld)
+static gboolean
+capture_netrom( const guchar *pd _U_, int offset, int len, capture_packet_info_t *cpinfo _U_, const union wtap_pseudo_header *pseudo_header _U_)
 {
 	if ( ! BYTES_ARE_IN_FRAME( offset, len, NETROM_MIN_SIZE ) )
-		{
-		ld->other++;
-		return;
-		}
+		return FALSE;
+
 	/* XXX - check for IP-over-NetROM here! */
-	ld->other++;
+	return FALSE;
 }
 
 void
 proto_register_netrom(void)
 {
-	static const true_false_string flags_set_truth =
-		{
-		"Set",
-		"Not set"
-		};
-
-
 	/* Setup list of header fields */
 	static hf_register_info hf[] = {
 		{ &hf_netrom_src,
@@ -567,17 +559,17 @@ proto_register_netrom(void)
 		},
 		{ &hf_netrom_more,
 			{ "More",			"netrom.flag.more",
-			FT_BOOLEAN, 8, TFS(&flags_set_truth), NETROM_MORE_FLAG,
+			FT_BOOLEAN, 8, TFS(&tfs_set_notset), NETROM_MORE_FLAG,
 			"More flag", HFILL }
 		},
 		{ &hf_netrom_nak,
 			{ "NAK",			"netrom.flag.nak",
-			FT_BOOLEAN, 8, TFS(&flags_set_truth), NETROM_NAK_FLAG,
+			FT_BOOLEAN, 8, TFS(&tfs_set_notset), NETROM_NAK_FLAG,
 			"NAK flag", HFILL }
 		},
 		{ &hf_netrom_choke,
 			{ "Choke",			"netrom.flag.choke",
-			FT_BOOLEAN, 8, TFS(&flags_set_truth), NETROM_CHOKE_FLAG,
+			FT_BOOLEAN, 8, TFS(&tfs_set_notset), NETROM_CHOKE_FLAG,
 			"Choke flag", HFILL }
 		},
 		{ &hf_netrom_user,
@@ -625,6 +617,7 @@ void
 proto_reg_handoff_netrom(void)
 {
 	dissector_add_uint( "ax25.pid", AX25_P_NETROM, create_dissector_handle( dissect_netrom, proto_netrom ) );
+	register_capture_dissector("ax25.pid", AX25_P_NETROM, capture_netrom, proto_netrom);
 
 	ip_handle   = find_dissector( "ip" );
 	data_handle = find_dissector( "data" );

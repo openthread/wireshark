@@ -191,22 +191,22 @@ dissect_PNMRP_Link(tvbuff_t *tvb, int offset,
 static const char * mrp_Prio2msg(guint16 prio)
 {
 
-if (prio == 0x0000)
-    return(" Highest priority redundancy manager");
-if ((prio >= 0x1000) && (prio <= 0x7000))
-    return(" High priorities");
-if (prio == 0x8000)
-    return(" Default priority for redundancy manager");
-if ((prio >= 0x8001) && (prio <= 0x8FFF))
-    return(" Low priorities for redundancy manager");
-if ((prio >= 0x9000) && (prio <= 0x9FFF))
-    return(" High priorities for redundancy manager (auto)");
-if (prio == 0xA000)
-    return(" Default priority for redundancy manager (auto)");
-if ((prio >= 0xA001) && (prio <= 0xF000))
-    return(" Low priorities for redundancy manager (auto)");
-if (prio ==0xFFFF)
-    return(" Lowest priority for redundancy manager (auto)");
+    if (prio == 0x0000)
+        return(" Highest priority redundancy manager");
+    if ((prio >= 0x1000) && (prio <= 0x7000))
+        return(" High priorities");
+    if (prio == 0x8000)
+        return(" Default priority for redundancy manager");
+    if ((prio >= 0x8001) && (prio <= 0x8FFF))
+        return(" Low priorities for redundancy manager");
+    if ((prio >= 0x9000) && (prio <= 0x9FFF))
+        return(" High priorities for redundancy manager (auto)");
+    if (prio == 0xA000)
+        return(" Default priority for redundancy manager (auto)");
+    if ((prio >= 0xA001) && (prio <= 0xF000))
+        return(" Low priorities for redundancy manager (auto)");
+    if (prio ==0xFFFF)
+        return(" Lowest priority for redundancy manager (auto)");
 
     return(" Reserved");
 }
@@ -405,8 +405,8 @@ dissect_PNMRP_PDU(tvbuff_t *tvb, int offset,
 
 
 /* Dissect MRP packets */
-static void
-dissect_PNMRP(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_PNMRP(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti       = NULL;
     proto_tree *mrp_tree = NULL;
@@ -425,6 +425,7 @@ dissect_PNMRP(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     dissect_PNMRP_PDU(tvb, offset, pinfo, mrp_tree, ti);
+    return tvb_captured_length(tvb);
 }
 
 

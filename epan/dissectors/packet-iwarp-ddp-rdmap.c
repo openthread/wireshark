@@ -466,8 +466,8 @@ dissect_iwarp_rdmap(tvbuff_t *tvb, proto_tree *rdma_tree, guint32 offset,
  * Main dissection routine which dissects a DDP segment and interprets the
  * header field rsvdULP according to RDMAP.
  */
-static void
-dissect_iwarp_ddp_rdmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_iwarp_ddp_rdmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *ddp_rdma_tree = NULL;
 	proto_tree *ddp_tree = NULL;
@@ -652,6 +652,7 @@ dissect_iwarp_ddp_rdmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			|| info.opcode == RDMA_TERMINATE) {
 		dissect_iwarp_rdmap(tvb, rdma_tree, offset, info.opcode);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* register the protocol with Wireshark */

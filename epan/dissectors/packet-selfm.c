@@ -69,6 +69,7 @@
 #include <epan/reassemble.h>
 #include <epan/expert.h>
 #include <epan/crc16-tvb.h>
+#include <epan/proto_data.h>
 
 void proto_register_selfm(void);
 
@@ -250,6 +251,8 @@ static gint ett_selfm_fastmsg_element       = -1;
 
 /* Expert fields */
 static expert_field ei_selfm_crc16_incorrect = EI_INIT;
+
+static dissector_handle_t selfm_handle;
 
 #define PORT_SELFM    0
 
@@ -1230,7 +1233,7 @@ dissect_fmdata_frame(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, int of
     gfloat           ai_sf_fp;
     gboolean         config_found = FALSE;
     fm_conversation  *conv;
-    fm_config_frame  *cfg_data;
+    fm_config_frame  *cfg_data = NULL;
 
     len = tvb_get_guint8(tvb, offset);
 
@@ -1740,7 +1743,7 @@ dissect_fastmsg_readresp_frame(tvbuff_t *tvb, proto_tree *fastmsg_tree, packet_i
             /* Start at front of list and cycle through possible instances of multiple fastmsg_dataitem frames, looking for match */
             wmem_list_frame_t *frame = wmem_list_head(conv->fastmsg_dataitems);
 
-            while (frame) {
+            while (frame && (tvb_reported_length_remaining(payload_tvb, payload_offset) > 0)) {
                 dataitem = (fastmsg_dataitem *)wmem_list_frame_data(frame);
 
                 /* If the stored base address of the current data item matches the current base address of this response frame */
@@ -2414,7 +2417,7 @@ dissect_selfm(tvbuff_t *selfm_tvb, packet_info *pinfo, proto_tree *tree, void* d
         if ((CMD_FM_CONFIG == msg_type) || (CMD_DFM_CONFIG == msg_type) || (CMD_PDFM_CONFIG == msg_type)) {
             /* Fill the fm_config_frame */
             fm_config_frame *frame_ptr = fmconfig_frame_fast(selfm_tvb);
-            frame_ptr->fnum = pinfo->fd->num;
+            frame_ptr->fnum = pinfo->num;
             wmem_list_prepend(fm_conv_data->fm_config_frames, frame_ptr);
         }
 
@@ -2443,7 +2446,7 @@ dissect_selfm(tvbuff_t *selfm_tvb, packet_info *pinfo, proto_tree *tree, void* d
             /* Enter the single frame multiple times, retrieving a single dataitem per entry */
             for (cnt = 1; (cnt <= num_items); cnt++) {
                 fastmsg_dataitem *dataitem_ptr = fastmsg_dataitem_save(selfm_tvb, offset);
-                dataitem_ptr->fnum = pinfo->fd->num;
+                dataitem_ptr->fnum = pinfo->num;
                 dataitem_ptr->base_address = base_addr;
                 dataitem_ptr->index_pos = cnt;
 
@@ -2573,10 +2576,9 @@ get_selfm_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset _U_, void *data 
 {
     guint message_len=0;  /* message length, inclusive of header, data, crc */
 
-    /* XXX: this logic doesn't take into account the offset */
     /* Get length byte from message */
     if (tvb_reported_length(tvb) > 2) {
-        message_len = tvb_get_guint8(tvb, 2);
+        message_len = tvb_get_guint8(tvb, offset+2);
     }
     /* for 2-byte poll messages, set the length to 2 */
     else if (tvb_reported_length(tvb) == 2) {
@@ -2614,25 +2616,6 @@ dissect_selfm_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
     tcp_dissect_pdus(selfm_tvb, pinfo, tree, selfm_desegment, 2,
                    get_selfm_len, dissect_selfm, data);
-
-    return length;
-}
-
-/******************************************************************************************************/
-/* Dissect "simple" SEL protocol payload (no TCP re-assembly) */
-/******************************************************************************************************/
-static int
-dissect_selfm_simple(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
-{
-    gint length = tvb_reported_length(tvb);
-
-    /* Check for a SEL Protocol packet.  It should begin with 0xA5 */
-    if(length < 2 || tvb_get_guint8(tvb, 0) != 0xA5) {
-        /* Not a SEL Protocol packet, just happened to use the same port */
-        return 0;
-    }
-
-    dissect_selfm(tvb, pinfo, tree, data);
 
     return length;
 }
@@ -3018,7 +3001,7 @@ proto_register_selfm(void)
     proto_selfm = proto_register_protocol("SEL Protocol", "SEL Protocol", "selfm");
 
     /* Registering protocol to be called by another dissector */
-    new_register_dissector("selfm", dissect_selfm_simple, proto_selfm);
+    selfm_handle = register_dissector("selfm", dissect_selfm_tcp, proto_selfm);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_selfm, selfm_hf, array_length(selfm_hf));
@@ -3068,12 +3051,10 @@ void
 proto_reg_handoff_selfm(void)
 {
     static int selfm_prefs_initialized = FALSE;
-    static dissector_handle_t selfm_handle;
     static unsigned int selfm_port;
 
     /* Make sure to use SEL FM Protocol Preferences field to determine default TCP port */
     if (! selfm_prefs_initialized) {
-        selfm_handle = new_create_dissector_handle(dissect_selfm_tcp, proto_selfm);
         selfm_prefs_initialized = TRUE;
     }
     else {

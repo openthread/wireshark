@@ -325,7 +325,7 @@ static int hf_sprt_ack_field_items =            -1;
 static int hf_sprt_transport_channel_item =     -1;
 static int hf_sprt_sequence_item =              -1;
 
-static int hf_sprt_payload =                    -1;
+static int hf_sprt_payload_length =             -1;
 static int hf_sprt_payload_no_data =            -1;
 static int hf_sprt_payload_reserved_bit =       -1;
 static int hf_sprt_payload_message_id =         -1;
@@ -555,8 +555,8 @@ static const value_string sprt_jminfo_tbc_call_funct_name[] = {
     { SPRT_JMINFO_TBC_CALL_FUNCT_PSTN_MULTIMEDIA_TERM,      "PSTN Multimedia terminal (ITU-T Rec. H.324)" },
     { SPRT_JMINFO_TBC_CALL_FUNCT_TEXTPHONE_ITU_T_REC_V18,   "Textphone (ITU-T Rec. V.18)" },
     { SPRT_JMINFO_TBC_CALL_FUNCT_VIDEOTEXT_ITU_T_REC_T101,  "Videotext (ITU-T Rec. T.101)" },
-    { SPRT_JMINFO_TBC_CALL_FUNCT_TRANS_FAX_ITU_T_REC_T30,   "Transmit facsimilie from call terminal (ITU-T Rec. T.30)" },
-    { SPRT_JMINFO_TBC_CALL_FUNCT_RECV_FAX_ITU_T_REC_T30,    "Receive facsimilie at call terminal (ITU-T Rec. T.30)" },
+    { SPRT_JMINFO_TBC_CALL_FUNCT_TRANS_FAX_ITU_T_REC_T30,   "Transmit facsimile from call terminal (ITU-T Rec. T.30)" },
+    { SPRT_JMINFO_TBC_CALL_FUNCT_RECV_FAX_ITU_T_REC_T30,    "Receive facsimile at call terminal (ITU-T Rec. T.30)" },
     { SPRT_JMINFO_TBC_CALL_FUNCT_DATA_V_SERIES_MODEM_REC,   "Data (V-series modem Recommendations)" },
     { 0, NULL }
 };
@@ -745,7 +745,7 @@ static struct _sprt_conversation_info* find_sprt_conversation_data(packet_info *
     conversation_t *p_conv = NULL;
     struct _sprt_conversation_info *p_conv_data = NULL;
     /* Use existing packet info if available */
-    p_conv = find_conversation(pinfo->fd->num,
+    p_conv = find_conversation(pinfo->num,
                                 &pinfo->src,
                                 &pinfo->dst,
                                 pinfo->ptype,
@@ -782,7 +782,7 @@ void sprt_add_address(packet_info *pinfo,
         return;
     }
 
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
 
     /*
      * Check if the ip address and port combination is not
@@ -885,7 +885,7 @@ dissect_sprt_data(tvbuff_t *tvb,
 
     if (payload_length > 0)
     {
-        ti = proto_tree_add_uint(sprt_tree, hf_sprt_payload, tvb, offset, 1, payload_length);
+        ti = proto_tree_add_uint(sprt_tree, hf_sprt_payload_length, tvb, offset, 1, payload_length);
         proto_item_set_len(ti, payload_length);
 
         sprt_payload_tree = proto_item_add_subtree(ti, ett_payload);
@@ -1033,7 +1033,7 @@ dissect_sprt_data(tvbuff_t *tvb,
             /* have we previously seen a CONNECT msg in this conversation (i.e., do we know if DLCI is used w/I_OCTET?) */
             if (p_conv_data->connect_frame_number == 0)
             {
-                p_conv_data->connect_frame_number = pinfo->fd->num;
+                p_conv_data->connect_frame_number = pinfo->num;
                 if (word & 0x8000)
                 {
                     p_conv_data->i_octet_dlci_status = DLCI_PRESENT;
@@ -1421,7 +1421,7 @@ dissect_sprt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
             &pinfo->src, pinfo->srcport,
             0,
             "SPRT stream",
-            pinfo->fd->num);
+            pinfo->num);
         p_conv_data = find_sprt_conversation_data(pinfo);
     }
 
@@ -1694,10 +1694,10 @@ proto_register_sprt(void)
         },
         /* SPRT payload, if any: */
         {
-            &hf_sprt_payload,
+            &hf_sprt_payload_length,
             {
                 "Payload (in bytes)",
-                "sprt.payload",
+                "sprt.payload.length",
                 FT_UINT32,
                 BASE_DEC,
                 NULL,
@@ -1794,7 +1794,7 @@ proto_register_sprt(void)
         {
             &hf_sprt_payload_msg_init_assym_data_types,
             {
-                "Assymetrical data types",
+                "Asymmetrical data types",
                 "sprt.payload.msg_init.assym_data_types",
                 FT_BOOLEAN,
                 16,
@@ -3407,7 +3407,7 @@ proto_register_sprt(void)
     expert_register_field_array(expert_sprt, ei, array_length(ei));
 
     /* register the dissector */
-    new_register_dissector("sprt", dissect_sprt, proto_sprt);
+    register_dissector("sprt", dissect_sprt, proto_sprt);
 
     sprt_module = prefs_register_protocol(proto_sprt, NULL);
 

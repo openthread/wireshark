@@ -37,6 +37,7 @@
 
 #include <epan/packet.h>
 #include <epan/prefs.h>
+#include <epan/proto_data.h>
 
 #include "packet-rtp-events.h"
 #include "packet-rtp.h"
@@ -319,8 +320,8 @@ static gint ett_rtp_events           = -1;
 
 static struct _rtp_event_info rtp_event_info;
 
-static void
-dissect_rtp_events( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int
+dissect_rtp_events( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
 	proto_item   *ti;
 	proto_tree   *rtp_events_tree;
@@ -390,6 +391,7 @@ dissect_rtp_events( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
 	}
 
 	tap_queue_packet(rtp_event_tap, pinfo, &rtp_event_info);
+	return tvb_captured_length(tvb);
 }
 
 

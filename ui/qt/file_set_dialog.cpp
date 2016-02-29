@@ -53,11 +53,12 @@ fileset_dlg_add_file(fileset_entry *entry, void *window) {
 }
 
 FileSetDialog::FileSetDialog(QWidget *parent) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     fs_ui_(new Ui::FileSetDialog),
     close_button_(NULL)
 {
     fs_ui_->setupUi(this);
+    loadGeometry ();
 
     fs_ui_->fileSetTree->headerItem();
 
@@ -123,9 +124,8 @@ void FileSetDialog::addFile(fileset_entry *entry) {
     // Not perfect but better than nothing.
     entry_item->setTextAlignment(3, Qt::AlignRight);
 
-    setWindowTitle(wsApp->windowTitleString(tr("%1 File%2 in Set")
-                                            .arg(fs_ui_->fileSetTree->topLevelItemCount())
-                                            .arg(plurality(fs_ui_->fileSetTree->topLevelItemCount(), "", "s"))));
+    setWindowTitle(wsApp->windowTitleString(tr("%Ln File(s) in Set", "",
+                                            fs_ui_->fileSetTree->topLevelItemCount())));
 
     dir_name = fileset_get_dirname();
     fs_ui_->directoryLabel->setText(dir_name);

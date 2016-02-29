@@ -37,13 +37,13 @@ static int hf_docsis_sync_cmts_timestamp = -1;
 static gint ett_docsis_sync = -1;
 
 /* Dissection */
-static void
-dissect_sync (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_sync (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *sync_tree;
 
-  col_set_str(pinfo->cinfo, COL_INFO, "Sync Message:");
+  col_set_str(pinfo->cinfo, COL_INFO, "Sync Message");
 
   if (tree)
     {
@@ -53,6 +53,7 @@ dissect_sync (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
       proto_tree_add_item (sync_tree, hf_docsis_sync_cmts_timestamp, tvb, 0, 4,
                            ENC_BIG_ENDIAN);
     } /* if(tree) */
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

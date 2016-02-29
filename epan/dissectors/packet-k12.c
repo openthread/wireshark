@@ -30,6 +30,8 @@
 #include <epan/uat.h>
 #include <epan/expert.h>
 #include <epan/strutil.h>
+#include <epan/proto_data.h>
+
 #include <wiretap/wtap.h>
 #include <wsutil/pint.h>
 #include <wsutil/str_util.h>
@@ -179,8 +181,8 @@ fill_fp_info(fp_info* p_fp_info, guchar* extra_info, guint32 length)
 	}
 }
 
-static void
-dissect_k12(tvbuff_t* tvb,packet_info* pinfo,proto_tree* tree)
+static int
+dissect_k12(tvbuff_t* tvb,packet_info* pinfo,proto_tree* tree, void* data _U_)
 {
 	static dissector_handle_t data_handles[] = {NULL, NULL};
 	proto_item* k12_item;
@@ -261,7 +263,7 @@ dissect_k12(tvbuff_t* tvb,packet_info* pinfo,proto_tree* tree)
 		expert_add_info(pinfo, stack_item, &ei_k12_unmatched_info);
 
 		call_dissector(data_handle, tvb, pinfo, tree);
-		return;
+		return tvb_captured_length(tvb);
 	}
 
 	/* Setup subdissector information */
@@ -294,6 +296,7 @@ dissect_k12(tvbuff_t* tvb,packet_info* pinfo,proto_tree* tree)
 	}
 
 	call_dissector(sub_handle, tvb, pinfo, tree);
+	return tvb_captured_length(tvb);
 }
 
 static gboolean

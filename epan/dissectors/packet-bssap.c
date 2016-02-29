@@ -34,6 +34,7 @@
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/prefs.h>
+#include <wsutil/str_util.h>
 #include "packet-bssap.h"
 #include "packet-gsm_a_common.h"
 #include "packet-e212.h"
@@ -2512,8 +2513,8 @@ proto_register_bssap(void)
     proto_bssap = proto_register_protocol("BSSAP/BSAP", "BSSAP", "bssap");
     proto_bssap_plus = proto_register_protocol("BSSAP2", "BSSAP2", "bssap_plus");
 
-    new_register_dissector("bssap", dissect_bssap, proto_bssap);
-    new_register_dissector("bssap_plus", dissect_bssap_plus, proto_bssap_plus);
+    register_dissector("bssap", dissect_bssap, proto_bssap);
+    register_dissector("bssap_plus", dissect_bssap_plus, proto_bssap_plus);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_bssap, hf, array_length(hf));
@@ -2545,8 +2546,8 @@ proto_register_bssap(void)
                        "Subsystem number used for BSSAP",
                        "Set Subsystem number used for BSSAP/BSSAP+",
                        10, &global_bssap_ssn);
-    bssap_dissector_table = register_dissector_table("bssap.pdu_type", "BSSAP Message Type", FT_UINT8, BASE_DEC);
-    bsap_dissector_table  = register_dissector_table("bsap.pdu_type", "BSAP Message Type", FT_UINT8, BASE_DEC);
+    bssap_dissector_table = register_dissector_table("bssap.pdu_type", "BSSAP Message Type", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    bsap_dissector_table  = register_dissector_table("bsap.pdu_type", "BSAP Message Type", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
@@ -2560,7 +2561,7 @@ proto_reg_handoff_bssap(void)
         heur_dissector_add("sccp", dissect_bssap_heur, "BSSAP over SCCP", "bssap_sccp", proto_bssap, HEURISTIC_ENABLE);
         heur_dissector_add("sua", dissect_bssap_heur, "BSSAP over SUA", "bssap_sua", proto_bssap, HEURISTIC_ENABLE);
         /* BSSAP+ */
-        bssap_plus_handle = new_create_dissector_handle(dissect_bssap_plus, proto_bssap);
+        bssap_plus_handle = create_dissector_handle(dissect_bssap_plus, proto_bssap);
 
         data_handle = find_dissector("data");
         rrlp_handle = find_dissector("rrlp");

@@ -523,10 +523,10 @@ static void
 update_camelsrt_call(struct camelsrt_call_t *p_camelsrt_call, packet_info *pinfo,
                      guint msg_category)
 {
-  p_camelsrt_call->category[msg_category].req_num = pinfo->fd->num;
+  p_camelsrt_call->category[msg_category].req_num = pinfo->num;
   p_camelsrt_call->category[msg_category].rsp_num = 0;
   p_camelsrt_call->category[msg_category].responded = FALSE;
-  p_camelsrt_call->category[msg_category].req_time = pinfo->fd->abs_ts;
+  p_camelsrt_call->category[msg_category].req_time = pinfo->abs_ts;
 }
 
 /*
@@ -543,7 +543,7 @@ camelsrt_close_call_matching(packet_info *pinfo,
 
   p_camelsrt_info->bool_msginfo[CAMELSRT_SESSION]=TRUE;
 #ifdef DEBUG_CAMELSRT
-  dbg(10,"\n Session end #%u\n", pinfo->fd->num);
+  dbg(10,"\n Session end #%u\n", pinfo->num);
 #endif
   /* look only for matching request, if matching conversation is available. */
   camelsrt_call_key.SessionIdKey = p_camelsrt_info->tcap_session_id;
@@ -557,7 +557,7 @@ camelsrt_close_call_matching(packet_info *pinfo,
     dbg(12,"Found ");
 #endif
     /* Calculate Service Response Time */
-    nstime_delta(&delta, &pinfo->fd->abs_ts, &p_camelsrt_call->category[CAMELSRT_SESSION].req_time);
+    nstime_delta(&delta, &pinfo->abs_ts, &p_camelsrt_call->category[CAMELSRT_SESSION].req_time);
     p_camelsrt_call->category[CAMELSRT_SESSION].responded = TRUE;
     p_camelsrt_info->msginfo[CAMELSRT_SESSION].request_available = TRUE;
     p_camelsrt_info->msginfo[CAMELSRT_SESSION].is_delta_time = TRUE;
@@ -625,7 +625,7 @@ camelsrt_begin_call_matching(packet_info *pinfo,
 
   /* look up the request */
 #ifdef DEBUG_CAMELSRT
-  dbg(10,"\n Session begin #%u\n", pinfo->fd->num);
+  dbg(10,"\n Session begin #%u\n", pinfo->num);
   dbg(11,"Search key %lu ",camelsrt_call_key.SessionIdKey);
 #endif
   p_camelsrt_call = (struct camelsrt_call_t *)g_hash_table_lookup(srt_calls, &camelsrt_call_key);
@@ -664,7 +664,7 @@ camelsrt_request_call_matching(tvbuff_t *tvb, packet_info *pinfo,
   proto_item *ti, *hidden_item;
 
 #ifdef DEBUG_CAMELSRT
-  dbg(10,"\n %s #%u\n", val_to_str_const(srt_type, camelSRTtype_naming, "Unk"),pinfo->fd->num);
+  dbg(10,"\n %s #%u\n", val_to_str_const(srt_type, camelSRTtype_naming, "Unk"),pinfo->num);
 #endif
 
   /* look only for matching request, if matching conversation is available. */
@@ -689,20 +689,20 @@ camelsrt_request_call_matching(tvbuff_t *tvb, packet_info *pinfo,
         srt_type=CAMELSRT_VOICE_ACR1;
       } else  if ( (p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].req_num == 0)
                    && (p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num != 0)
-                   && (p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num < pinfo->fd->num) ) {
+                   && (p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num < pinfo->num) ) {
         srt_type=CAMELSRT_VOICE_ACR2;
       } else  if ( (p_camelsrt_call->category[CAMELSRT_VOICE_ACR3].req_num == 0)
                    && (p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].rsp_num != 0)
-                   && (p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].rsp_num < pinfo->fd->num) ) {
+                   && (p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].rsp_num < pinfo->num) ) {
         srt_type=CAMELSRT_VOICE_ACR3;
       } else if (p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num != 0
-                 && p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num > pinfo->fd->num) {
+                 && p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num > pinfo->num) {
         srt_type=CAMELSRT_VOICE_ACR1;
       } else  if ( p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].rsp_num != 0
-                   && p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].rsp_num > pinfo->fd->num) {
+                   && p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].rsp_num > pinfo->num) {
         srt_type=CAMELSRT_VOICE_ACR2;
       } else  if (p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].rsp_num != 0
-                  && p_camelsrt_call->category[CAMELSRT_VOICE_ACR3].rsp_num > pinfo->fd->num) {
+                  && p_camelsrt_call->category[CAMELSRT_VOICE_ACR3].rsp_num > pinfo->num) {
         srt_type=CAMELSRT_VOICE_ACR3;
       }
 #ifdef DEBUG_CAMELSRT
@@ -719,12 +719,12 @@ camelsrt_request_call_matching(tvbuff_t *tvb, packet_info *pinfo,
       /* We have not yet seen a request to that call, so this must be the first request
          remember its frame number. */
 #ifdef DEBUG_CAMELSRT
-      dbg(5,"Set reqlink #%u ", pinfo->fd->num);
+      dbg(5,"Set reqlink #%u ", pinfo->num);
 #endif
       update_camelsrt_call(p_camelsrt_call, pinfo, srt_type);
     } else {
       /* We have seen a request to this call - but was it *this* request? */
-      if (p_camelsrt_call->category[srt_type].req_num != pinfo->fd->num) {
+      if (p_camelsrt_call->category[srt_type].req_num != pinfo->num) {
 
         if (srt_type!=CAMELSRT_VOICE_DISC) {
           /* No, so it's a duplicate request. Mark it as such. */
@@ -739,10 +739,10 @@ camelsrt_request_call_matching(tvbuff_t *tvb, packet_info *pinfo,
 
         } else {
           /* Ignore duplicate frame */
-          if (pinfo->fd->num > p_camelsrt_call->category[srt_type].req_num) {
-            p_camelsrt_call->category[srt_type].req_num = pinfo->fd->num;
+          if (pinfo->num > p_camelsrt_call->category[srt_type].req_num) {
+            p_camelsrt_call->category[srt_type].req_num = pinfo->num;
 #ifdef DEBUG_CAMELSRT
-            dbg(5,"DISC Set reqlink #%u ", pinfo->fd->num);
+            dbg(5,"DISC Set reqlink #%u ", pinfo->num);
 #endif
             update_camelsrt_call(p_camelsrt_call, pinfo, srt_type);
           } /* greater frame */
@@ -754,7 +754,7 @@ camelsrt_request_call_matching(tvbuff_t *tvb, packet_info *pinfo,
     if ( gcamel_DisplaySRT &&
          (p_camelsrt_call->category[srt_type].rsp_num != 0) &&
          (p_camelsrt_call->category[srt_type].req_num != 0) &&
-         (p_camelsrt_call->category[srt_type].req_num == pinfo->fd->num) ) {
+         (p_camelsrt_call->category[srt_type].req_num == pinfo->num) ) {
 #ifdef DEBUG_CAMELSRT
       dbg(20,"Display_framersplink %d ",p_camelsrt_call->category[srt_type].rsp_num);
 #endif
@@ -834,7 +834,7 @@ camelsrt_report_call_matching(tvbuff_t *tvb, packet_info *pinfo,
   proto_item *ti, *hidden_item;
 
 #ifdef DEBUG_CAMELSRT
-  dbg(10,"\n %s #%u\n", val_to_str_const(srt_type, camelSRTtype_naming, "Unk"),pinfo->fd->num);
+  dbg(10,"\n %s #%u\n", val_to_str_const(srt_type, camelSRTtype_naming, "Unk"),pinfo->num);
 #endif
   camelsrt_call_key.SessionIdKey = p_camelsrt_info->tcap_session_id;
   /* look only for matching request, if matching conversation is available. */
@@ -852,13 +852,13 @@ camelsrt_report_call_matching(tvbuff_t *tvb, packet_info *pinfo,
 
     if (srt_type==CAMELSRT_VOICE_ACR1) {
       if (p_camelsrt_call->category[CAMELSRT_VOICE_ACR3].req_num != 0
-          && p_camelsrt_call->category[CAMELSRT_VOICE_ACR3].req_num < pinfo->fd->num) {
+          && p_camelsrt_call->category[CAMELSRT_VOICE_ACR3].req_num < pinfo->num) {
         srt_type=CAMELSRT_VOICE_ACR1;
       } else  if ( p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].req_num != 0
-                   && p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].req_num < pinfo->fd->num) {
+                   && p_camelsrt_call->category[CAMELSRT_VOICE_ACR2].req_num < pinfo->num) {
         srt_type=CAMELSRT_VOICE_ACR2;
       } else  if (p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].req_num != 0
-                  && p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].req_num < pinfo->fd->num) {
+                  && p_camelsrt_call->category[CAMELSRT_VOICE_ACR1].req_num < pinfo->num) {
         srt_type=CAMELSRT_VOICE_ACR1;
       }
 #ifdef DEBUG_CAMELSRT
@@ -869,22 +869,22 @@ camelsrt_report_call_matching(tvbuff_t *tvb, packet_info *pinfo,
 
     if (p_camelsrt_call->category[srt_type].rsp_num == 0) {
       if  ( (p_camelsrt_call->category[srt_type].req_num != 0)
-            && (pinfo->fd->num > p_camelsrt_call->category[srt_type].req_num) ){
+            && (pinfo->num > p_camelsrt_call->category[srt_type].req_num) ){
         /* We have not yet seen a response to that call, so this must be the first response;
            remember its frame number only if response comes after request */
 #ifdef DEBUG_CAMELSRT
-        dbg(14,"Set reslink #%d req %u ",pinfo->fd->num, p_camelsrt_call->category[srt_type].req_num);
+        dbg(14,"Set reslink #%d req %u ",pinfo->num, p_camelsrt_call->category[srt_type].req_num);
 #endif
-        p_camelsrt_call->category[srt_type].rsp_num = pinfo->fd->num;
+        p_camelsrt_call->category[srt_type].rsp_num = pinfo->num;
 
       } else {
 #ifdef DEBUG_CAMELSRT
-        dbg(2,"badreslink #%u req %u ",pinfo->fd->num, p_camelsrt_call->category[srt_type].req_num);
+        dbg(2,"badreslink #%u req %u ",pinfo->num, p_camelsrt_call->category[srt_type].req_num);
 #endif
       } /* req_num != 0 */
     } else { /* rsp_num != 0 */
       /* We have seen a response to this call - but was it *this* response? */
-      if (p_camelsrt_call->category[srt_type].rsp_num != pinfo->fd->num) {
+      if (p_camelsrt_call->category[srt_type].rsp_num != pinfo->num) {
         /* No, so it's a duplicate response. Mark it as such. */
 #ifdef DEBUG_CAMELSRT
         dbg(21,"Display_duplicate rsp=%d ", p_camelsrt_call->category[srt_type].rsp_num);
@@ -899,7 +899,7 @@ camelsrt_report_call_matching(tvbuff_t *tvb, packet_info *pinfo,
 
     if ( (p_camelsrt_call->category[srt_type].req_num != 0) &&
          (p_camelsrt_call->category[srt_type].rsp_num != 0) &&
-         (p_camelsrt_call->category[srt_type].rsp_num == pinfo->fd->num) ) {
+         (p_camelsrt_call->category[srt_type].rsp_num == pinfo->num) ) {
 
       p_camelsrt_call->category[srt_type].responded = TRUE;
       p_camelsrt_info->msginfo[srt_type].request_available = TRUE;
@@ -916,7 +916,7 @@ camelsrt_report_call_matching(tvbuff_t *tvb, packet_info *pinfo,
         PROTO_ITEM_SET_GENERATED(ti);
       }
       /* Calculate Service Response Time */
-      nstime_delta(&delta, &pinfo->fd->abs_ts, &p_camelsrt_call->category[srt_type].req_time);
+      nstime_delta(&delta, &pinfo->abs_ts, &p_camelsrt_call->category[srt_type].req_time);
 
       p_camelsrt_info->msginfo[srt_type].is_delta_time = TRUE;
       p_camelsrt_info->msginfo[srt_type].delta_time = delta; /* give it to tap */
@@ -1220,10 +1220,10 @@ typedef enum
 
 static stat_tap_table_item camel_stat_fields[] = {{TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Message Type or Reason", "%-25s"}, {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}};
 
-static void camel_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void camel_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
   int num_fields = sizeof(camel_stat_fields)/sizeof(stat_tap_table_item);
-  new_stat_tap_table* table = new_stat_tap_init_table("CAMEL Message Counters", num_fields, 0, NULL, gui_callback, gui_data);
+  stat_tap_table* table = new_stat_tap_init_table("CAMEL Message Counters", num_fields, 0, NULL, gui_callback, gui_data);
   int i;
   stat_tap_table_item_type items[sizeof(camel_stat_fields)/sizeof(stat_tap_table_item)];
 
@@ -1254,11 +1254,11 @@ camel_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_
 {
   new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
   const struct camelsrt_info_t *csi = (const struct camelsrt_info_t *) csi_ptr;
-  new_stat_tap_table* table;
+  stat_tap_table* table;
   stat_tap_table_item_type* msg_data;
   guint i = 0;
 
-  table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+  table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
   if (csi->opcode >= table->num_elements)
     return FALSE;
   msg_data = new_stat_tap_get_field_data(table, csi->opcode, COUNT_COLUMN);
@@ -1269,7 +1269,7 @@ camel_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_
 }
 
 static void
-camel_stat_reset(new_stat_tap_table* table)
+camel_stat_reset(stat_tap_table* table)
 {
   guint element;
   stat_tap_table_item_type* item_data;
@@ -1283,7 +1283,7 @@ camel_stat_reset(new_stat_tap_table* table)
 }
 
 static void
-camel_stat_free_table_item(new_stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
+camel_stat_free_table_item(stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
 {
   if (column != MESSAGE_TYPE_COLUMN) return;
   g_free((char*)field_data->value.string_value);
@@ -1532,7 +1532,7 @@ void proto_register_camel(void) {
     { PARAM_FILTER, "filter", "Filter", NULL, TRUE }
   };
 
-  static new_stat_tap_ui camel_stat_table = {
+  static stat_tap_table_ui camel_stat_table = {
     REGISTER_STAT_GROUP_TELEPHONY_GSM,
     "CAMEL Messages and Response Status",
     PSNAME,
@@ -1550,9 +1550,9 @@ void proto_register_camel(void) {
   /* Register protocol */
   proto_camel = proto_register_protocol(PNAME, PSNAME, PFNAME);
 
-  new_register_dissector("camel", dissect_camel, proto_camel);
-  new_register_dissector("camel-v1", dissect_camel_v1, proto_camel);
-  new_register_dissector("camel-v2", dissect_camel_v2, proto_camel);
+  register_dissector("camel", dissect_camel, proto_camel);
+  register_dissector("camel-v1", dissect_camel_v1, proto_camel);
+  register_dissector("camel-v2", dissect_camel_v2, proto_camel);
 
   proto_register_field_array(proto_camel, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -1564,13 +1564,13 @@ void proto_register_camel(void) {
   /* Register dissector tables */
   camel_rose_ctx.arg_local_dissector_table = register_dissector_table("camel.ros.local.arg",
                                                                       "CAMEL Operation Argument (local opcode)",
-                                                                      FT_UINT32, BASE_HEX);
+                                                                      FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
   camel_rose_ctx.res_local_dissector_table = register_dissector_table("camel.ros.local.res",
                                                                       "CAMEL Operation Result (local opcode)",
-                                                                      FT_UINT32, BASE_HEX);
+                                                                      FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
   camel_rose_ctx.err_local_dissector_table = register_dissector_table("camel.ros.local.err",
                                                                       "CAMEL Error (local opcode)",
-                                                                      FT_UINT32, BASE_HEX);
+                                                                      FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   /* Register our configuration options, particularly our SSNs */
   /* Set default SSNs */
@@ -1604,7 +1604,7 @@ void proto_register_camel(void) {
   camel_tap=register_tap(PSNAME);
 
   register_srt_table(proto_camel, PSNAME, 1, camelstat_packet, camelstat_init, NULL);
-  register_new_stat_tap_ui(&camel_stat_table);
+  register_stat_tap_table_ui(&camel_stat_table);
 }
 
 /*

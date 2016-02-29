@@ -257,22 +257,23 @@ static void _dissect_uasip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 #endif
 }
 
-static void dissect_uasip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_uasip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     if (use_proxy_ipaddr)
     {
         if (memcmp((pinfo->src).data, proxy_ipaddr, sizeof(proxy_ipaddr)) == 0)
         {
             _dissect_uasip(tvb, pinfo, tree, SYS_TO_TERM);
-            return;
+            return tvb_captured_length(tvb);
         }
         else if (memcmp((pinfo->dst).data, proxy_ipaddr, sizeof(proxy_ipaddr)) == 0)
         {
             _dissect_uasip(tvb, pinfo, tree, TERM_TO_SYS);
-            return;
+            return tvb_captured_length(tvb);
         }
     }
     _dissect_uasip(tvb, pinfo, tree, DIR_UNKNOWN);
+    return tvb_captured_length(tvb);
 }
 
 void proto_register_uasip(void)

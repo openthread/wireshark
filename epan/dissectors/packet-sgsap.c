@@ -1481,8 +1481,8 @@ static void get_sgsap_msg_params(guint8 oct, const gchar **msg_str, int *ett_tre
 }
 
 
-static void
-dissect_sgsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sgsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item      *item;
     proto_tree      *sgsap_tree;
@@ -1515,7 +1515,7 @@ dissect_sgsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         col_add_fstr(pinfo->cinfo, COL_INFO, "%s", msg_str);
     }else{
         proto_tree_add_item(tree, hf_sgsap_unknown_msg, tvb, offset, 1, ENC_BIG_ENDIAN);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     /*
@@ -1537,6 +1537,7 @@ dissect_sgsap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         (*msg_fcn_p)(tvb, sgsap_tree, pinfo, offset, len - offset);
     }
 
+    return tvb_captured_length(tvb);
 }
 
 

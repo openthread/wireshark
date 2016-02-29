@@ -297,8 +297,8 @@ dissect_netanalyzer_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 
 /* Ethernet capture mode */
-static void
-dissect_netanalyzer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_netanalyzer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   tvbuff_t                *next_tvb;
 
@@ -318,12 +318,13 @@ dissect_netanalyzer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_tree_add_expert_format(tree, pinfo, &ei_netanalyzer_header_version_none, tvb, 4, -1,
         "netANALYZER - No netANALYZER header found");
   }
+  return tvb_captured_length(tvb);
 }
 
 
 /* Transparent capture mode */
-static void
-dissect_netanalyzer_transparent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_netanalyzer_transparent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree              *transparent_payload_tree = NULL;
   tvbuff_t                *next_tvb;
@@ -352,6 +353,7 @@ dissect_netanalyzer_transparent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     proto_tree_add_expert_format(tree, pinfo, &ei_netanalyzer_header_version_none, tvb, 4, -1,
         "netANALYZER transparent mode - No netANALYZER header found");
   }
+  return tvb_captured_length(tvb);
 }
 
 

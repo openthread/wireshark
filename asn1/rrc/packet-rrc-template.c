@@ -22,7 +22,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Ref: 3GPP TS 25.331 V12.6.0 (2015-06)
+ * Ref: 3GPP TS 25.331 V13.1.0 (2015-12)
  */
 
 /**
@@ -37,6 +37,7 @@
 #include <epan/asn1.h>
 #include <epan/conversation.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 
 #include "packet-ber.h"
 #include "packet-per.h"
@@ -194,8 +195,8 @@ static void rrc_free_value(gpointer value ){
 
 
 
-static void
-dissect_rrc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rrc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* FIX ME Currently don't know the 'starting point' of this protocol
      * exported DL-DCCH-Message is the entry point.
@@ -241,6 +242,7 @@ dissect_rrc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 ;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 static void

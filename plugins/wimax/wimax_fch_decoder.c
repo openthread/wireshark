@@ -98,7 +98,7 @@ static const value_string coding_indications[] =
 	{ 0,  NULL }
 };
 
-static void dissect_wimax_fch_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_wimax_fch_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	gint offset = 0;
 	proto_item *fch_item = NULL;
@@ -106,7 +106,7 @@ static void dissect_wimax_fch_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_t
 
 	/* save the base station address (once) */
 	if(!bs_address.len)
-		COPY_ADDRESS(&bs_address, &(pinfo->src));
+		copy_address(&bs_address, &(pinfo->src));
 	/* update the info column */
 	col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "FCH");
 	if (tree)
@@ -131,6 +131,7 @@ static void dissect_wimax_fch_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_t
 		proto_tree_add_item(fch_tree, hf_fch_dlmap_length, tvb, offset, FCH_BURST_LENGTH, ENC_BIG_ENDIAN);
 		proto_tree_add_item(fch_tree, hf_fch_reserved_2, tvb, offset, FCH_BURST_LENGTH, ENC_BIG_ENDIAN);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax FCH Protocol */

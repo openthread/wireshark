@@ -63,6 +63,8 @@ public:
 
     enum AppSignal {
         ColumnsChanged,
+        CaptureFilterListChanged,
+        DisplayFilterListChanged,
         FilterExpressionsChanged,
         PacketDissectionChanged,
         PreferencesChanged,
@@ -92,7 +94,7 @@ public:
 
     void allSystemsGo();
     void refreshLocalInterfaces();
-    struct _e_prefs * readConfigurationFiles(char **gdp_path, char **dp_path);
+    struct _e_prefs * readConfigurationFiles(char **gdp_path, char **dp_path, bool reset);
     QList<recent_item_status *> recentItems() const;
     void addRecentItem(const QString filename, qint64 size, bool accessible);
     QDir lastOpenDir();
@@ -103,6 +105,7 @@ public:
     void setMonospaceFont(const char *font_string);
     int monospaceTextSize(const char *str);
     void setConfigurationProfile(const gchar *profile_name);
+    void reloadLuaPluginsDelayed();
     bool isInitialized() { return initialized_; }
     void setReloadingLua(bool is_reloading) { is_reloading_lua_ = is_reloading; }
     bool isReloadingLua() { return is_reloading_lua_; }
@@ -111,6 +114,7 @@ public:
     const QString &windowTitleSeparator() const { return window_title_separator_; }
     const QString windowTitleString(QStringList title_parts);
     const QString windowTitleString(QString title_part) { return windowTitleString(QStringList() << title_part); }
+    void applyCustomColorsFromRecent();
 
     QTranslator translator;
     QTranslator translatorQt;
@@ -130,6 +134,7 @@ private:
     static QString window_title_separator_;
     QList<AppSignal> app_signals_;
     int active_captures_;
+    void storeCustomColorsInRecent();
 
 protected:
     bool event(QEvent *event);
@@ -145,11 +150,15 @@ signals:
     void profileNameChanged(const gchar *profile_name);
 
     void columnsChanged(); // XXX This recreates the packet list. We might want to rename it accordingly.
+    void captureFilterListChanged();
+    void displayFilterListChanged();
     void filterExpressionsChanged();
     void packetDissectionChanged();
     void preferencesChanged();
     void addressResolutionChanged();
+    void checkDisplayFilter();
     void fieldsChanged();
+    void reloadLuaPlugins();
 
     void openStatCommandDialog(const QString &menu_path, const char *arg, void *userdata);
     void openTapParameterDialog(const QString cfg_str, const QString arg, void *userdata);

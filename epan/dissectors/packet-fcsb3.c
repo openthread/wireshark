@@ -662,8 +662,8 @@ static void dissect_fc_sbccs_dib_link_hdr (tvbuff_t *tvb, packet_info *pinfo,
     }
 }
 
-static void dissect_fc_sbccs (tvbuff_t *tvb, packet_info *pinfo,
-                              proto_tree *tree)
+static int dissect_fc_sbccs (tvbuff_t *tvb, packet_info *pinfo,
+                              proto_tree *tree, void* data _U_)
 {
     guint8          type;
     guint16         ch_cu_id, dev_addr, ccw;
@@ -688,7 +688,7 @@ static void dissect_fc_sbccs (tvbuff_t *tvb, packet_info *pinfo,
                                                          "0x%x"));
 
     /* Retrieve conversation state to determine expected payload */
-    conversation = find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conversation = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
                                       PT_SBCCS, ch_cu_id, dev_addr, 0);
 
     if (conversation) {
@@ -702,7 +702,7 @@ static void dissect_fc_sbccs (tvbuff_t *tvb, packet_info *pinfo,
 #if 0
         conversation =
 #endif
-                       conversation_new (pinfo->fd->num, &pinfo->src, &pinfo->dst,
+                       conversation_new (pinfo->num, &pinfo->src, &pinfo->dst,
                                          PT_SBCCS, ch_cu_id, dev_addr, 0);
 #if 0
         task_key.conv_id = conversation->index;
@@ -753,6 +753,7 @@ static void dissect_fc_sbccs (tvbuff_t *tvb, packet_info *pinfo,
         next_tvb = tvb_new_subset_remaining (tvb, offset+FC_SBCCS_DIB_LRC_HDR_SIZE);
         call_dissector (data_handle, next_tvb, pinfo, tree);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

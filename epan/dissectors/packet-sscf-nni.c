@@ -68,8 +68,8 @@ static const value_string sscf_status_vals[] = {
   { 0,                                    NULL }
 };
 
-static void
-dissect_sscf_nni(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sscf_nni(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint reported_length;
   proto_item *sscf_item = NULL;
@@ -102,6 +102,7 @@ dissect_sscf_nni(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         SSCF_SPARE_LENGTH, ENC_BIG_ENDIAN);
   }
 
+  return tvb_captured_length(tvb);
 }
 
 void

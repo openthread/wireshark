@@ -402,14 +402,14 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	 * being frame zero. */
 	if (messageDetail != INFERRED_PEERSHUTDOWN &&
 	    (highest_num_seen == 0 ||
-	     highest_num_seen < pinfo->fd->num)) {
+	     highest_num_seen < pinfo->num)) {
 
 		ldss_broadcast_t *data;
 
 		/* Populate data from the broadcast */
 		data = wmem_new0(wmem_file_scope(), ldss_broadcast_t);
-		data->num = pinfo->fd->num;
-		data->ts = pinfo->fd->abs_ts;
+		data->num = pinfo->num;
+		data->ts = pinfo->abs_ts;
 		data->message_id = messageID;
 		data->message_detail = messageDetail;
 		data->port = port;
@@ -422,7 +422,7 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		data->file->digest_type = digest_type;
 
 		data->broadcaster = wmem_new0(wmem_file_scope(), ldss_broadcaster_t);
-		COPY_ADDRESS(&data->broadcaster->addr, &pinfo->src);
+		copy_address(&data->broadcaster->addr, &pinfo->src);
 		data->broadcaster->port = port;
 
 		/* Dissect any future pushes/pulls */
@@ -431,7 +431,7 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 
 		/* Record that the frame was processed */
-		highest_num_seen = pinfo->fd->num;
+		highest_num_seen = pinfo->num;
 	}
 
 	return tvb_captured_length(tvb);
@@ -467,7 +467,7 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 
 	/* Look for the transfer conversation; this was created during
 	 * earlier broadcast dissection (see prepare_ldss_transfer_conv) */
-	transfer_conv = find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	transfer_conv = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
 					   PT_TCP, pinfo->srcport, pinfo->destport, 0);
 	transfer_info = (ldss_transfer_info_t *)conversation_get_proto_data(transfer_conv, proto_ldss);
 
@@ -491,12 +491,12 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 		col_set_str(pinfo->cinfo, COL_INFO, "LDSS File Transfer (Requesting file - pull)");
 
 		if (highest_num_seen == 0 ||
-		    highest_num_seen < pinfo->fd->num) {
+		    highest_num_seen < pinfo->num) {
 
 			already_dissected = FALSE;
 			transfer_info->req = wmem_new0(wmem_file_scope(), ldss_file_request_t);
 			transfer_info->req->file = wmem_new0(wmem_file_scope(), ldss_file_t);
-			highest_num_seen = pinfo->fd->num;
+			highest_num_seen = pinfo->num;
 		}
 
 		if (tree) {
@@ -627,8 +627,8 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 			PROTO_ITEM_SET_GENERATED(ti);
 		}
 
-		transfer_info->req->num = pinfo->fd->num;
-		transfer_info->req->ts = pinfo->fd->abs_ts;
+		transfer_info->req->num = pinfo->num;
+		transfer_info->req->ts = pinfo->abs_ts;
 	}
 	/* Remaining packets are the file response */
 	else {
@@ -667,8 +667,8 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 		}
 
 		/* OK. Now we have the whole file that was transferred. */
-		transfer_info->resp_num = pinfo->fd->num;
-		transfer_info->resp_ts = pinfo->fd->abs_ts;
+		transfer_info->resp_num = pinfo->num;
+		transfer_info->resp_ts = pinfo->abs_ts;
 
 		col_add_fstr(pinfo->cinfo, COL_INFO, "LDSS File Transfer (Sending file - %s)",
 				     transfer_info->broadcast->message_id == MESSAGE_ID_WILLSEND
@@ -786,8 +786,8 @@ is_broadcast(address* addr)
 		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 	};
 
-	SET_ADDRESS(&broadcast_addr, AT_ETHER, 6, broadcast_addr_bytes);
-	return ADDRESSES_EQUAL(addr, &broadcast_addr);
+	set_address(&broadcast_addr, AT_ETHER, 6, broadcast_addr_bytes);
+	return addresses_equal(addr, &broadcast_addr);
 }
 
 static int
@@ -994,8 +994,8 @@ proto_reg_handoff_ldss (void)
 	static gboolean	  ldss_initialized	= FALSE;
 
 	if (!ldss_initialized) {
-		ldss_udp_handle = new_create_dissector_handle(dissect_ldss, proto_ldss);
-		ldss_tcp_handle = new_create_dissector_handle(dissect_ldss_transfer, proto_ldss);
+		ldss_udp_handle = create_dissector_handle(dissect_ldss, proto_ldss);
+		ldss_tcp_handle = create_dissector_handle(dissect_ldss_transfer, proto_ldss);
 		ldss_initialized = TRUE;
 	}
 	else {

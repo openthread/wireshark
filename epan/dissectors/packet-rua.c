@@ -1739,14 +1739,14 @@ module_t *rua_module;
   proto_register_subtree_array(ett, array_length(ett));
 
   /* Register dissector */
-  new_register_dissector("rua", dissect_rua, proto_rua);
+  register_dissector("rua", dissect_rua, proto_rua);
 
   /* Register dissector tables */
-  rua_ies_dissector_table = register_dissector_table("rua.ies", "RUA-PROTOCOL-IES", FT_UINT32, BASE_DEC);
-  rua_extension_dissector_table = register_dissector_table("rua.extension", "RUA-PROTOCOL-EXTENSION", FT_UINT32, BASE_DEC);
-  rua_proc_imsg_dissector_table = register_dissector_table("rua.proc.imsg", "RUA-ELEMENTARY-PROCEDURE InitiatingMessage", FT_UINT32, BASE_DEC);
-  rua_proc_sout_dissector_table = register_dissector_table("rua.proc.sout", "RUA-ELEMENTARY-PROCEDURE SuccessfulOutcome", FT_UINT32, BASE_DEC);
-  rua_proc_uout_dissector_table = register_dissector_table("rua.proc.uout", "RUA-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", FT_UINT32, BASE_DEC);
+  rua_ies_dissector_table = register_dissector_table("rua.ies", "RUA-PROTOCOL-IES", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  rua_extension_dissector_table = register_dissector_table("rua.extension", "RUA-PROTOCOL-EXTENSION", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  rua_proc_imsg_dissector_table = register_dissector_table("rua.proc.imsg", "RUA-ELEMENTARY-PROCEDURE InitiatingMessage", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  rua_proc_sout_dissector_table = register_dissector_table("rua.proc.sout", "RUA-ELEMENTARY-PROCEDURE SuccessfulOutcome", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  rua_proc_uout_dissector_table = register_dissector_table("rua.proc.uout", "RUA-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   rua_module = prefs_register_protocol(proto_rua, proto_reg_handoff_rua);
   prefs_register_uint_preference(rua_module, "port", "RUA SCTP Port", "Set the port for RUA messages (Default of 29169)", 10, &global_sctp_port);
@@ -1770,20 +1770,20 @@ proto_reg_handoff_rua(void)
 
 /*--- Included file: packet-rua-dis-tab.c ---*/
 #line 1 "../../asn1/rua/packet-rua-dis-tab.c"
-  dissector_add_uint("rua.ies", id_Cause, new_create_dissector_handle(dissect_Cause_PDU, proto_rua));
-  dissector_add_uint("rua.ies", id_CriticalityDiagnostics, new_create_dissector_handle(dissect_CriticalityDiagnostics_PDU, proto_rua));
-  dissector_add_uint("rua.ies", id_Context_ID, new_create_dissector_handle(dissect_Context_ID_PDU, proto_rua));
-  dissector_add_uint("rua.ies", id_RANAP_Message, new_create_dissector_handle(dissect_RANAP_Message_PDU, proto_rua));
-  dissector_add_uint("rua.ies", id_IntraDomainNasNodeSelector, new_create_dissector_handle(dissect_IntraDomainNasNodeSelector_PDU, proto_rua));
-  dissector_add_uint("rua.ies", id_Establishment_Cause, new_create_dissector_handle(dissect_Establishment_Cause_PDU, proto_rua));
-  dissector_add_uint("rua.ies", id_CN_DomainIndicator, new_create_dissector_handle(dissect_CN_DomainIndicator_PDU, proto_rua));
-  dissector_add_uint("rua.extension", id_CSGMembershipStatus, new_create_dissector_handle(dissect_CSGMembershipStatus_PDU, proto_rua));
-  dissector_add_uint("rua.proc.imsg", id_Connect, new_create_dissector_handle(dissect_Connect_PDU, proto_rua));
-  dissector_add_uint("rua.proc.imsg", id_DirectTransfer, new_create_dissector_handle(dissect_DirectTransfer_PDU, proto_rua));
-  dissector_add_uint("rua.proc.imsg", id_Disconnect, new_create_dissector_handle(dissect_Disconnect_PDU, proto_rua));
-  dissector_add_uint("rua.proc.imsg", id_ConnectionlessTransfer, new_create_dissector_handle(dissect_ConnectionlessTransfer_PDU, proto_rua));
-  dissector_add_uint("rua.proc.imsg", id_ErrorIndication, new_create_dissector_handle(dissect_ErrorIndication_PDU, proto_rua));
-  dissector_add_uint("rua.proc.imsg", id_privateMessage, new_create_dissector_handle(dissect_PrivateMessage_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_Cause, create_dissector_handle(dissect_Cause_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_CriticalityDiagnostics, create_dissector_handle(dissect_CriticalityDiagnostics_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_Context_ID, create_dissector_handle(dissect_Context_ID_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_RANAP_Message, create_dissector_handle(dissect_RANAP_Message_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_IntraDomainNasNodeSelector, create_dissector_handle(dissect_IntraDomainNasNodeSelector_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_Establishment_Cause, create_dissector_handle(dissect_Establishment_Cause_PDU, proto_rua));
+  dissector_add_uint("rua.ies", id_CN_DomainIndicator, create_dissector_handle(dissect_CN_DomainIndicator_PDU, proto_rua));
+  dissector_add_uint("rua.extension", id_CSGMembershipStatus, create_dissector_handle(dissect_CSGMembershipStatus_PDU, proto_rua));
+  dissector_add_uint("rua.proc.imsg", id_Connect, create_dissector_handle(dissect_Connect_PDU, proto_rua));
+  dissector_add_uint("rua.proc.imsg", id_DirectTransfer, create_dissector_handle(dissect_DirectTransfer_PDU, proto_rua));
+  dissector_add_uint("rua.proc.imsg", id_Disconnect, create_dissector_handle(dissect_Disconnect_PDU, proto_rua));
+  dissector_add_uint("rua.proc.imsg", id_ConnectionlessTransfer, create_dissector_handle(dissect_ConnectionlessTransfer_PDU, proto_rua));
+  dissector_add_uint("rua.proc.imsg", id_ErrorIndication, create_dissector_handle(dissect_ErrorIndication_PDU, proto_rua));
+  dissector_add_uint("rua.proc.imsg", id_privateMessage, create_dissector_handle(dissect_PrivateMessage_PDU, proto_rua));
 
 
 /*--- End of included file: packet-rua-dis-tab.c ---*/

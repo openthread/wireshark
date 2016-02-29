@@ -50,10 +50,10 @@
 #include "ui/gtk/gui_utils.h"
 #include "ui/gtk/font_utils.h"
 #include "ui/gtk/color_utils.h"
-
 #include "ui/gtk/old-gtk-compat.h"
-
-#include "ui/gtk/wsicon.h"
+#ifndef HAVE_GDK_GRESOURCE
+#include "ui/gtk/pixbuf-csource.h"
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -110,16 +110,23 @@ window_icon_realize_cb(GtkWidget *win,
 {
 #ifndef _WIN32
     GList     *ws_icon_list = NULL;
-    GdkPixbuf *icon;
+    GdkPixbuf *icon16, *icon32, *icon48, *icon64;
 
-    icon = gdk_pixbuf_new_from_inline(-1, wsicon_16_pb_data, FALSE, NULL);
-    ws_icon_list = g_list_append(ws_icon_list, icon);
-    icon = gdk_pixbuf_new_from_inline(-1, wsicon_32_pb_data, FALSE, NULL);
-    ws_icon_list = g_list_append(ws_icon_list, icon);
-    icon = gdk_pixbuf_new_from_inline(-1, wsicon_48_pb_data, FALSE, NULL);
-    ws_icon_list = g_list_append(ws_icon_list, icon);
-    icon = gdk_pixbuf_new_from_inline(-1, wsicon_64_pb_data, FALSE, NULL);
-    ws_icon_list = g_list_append(ws_icon_list, icon);
+#ifdef HAVE_GDK_GRESOURCE
+    icon16 = ws_gdk_pixbuf_new_from_resource("/org/wireshark/image/wsicon16.png");
+    icon32 = ws_gdk_pixbuf_new_from_resource("/org/wireshark/image/wsicon32.png");
+    icon48 = ws_gdk_pixbuf_new_from_resource("/org/wireshark/image/wsicon48.png");
+    icon64 = ws_gdk_pixbuf_new_from_resource("/org/wireshark/image/wsicon64.png");
+#else
+    icon16 = gdk_pixbuf_new_from_inline(-1, wsicon_16_pb_data, FALSE, NULL);
+    icon32 = gdk_pixbuf_new_from_inline(-1, wsicon_32_pb_data, FALSE, NULL);
+    icon48 = gdk_pixbuf_new_from_inline(-1, wsicon_48_pb_data, FALSE, NULL);
+    icon64 = gdk_pixbuf_new_from_inline(-1, wsicon_64_pb_data, FALSE, NULL);
+#endif
+    ws_icon_list = g_list_append(ws_icon_list, icon16);
+    ws_icon_list = g_list_append(ws_icon_list, icon32);
+    ws_icon_list = g_list_append(ws_icon_list, icon48);
+    ws_icon_list = g_list_append(ws_icon_list, icon64);
 
     gtk_window_set_icon_list(GTK_WINDOW(win), ws_icon_list);
 
@@ -515,13 +522,20 @@ xpm_to_widget(const char **xpm) {
     return _gtk_image_new_from_pixbuf_unref(pixbuf);
 }
 
-/* Convert an pixbuf data to a GtkWidget */
-/* Data should be created with "gdk-pixbuf-csource --raw" */
+/* Convert an pixbuf GResource to a GtkWidget */
 GtkWidget *
+#ifdef HAVE_GDK_GRESOURCE
+pixbuf_to_widget(const char *pb_path) {
+#else
 pixbuf_to_widget(const guint8 *pb_data) {
+#endif
     GdkPixbuf *pixbuf;
 
+#ifdef HAVE_GDK_GRESOURCE
+    pixbuf = ws_gdk_pixbuf_new_from_resource(pb_path);
+#else
     pixbuf = gdk_pixbuf_new_from_inline(-1, pb_data, FALSE, NULL);
+#endif
     return _gtk_image_new_from_pixbuf_unref(pixbuf);
 }
 
@@ -1079,7 +1093,7 @@ copy_binary_to_clipboard(const guint8 *data_p,
                          int           len)
 {
     static GtkTargetEntry target_entry[] = {
-        {(char *)"application/octet-stream", 0, 0}};
+        {"application/octet-stream", 0, 0}};
     /* XXX - this is not understood by most applications,
      * but can be pasted into the better hex editors - is
      * there something better that we can do?
@@ -1587,8 +1601,8 @@ GtkTreeIter
 ws_combo_box_append_text_and_pointer_full(GtkComboBox    *combo_box,
                                           GtkTreeIter    *parent_iter,
                                           const gchar    *text,
-                                          const gpointer  ptr,
-                                          const gboolean  sensitive)
+                                          gconstpointer   ptr,
+                                          gboolean        sensitive)
 {
     GtkTreeIter   iter;
     GtkTreeStore *store;
@@ -1615,7 +1629,7 @@ ws_combo_box_append_text_and_pointer_full(GtkComboBox    *combo_box,
 GtkTreeIter
 ws_combo_box_append_text_and_pointer(GtkComboBox    *combo_box,
                                      const gchar    *text,
-                                     const gpointer  ptr)
+                                     gconstpointer   ptr)
 {
     return ws_combo_box_append_text_and_pointer_full(combo_box, NULL, text, ptr, TRUE);
 }
@@ -2034,6 +2048,19 @@ gdk_cairo_set_source_rgba(cairo_t *cr, const GdkRGBA *rgba)
 
 }
 #endif /* GTK_CHECK_VERSION(3,0,0) */
+
+#ifdef HAVE_GDK_GRESOURCE
+GdkPixbuf *
+ws_gdk_pixbuf_new_from_resource(const char *path)
+{
+    GdkPixbuf   *pixbuf;
+    GError      *err = NULL;
+
+    pixbuf = gdk_pixbuf_new_from_resource(path, &err);
+    g_assert_no_error(err);
+    return pixbuf;
+}
+#endif /* HAVE_GDK_GRESOURCE */
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

@@ -48,10 +48,7 @@
 #include "packet-x509af.h"
 #include "packet-x509ce.h"
 #include "packet-ber.h"
-
-#ifdef HAVE_LIBGCRYPT
 #include <wsutil/wsgcrypt.h>
-#endif
 
 void proto_register_dvbci(void);
 void proto_reg_handoff_dvbci(void);
@@ -798,6 +795,15 @@ static const value_string dvbci_apdu_tag[] = {
     { T_SAS_CONNECT_RQST,              "SAS connect request" },
     { T_SAS_CONNECT_CNF,               "SAS connect confirm" },
     { T_SAS_ASYNC_MSG,                 "SAS async message" },
+    { 0, NULL }
+};
+
+WS_DLL_PUBLIC_DEF const value_string dvbci_event[] = {
+    { DVBCI_EVT_DATA_HOST_TO_CAM, "data transfer Host -> CAM" },
+    { DVBCI_EVT_DATA_CAM_TO_HOST, "data transfer CAM -> Host" },
+    { DVBCI_EVT_CIS_READ,         "read the Card Information Structure (CIS)" },
+    { DVBCI_EVT_COR_WRITE,        "write into the Configuration Option Register (COR)" },
+    { DVBCI_EVT_HW_EVT,           "hardware event" },
     { 0, NULL }
 };
 
@@ -1650,15 +1656,15 @@ dvbci_set_addrs(guint8 event, packet_info *pinfo)
         return -1;
 
     if (event == DVBCI_EVT_DATA_HOST_TO_CAM) {
-        SET_ADDRESS(&pinfo->src, AT_STRINGZ,
+        set_address(&pinfo->src, AT_STRINGZ,
                 (int)strlen(ADDR_HOST)+1, ADDR_HOST);
-        SET_ADDRESS(&pinfo->dst, AT_STRINGZ,
+        set_address(&pinfo->dst, AT_STRINGZ,
                 (int)strlen(ADDR_CAM)+1 , ADDR_CAM);
     }
     else {
-        SET_ADDRESS(&pinfo->src, AT_STRINGZ,
+        set_address(&pinfo->src, AT_STRINGZ,
                 (int)strlen(ADDR_CAM)+1 , ADDR_CAM);
-        SET_ADDRESS(&pinfo->dst, AT_STRINGZ,
+        set_address(&pinfo->dst, AT_STRINGZ,
                 (int)strlen(ADDR_HOST)+1, ADDR_HOST);
     }
 
@@ -1670,15 +1676,15 @@ guint8
 dvbci_get_evt_from_addrs(packet_info *pinfo)
 {
     /* this should be working from C89 on */
-    static const address a_cam  = { AT_STRINGZ, sizeof(ADDR_CAM), ADDR_CAM };
-    static const address a_host = { AT_STRINGZ, sizeof(ADDR_HOST), ADDR_HOST };
+    static const address a_cam  = ADDRESS_INIT(AT_STRINGZ, sizeof(ADDR_CAM), ADDR_CAM);
+    static const address a_host = ADDRESS_INIT(AT_STRINGZ, sizeof(ADDR_HOST), ADDR_HOST);
 
-    if ( ADDRESSES_EQUAL(&(pinfo->src), &a_cam) &&
-         ADDRESSES_EQUAL(&(pinfo->dst), &a_host) ) {
+    if ( addresses_equal(&(pinfo->src), &a_cam) &&
+         addresses_equal(&(pinfo->dst), &a_host) ) {
         return DVBCI_EVT_DATA_CAM_TO_HOST;
     }
-    else if ( ADDRESSES_EQUAL(&(pinfo->src), &a_host) &&
-              ADDRESSES_EQUAL(&(pinfo->dst), &a_cam) ) {
+    else if ( addresses_equal(&(pinfo->src), &a_host) &&
+              addresses_equal(&(pinfo->dst), &a_cam) ) {
         return DVBCI_EVT_DATA_HOST_TO_CAM;
     }
     else
@@ -4348,7 +4354,7 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 break;
             }
             col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Session opened");
-            circuit = circuit_new(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->fd->num);
+            circuit = circuit_new(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->num);
             if (circuit) {
                 /* we always add the resource id immediately after the circuit
                    was created */
@@ -4372,9 +4378,9 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             ssnb = tvb_get_ntohs(tvb, offset+1);
             proto_tree_add_item(sess_tree, hf_dvbci_sess_nb,
                     tvb, offset+1, 2, ENC_BIG_ENDIAN);
-            circuit = find_circuit(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->fd->num);
+            circuit = find_circuit(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->num);
             if (circuit)
-                close_circuit(circuit, pinfo->fd->num);
+                close_circuit(circuit, pinfo->num);
             break;
         case T_SESSION_NUMBER:
             ssnb = tvb_get_ntohs(tvb, offset);
@@ -4389,7 +4395,7 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 
     if (ssnb && !circuit)
-        circuit = find_circuit(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->fd->num);
+        circuit = find_circuit(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->num);
 
     /* if the packet contains no resource id, we add the cached id from
        the circuit so that each packet has a resource id that can be
@@ -6297,14 +6303,14 @@ proto_register_dvbci(void)
     for(i=0; i<array_length(spdu_info); i++) {
         g_hash_table_insert(spdu_table,
                             GUINT_TO_POINTER((guint)spdu_info[i].tag),
-                            (const gpointer)(&spdu_info[i]));
+                            (gpointer)(&spdu_info[i]));
     }
 
     apdu_table = g_hash_table_new(g_direct_hash, g_direct_equal);
     for(i=0; i<array_length(apdu_info); i++) {
         g_hash_table_insert(apdu_table,
                             GUINT_TO_POINTER((guint)apdu_info[i].tag),
-                            (const gpointer)(&apdu_info[i]));
+                            (gpointer)(&apdu_info[i]));
     }
 
     proto_dvbci = proto_register_protocol("DVB Common Interface", "DVB-CI", "dvb-ci");
@@ -6331,13 +6337,13 @@ proto_register_dvbci(void)
             &dvbci_dissect_lsc_msg);
 
     sas_msg_dissector_table = register_dissector_table("dvb-ci.sas.app_id_str",
-                "SAS application id", FT_STRING, STR_ASCII);
+                "SAS application id", FT_STRING, STR_ASCII, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     register_init_routine(dvbci_init);
     register_cleanup_routine(dvbci_cleanup);
 
     /* the dissector for decrypted CI+ SAC messages which we can export */
-    new_register_dissector(EXPORTED_SAC_MSG_PROTO,
+    register_dissector(EXPORTED_SAC_MSG_PROTO,
         dissect_dvbci_exported_sac_msg, proto_dvbci);
 
     exported_pdu_tap = register_export_pdu_tap("DVB-CI");
@@ -6349,7 +6355,7 @@ proto_reg_handoff_dvbci(void)
 {
     dissector_handle_t dvbci_handle;
 
-    dvbci_handle = new_create_dissector_handle(dissect_dvbci, proto_dvbci);
+    dvbci_handle = create_dissector_handle(dissect_dvbci, proto_dvbci);
     dissector_add_uint("wtap_encap", WTAP_ENCAP_DVBCI, dvbci_handle);
 
     data_handle = find_dissector("data");

@@ -542,7 +542,7 @@ decode_iei_ip_address(nsip_ie_t *ie, build_info_t *bi, int ie_start_offset) {
     tvb_get_ipv6(bi->tvb, bi->offset+1, &ip6_addr);
     proto_tree_add_ipv6(bi->nsip_tree, hf_nsip_ip_address_ipv4,
         bi->tvb, ie_start_offset, ie->total_length,
-        (guint8 *)&ip6_addr);
+        &ip6_addr);
     break;
   default:
     return; /* error */
@@ -919,8 +919,8 @@ decode_pdu(guint8 pdu_type, build_info_t *bi) {
   }
 }
 
-static void
-dissect_nsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_nsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   guint8 pdu_type;
   build_info_t bi = { NULL, 0, NULL, NULL, NULL, NULL };
   proto_tree *nsip_tree;
@@ -928,8 +928,6 @@ dissect_nsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
   bi.tvb = tvb;
   bi.pinfo = pinfo;
   bi.parent_tree = tree;
-
-  pinfo->current_proto = "GPRS-NS";
 
   if (!nsip_is_recursive) {
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "GPRS-NS");
@@ -957,6 +955,7 @@ dissect_nsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
                 val_to_str_const(pdu_type, tab_nsip_pdu_types, "Unknown PDU type"));
   }
   decode_pdu(pdu_type, &bi);
+  return tvb_captured_length(tvb);
 }
 
 void

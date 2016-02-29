@@ -105,8 +105,8 @@ static const value_string names_tsp_type[] = {
 };
 
 
-static void
-dissect_tsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*tsp_tree;
 	proto_item	*tsp_item;
@@ -158,6 +158,7 @@ dissect_tsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		proto_tree_add_item(tsp_tree, hf_tsp_name, tvb, 12,
 			-1, ENC_ASCII|ENC_NA);
 	}
+	return tvb_captured_length(tvb);
 }
 
 

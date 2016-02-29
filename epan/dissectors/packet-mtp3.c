@@ -610,11 +610,11 @@ dissect_mtp3_routing_label(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mtp3_t
 
   mtp3_addr_opc->type = (Standard_Type)mtp3_standard;
   mtp3_addr_opc->pc = opc;
-  SET_ADDRESS(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr_opc);
+  set_address(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr_opc);
 
   mtp3_addr_dpc->type = (Standard_Type)mtp3_standard;
   mtp3_addr_dpc->pc = dpc;
-  SET_ADDRESS(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr_dpc);
+  set_address(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr_dpc);
 }
 
 static void
@@ -657,19 +657,19 @@ heur_mtp3_standard(tvbuff_t *tvb, packet_info *pinfo, guint8 si)
     case MTP_SI_SCCP:
     {
       payload = tvb_new_subset_remaining(tvb, ITU_HEADER_LENGTH);
-      if (looks_like_valid_sccp(PINFO_FD_NUM(pinfo), payload, ITU_STANDARD)) {
+      if (looks_like_valid_sccp(pinfo->num, payload, ITU_STANDARD)) {
         return ITU_STANDARD;
       }
       payload = tvb_new_subset_remaining(tvb, ANSI_HEADER_LENGTH);
-      if (looks_like_valid_sccp(PINFO_FD_NUM(pinfo), payload, ANSI_STANDARD)) {
+      if (looks_like_valid_sccp(pinfo->num, payload, ANSI_STANDARD)) {
         return ANSI_STANDARD;
       }
       payload = tvb_new_subset_remaining(tvb, ANSI_HEADER_LENGTH);
-      if (looks_like_valid_sccp(PINFO_FD_NUM(pinfo), payload, CHINESE_ITU_STANDARD)) {
+      if (looks_like_valid_sccp(pinfo->num, payload, CHINESE_ITU_STANDARD)) {
         return CHINESE_ITU_STANDARD;
       }
       payload = tvb_new_subset_remaining(tvb, JAPAN_HEADER_LENGTH);
-      if (looks_like_valid_sccp(PINFO_FD_NUM(pinfo), payload, JAPAN_STANDARD)) {
+      if (looks_like_valid_sccp(pinfo->num, payload, JAPAN_STANDARD)) {
         return JAPAN_STANDARD;
       }
 
@@ -689,8 +689,8 @@ reset_mtp3_standard(void)
 }
 
 /* Code to actually dissect the packets */
-static void
-dissect_mtp3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mtp3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   mtp3_tap_rec_t* tap_rec = wmem_new0(wmem_packet_scope(), mtp3_tap_rec_t);
   gint heuristic_standard;
@@ -767,6 +767,7 @@ dissect_mtp3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   dissect_mtp3_payload(tvb, pinfo, tree);
 
   mtp3_standard = pref_mtp3_standard;
+  return tvb_captured_length(tvb);
 }
 
 /* TAP STAT INFO */
@@ -790,10 +791,10 @@ static stat_tap_table_item mtp3_stat_fields[] = {
   {TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Avg Bytes", "%f"},
 };
 
-static void mtp3_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void mtp3_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
   int num_fields = sizeof(mtp3_stat_fields)/sizeof(stat_tap_table_item);
-  new_stat_tap_table* table;
+  stat_tap_table* table;
 
   table = new_stat_tap_init_table("MTP3 Statistics", num_fields, 0, NULL, gui_callback, gui_data);
   new_stat_tap_add_table(new_stat, table);
@@ -806,7 +807,7 @@ mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
   const mtp3_tap_rec_t  *m3tr = (const mtp3_tap_rec_t *)m3tr_ptr;
   gboolean found = FALSE;
   guint element;
-  new_stat_tap_table* table;
+  stat_tap_table* table;
   stat_tap_table_item_type* item_data;
   guint msu_count;
   guint byte_count;
@@ -824,7 +825,7 @@ mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
   /*
    * look for opc/dpc pair
    */
-  table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, 0);
+  table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, 0);
   for (element = 0; element < table->num_elements; element++)
   {
     stat_tap_table_item_type *opc_data, *dpc_data, *si_data;
@@ -911,7 +912,7 @@ mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
 }
 
 static void
-mtp3_stat_reset(new_stat_tap_table* table)
+mtp3_stat_reset(stat_tap_table* table)
 {
   guint element;
   stat_tap_table_item_type* item_data;
@@ -929,7 +930,7 @@ mtp3_stat_reset(new_stat_tap_table* table)
 }
 
 static void
-mtp3_stat_free_table_item(new_stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
+mtp3_stat_free_table_item(stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
 {
   switch(column) {
     case OPC_COLUMN:
@@ -1030,7 +1031,7 @@ proto_register_mtp3(void)
     { PARAM_FILTER, "filter", "Filter", NULL, TRUE }
   };
 
-  static new_stat_tap_ui mtp3_stat_table = {
+  static stat_tap_table_ui mtp3_stat_table = {
     REGISTER_STAT_GROUP_TELEPHONY_MTP3,
     "MTP3 Statistics",
     "mtp3",
@@ -1056,7 +1057,7 @@ proto_register_mtp3(void)
 
   mtp3_sio_dissector_table = register_dissector_table("mtp3.service_indicator",
                   "MTP3 Service indicator",
-                  FT_UINT8, BASE_HEX);
+                  FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   mtp3_tap = register_tap("mtp3");
 
@@ -1098,7 +1099,7 @@ proto_register_mtp3(void)
          "Decode the spare bits of the SIO as the MSU priority (a national option in ITU)",
          &mtp3_show_itu_priority);
 
-  register_new_stat_tap_ui(&mtp3_stat_table);
+  register_stat_tap_table_ui(&mtp3_stat_table);
 }
 
 void

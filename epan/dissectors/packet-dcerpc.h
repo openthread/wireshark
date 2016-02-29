@@ -302,7 +302,7 @@ int dissect_ndr_uint3264 (tvbuff_t *tvb, gint offset, packet_info *pinfo,
 		        int hfindex, guint3264 *pdata);
 
 typedef int (dcerpc_dissect_fnct_t)(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, dcerpc_info *di, guint8 *drep);
-typedef int (dcerpc_dissect_fnct_blk_t)(tvbuff_t *tvb, int offset, int length, packet_info *pinfo, proto_tree *tree, guint8 *drep);
+typedef int (dcerpc_dissect_fnct_blk_t)(tvbuff_t *tvb, int offset, int length, packet_info *pinfo, proto_tree *tree, dcerpc_info *di, guint8 *drep);
 
 typedef void (dcerpc_callback_fnct_t)(packet_info *pinfo, proto_tree *tree, proto_item *item, dcerpc_info *di, tvbuff_t *tvb, int start_offset, int end_offset, void *callback_args);
 
@@ -334,6 +334,10 @@ int dissect_ndr_toplevel_pointer(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 int dissect_ndr_ucarray(tvbuff_t *tvb, gint offset, packet_info *pinfo,
                         proto_tree *tree, dcerpc_info *di, guint8 *drep,
                         dcerpc_dissect_fnct_t *fnct);
+
+int dissect_ndr_ucarray_block(tvbuff_t *tvb, gint offset, packet_info *pinfo,
+                              proto_tree *tree, dcerpc_info *di, guint8 *drep,
+                              dcerpc_dissect_fnct_blk_t *fnct);
 
 /* dissect a NDR unidimensional conformant and varying array
  * each byte in the array is processed separately
@@ -407,15 +411,10 @@ WS_DLL_PUBLIC void decode_dcerpc_add_show_list(decode_add_show_list_func func, g
 /* the registered subdissectors. With MSVC and a
  * libwireshark.dll, we need a special declaration.
  */
-/* Key: dcerpc_uuid_key *
+/* Key: guid_key *
  * Value: dcerpc_uuid_value *
  */
 WS_DLL_PUBLIC GHashTable *dcerpc_uuids;
-
-typedef struct _dcerpc_uuid_key {
-    e_guid_t uuid;
-    guint16 ver;
-} dcerpc_uuid_key;
 
 typedef struct _dcerpc_uuid_value {
     protocol_t *proto;

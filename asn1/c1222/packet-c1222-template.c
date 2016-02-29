@@ -79,12 +79,6 @@ static dissector_handle_t c1222_udp_handle=NULL;
 
 /* Initialize the protocol and registered fields */
 static int proto_c1222 = -1;
-static int global_c1222_port = C1222_PORT;
-static gboolean c1222_desegment = TRUE;
-static gboolean c1222_decrypt = TRUE;
-static const gchar *c1222_baseoid_str = NULL;
-static guint8 *c1222_baseoid = NULL;
-static guint c1222_baseoid_len = 0;
 
 #include "packet-c1222-hf.c"
 /* These are the EPSEM pieces */
@@ -195,16 +189,20 @@ static expert_field ei_c1222_epsem_ber_length_error = EI_INIT;
 static expert_field ei_c1222_epsem_field_length_error = EI_INIT;
 static expert_field ei_c1222_mac_missing = EI_INIT;
 
+/* Preferences */
+static int global_c1222_port = C1222_PORT;
+static gboolean c1222_desegment = TRUE;
+#ifdef HAVE_LIBGCRYPT
+static gboolean c1222_decrypt = TRUE;
+#endif
+static const gchar *c1222_baseoid_str = NULL;
+static guint8 *c1222_baseoid = NULL;
+static guint c1222_baseoid_len = 0;
+
 /*------------------------------
  * Data Structures
  *------------------------------
  */
-typedef struct _c1222_uat_data {
-  guint keynum;
-  guchar *key;
-  guint  keylen;
-} c1222_uat_data_t;
-
 static const value_string c1222_security_modes[] = {
   { 0x00, "Cleartext"},
   { 0x01, "Cleartext with authentication"},
@@ -287,6 +285,12 @@ static const value_string commandnames[] = {
 
 #ifdef HAVE_LIBGCRYPT
 /* these are for the key tables */
+typedef struct _c1222_uat_data {
+  guint keynum;
+  guchar *key;
+  guint  keylen;
+} c1222_uat_data_t;
+
 UAT_HEX_CB_DEF(c1222_users, keynum, c1222_uat_data_t)
 UAT_BUFFER_CB_DEF(c1222_users, key, c1222_uat_data_t, key, keylen)
 
@@ -855,19 +859,13 @@ decrypt_packet(guchar *buffer, guint32 length, gboolean decrypt)
   }
   return status;
 }
-#else /* HAVE_LIBCRYPT */
-static gboolean
-decrypt_packet(guchar *buffer _U_, guint32 length _U_, gboolean decrypt _U_)
-{
-  return FALSE;
-}
 #endif /* HAVE_LIBGCRYPT */
 
 /**
  * Checks to make sure that a complete, valid BER-encoded length is in the buffer.
  *
  * \param tvb contains the buffer to be examined
- * \param offset is the offset within the buffer at which the BER-encded length begins
+ * \param offset is the offset within the buffer at which the BER-encoded length begins
  * \returns TRUE if a complete, valid BER-encoded length is in the buffer; otherwise FALSE
  */
 static gboolean
@@ -925,7 +923,9 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
   gint len2;
   int cmd_err;
   gboolean ind;
+#ifdef HAVE_LIBGCRYPT
   guchar *buffer;
+#endif
   tvbuff_t *epsem_buffer = NULL;
   gboolean crypto_good = FALSE;
   gboolean crypto_bad = FALSE;
@@ -948,6 +948,7 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
       if (len2 <= 0)
         return offset;
       encrypted = TRUE;
+#ifdef HAVE_LIBGCRYPT
       if (c1222_decrypt) {
         buffer = (guchar *)tvb_memdup(wmem_packet_scope(), tvb, offset, len2);
         if (!decrypt_packet(buffer, len2, TRUE)) {
@@ -960,6 +961,7 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
           encrypted = FALSE;
         }
       }
+#endif
       break;
     case EAX_MODE_CLEARTEXT_AUTH:
       /* mode is cleartext with authentication */
@@ -967,20 +969,20 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
       len2 = tvb_reported_length_remaining(tvb, offset);
       if (len2 <= 0)
         return offset;
-      buffer = (guchar *)tvb_memdup(wmem_packet_scope(), tvb, offset, len2);
       epsem_buffer = tvb_new_subset_remaining(tvb, offset);
+#ifdef HAVE_LIBGCRYPT
+      buffer = (guchar *)tvb_memdup(wmem_packet_scope(), tvb, offset, len2);
       if (c1222_decrypt) {
         if (!decrypt_packet(buffer, len2, FALSE)) {
-#ifdef HAVE_LIBGCRYPT
           crypto_bad = TRUE;
           expert_add_info(pinfo, tree, &ei_c1222_epsem_failed_authentication);
-#else /* HAVE_LIBGCRYPT */
-          expert_add_info(pinfo, tree, &ei_c1222_epsem_not_authenticated);
-#endif /* HAVE_LIBGCRYPT */
         } else {
           crypto_good = TRUE;
         }
       }
+#else /* HAVE_LIBGCRYPT */
+      expert_add_info(pinfo, tree, &ei_c1222_epsem_not_authenticated);
+#endif /* HAVE_LIBGCRYPT */
       break;
     default:
       /* it's not encrypted */
@@ -1416,8 +1418,8 @@ proto_reg_handoff_c1222(void)
   guint8 *temp = NULL;
 
   if( !initialized ) {
-    c1222_handle = new_create_dissector_handle(dissect_c1222, proto_c1222);
-    c1222_udp_handle = new_create_dissector_handle(dissect_c1222_common, proto_c1222);
+    c1222_handle = create_dissector_handle(dissect_c1222, proto_c1222);
+    c1222_udp_handle = create_dissector_handle(dissect_c1222_common, proto_c1222);
     dissector_add_uint("tcp.port", global_c1222_port, c1222_handle);
     dissector_add_uint("udp.port", global_c1222_port, c1222_udp_handle);
     initialized = TRUE;

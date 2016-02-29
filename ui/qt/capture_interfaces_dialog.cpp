@@ -33,9 +33,10 @@
 
 #ifdef HAVE_LIBPCAP
 
-#include <QTimer>
+#include <QAbstractItemModel>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QTimer>
 
 #include "ringbuffer.h"
 #include "ui/capture_ui_utils.h"
@@ -60,8 +61,9 @@
 // To do:
 // - Set a size hint for item delegates.
 // - Make promiscuous a checkbox.
-// - Allow sorting by the traffic column? We'd have to subclass QTreeWidgetItem
-//   (see ConversationTreeWidget).
+// - Fix InterfaceTreeDelegate method names.
+// - You can edit filters via the main CaptureFilterCombo and via each
+//   individual interface row. We should probably do one or the other.
 
 const int stat_update_interval_ = 1000; // ms
 
@@ -107,25 +109,29 @@ class InterfaceTreeWidgetItem : public QTreeWidgetItem
 public:
     InterfaceTreeWidgetItem(QTreeWidget *tree) : QTreeWidgetItem(tree)  {}
     bool operator< (const QTreeWidgetItem &other) const;
+    QList<int> points;
 };
 
 CaptureInterfacesDialog::CaptureInterfacesDialog(QWidget *parent) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     ui(new Ui::CaptureInterfacesDialog)
 {
     ui->setupUi(this);
+    loadGeometry();
     setWindowTitle(wsApp->windowTitleString(tr("Capture Interfaces")));
 
     stat_timer_ = NULL;
     stat_cache_ = NULL;
 
     // XXX - Enable / disable as needed
-    start_bt_ = ui->buttonBox->addButton(tr("Start"), QDialogButtonBox::YesRole);
+    start_bt_ = ui->buttonBox->addButton(tr("Start"), QDialogButtonBox::AcceptRole);
 
     start_bt_->setEnabled((global_capture_opts.num_selected > 0)? true: false);
     connect(start_bt_, SIGNAL(clicked(bool)), this, SLOT(start_button_clicked()));
 
-    ui->interfaceTree->sortByColumn(col_interface_, Qt::AscendingOrder);
+    // Start out with the list *not* sorted, so they show up in the order
+    // in which they were provided
+    ui->interfaceTree->sortByColumn(-1, Qt::AscendingOrder);
     ui->interfaceTree->setItemDelegateForColumn(col_interface_, &interface_item_delegate_);
     ui->interfaceTree->setItemDelegateForColumn(col_traffic_, new SparkLineDelegate());
     ui->interfaceTree->setItemDelegateForColumn(col_link_, &interface_item_delegate_);
@@ -144,50 +150,57 @@ CaptureInterfacesDialog::CaptureInterfacesDialog(QWidget *parent) :
     ui->interfaceTree->setItemDelegateForColumn(col_filter_, &interface_item_delegate_);
 
     interface_item_delegate_.setTree(ui->interfaceTree);
-    ui->interfaceTree->setColumnWidth(col_link_, 100);
 
-    connect(ui->interfaceTree,SIGNAL(itemClicked(QTreeWidgetItem*,int)),this,SLOT(interfaceClicked(QTreeWidgetItem*,int)));
-    connect(ui->interfaceTree, SIGNAL(itemSelectionChanged()), this, SLOT(interfaceSelected()));
-    connect(ui->allFilterComboBox, SIGNAL(captureFilterSyntaxChanged(bool)), this, SLOT(allFilterChanged()));
-    connect(this, SIGNAL(interfacesChanged()), ui->allFilterComboBox, SIGNAL(interfacesChanged()));
+#if QT_VERSION >= QT_VERSION_CHECK(4, 7, 0)
+    ui->filenameLineEdit->setPlaceholderText(tr("Leave blank to use a temporary file"));
+#endif
+
+    // Changes in interface selections or capture filters should be propagated
+    // to the main welcome screen where they will be applied to the global
+    // capture options.
+    connect(this, SIGNAL(interfacesChanged()), ui->captureFilterComboBox, SIGNAL(interfacesChanged()));
+    connect(ui->captureFilterComboBox, SIGNAL(captureFilterSyntaxChanged(bool)), this, SLOT(updateWidgets()));
+    connect(ui->captureFilterComboBox->lineEdit(), SIGNAL(textEdited(QString)),
+            this, SLOT(filterEdited()));
+    connect(ui->captureFilterComboBox->lineEdit(), SIGNAL(textEdited(QString)),
+            this, SIGNAL(captureFilterTextEdited(QString)));
+    connect(&interface_item_delegate_, SIGNAL(filterChanged(QString)),
+            ui->captureFilterComboBox->lineEdit(), SLOT(setText(QString)));
+    connect(&interface_item_delegate_, SIGNAL(filterChanged(QString)),
+            this, SIGNAL(captureFilterTextEdited(QString)));
     connect(this, SIGNAL(ifsChanged()), this, SLOT(refreshInterfaceList()));
     connect(wsApp, SIGNAL(localInterfaceListChanged()), this, SLOT(updateLocalInterfaces()));
     connect(ui->browseButton, SIGNAL(clicked()), this, SLOT(browseButtonClicked()));
 }
 
-void CaptureInterfacesDialog::allFilterChanged()
+void CaptureInterfacesDialog::interfaceSelected()
 {
-    foreach (QTreeWidgetItem *ti, ui->interfaceTree->selectedItems()) {
-        QString str = ui->allFilterComboBox->currentText();
-        ti->setText(col_filter_, str);
-    }
+    InterfaceTree::updateGlobalDeviceSelections(ui->interfaceTree, col_interface_);
+
+    start_bt_->setEnabled((global_capture_opts.num_selected > 0) ? true: false);
+
+    emit interfacesChanged();
+
+    updateSelectedFilter();
+
     updateWidgets();
 }
 
-void CaptureInterfacesDialog::interfaceSelected()
+void CaptureInterfacesDialog::filterEdited()
 {
-    interface_t *device;
+    QList<QTreeWidgetItem*> si = ui->interfaceTree->selectedItems();
 
-    if (!ui->interfaceTree->selectedItems().size()) {
-        for (guint i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-            device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-            device->selected = false;
-            device->locked = true;
-        }
-        global_capture_opts.num_selected = 0;
-        start_bt_->setEnabled(false);
-        emit setSelectedInterfaces();
-        for (guint i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-            device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-            device->locked = false;
-        }
+    foreach (QTreeWidgetItem *ti, si) {
+        ti->setText(col_filter_, ui->captureFilterComboBox->lineEdit()->text());
     }
-    updateWidgets();
+
+    QModelIndex col_filter_idx = ui->interfaceTree->model()->index(ui->interfaceTree->indexOfTopLevelItem(si[0]), col_filter_);
+    ui->interfaceTree->scrollTo(col_filter_idx);
 }
 
 void CaptureInterfacesDialog::updateWidgets()
 {
-    SyntaxLineEdit *sle = qobject_cast<SyntaxLineEdit *>(ui->allFilterComboBox->lineEdit());
+    SyntaxLineEdit *sle = qobject_cast<SyntaxLineEdit *>(ui->captureFilterComboBox->lineEdit());
     if (!sle) {
         return;
     }
@@ -200,41 +213,6 @@ void CaptureInterfacesDialog::updateWidgets()
 
     ui->compileBPF->setEnabled(can_capture);
     start_bt_->setEnabled(can_capture);
-}
-
-void CaptureInterfacesDialog::interfaceClicked(QTreeWidgetItem *, int)
-{
-    guint i;
-    QString filter = ui->allFilterComboBox->currentText();
-
-    global_capture_opts.num_selected = 0;
-    for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-        interface_t *device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-        device->selected = FALSE;
-    }
-
-    foreach (QTreeWidgetItem *ti, ui->interfaceTree->selectedItems())
-    {
-        QString interface_name = ti->text(col_interface_);
-
-        for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-            interface_t *device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-            if (interface_name.compare(device->display_name)) {
-                continue;
-            } else {
-                device->selected = TRUE;
-                global_capture_opts.num_selected++;
-                break;
-            }
-        }
-
-        start_bt_->setEnabled((global_capture_opts.num_selected > 0) ? true: false);
-
-        if (filter.compare(QString(""))) {
-            emit interfacesChanged();
-        }
-        emit setSelectedInterfaces();
-    }
 }
 
 CaptureInterfacesDialog::~CaptureInterfacesDialog()
@@ -252,10 +230,12 @@ void CaptureInterfacesDialog::on_capturePromModeCheckBox_toggled(bool checked)
     interface_t *device;
     prefs.capture_prom_mode = checked;
     for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-        device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
+        QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+        QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+        device = getDeviceByName(device_name);
+        if (!device) continue;
 //        QString device_name = ui->interfaceTree->topLevelItem(row)->text(col_interface_);
         device->pmode = checked;
-        QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
         ti->setText(col_pmode_, checked? tr("enabled"):tr("disabled"));
     }
 }
@@ -276,7 +256,7 @@ void CaptureInterfacesDialog::browseButtonClicked()
         break;
     }
     QString file_name = QFileDialog::getSaveFileName(this, tr("Specify a Capture File"), open_dir);
-    ui->lineEdit->setText(file_name);
+    ui->filenameLineEdit->setText(file_name);
 }
 
 void CaptureInterfacesDialog::on_gbStopCaptureAuto_toggled(bool checked)
@@ -324,10 +304,8 @@ void CaptureInterfacesDialog::on_cbResolveTransportNames_toggled(bool checked)
 
 void CaptureInterfacesDialog::start_button_clicked()
 {
-    qDebug("Starting capture");
-
     if (saveOptionsToPreferences()) {
-        emit setFilterValid(true);
+        emit setFilterValid(true, ui->captureFilterComboBox->lineEdit()->text());
         accept();
     }
 }
@@ -356,12 +334,12 @@ void CaptureInterfacesDialog::updateInterfaces()
     ui->capturePromModeCheckBox->setChecked(prefs.capture_prom_mode);
 
     if (global_capture_opts.saving_to_file) {
-        ui->lineEdit->setText(QString(global_capture_opts.orig_save_file));
+        ui->filenameLineEdit->setText(QString(global_capture_opts.orig_save_file));
     }
 
     ui->gbNewFileAuto->setChecked(global_capture_opts.multi_files_on);
-    ui->MBRadioButton->setChecked(global_capture_opts.has_autostop_filesize);
-    ui->SecsRadioButton->setChecked(global_capture_opts.has_file_duration);
+    ui->MBCheckBox->setChecked(global_capture_opts.has_autostop_filesize);
+    ui->SecsCheckBox->setChecked(global_capture_opts.has_file_duration);
     if (global_capture_opts.has_autostop_filesize) {
         int value = global_capture_opts.autostop_filesize;
         if (value > 1000000) {
@@ -445,6 +423,8 @@ void CaptureInterfacesDialog::updateInterfaces()
     ui->cbResolveNetworkNames->setChecked(gbl_resolv_flags.network_name);
     ui->cbResolveTransportNames->setChecked(gbl_resolv_flags.transport_name);
 
+    // Rebuild the interface list without disturbing the main welcome screen.
+    disconnect(ui->interfaceTree, SIGNAL(itemSelectionChanged()), this, SLOT(interfaceSelected()));
     ui->interfaceTree->clear();
 
     GList        *list;
@@ -454,26 +434,24 @@ void CaptureInterfacesDialog::updateInterfaces()
 #endif
     gint          snaplen;
     gboolean      hassnap, pmode;
+    QList<QTreeWidgetItem *> selected_interfaces;
 
     if (global_capture_opts.all_ifaces->len > 0) {
         interface_t *device;
 
-        for (guint i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-            QList<int> *points;
-
-            device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
+        for (guint device_idx = 0; device_idx < global_capture_opts.all_ifaces->len; device_idx++) {
+            device = &g_array_index(global_capture_opts.all_ifaces, interface_t, device_idx);
 
             /* Continue if capture device is hidden */
             if (device->hidden) {
                 continue;
             }
-            deviceMap[ui->interfaceTree->topLevelItemCount()] = i;
 
             // Traffic sparklines
-            points = new QList<int>();
             InterfaceTreeWidgetItem *ti = new InterfaceTreeWidgetItem(ui->interfaceTree);
             ti->setFlags(ti->flags() | Qt::ItemIsEditable);
-            ti->setData(col_traffic_, Qt::UserRole, qVariantFromValue(points));
+            ti->setData(col_interface_, Qt::UserRole, QString(device->name));
+            ti->setData(col_traffic_, Qt::UserRole, qVariantFromValue(&ti->points));
 
             ti->setText(col_interface_, device->display_name);
             if (device->no_addresses > 0) {
@@ -514,8 +492,6 @@ void CaptureInterfacesDialog::updateInterfaces()
                 device->has_snaplen = FALSE;
             }
 
-            QString snaplen_string = device->has_snaplen ? QString::number(device->snaplen) : tr("default");
-
 #ifdef SHOW_BUFFER_COLUMN
             if (capture_dev_user_buffersize_find(device->name) != -1) {
                 buffer = capture_dev_user_buffersize_find(device->name);
@@ -527,31 +503,65 @@ void CaptureInterfacesDialog::updateInterfaces()
 
             ti->setText(col_link_, linkname);
 
-            ti->setText(col_pmode_, device->pmode ? tr("enabled") : tr("disabled"));
-
-            ti->setText(col_snaplen_, snaplen_string);
+#ifdef HAVE_EXTCAP
+            if (device->if_info.type == IF_EXTCAP) {
+                /* extcap interfaces does not have this settings */
+                ti->setText(col_pmode_, tr("n/a"));
+                ti->setText(col_snaplen_, tr("n/a"));
 #ifdef SHOW_BUFFER_COLUMN
-            ti->setText(col_buffer_, QString::number(device->buffer));
+                ti->setText(col_buffer_, tr("n/a"));
 #endif
 #ifdef SHOW_MONITOR_COLUMN
-            ti->setText(col_monitor_, QString(device->monitor_mode_supported? (device->monitor_mode_enabled ? tr("enabled") : tr("disabled")) : tr("n/a")));
+                ti->setText(col_monitor_, tr("n/a"));
 #endif
-            gchar* prefFilter = capture_dev_user_cfilter_find(device->name);
-            if (prefFilter) {
-                device->cfilter = prefFilter;
+            } else {
+#endif
+                QString snaplen_string = device->has_snaplen ? QString::number(device->snaplen) : tr("default");
+                ti->setText(col_pmode_, device->pmode ? tr("enabled") : tr("disabled"));
+                ti->setText(col_snaplen_, snaplen_string);
+#ifdef SHOW_BUFFER_COLUMN
+                ti->setText(col_buffer_, QString::number(device->buffer));
+#endif
+#ifdef SHOW_MONITOR_COLUMN
+                ti->setText(col_monitor_, QString(device->monitor_mode_supported? (device->monitor_mode_enabled ? tr("enabled") : tr("disabled")) : tr("n/a")));
+#endif
+#ifdef HAVE_EXTCAP
             }
+#endif
             ti->setText(col_filter_, device->cfilter);
 
-            if (prefs.capture_device && strstr(prefs.capture_device, device->name) != NULL) {
-                device->selected = TRUE;
-                global_capture_opts.num_selected++;
+            if (device->selected) {
+                selected_interfaces << ti;
             }
-            ti->setSelected(device->selected);
         }
     }
 
-    for (int i = 0; i < ui->interfaceTree->topLevelItemCount(); i++) {
-        ui->interfaceTree->resizeColumnToContents(i);
+    foreach (QTreeWidgetItem *ti, selected_interfaces) {
+        ti->setSelected(true);
+    }
+    connect(ui->interfaceTree, SIGNAL(itemSelectionChanged()), this, SLOT(interfaceSelected()));
+    updateSelectedFilter();
+
+    // Manually or automatically size some columns as needed.
+    int one_em = fontMetrics().height();
+    for (int col = 0; col < ui->interfaceTree->topLevelItemCount(); col++) {
+        switch (col) {
+        case col_pmode_:
+            ui->interfaceTree->setColumnWidth(col, one_em * 6);
+            break;
+        case col_snaplen_:
+            ui->interfaceTree->setColumnWidth(col, one_em * 4.25);
+            break;
+        case col_buffer_:
+            ui->interfaceTree->setColumnWidth(col, one_em * 4.25);
+            break;
+        case col_monitor_:
+            ui->interfaceTree->setColumnWidth(col, one_em * 5.25);
+            break;
+        default:
+            ui->interfaceTree->resizeColumnToContents(col);
+        }
+
     }
 
     start_bt_->setEnabled((global_capture_opts.num_selected > 0)? true: false);
@@ -562,6 +572,11 @@ void CaptureInterfacesDialog::updateInterfaces()
         connect(stat_timer_, SIGNAL(timeout()), this, SLOT(updateStatistics()));
         stat_timer_->start(stat_update_interval_);
     }
+}
+
+void CaptureInterfacesDialog::showEvent(QShowEvent *)
+{
+    updateInterfaces();
 }
 
 void CaptureInterfacesDialog::refreshInterfaceList()
@@ -606,7 +621,7 @@ void CaptureInterfacesDialog::on_compileBPF_clicked()
         interfaces.append(ti->text(col_interface_));
     }
 
-    QString filter = ui->allFilterComboBox->currentText();
+    QString filter = ui->captureFilterComboBox->currentText();
     CompiledFilterOutput *cfo = new CompiledFilterOutput(this, interfaces, filter);
 
     cfo->show();
@@ -614,8 +629,6 @@ void CaptureInterfacesDialog::on_compileBPF_clicked()
 
 bool CaptureInterfacesDialog::saveOptionsToPreferences()
 {
-    interface_t *device;
-
     if (ui->rbPcapng->isChecked()) {
         global_capture_opts.use_pcapng = true;
         prefs.capture_pcap_ng = true;
@@ -624,7 +637,7 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
         prefs.capture_pcap_ng = false;
     }
 
-    QString filename = ui->lineEdit->text();
+    QString filename = ui->filenameLineEdit->text();
     if (filename.length() > 0) {
         /* User specified a file to which the capture should be written. */
         global_capture_opts.saving_to_file = true;
@@ -650,7 +663,7 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
     }
     global_capture_opts.multi_files_on = ui->gbNewFileAuto->isChecked();
     if (global_capture_opts.multi_files_on) {
-        global_capture_opts.has_file_duration = ui->SecsRadioButton->isChecked();
+        global_capture_opts.has_file_duration = ui->SecsCheckBox->isChecked();
         if (global_capture_opts.has_file_duration) {
             global_capture_opts.file_duration = ui->SecsSpinBox->value();
             int index = ui->SecsComboBox->currentIndex();
@@ -661,7 +674,7 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
                 break;
             }
          }
-         global_capture_opts.has_autostop_filesize = ui->MBRadioButton->isChecked();
+         global_capture_opts.has_autostop_filesize = ui->MBCheckBox->isChecked();
          if (global_capture_opts.has_autostop_filesize) {
              global_capture_opts.autostop_filesize = ui->MBSpinBox->value();
              int index = ui->MBComboBox->currentIndex();
@@ -744,7 +757,9 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
         global_capture_opts.autostop_files = ui->stopFilesSpinBox->value();
     }
 
-    for (int col = col_link_; col <= col_filter_; col++){
+    interface_t *device;
+
+    for (int col = col_link_; col <= col_filter_; col++) {
         if (ui->interfaceTree->isColumnHidden(col)) {
             continue;
         }
@@ -756,8 +771,10 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
             QStringList link_list;
 
             for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-                device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
-                if (device->active_dlt == -1) {
+                QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+                QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+                device = getDeviceByName(device_name);
+                if (!device || device->active_dlt == -1) {
                     continue;
                 }
                 link_list << QString("%1(%2)").arg(device->name).arg(device->active_dlt);
@@ -772,8 +789,10 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
             QStringList buffer_size_list;
 
             for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-                device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
-                if (device->buffer == -1) {
+                QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+                QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+                device = getDeviceByName(device_name);
+                if (!device || device->buffer == -1) {
                     continue;
                 }
                 buffer_size_list << QString("%1(%2)").arg(device->name).arg(device->buffer);
@@ -788,7 +807,10 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
             QStringList snaplen_list;
 
             for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-                device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
+                QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+                QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+                device = getDeviceByName(device_name);
+                if (!device) continue;
                 snaplen_list << QString("%1:%2(%3)")
                                 .arg(device->name)
                                 .arg(device->has_snaplen)
@@ -803,8 +825,10 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
             QStringList pmode_list;
 
             for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-                device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
-                if (device->pmode == -1) {
+                QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+                QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+                device = getDeviceByName(device_name);
+                if (!device || device->pmode == -1) {
                     continue;
                 }
                 pmode_list << QString("%1(%2)").arg(device->name).arg(device->pmode);
@@ -819,8 +843,10 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
             QStringList monitor_list;
 
             for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-                device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
-                if (!device->monitor_mode_supported || (device->monitor_mode_supported && !device->monitor_mode_enabled)) {
+                QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+                QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+                device = getDeviceByName(device_name);
+                if (!device || !device->monitor_mode_supported || (device->monitor_mode_supported && !device->monitor_mode_enabled)) {
                     continue;
                 }
                 monitor_list << device->name;
@@ -830,27 +856,48 @@ bool CaptureInterfacesDialog::saveOptionsToPreferences()
             break;
         }
 #endif // HAVE_MONITOR_SETTING
+
+#if 0
+            // The device cfilter should have been applied at this point.
+            // We shouldn't change it here.
         case col_filter_:
         {
-            QStringList filter_list;
-
+            // XXX Update selected interfaces only?
             for (int row = 0; row < ui->interfaceTree->topLevelItemCount(); row++) {
-                device = &g_array_index(global_capture_opts.all_ifaces, interface_t, deviceMap[row]);
-                if (!device->cfilter) {
-                    continue;
+                QTreeWidgetItem *ti = ui->interfaceTree->topLevelItem(row);
+                QString device_name = ti->data(col_interface_, Qt::UserRole).toString();
+                device = getDeviceByName(device_name);
+                if (!device) continue;
+                g_free(device->cfilter);
+                if (ti->text(col_filter_).isEmpty()) {
+                    device->cfilter = NULL;
+                } else {
+                    device->cfilter = qstring_strdup(ti->text(col_filter_));
                 }
-                filter_list << QString("%1(%2)").arg(device->name).arg(device->cfilter);
             }
-            g_free(prefs.capture_devices_filter);
-            prefs.capture_devices_filter = qstring_strdup(filter_list.join(","));
-            break;
         }
+#endif
         }
     }
     if (!prefs.gui_use_pref_save) {
         prefs_main_write();
     }
     return true;
+}
+
+void CaptureInterfacesDialog::updateSelectedFilter()
+{
+    // Should match MainWelcome::interfaceSelected.
+    QPair <const QString, bool> sf_pair = CaptureFilterEdit::getSelectedFilter();
+    const QString user_filter = sf_pair.first;
+    bool conflict = sf_pair.second;
+
+    if (conflict) {
+        ui->captureFilterComboBox->lineEdit()->clear();
+        ui->captureFilterComboBox->setConflict(true);
+    } else {
+        ui->captureFilterComboBox->lineEdit()->setText(user_filter);
+    }
 }
 
 void CaptureInterfacesDialog::on_manage_clicked()
@@ -875,6 +922,17 @@ void CaptureInterfacesDialog::changeEvent(QEvent* event)
         }
     }
     QDialog::changeEvent(event);
+}
+
+interface_t *CaptureInterfacesDialog::getDeviceByName(const QString device_name)
+{
+    for (guint i = 0; i < global_capture_opts.all_ifaces->len; i++) {
+        interface_t *device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
+        if (device_name.compare(QString().fromUtf8(device->name)) == 0) {
+            return device;
+        }
+    }
+    return NULL;
 }
 
 //
@@ -914,7 +972,7 @@ InterfaceTreeDelegate::~InterfaceTreeDelegate()
 }
 
 
-QWidget* InterfaceTreeDelegate::createEditor( QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &index ) const
+QWidget* InterfaceTreeDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &index) const
 {
     QWidget *w = NULL;
 #ifdef SHOW_BUFFER_COLUMN
@@ -923,11 +981,11 @@ QWidget* InterfaceTreeDelegate::createEditor( QWidget *parent, const QStyleOptio
     guint snap = WTAP_MAX_PACKET_SIZE;
     GList *links = NULL;
 
-    if (index.column() > 1) {
-        interface_t *device;
+    if (index.column() > 1 && index.data().toString().compare(QString("n/a"))) {
         QTreeWidgetItem *ti = tree_->topLevelItem(index.row());
         QString interface_name = ti->text(col_interface_);
-        device = find_device_by_if_name(interface_name);
+        interface_t *device = find_device_by_if_name(interface_name);
+
         if (device) {
 #ifdef SHOW_BUFFER_COLUMN
             buffer = device->buffer;
@@ -991,19 +1049,18 @@ QWidget* InterfaceTreeDelegate::createEditor( QWidget *parent, const QStyleOptio
 #ifdef SHOW_MONITOR_COLUMN
         case col_monitor_:
         {
-             if (index.data().toString().compare(QString("n/a"))) {
-                QComboBox *cb = new QComboBox(parent);
-                cb->addItem(QString(tr("enabled")));
-                cb->addItem(QString(tr("disabled")));
-                connect(cb, SIGNAL(currentIndexChanged(QString)), this, SLOT(monitor_changed(QString)));
-                w = (QWidget*) cb;
-             }
-             break;
+            QComboBox *cb = new QComboBox(parent);
+            cb->addItem(QString(tr("enabled")));
+            cb->addItem(QString(tr("disabled")));
+            connect(cb, SIGNAL(currentIndexChanged(QString)), this, SLOT(monitor_changed(QString)));
+            w = (QWidget*) cb;
+            break;
         }
 #endif
         case col_filter_:
         {
-            CaptureFilterCombo *cf = new CaptureFilterCombo(parent);
+            CaptureFilterCombo *cf = new CaptureFilterCombo(parent, true);
+            connect(cf->lineEdit(), SIGNAL(textEdited(QString)), this, SIGNAL(filterChanged(QString)));
             w = (QWidget*) cf;
         }
         default:
@@ -1025,7 +1082,7 @@ bool InterfaceTreeDelegate::eventFilter(QObject *object, QEvent *event)
             return true;
         }
     } else {
-        return QStyledItemDelegate::eventFilter( object, event );
+        return QStyledItemDelegate::eventFilter(object, event);
     }
     return false;
 }

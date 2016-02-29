@@ -247,7 +247,7 @@ static const value_string comp_tlv_tag_vals[] = {
 	{ 0x67, "Frames Information" },
 	{ 0x68, "Frame identifier" },
 	{ 0x69, "3GPP UTRAN/E-UTRAN Measurement qualifier" },
-	{ 0x6a, "Multimedia Messsage Reference" },
+	{ 0x6a, "Multimedia Message Reference" },
 	{ 0x6b, "Multimedia Message Identifier" },
 	{ 0x6c, "Multimedia Message Transfer Status" },
 	{ 0x6d, "MEID" },
@@ -615,7 +615,7 @@ static const value_string event_list_vals[] = {
 	{ 0x0d, "Local connection" },
 	{ 0x0e, "Network Search Mode Change" },
 	{ 0x0f, "Browsing status" },
-	{ 0x10, "Frames Informations Change" },
+	{ 0x10, "Frames Information Change" },
 	{ 0x11, "I-WLAN Access Status" },
 	{ 0x12, "Network Rejection" },
 	{ 0x13, "HCI connectivity event" },
@@ -661,7 +661,7 @@ static const value_string bearer_descr_vals[] = {
 	{ 0x01, "CSD" },
 	{ 0x02, "GPRS / UTRAN packet service / E-UTRAN" },
 	{ 0x03, "default bearer for requested transport layer" },
-	{ 0x04, "local link techonlogy independent" },
+	{ 0x04, "local link technology independent" },
 	{ 0x05, "Bluetooth" },
 	{ 0x06, "IrDA" },
 	{ 0x07, "RS232" },
@@ -790,7 +790,7 @@ static const value_string transport_ptype_vals[] = {
 	{ 0x02, "TCP, UICC in client mode, remote connection" },
 	{ 0x03, "TCP, UICC in server mode" },
 	{ 0x04, "UDP, UICC in client mode, local connection" },
-	{ 0x05, "TCP, UICC in client mode, locel connection" },
+	{ 0x05, "TCP, UICC in client mode, local connection" },
 	{ 0x06, "direct communication channel" },
 	{ 0, NULL }
 };
@@ -1142,6 +1142,8 @@ dissect_cat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 			proto_tree_add_item(elem_tree, hf_ctlv_tone, tvb, pos, 1, ENC_BIG_ENDIAN);
 			break;
 		case 0x13:	/* location information */
+			if (len == 0)
+				break;
 			/* MCC/MNC / LAC / CellID */
 			dissect_e212_mcc_mnc(tvb, pinfo, elem_tree, pos, E212_NONE, TRUE);
 			proto_tree_add_item(elem_tree, hf_ctlv_loci_lac, tvb, pos+3, 2, ENC_BIG_ENDIAN);
@@ -1684,7 +1686,7 @@ proto_register_card_app_toolkit(void)
 			  NULL, HFILL },
 		},
 		{ &hf_ctlv_bearer_gprs_mean,
-			{ "Mean Throuhgput Class", "etsi_cat.comp_tlv.bearer.gprs.mean",
+			{ "Mean Throughput Class", "etsi_cat.comp_tlv.bearer.gprs.mean",
 			  FT_UINT8, BASE_DEC, NULL, 0,
 			  NULL, HFILL },
 		},
@@ -1876,7 +1878,7 @@ proto_register_card_app_toolkit(void)
 
 	proto_register_subtree_array(ett, array_length(ett));
 
-	new_register_dissector("etsi_cat", dissect_cat, proto_cat);
+	register_dissector("etsi_cat", dissect_cat, proto_cat);
 }
 
 void

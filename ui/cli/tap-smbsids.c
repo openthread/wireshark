@@ -26,11 +26,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "epan/packet_info.h"
+#include <glib.h>
+
+#include <epan/packet_info.h>
 #include <epan/dissectors/packet-smb-sidsnooping.h>
 #include <epan/tap.h>
 #include <epan/stat_tap_ui.h>
-#include "epan/value_string.h"
+#include <epan/value_string.h>
 #include <epan/dissectors/packet-smb.h>
 
 void register_tap_listener_smbsids(void);
@@ -42,12 +44,12 @@ smbsids_packet(void *pss _U_, packet_info *pinfo _U_, epan_dissect_t *edt _U_, c
 }
 
 static void
-enum_sids(gpointer key _U_, gpointer value, gpointer userdata _U_)
+enum_sids(gpointer key, gpointer value, gpointer userdata _U_)
 {
-	sid_name *sn = (sid_name *)value;
+	const char *sid = (const char *)key;
+	const char *name = (const char *)value;
 
-	printf("%-60s %s\n", sn->sid, sn->name);
-	return;
+	printf("%-60s %s\n", sid, name);
 }
 
 static void

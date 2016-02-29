@@ -1357,7 +1357,7 @@ static int hf_ptp_as_fu_tlv_organization_subtype = -1;
 static int hf_ptp_as_fu_tlv_cumulative_offset = -1;
 static int hf_ptp_as_fu_tlv_gm_base_indicator = -1;
 static int hf_ptp_as_fu_tlv_last_gm_phase_change = -1;
-static int hf_ptp_as_fu_tlv_scaled_last_gm_phase_change = -1;
+static int hf_ptp_as_fu_tlv_scaled_last_gm_freq_change = -1;
 
 /* Fields for PTP_DelayResponse (=dr) messages */
 /* static int hf_ptp_v2_dr_receivetimestamp = -1; */ /* Field for seconds & nanoseconds */
@@ -1566,9 +1566,6 @@ static expert_field ei_ptp_v2_msg_len_too_small = EI_INIT;
 
 /* forward declaration of local functions for v1 and v2 */
 
-static void
-dissect_ptp_oE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
 static int
 is_ptp_v1(tvbuff_t *tvb);
 
@@ -1588,20 +1585,23 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean ptp
 
 /* Code to dissect the packet */
 
-static void
-dissect_ptp_oE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ptp_oE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* PTP over Ethernet only available with PTPv2 */
     dissect_ptp_v2(tvb, pinfo, tree, TRUE);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_ptp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ptp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     if(is_ptp_v1(tvb))
         dissect_ptp_v1(tvb, pinfo, tree);
     else if(is_ptp_v2(tvb))
         dissect_ptp_v2(tvb, pinfo, tree, FALSE);
+
+    return tvb_captured_length(tvb);
 }
 
 
@@ -2861,7 +2861,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean ptp
                                         ENC_NA);
 
                     proto_tree_add_item(ptp_tlv_tree,
-                                        hf_ptp_as_fu_tlv_scaled_last_gm_phase_change,
+                                        hf_ptp_as_fu_tlv_scaled_last_gm_freq_change,
                                         tvb,
                                         PTP_AS_FU_TLV_INFORMATION_OFFSET + PTP_AS_FU_TLV_SCALEDLASTGMFREQCHANGE_OFFSET,
                                         4,
@@ -5130,8 +5130,8 @@ proto_register_ptp(void)
             FT_BYTES, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
-        { &hf_ptp_as_fu_tlv_scaled_last_gm_phase_change,
-          { "scaledLastGMPhaseChange", "ptp.as.fu.scaledLastGmPhaseChange",
+        { &hf_ptp_as_fu_tlv_scaled_last_gm_freq_change,
+          { "scaledLastGmFreqChange", "ptp.as.fu.scaledLastGmFreqChange",
             FT_INT32, BASE_DEC, NULL, 0x00,
             NULL, HFILL }
         },
@@ -5980,16 +5980,14 @@ proto_register_ptp(void)
 void
 proto_reg_handoff_ptp(void)
 {
-    dissector_handle_t event_port_ptp_handle;
-    dissector_handle_t general_port_ptp_handle;
+    dissector_handle_t ptp_handle;
     dissector_handle_t ethertype_ptp_handle;
 
-    event_port_ptp_handle   = create_dissector_handle(dissect_ptp, proto_ptp);
-    general_port_ptp_handle = create_dissector_handle(dissect_ptp, proto_ptp);
+    ptp_handle   = create_dissector_handle(dissect_ptp, proto_ptp);
     ethertype_ptp_handle    = create_dissector_handle(dissect_ptp_oE, proto_ptp);
 
-    dissector_add_uint("udp.port",  EVENT_PORT_PTP, event_port_ptp_handle);
-    dissector_add_uint("udp.port",  GENERAL_PORT_PTP, general_port_ptp_handle);
+    dissector_add_uint("udp.port",  EVENT_PORT_PTP, ptp_handle);
+    dissector_add_uint("udp.port",  GENERAL_PORT_PTP, ptp_handle);
     dissector_add_uint("ethertype", ETHERTYPE_PTP, ethertype_ptp_handle);
 }
 

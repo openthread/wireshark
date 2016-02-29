@@ -21,6 +21,36 @@
 
 AUTOMAKE_OPTIONS = -Wno-portability
 
+lemon_srcdir = $(top_srcdir)/tools/lemon
+
+LEMON = $(top_builddir)/tools/lemon/lemon$(EXEEXT)
+
+RUNLEX = $(top_srcdir)/tools/runlex.sh
+
+if HAVE_WARNINGS_AS_ERRORS
+WERROR = -Werror
+else
+WERROR =
+endif
+
+INCLUDEDIRS = -I$(top_srcdir)
+
+#AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS)
+
+AM_CFLAGS = $(WERROR) $(WS_CFLAGS)
+
+GENERATED_CFLAGS = $(WS_CFLAGS)
+
+AM_CXXFLAGS = $(WERROR) $(WS_CXXFLAGS)
+
+GENERATED_CXXFLAGS = $(WS_CXXFLAGS)
+
+AM_LDFLAGS = $(WS_LDFLAGS)
+
+AM_V_PERL = $(am__v_PERL_@AM_V@)
+am__v_PERL_ = $(am__v_PERL_@AM_DEFAULT_V@)
+am__v_PERL_0 = @echo "  PERL    " $@;
+
 AM_V_AWK = $(am__v_AWK_@AM_V@)
 am__v_AWK_ = $(am__v_AWK_@AM_DEFAULT_V@)
 am__v_AWK_0 = @echo "  AWK     " $@;
@@ -37,6 +67,15 @@ AM_V_SED = $(am__v_SED_@AM_V@)
 am__v_SED_ = $(am__v_SED_@AM_DEFAULT_V@)
 am__v_SED_0 = @echo "  SED     " $@;
 
+# _PYTHON is a reserved automake keyword
+AM_V_python = $(am__v_python_@AM_V@)
+am__v_python_ = $(am__v_python_@AM_DEFAULT_V@)
+am__v_python_0 = @echo "  PYTHON  " $@;
+
+AM_V_YACC = $(am__v_YACC_@AM_V@)
+am__v_YACC_ = $(am__v_YACC_@AM_DEFAULT_V@)
+am__v_YACC_0 = @echo "  YACC    " $@;
+
 .l.c:
 	$(AM_V_RUNLEX)$(RUNLEX) "$(LEX)" "$(SED)" -o$@ $<
 
@@ -44,6 +83,11 @@ am__v_SED_0 = @echo "  SED     " $@;
 	$(AM_V_AWK)$(AWK) '/^EXPORTS$$/ {next;}; ${def_sym_filter_symbols} /^[^;]/ { print $$1;}' < $< > $@
 
 # abi-compliance-checker descriptor
-INCLUDE_DIRS = $(subst -I,NEWLINE,$(filter -I%, $(CFLAGS) -I$(abs_top_srcdir) -I$(abs_srcdir)))
+abi_incdirs = $(subst -I,NEWLINE,$(filter -I%,$(WS_CFLAGS) -I$(abs_top_srcdir) -I$(abs_srcdir)))
+abi_sysdirs = $(subst -isystem,NEWLINE,$(filter -isystem%,$(WS_CFLAGS)))
+abi_includes = $(abi_incdirs) $(abi_sysdirs)
 abi-descriptor.xml: ../abi-descriptor.template
-	$(AM_V_SED)sed "s|@INCLUDE_DIRS@|$(INCLUDE_DIRS)|g;s/NEWLINE/\n    /g;s|@LIBRARY_OUTPUT_PATH@|{RELPATH}/.libs|" $< > $@
+	$(AM_V_SED)$(SED) \
+		-e 's|@INCLUDE_DIRS@|$(abi_includes)|g' \
+		-e 's/ *NEWLINE/\n    /g' \
+		-e 's|@LIBRARY_OUTPUT_PATH@|{RELPATH}/.libs|' $< > $@

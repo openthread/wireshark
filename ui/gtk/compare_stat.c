@@ -64,8 +64,7 @@
 #include "globals.h"
 
 /* Color settings */
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 #include "packet_list.h"
 
 
@@ -157,8 +156,8 @@ comparestat_reset(void *arg)
 {
 	compstat_t *cs=(compstat_t *)arg;
 
-	SET_ADDRESS(&cs->eth_src, AT_ETHER, 0, NULL);
-	SET_ADDRESS(&cs->eth_dst, AT_ETHER, 0, NULL);
+	set_address(&cs->eth_src, AT_ETHER, 0, NULL);
+	set_address(&cs->eth_dst, AT_ETHER, 0, NULL);
 
 	gtk_tree_store_clear(cs->simple_list);
 	comparestat_set_title(cs);
@@ -181,8 +180,8 @@ comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 
 	/* so this get filled, usually with the first frame */
 	if(cs->eth_dst.len==0) {
-		cs->eth_dst=pinfo->dl_dst;
-		cs->eth_src=pinfo->dl_src;
+		copy_address_shallow(&cs->eth_dst, &pinfo->dl_dst);
+		copy_address_shallow(&cs->eth_src, &pinfo->dl_src);
 	}
 
 	/* Set up the fields of the pseudo-header and create checksum */
@@ -199,7 +198,7 @@ comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 	computed_cksum=in_cksum(&cksum_vec[0], 3);
 
 	/* Set up the new order to create the zebra effect */
-	fInfoTemp=(frame_info *)g_hash_table_lookup(cs->packet_set, GINT_TO_POINTER(pinfo->fd->num));
+	fInfoTemp=(frame_info *)g_hash_table_lookup(cs->packet_set, GINT_TO_POINTER(pinfo->num));
 	if((fInfoTemp!=NULL)){
 		col_set_time(pinfo->cinfo, COL_INFO, &fInfoTemp->zebra_time, "ZebraTime");
 	}
@@ -210,15 +209,15 @@ comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 	fInfo->fg->partner=NULL;
 	fInfo->fg->count=1;
 	fInfo->fg->cksum=computed_cksum;
-	fInfo->num=pinfo->fd->num;
+	fInfo->num=pinfo->num;
 	fInfo->id=ci->ip_id;
 	fInfo->ip_ttl=ci->ip_ttl;
-	fInfo->dl_dst=pinfo->dl_dst;
-	fInfo->abs_ts=pinfo->fd->abs_ts;
+	copy_address_shallow(&fInfo->dl_dst, &pinfo->dl_dst);
+	fInfo->abs_ts=pinfo->abs_ts;
 	/* clean memory */
 	nstime_set_zero(&fInfo->zebra_time);
 	nstime_set_zero(&fInfo->fg->predecessor_time);
-	g_hash_table_insert(cs->packet_set, GINT_TO_POINTER(pinfo->fd->num), fInfo);
+	g_hash_table_insert(cs->packet_set, GINT_TO_POINTER(pinfo->num), fInfo);
 
 	if((guint32)cf_get_packet_count(&cfile)==fInfo->num){
 		nstime_set_unset(&cs->current_time);
@@ -249,7 +248,7 @@ call_foreach_count_ip_id(gpointer key _U_, gpointer value, gpointer arg)
 	/* we only need one value out of pinfo we use a temp one */
 	packet_info *pinfo=(packet_info*)g_malloc(sizeof(packet_info));
 	pinfo->fd=(frame_data*)g_malloc(sizeof(frame_data));
-	pinfo->fd->num = fInfo->num;
+	pinfo->num = fInfo->num;
 
 	fInfoTemp=(frame_info *)g_hash_table_lookup(cs->ip_id_set, GINT_TO_POINTER((gint)fInfo->id));
 	if(fInfoTemp==NULL){
@@ -327,7 +326,7 @@ call_foreach_new_order(gpointer key _U_, gpointer value, gpointer arg)
 	fInfoTemp=(frame_info *)g_hash_table_lookup(cs->nr_set, GINT_TO_POINTER((gint)fInfo->id));
 	if(fInfoTemp==NULL){
 		if(TTL_method==FALSE){
-			if((ADDRESSES_EQUAL(&cs->eth_dst, &fInfo->dl_dst)) || (ADDRESSES_EQUAL(&cs->eth_src, &fInfo->dl_dst))){
+			if((addresses_equal(&cs->eth_dst, &fInfo->dl_dst)) || (addresses_equal(&cs->eth_src, &fInfo->dl_dst))){
 				g_hash_table_insert(cs->nr_set, GINT_TO_POINTER((gint)fInfo->id), fInfo);
 				fInfo->zebra_time=cs->zebra_time;
 				cs->zebra_time.nsecs=cs->zebra_time.nsecs + MERGED_FILES;
@@ -352,7 +351,7 @@ call_foreach_new_order(gpointer key _U_, gpointer value, gpointer arg)
 		}
 	} else {
 		if(TTL_method==FALSE){
-			if(((ADDRESSES_EQUAL(&cs->eth_dst, &fInfo->dl_dst)) || (ADDRESSES_EQUAL(&cs->eth_src, &fInfo->dl_dst)))&&(!fmod(fInfoTemp->zebra_time.nsecs,MERGED_FILES))){
+			if(((addresses_equal(&cs->eth_dst, &fInfo->dl_dst)) || (addresses_equal(&cs->eth_src, &fInfo->dl_dst)))&&(!fmod(fInfoTemp->zebra_time.nsecs,MERGED_FILES))){
 				fInfo->zebra_time.nsecs=fInfoTemp->zebra_time.nsecs;
 			} else {
 				fInfo->zebra_time.nsecs=fInfoTemp->zebra_time.nsecs+1;
@@ -539,6 +538,7 @@ comparestat_draw(void *arg)
 	frame_info *fInfo;
 	guint32 first_file_amount, second_file_amount;
 	char* addr_str;
+	gchar *err_msg = NULL;
 
 	/* initial steps, clear all data before start*/
 	cs->zebra_time.secs=0;
@@ -591,7 +591,10 @@ comparestat_draw(void *arg)
 		g_string_printf(filter_str, "%s %s %s %s", "eth.dst==", addr_str, "|| eth.dst==", addr_str);
 		wmem_free(NULL, addr_str);
 	}
-	color_filters_set_tmp(COLOR_N, filter_str->str, FALSE);
+	if (!color_filters_set_tmp(COLOR_N, filter_str->str, FALSE, &err_msg)) {
+		simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+		g_free(err_msg);
+	}
 	packet_list_colorize_packets();
 	/* Variance */
 	cs->stats.variance=compare_variance;

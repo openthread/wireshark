@@ -39,7 +39,6 @@
 
 #include "config.h"
 
-
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/prefs.h>
@@ -48,6 +47,8 @@
 #include <epan/strutil.h>
 #include <epan/expert.h>
 #include <epan/to_str.h>
+
+#include <wsutil/str_util.h>
 
 #include "packet-rtp.h"
 #include "packet-bssap.h"
@@ -1372,7 +1373,6 @@ static expert_field ei_ansi_a_unknown_dtap_msg = EI_INIT;
 static expert_field ei_ansi_a_unknown_bsmap_msg = EI_INIT;
 static expert_field ei_ansi_a_undecoded = EI_INIT;
 
-static char a_bigbuf[1024];
 static dissector_handle_t data_handle;
 static dissector_handle_t dtap_handle;
 static dissector_table_t is637_dissector_table; /* IS-637-A Transport Layer (SMS) */
@@ -1413,34 +1413,24 @@ typedef struct ansi_a_shared_data_t
 }
 ansi_a_shared_data_t;
 
-typedef struct ansi_a_dgt_set_t
-{
-    /*
-     * would typically be 15 but to allow MEID decoding this
-     * needs to have room for full hexadecimal representation
-     */
-    unsigned char out[16];
-}
-ansi_a_dgt_set_t;
-
 /*
  * As per A.S0001 Called Party BCD Number
  */
-static ansi_a_dgt_set_t Dgt_tbcd = {
+static dgt_set_t Dgt_tbcd = {
     {
   /*  0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f */
      '0','1','2','3','4','5','6','7','8','9','*','#','a','b','c', 0
     }
 };
 
-static ansi_a_dgt_set_t Dgt_msid = {
+static dgt_set_t Dgt_msid = {
     {
   /*  0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f */
      '0','1','2','3','4','5','6','7','8','9','?','?','?','?','?', 0
     }
 };
 
-static ansi_a_dgt_set_t Dgt_meid = {
+static dgt_set_t Dgt_meid = {
     {
   /*  0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f */
      '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'
@@ -1450,7 +1440,7 @@ static ansi_a_dgt_set_t Dgt_meid = {
 /*
  * As per C.S0005 Table 2.7.1.3.2.4-4 and IS-634.400A 6.2.2.57
  */
-static ansi_a_dgt_set_t Dgt_dtmf = {
+static dgt_set_t Dgt_dtmf = {
     {
   /*  0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f */
      '?','1','2','3','4','5','6','7','8','9','0','*','#','?','?', 0
@@ -1458,51 +1448,6 @@ static ansi_a_dgt_set_t Dgt_dtmf = {
 };
 
 /* FUNCTIONS */
-
-/*
- * Unpack BCD input pattern into output ASCII pattern
- *
- * Input Pattern is supplied using the same format as the digits
- *
- * Returns: length of unpacked pattern
- */
-static int
-my_dgt_tbcd_unpack(
-    char                *out,           /* ASCII pattern out */
-    guchar              *in,            /* packed pattern in */
-    int                 num_octs,       /* Number of octets to unpack */
-    ansi_a_dgt_set_t    *dgt            /* Digit definitions */
-    )
-{
-    int                 cnt = 0;
-    unsigned char       i;
-
-    while (num_octs)
-    {
-        /*
-         * unpack first value in byte
-         */
-        i = *in++;
-        *out++ = dgt->out[i & 0x0f];
-        cnt++;
-
-        /*
-         * unpack second value in byte
-         */
-        i >>= 4;
-
-        if ((num_octs == 1) && (i == 0x0f))  /* odd number bytes - hit filler */
-            break;
-
-        *out++ = dgt->out[i];
-        cnt++;
-        num_octs--;
-    }
-
-    *out = '\0';
-
-    return(cnt);
-}
 
 static const value_string ansi_a_so_str_vals[] = {
     { 1,        "Basic Variable Rate Voice Service (8 kbps)" },
@@ -2437,7 +2382,6 @@ static guint8
 elem_mid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset, guint len, ansi_a_shared_data_t *data_p)
 {
     guint8      oct;
-    guint8      *poctets;
     guint32     value;
     guint32     curr_offset;
     const gchar *str;
@@ -2453,22 +2397,14 @@ elem_mid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset, gu
         proto_tree_add_item(tree, hf_ansi_a_mid_odd_even_ind, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(tree, hf_ansi_a_mid_type_of_id, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
 
-        a_bigbuf[0] = Dgt_meid.out[(oct & 0xf0) >> 4];
-        curr_offset++;
+        if (curr_offset - offset >= len) /* Sanity check */
+            return (curr_offset - offset);
 
-        poctets = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, curr_offset, len - (curr_offset - offset));
+        str = tvb_bcd_dig_to_wmem_packet_str(tvb, curr_offset, len - (curr_offset - offset), &Dgt_meid, TRUE);
+        proto_tree_add_string(tree, hf_ansi_a_meid, tvb, curr_offset, len - (curr_offset - offset), str);
 
-        my_dgt_tbcd_unpack(&a_bigbuf[1], poctets, len - (curr_offset - offset),
-            &Dgt_meid);
-
+        proto_item_append_text(data_p->elem_item, " - MEID (%s)", str);
         curr_offset += len - (curr_offset - offset);
-
-        proto_tree_add_string_format_value(tree, hf_ansi_a_meid, tvb, offset + 1, len - 1,
-            a_bigbuf,
-            "%s",
-            a_bigbuf);
-
-        proto_item_append_text(data_p->elem_item, " - MEID (%s)", a_bigbuf);
         break;
 
     case 2:     /* Broadcast Address */
@@ -2542,27 +2478,21 @@ elem_mid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset, gu
         proto_tree_add_item(tree, hf_ansi_a_mid_odd_even_ind, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(tree, hf_ansi_a_mid_type_of_id, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
 
-        a_bigbuf[0] = Dgt_msid.out[(oct & 0xf0) >> 4];
-        curr_offset++;
+        if (curr_offset - offset >= len) /* Sanity check */
+            return (curr_offset - offset);
 
-        poctets = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, curr_offset, len - (curr_offset - offset));
+        str = tvb_bcd_dig_to_wmem_packet_str(tvb, curr_offset, len - (curr_offset - offset), &Dgt_msid, TRUE);
+        proto_tree_add_string_format(tree, hf_ansi_a_imsi, tvb, curr_offset, len - (curr_offset - offset),
+                                     str, "BCD Digits: %s", str);
 
-        my_dgt_tbcd_unpack(&a_bigbuf[1], poctets, len - (curr_offset - offset),
-            &Dgt_msid);
-
-        proto_tree_add_string_format(tree, hf_ansi_a_imsi, tvb, curr_offset - 1, len - (curr_offset - 1 - offset),
-            a_bigbuf,
-            "BCD Digits: %s",
-            a_bigbuf);
-
-        proto_item_append_text(data_p->elem_item, " - IMSI (%s)", a_bigbuf);
+        proto_item_append_text(data_p->elem_item, " - IMSI (%s)", str);
         if (data_p->message_item)
         {
-            proto_item_append_text(data_p->message_item, " MID=%s", a_bigbuf);
+            proto_item_append_text(data_p->message_item, " MID=%s", str);
         }
         if (global_a_info_display)
         {
-            col_append_fstr(pinfo->cinfo, COL_INFO, "MID=%s ", a_bigbuf);
+            col_append_fstr(pinfo->cinfo, COL_INFO, "MID=%s ", str);
         }
 
         curr_offset += len - (curr_offset - offset);
@@ -4110,8 +4040,8 @@ static const value_string ansi_a_cld_party_bcd_num_plan_vals[] = {
 static guint8
 elem_cld_party_bcd_num(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint32 offset, guint len, ansi_a_shared_data_t *data_p)
 {
-    guint8      *poctets;
     guint32     curr_offset;
+    const char *str;
 
     curr_offset = offset;
 
@@ -4121,12 +4051,13 @@ elem_cld_party_bcd_num(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, 
 
     curr_offset++;
 
-    poctets = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, curr_offset, len - (curr_offset - offset));
+    if (curr_offset - offset >= len) /* Sanity check */
+        return (curr_offset - offset);
 
-    my_dgt_tbcd_unpack(a_bigbuf, poctets, len - (curr_offset - offset), &Dgt_tbcd);
-    proto_tree_add_string(tree, hf_ansi_a_cld_party_bcd_num, tvb, curr_offset, len - (curr_offset - offset), a_bigbuf);
+    str = tvb_bcd_dig_to_wmem_packet_str(tvb, curr_offset, len - (curr_offset - offset), &Dgt_tbcd, FALSE);
+    proto_tree_add_string(tree, hf_ansi_a_cld_party_bcd_num, tvb, curr_offset, len - (curr_offset - offset), str);
 
-    proto_item_append_text(data_p->elem_item, " - (%s)", a_bigbuf);
+    proto_item_append_text(data_p->elem_item, " - (%s)", str);
 
     curr_offset += len - (curr_offset - offset);
 
@@ -5443,6 +5374,7 @@ elem_fwd_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
     guint32     value;
     guint32     curr_offset, saved_offset;
     const gchar *str;
+    gchar       *str_num;
     gint        ett_elem_idx, idx, i;
     proto_item  *item;
     proto_tree  *subtree;
@@ -5503,20 +5435,19 @@ elem_fwd_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
 
                     curr_offset++;
 
+                    str_num = (gchar*)wmem_alloc(wmem_packet_scope(), oct_len);
                     for (i=0; i < (oct_len - 1); i++)
                     {
-                        a_bigbuf[i] = (oct & 0x01) << 7;
+                        str_num[i] = (oct & 0x01) << 7;
 
                         oct = tvb_get_guint8(tvb, curr_offset + i);
 
-                        a_bigbuf[i] |= (oct & 0xfe) >> 1;
+                        str_num[i] |= (oct & 0xfe) >> 1;
                     }
-                    a_bigbuf[i] = '\0';
+                    str_num[i] = '\0';
 
-                    proto_tree_add_string_format(subtree, hf_ansi_a_fwd_ms_info_rec_cld_pn_num, tvb, curr_offset, oct_len - 1,
-                        a_bigbuf,
-                        "Digits: %s",
-                        a_bigbuf);
+                    proto_tree_add_string_format(subtree, hf_ansi_a_fwd_ms_info_rec_cld_pn_num, tvb,
+                                                 curr_offset, oct_len - 1, str_num, "Digits: %s", str_num);
 
                     curr_offset += (oct_len - 2);
                 }
@@ -5541,20 +5472,19 @@ elem_fwd_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
 
                     curr_offset += 2;
 
+                    str_num = (gchar*)wmem_alloc(wmem_packet_scope(), oct_len - 1);
                     for (i=0; i < (oct_len - 2); i++)
                     {
-                        a_bigbuf[i] = (oct & 0x1f) << 3;
+                        str_num[i] = (oct & 0x1f) << 3;
 
                         oct = tvb_get_guint8(tvb, curr_offset + i);
 
-                        a_bigbuf[i] |= (oct & 0xe0) >> 5;
+                        str_num[i] |= (oct & 0xe0) >> 5;
                     }
-                    a_bigbuf[i] = '\0';
+                    str_num[i] = '\0';
 
-                    proto_tree_add_string_format(subtree, hf_ansi_a_fwd_ms_info_rec_clg_pn_num, tvb, curr_offset, oct_len - 2,
-                        a_bigbuf,
-                        "Digits: %s",
-                        a_bigbuf);
+                    proto_tree_add_string_format(subtree, hf_ansi_a_fwd_ms_info_rec_clg_pn_num, tvb,
+                                                 curr_offset, oct_len - 2, str_num, "Digits: %s", str_num);
 
                     curr_offset += (oct_len - 3);
 
@@ -5644,6 +5574,7 @@ elem_rev_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
     guint32     value;
     guint32     curr_offset, saved_offset, saved_offset2;
     const gchar *str;
+    gchar       *str_num;
     gint        ett_elem_idx, idx, i;
     proto_item  *item, *item2;
     proto_tree  *subtree, *subtree2;
@@ -5716,20 +5647,19 @@ elem_rev_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
 
                     curr_offset++;
 
+                    str_num = (gchar*)wmem_alloc(wmem_packet_scope(), oct_len);
                     for (i=0; i < (oct_len - 1); i++)
                     {
-                        a_bigbuf[i] = (oct & 0x01) << 7;
+                        str_num[i] = (oct & 0x01) << 7;
 
                         oct = tvb_get_guint8(tvb, curr_offset + i);
 
-                        a_bigbuf[i] |= (oct & 0xfe) >> 1;
+                        str_num[i] |= (oct & 0xfe) >> 1;
                     }
-                    a_bigbuf[i] = '\0';
+                    str_num[i] = '\0';
 
-                    proto_tree_add_string_format(subtree, hf_ansi_a_rev_ms_info_rec_cld_pn_num, tvb, curr_offset, oct_len - 1,
-                        a_bigbuf,
-                        "Digits: %s",
-                        a_bigbuf);
+                    proto_tree_add_string_format(subtree, hf_ansi_a_rev_ms_info_rec_cld_pn_num, tvb,
+                                                 curr_offset, oct_len - 1, str_num, "Digits: %s", str_num);
 
                     curr_offset += (oct_len - 2);
                 }
@@ -5755,20 +5685,19 @@ elem_rev_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
 
                     curr_offset += 2;
 
+                    str_num = (gchar*)wmem_alloc(wmem_packet_scope(), oct_len - 1);
                     for (i=0; i < (oct_len - 2); i++)
                     {
-                        a_bigbuf[i] = (oct & 0x1f) << 3;
+                        str_num[i] = (oct & 0x1f) << 3;
 
                         oct = tvb_get_guint8(tvb, curr_offset + i);
 
-                        a_bigbuf[i] |= (oct & 0xe0) >> 5;
+                        str_num[i] |= (oct & 0xe0) >> 5;
                     }
-                    a_bigbuf[i] = '\0';
+                    str_num[i] = '\0';
 
-                    proto_tree_add_string_format(subtree, hf_ansi_a_rev_ms_info_rec_clg_pn_num, tvb, curr_offset, oct_len - 2,
-                        a_bigbuf,
-                        "Digits: %s",
-                        a_bigbuf);
+                    proto_tree_add_string_format(subtree, hf_ansi_a_rev_ms_info_rec_clg_pn_num, tvb,
+                                                 curr_offset, oct_len - 2, str_num, "Digits: %s", str_num);
 
                     curr_offset += (oct_len - 3);
 
@@ -6918,7 +6847,7 @@ elem_a2p_bearer_format(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guin
 
             first_assigned_found = TRUE;
             rtp_add_address(pinfo, &data_p->rtp_src_addr, data_p->rtp_port, 0, "IOS5",
-                pinfo->fd->num, FALSE, rtp_dyn_payload);
+                pinfo->num, FALSE, rtp_dyn_payload);
         }
 
         if (in_band_format_assigned)
@@ -7058,6 +6987,11 @@ elem_bdtmf_trans_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
 
 /*
  * IS-634.400A 6.2.2.57
+ *
+ * XXX - is this specified in some document that doesn't cost over
+ * USD 500 for either a dead-tree copy or a "Secure PDF" that probably
+ * can only be read with the help of a Windows-only plugin for Adobe
+ * Acrobat reader?
  */
 static guint8
 elem_dtmf_chars(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint32 offset, guint len, ansi_a_shared_data_t *data_p)
@@ -7065,36 +6999,35 @@ elem_dtmf_chars(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint32
     guint8      oct;
     guint32     curr_offset;
     guint8      packed_len;
-    guint8      *poctets;
+    char       *str;
 
     curr_offset = offset;
 
     proto_tree_add_item(tree, hf_ansi_a_bdtmf_chars_num_chars, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
-
     oct = tvb_get_guint8(tvb, curr_offset);
-
     curr_offset++;
 
+    if (curr_offset - offset >= len) /* Sanity check */
+        return (curr_offset - offset);
+
     packed_len = len - (curr_offset - offset);
-
-    poctets = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, curr_offset, packed_len);
-
+    str = (char*)tvb_bcd_dig_to_wmem_packet_str(tvb, curr_offset, packed_len, &Dgt_dtmf, FALSE);
     /*
      * the packed DTMF digits are not "terminated" with a '0xF' for an odd
      * number of digits but the unpack routine expects it
+     *
+     * XXX - is "oct" a count of digits?  If so, we could use it, although
+     * we'd also need to check whether it claims that there are more
+     * digits than are present in the information element based on its
+     * length.
      */
     if (oct & 0x01)
     {
-        poctets[packed_len-1] |= 0xF0;
+        str[(2*packed_len)-1] = '\0';
     }
 
-    my_dgt_tbcd_unpack(a_bigbuf, poctets, packed_len,
-        &Dgt_dtmf);
-
-    proto_tree_add_string(tree, hf_ansi_a_bdtmf_chars_digits, tvb, curr_offset, packed_len,
-        a_bigbuf);
-
-    proto_item_append_text(data_p->elem_item, " - (%s)", a_bigbuf);
+    proto_tree_add_string(tree, hf_ansi_a_bdtmf_chars_digits, tvb, curr_offset, packed_len, str);
+    proto_item_append_text(data_p->elem_item, " - (%s)", str);
 
     curr_offset += packed_len;
 
@@ -10395,10 +10328,11 @@ dissect_bsmap_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
     }
 }
 
-static void
-dissect_bsmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_bsmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_bsmap_common(tvb, pinfo, tree, FALSE);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -10570,14 +10504,15 @@ dissect_dtap_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolea
     }
 }
 
-static void
-dissect_dtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_dtap_common(tvb, pinfo, tree, FALSE);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_sip_dtap_bsmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sip_dtap_bsmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gint        linelen, offset, next_offset, begin;
     guint8      *msg_type;
@@ -10638,6 +10573,7 @@ dissect_sip_dtap_bsmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             }
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 /* TAP STAT INFO */
@@ -10651,10 +10587,10 @@ typedef enum
 static stat_tap_table_item dtap_stat_fields[] = {{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "IEI", "0x%02x  "}, {TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Message Name", "%-50s"},
     {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}};
 
-static void ansi_a_dtap_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void ansi_a_dtap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     int num_fields = sizeof(dtap_stat_fields)/sizeof(stat_tap_table_item);
-    new_stat_tap_table* table = new_stat_tap_init_table("ANSI A-I/F DTAP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+    stat_tap_table* table = new_stat_tap_init_table("ANSI A-I/F DTAP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
     int i = 0;
     stat_tap_table_item_type items[sizeof(dtap_stat_fields)/sizeof(stat_tap_table_item)];
 
@@ -10681,7 +10617,7 @@ ansi_a_dtap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *e
     new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
     const ansi_a_tap_rec_t      *data_p = (const ansi_a_tap_rec_t *)data;
     stat_tap_table_item_type* dtap_data;
-    new_stat_tap_table* table;
+    stat_tap_table* table;
     guint i = 0, idx;
 
     if (data_p->pdu_type == BSSAP_PDU_TYPE_DTAP)
@@ -10689,7 +10625,7 @@ ansi_a_dtap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *e
         if (my_try_val_to_str_idx(data_p->message_type, ansi_a_dtap_strings, &idx) == NULL)
             return FALSE;
 
-        table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+        table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
 
         dtap_data = new_stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
         dtap_data->value.uint_value++;
@@ -10702,7 +10638,7 @@ ansi_a_dtap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *e
 }
 
 static void
-ansi_a_stat_reset(new_stat_tap_table* table)
+ansi_a_stat_reset(stat_tap_table* table)
 {
     guint element;
     stat_tap_table_item_type* item_data;
@@ -10719,10 +10655,10 @@ ansi_a_stat_reset(new_stat_tap_table* table)
 static stat_tap_table_item bsmap_stat_fields[] = {{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "IEI", "0x%02x  "}, {TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Message Name", "%-50s"},
     {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}};
 
-static void ansi_a_bsmap_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void ansi_a_bsmap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     int num_fields = sizeof(bsmap_stat_fields)/sizeof(stat_tap_table_item);
-    new_stat_tap_table* table = new_stat_tap_init_table("ANSI A-I/F BSMAP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+    stat_tap_table* table = new_stat_tap_init_table("ANSI A-I/F BSMAP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
     int i = 0;
     stat_tap_table_item_type items[sizeof(bsmap_stat_fields)/sizeof(stat_tap_table_item)];
 
@@ -10749,7 +10685,7 @@ ansi_a_bsmap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *
     new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
     const ansi_a_tap_rec_t      *data_p = (const ansi_a_tap_rec_t *)data;
     stat_tap_table_item_type* dtap_data;
-    new_stat_tap_table* table;
+    stat_tap_table* table;
     guint i = 0, idx;
 
     if (data_p->pdu_type == BSSAP_PDU_TYPE_BSMAP)
@@ -10757,7 +10693,7 @@ ansi_a_bsmap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *
         if (my_try_val_to_str_idx(data_p->message_type, ansi_a_bsmap_strings, &idx) == NULL)
             return FALSE;
 
-        table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+        table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
 
         dtap_data = new_stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
         dtap_data->value.uint_value++;
@@ -12662,7 +12598,7 @@ proto_register_ansi_a(void)
             NULL, HFILL }
         },
         { &hf_ansi_a_bdtmf_chars_num_chars,
-            { "DTMF On Length", "ansi_a_bsmap.bdtmf_chars.num_chars",
+            { "DTMF Number of Characters", "ansi_a_bsmap.bdtmf_chars.num_chars",
             FT_UINT8, BASE_DEC, NULL, 0,
             NULL, HFILL }
         },
@@ -12817,7 +12753,7 @@ proto_register_ansi_a(void)
     gint **ett;
     gint ett_len = (NUM_INDIVIDUAL_ELEMS+MAX_NUM_DTAP_MSG+MAX_NUM_BSMAP_MSG+MAX_NUM_ELEM_1+NUM_FWD_MS_INFO_REC+NUM_REV_MS_INFO_REC) * sizeof(gint *);
 
-    static new_stat_tap_ui dtap_stat_table = {
+    static stat_tap_table_ui dtap_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_ANSI,
         "A-I/F DTAP Statistics",
         "ansi_a",
@@ -12832,7 +12768,7 @@ proto_register_ansi_a(void)
         NULL
     };
 
-    static new_stat_tap_ui bsmap_stat_table = {
+    static stat_tap_table_ui bsmap_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_ANSI,
         "A-I/F BSMAP Statistics",
         "ansi_a",
@@ -12929,15 +12865,15 @@ proto_register_ansi_a(void)
 
     is637_dissector_table =
         register_dissector_table("ansi_a.sms", "IS-637-A (SMS)",
-        FT_UINT8, BASE_DEC);
+        FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     is683_dissector_table =
         register_dissector_table("ansi_a.ota", "IS-683-A (OTA)",
-        FT_UINT8, BASE_DEC);
+        FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     is801_dissector_table =
         register_dissector_table("ansi_a.pld", "IS-801 (PLD)",
-        FT_UINT8, BASE_DEC);
+        FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     proto_register_subtree_array(ett, ett_len / (int) sizeof(gint *));
 
@@ -12964,8 +12900,8 @@ proto_register_ansi_a(void)
 
     g_free(ett);
 
-    register_new_stat_tap_ui(&dtap_stat_table);
-    register_new_stat_tap_ui(&bsmap_stat_table);
+    register_stat_tap_table_ui(&dtap_stat_table);
+    register_stat_tap_table_ui(&bsmap_stat_table);
 }
 
 

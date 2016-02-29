@@ -219,6 +219,7 @@ static expert_field ei_rsl_facility_information_element_3gpp_ts_44071 = EI_INIT;
 static expert_field ei_rsl_embedded_message_tfo_configuration = EI_INIT;
 
 static proto_tree *top_tree;
+static dissector_handle_t rsl_handle;
 static dissector_handle_t gsm_cbch_handle;
 static dissector_handle_t gsm_cbs_handle;
 static dissector_handle_t gsm_a_ccch_handle;
@@ -428,7 +429,7 @@ static const value_string rsl_msg_type_vals[] = {
 /* 0x37 */ {  RSL_MSG_REMOTE_CODEC_CONF_REP, "REMOTE CODEC CONFiguration REPort" },      /* 8.4.23 */
 /* 0x38 */ {  RSL_MSG_R_T_D_REP,         "Round Trip Delay REPort" },                    /* 8.4.24 */
 /* 0x39 */ {  RSL_MSG_PRE_HANDO_NOTIF,   "PRE-HANDOver NOTIFication" },                  /* 8.4.25 */
-/* 0x3a */ {  RSL_MSG_MR_CODEC_MOD_REQ,  "MultiRate CODEC MODification REQest" },        /* 8.4.26 */
+/* 0x3a */ {  RSL_MSG_MR_CODEC_MOD_REQ,  "MultiRate CODEC MODification REQuest" },       /* 8.4.26 */
 /* 0x3b */ {  RSL_MSG_MR_CODEC_MOD_ACK,  "MultiRate CODEC MOD ACKnowledge" },            /* 8.4.27 */
 /* 0x3c */ {  RSL_MSG_MR_CODEC_MOD_NACK, "MultiRate CODEC MOD Negative ACKnowledge" },   /* 8.4.28 */
 /* 0x3d */ {  RSL_MSG_MR_CODEC_MOD_PER,  "MultiRate CODEC MOD PERformed" },              /* 8.4.29 */
@@ -678,7 +679,7 @@ struct tlv_def {
 };
 
 struct tlv_definition {
-    struct tlv_def def[0xff];
+    struct tlv_def def[0x100];
 };
 
 /* This structure is initialized in proto_register_rsl() */
@@ -3076,8 +3077,7 @@ dissct_rsl_ipaccess_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
             break;
         case TLV_TYPE_UNKNOWN:
         default:
-            DISSECTOR_ASSERT_NOT_REACHED();
-            break;
+            return tvb_reported_length(tvb);
         }
 
         ti = proto_tree_add_item(tree, hf_rsl_ie_id, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -3160,9 +3160,9 @@ dissct_rsl_ipaccess_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
         src_addr.len = 4;
         src_addr.data = (guint8 *)&local_addr;
         rtp_add_address(pinfo, &src_addr, local_port, 0,
-                        "GSM A-bis/IP", pinfo->fd->num, 0, NULL);
+                        "GSM A-bis/IP", pinfo->num, 0, NULL);
         rtcp_add_address(pinfo, &src_addr, local_port+1, 0,
-                         "GSM A-bis/IP", pinfo->fd->num);
+                         "GSM A-bis/IP", pinfo->num);
         break;
     }
     return offset;
@@ -4451,7 +4451,7 @@ void proto_register_rsl(void)
     expert_rsl = expert_register_protocol(proto_rsl);
     expert_register_field_array(expert_rsl, ei, array_length(ei));
 
-    new_register_dissector("gsm_abis_rsl", dissect_rsl, proto_rsl);
+    rsl_handle = register_dissector("gsm_abis_rsl", dissect_rsl, proto_rsl);
 
     rsl_module = prefs_register_protocol(proto_rsl, proto_reg_handoff_rsl);
     prefs_register_bool_preference(rsl_module, "use_ipaccess_rsl",
@@ -4463,9 +4463,6 @@ void proto_register_rsl(void)
 void
 proto_reg_handoff_rsl(void)
 {
-    dissector_handle_t rsl_handle;
-
-    rsl_handle = new_create_dissector_handle(dissect_rsl, proto_rsl);
     dissector_add_uint("lapd.gsm.sapi", LAPD_GSM_SAPI_RA_SIG_PROC, rsl_handle);
 
     gsm_cbch_handle = find_dissector("gsm_cbch");

@@ -30,8 +30,8 @@
 static void
 set_uinteger(fvalue_t *fv, guint32 value)
 {
-	ipv4_addr_set_net_order_addr(&(fv->value.ipv4), value);
-	ipv4_addr_set_netmask_bits(&(fv->value.ipv4), 32);
+	ipv4_addr_and_mask_set_net_order_addr(&(fv->value.ipv4), value);
+	ipv4_addr_and_mask_set_netmask_bits(&(fv->value.ipv4), 32);
 }
 
 static gpointer
@@ -46,21 +46,21 @@ val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value _U_,
 	guint32	addr;
 	unsigned int nmask_bits;
 
-	const char *has_slash, *net_str;
-	char *addr_str;
+	const char *slash, *net_str;
+	const char *addr_str;
+	char *addr_str_to_free = NULL;
 	fvalue_t *nmask_fvalue;
-	gboolean free_addr_str = FALSE;
 
 	/* Look for CIDR: Is there a single slash in the string? */
-	has_slash = strchr(s, '/');
-	if (has_slash) {
+	slash = strchr(s, '/');
+	if (slash) {
 		/* Make a copy of the string up to but not including the
 		 * slash; that's the address portion. */
-		addr_str = wmem_strndup(NULL, s, has_slash - s);
-		free_addr_str = TRUE;
+		addr_str_to_free = wmem_strndup(NULL, s, slash - s);
+		addr_str = addr_str_to_free;
 	}
 	else {
-		addr_str = (char*)s;
+		addr_str = s;
 	}
 
 	if (!get_host_ipaddr(addr_str, &addr)) {
@@ -68,19 +68,19 @@ val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value _U_,
 			*err_msg = g_strdup_printf("\"%s\" is not a valid hostname or IPv4 address.",
 			    addr_str);
 		}
-		if (free_addr_str)
-			wmem_free(NULL, addr_str);
+		if (addr_str_to_free)
+			wmem_free(NULL, addr_str_to_free);
 		return FALSE;
 	}
 
-	if (free_addr_str)
-		wmem_free(NULL, addr_str);
-	ipv4_addr_set_net_order_addr(&(fv->value.ipv4), addr);
+	if (addr_str_to_free)
+		wmem_free(NULL, addr_str_to_free);
+	ipv4_addr_and_mask_set_net_order_addr(&(fv->value.ipv4), addr);
 
 	/* If CIDR, get netmask bits. */
-	if (has_slash) {
+	if (slash) {
 		/* Skip past the slash */
-		net_str = has_slash + 1;
+		net_str = slash + 1;
 
 		/* XXX - this is inefficient */
 		nmask_fvalue = fvalue_from_unparsed(FT_UINT32, net_str, FALSE, err_msg);
@@ -97,11 +97,11 @@ val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value _U_,
 			}
 			return FALSE;
 		}
-		ipv4_addr_set_netmask_bits(&fv->value.ipv4, nmask_bits);
+		ipv4_addr_and_mask_set_netmask_bits(&fv->value.ipv4, nmask_bits);
 	}
 	else {
 		/* Not CIDR; mask covers entire address. */
-		ipv4_addr_set_netmask_bits(&(fv->value.ipv4), 32);
+		ipv4_addr_and_mask_set_netmask_bits(&(fv->value.ipv4), 32);
 	}
 
 	return TRUE;
@@ -119,43 +119,43 @@ val_repr_len(fvalue_t *fv _U_, ftrepr_t rtype _U_, int field_display _U_)
 static void
 val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
 {
-	ipv4_addr_str_buf(&fv->value.ipv4, buf);
+	ipv4_addr_and_mask_str_buf(&fv->value.ipv4, buf);
 }
 
 static gboolean
 cmp_eq(const fvalue_t *a, const fvalue_t *b)
 {
-	return ipv4_addr_eq(&a->value.ipv4, &b->value.ipv4);
+	return ipv4_addr_and_mask_eq(&a->value.ipv4, &b->value.ipv4);
 }
 
 static gboolean
 cmp_ne(const fvalue_t *a, const fvalue_t *b)
 {
-	return ipv4_addr_ne(&a->value.ipv4, &b->value.ipv4);
+	return ipv4_addr_and_mask_ne(&a->value.ipv4, &b->value.ipv4);
 }
 
 static gboolean
 cmp_gt(const fvalue_t *a, const fvalue_t *b)
 {
-	return ipv4_addr_gt(&a->value.ipv4, &b->value.ipv4);
+	return ipv4_addr_and_mask_gt(&a->value.ipv4, &b->value.ipv4);
 }
 
 static gboolean
 cmp_ge(const fvalue_t *a, const fvalue_t *b)
 {
-	return ipv4_addr_ge(&a->value.ipv4, &b->value.ipv4);
+	return ipv4_addr_and_mask_ge(&a->value.ipv4, &b->value.ipv4);
 }
 
 static gboolean
 cmp_lt(const fvalue_t *a, const fvalue_t *b)
 {
-	return ipv4_addr_lt(&a->value.ipv4, &b->value.ipv4);
+	return ipv4_addr_and_mask_lt(&a->value.ipv4, &b->value.ipv4);
 }
 
 static gboolean
 cmp_le(const fvalue_t *a, const fvalue_t *b)
 {
-	return ipv4_addr_le(&a->value.ipv4, &b->value.ipv4);
+	return ipv4_addr_and_mask_le(&a->value.ipv4, &b->value.ipv4);
 }
 
 static gboolean

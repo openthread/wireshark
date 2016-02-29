@@ -97,7 +97,7 @@ static int PrivateTable__index(lua_State* L) {
     const gchar* name = luaL_checkstring(L,2);
     const gchar* string;
 
-    string = (const gchar *)(g_hash_table_lookup (priv->table, (gpointer) name));
+    string = (const gchar *)(g_hash_table_lookup (priv->table, name));
 
     if (string) {
         lua_pushstring(L, string);
@@ -173,14 +173,14 @@ static int Pinfo__tostring(lua_State *L) { lua_pushstring(L,"a Pinfo"); return 1
 #define PINFO_ADDRESS_GETTER(name) \
     WSLUA_ATTRIBUTE_GET(Pinfo,name, { \
       Address addr = g_new(address,1); \
-      COPY_ADDRESS(addr, &(obj->ws_pinfo->name)); \
+      copy_address(addr, &(obj->ws_pinfo->name)); \
       pushAddress(L,addr); \
     })
 
 #define PINFO_ADDRESS_SETTER(name) \
     WSLUA_ATTRIBUTE_SET(Pinfo,name, { \
       const address* from = checkAddress(L,-1); \
-      COPY_ADDRESS(&(obj->ws_pinfo->name),from); \
+      copy_address(&(obj->ws_pinfo->name),from); \
     })
 
 #define PINFO_NAMED_BOOLEAN_GETTER(name,member) \
@@ -218,7 +218,7 @@ lua_delta_nstime_to_sec(const Pinfo pinfo, const frame_data *fd, guint32 prev_nu
 PINFO_NAMED_BOOLEAN_GETTER(visited,fd->flags.visited);
 
 /* WSLUA_ATTRIBUTE Pinfo_number RO The number of this packet in the current file. */
-PINFO_NAMED_NUMBER_GETTER(number,fd->num);
+PINFO_NAMED_NUMBER_GETTER(number,num);
 
 /* WSLUA_ATTRIBUTE Pinfo_len  RO The length of the frame. */
 PINFO_NAMED_NUMBER_GETTER(len,fd->pkt_len);
@@ -227,13 +227,13 @@ PINFO_NAMED_NUMBER_GETTER(len,fd->pkt_len);
 PINFO_NAMED_NUMBER_GETTER(caplen,fd->cap_len);
 
 /* WSLUA_ATTRIBUTE Pinfo_abs_ts RO When the packet was captured. */
-WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,abs_ts,lua_nstime_to_sec(&obj->ws_pinfo->fd->abs_ts));
+WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,abs_ts,lua_nstime_to_sec(&obj->ws_pinfo->abs_ts));
 
 /* WSLUA_ATTRIBUTE Pinfo_rel_ts RO Number of seconds passed since beginning of capture. */
 WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,rel_ts,lua_nstime_to_sec(&obj->ws_pinfo->rel_ts));
 
 /* WSLUA_ATTRIBUTE Pinfo_delta_ts RO Number of seconds passed since the last captured packet. */
-WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,delta_ts,lua_delta_nstime_to_sec(obj, obj->ws_pinfo->fd, obj->ws_pinfo->fd->num - 1));
+WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,delta_ts,lua_delta_nstime_to_sec(obj, obj->ws_pinfo->fd, obj->ws_pinfo->num - 1));
 
 /* WSLUA_ATTRIBUTE Pinfo_delta_dis_ts RO Number of seconds passed since the last displayed packet. */
 WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,delta_dis_ts,lua_delta_nstime_to_sec(obj, obj->ws_pinfo->fd, obj->ws_pinfo->fd->prev_dis_num));
@@ -374,10 +374,10 @@ static int Pinfo_get_hi(lua_State *L) {
     Address addr;
 
     addr = (Address)g_malloc(sizeof(address));
-    if (CMP_ADDRESS(&(pinfo->ws_pinfo->src), &(pinfo->ws_pinfo->dst) ) >= 0) {
-        COPY_ADDRESS(addr, &(pinfo->ws_pinfo->src));
+    if (cmp_address(&(pinfo->ws_pinfo->src), &(pinfo->ws_pinfo->dst) ) >= 0) {
+        copy_address(addr, &(pinfo->ws_pinfo->src));
     } else {
-        COPY_ADDRESS(addr, &(pinfo->ws_pinfo->dst));
+        copy_address(addr, &(pinfo->ws_pinfo->dst));
     }
 
     pushAddress(L,addr);
@@ -390,10 +390,10 @@ static int Pinfo_get_lo(lua_State *L) {
     Address addr;
 
     addr = (Address)g_malloc(sizeof(address));
-    if (CMP_ADDRESS(&(pinfo->ws_pinfo->src), &(pinfo->ws_pinfo->dst) ) < 0) {
-        COPY_ADDRESS(addr, &(pinfo->ws_pinfo->src));
+    if (cmp_address(&(pinfo->ws_pinfo->src), &(pinfo->ws_pinfo->dst) ) < 0) {
+        copy_address(addr, &(pinfo->ws_pinfo->src));
     } else {
-        COPY_ADDRESS(addr, &(pinfo->ws_pinfo->dst));
+        copy_address(addr, &(pinfo->ws_pinfo->dst));
     }
 
     pushAddress(L,addr);

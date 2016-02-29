@@ -9,9 +9,14 @@
 %option nounput
 
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
+
+/*
+ * We want to stop processing when we get to the end of the input.
+ */
+%option noyywrap
 
 /*
  * Prefix scanner routines with "Mate" rather than "yy", so this scanner
@@ -25,8 +30,6 @@
 	* lexical analyzer for MATE configuration files
 	*
 	* Copyright 2004, Luis E. Garcia Ontanon <luis@ontanon.org>
-	*
-	* $Id$
 	*
 	* Wireshark - Network traffic analyzer
 	* By Gerald Combs <gerald@wireshark.org>
@@ -340,15 +343,4 @@ extern gboolean mate_load_config(const gchar* filename, mate_config* matecfg) {
 	g_ptr_array_free(mc->config_stack, FALSE);
 
 	return state;
-}
-
-/*
- * We want to stop processing when we get to the end of the input.
- * (%option noyywrap is not used because if used then
- * some flex versions (eg: 2.5.35) generate code which causes
- * warnings by the Windows VC compiler).
- */
-
-int yywrap(void) {
-	return 1;
 }

@@ -24,7 +24,7 @@
 
 
 #include "globals.h"
-#include "pcap-encap.h"
+#include "wiretap/pcap-encap.h"
 #include "wsutil/tempfile.h"
 #include "wsutil/os_version_info.h"
 #include "wsutil/ws_version_info.h"
@@ -32,6 +32,8 @@
 #include <epan/tap.h>
 #include <epan/exported_pdu.h>
 #include <epan/epan_dissect.h>
+#include <wiretap/wtap_opttypes.h>
+#include <wiretap/pcapng.h>
 
 #include "ui/alert_box.h"
 #include "ui/simple_dialog.h"
@@ -61,8 +63,8 @@ export_pdu_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, const 
         tvb_memcpy(exp_pdu_data->pdu_tvb, packet_buf+exp_pdu_data->tlv_buffer_len, 0, exp_pdu_data->tvb_captured_length);
     }
     pkthdr.rec_type  = REC_TYPE_PACKET;
-    pkthdr.ts.secs   = pinfo->fd->abs_ts.secs;
-    pkthdr.ts.nsecs  = pinfo->fd->abs_ts.nsecs;
+    pkthdr.ts.secs   = pinfo->abs_ts.secs;
+    pkthdr.ts.nsecs  = pinfo->abs_ts.nsecs;
     pkthdr.caplen    = buffer_len;
     pkthdr.len       = exp_pdu_data->tvb_reported_length + exp_pdu_data->tlv_buffer_len;
 
@@ -98,76 +100,68 @@ export_pdu_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, const 
 static void
 exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
 {
-    int   import_file_fd;
     char *tmpname, *capfile_name;
     int   err;
 
     /* pcapng defs */
-    wtapng_section_t            *shb_hdr;
+    wtap_optionblock_t           shb_hdr;
     wtapng_iface_descriptions_t *idb_inf;
-    wtapng_if_descr_t            int_data;
+    wtap_optionblock_t           int_data;
+    wtapng_if_descr_mandatory_t *int_data_mand;
     GString                     *os_info_str;
-
-    /* Choose a random name for the temporary import buffer */
-    import_file_fd = create_tempfile(&tmpname, "Wireshark_PDU_");
-    capfile_name = g_strdup(tmpname);
+    gchar                       *opt_comment, *wireshark_ver;
 
     /* Create data for SHB  */
     os_info_str = g_string_new("");
     get_os_version_info(os_info_str);
 
-    shb_hdr = g_new0(wtapng_section_t,1);
-    shb_hdr->section_length = -1;
+    shb_hdr = wtap_optionblock_create(WTAP_OPTION_BLOCK_NG_SECTION);
+
     /* options */
-    shb_hdr->opt_comment    = g_strdup_printf("Dump of PDUs from %s", cfile.filename);
-    /*
-     * UTF-8 string containing the description of the hardware used to create
-     * this section.
-     */
-    shb_hdr->shb_hardware   = NULL;
+    opt_comment = g_strdup_printf("Dump of PDUs from %s", cfile.filename);
+    wtap_optionblock_set_option_string(shb_hdr, OPT_COMMENT, opt_comment);
+    g_free(opt_comment);
+
     /*
      * UTF-8 string containing the name of the operating system used to create
      * this section.
      */
-    shb_hdr->shb_os         = g_string_free(os_info_str, FALSE);
+    wtap_optionblock_set_option_string(shb_hdr, OPT_SHB_OS, g_string_free(os_info_str, TRUE));
     /*
      * UTF-8 string containing the name of the application used to create
      * this section.
      */
-    shb_hdr->shb_user_appl  = g_strdup_printf("Wireshark %s", get_ws_vcs_version_info());
+    wireshark_ver = g_strdup_printf("Wireshark %s", get_ws_vcs_version_info());
+    wtap_optionblock_set_option_string(shb_hdr, OPT_SHB_USERAPPL, wireshark_ver);
+    g_free(wireshark_ver);
 
     /* Create fake IDB info */
     idb_inf = g_new(wtapng_iface_descriptions_t,1);
-    idb_inf->interface_data = g_array_new(FALSE, FALSE, sizeof(wtapng_if_descr_t));
+    idb_inf->interface_data = g_array_new(FALSE, FALSE, sizeof(wtap_optionblock_t));
 
     /* create the fake interface data */
-    int_data.wtap_encap            = WTAP_ENCAP_WIRESHARK_UPPER_PDU;
-    int_data.time_units_per_second = 1000000000; /* default nanosecond resolution */
-    int_data.link_type             = wtap_wtap_encap_to_pcap_encap(WTAP_ENCAP_WIRESHARK_UPPER_PDU);
-    int_data.snap_len              = WTAP_MAX_PACKET_SIZE;
-    int_data.if_name               = g_strdup("Fake IF, PDU->Export");
-    int_data.opt_comment           = NULL;
-    int_data.if_description        = NULL;
-    int_data.if_speed              = 0;
-    int_data.if_tsresol            = 9;
-    int_data.if_filter_str         = NULL;
-    int_data.bpf_filter_len        = 0;
-    int_data.if_filter_bpf_bytes   = NULL;
-    int_data.if_os                 = NULL;
-    int_data.if_fcslen             = -1;
-    int_data.num_stat_entries      = 0;          /* Number of ISB:s */
-    int_data.interface_statistics  = NULL;
+    int_data = wtap_optionblock_create(WTAP_OPTION_BLOCK_IF_DESCR);
+    int_data_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(int_data);
+    int_data_mand->wtap_encap      = WTAP_ENCAP_WIRESHARK_UPPER_PDU;
+    int_data_mand->time_units_per_second = 1000000000; /* default nanosecond resolution */
+    int_data_mand->link_type       = wtap_wtap_encap_to_pcap_encap(WTAP_ENCAP_WIRESHARK_UPPER_PDU);
+    int_data_mand->snap_len        = WTAP_MAX_PACKET_SIZE;
+
+    wtap_optionblock_set_option_string(int_data, OPT_IDB_NAME, "Fake IF, PDU->Export");
+    wtap_optionblock_set_option_uint8(int_data, OPT_IDB_TSRESOL, 9);
 
     g_array_append_val(idb_inf->interface_data, int_data);
 
-    exp_pdu_tap_data->wdh = wtap_dump_fdopen_ng(import_file_fd, WTAP_FILE_TYPE_SUBTYPE_PCAPNG,
-                                                WTAP_ENCAP_WIRESHARK_UPPER_PDU, WTAP_MAX_PACKET_SIZE,
-                                                FALSE, shb_hdr, idb_inf, NULL, &err);
+    /* Use a random name for the temporary import buffer */
+    exp_pdu_tap_data->wdh = wtap_dump_open_tempfile_ng(&tmpname, "Wireshark_PDU_",
+                                                       WTAP_FILE_TYPE_SUBTYPE_PCAPNG,
+                                                       WTAP_ENCAP_WIRESHARK_UPPER_PDU, WTAP_MAX_PACKET_SIZE,
+                                                       FALSE, shb_hdr, idb_inf, NULL, &err);
+    capfile_name = g_strdup(tmpname);
     if (exp_pdu_tap_data->wdh == NULL) {
-        open_failure_alert_box(capfile_name, err, TRUE);
+        open_failure_alert_box(capfile_name ? capfile_name : "temporary file", err, TRUE);
         goto end;
     }
-
 
     /* Run the tap */
     cf_retap_packets(&cfile);
@@ -203,7 +197,7 @@ exp_pdu_file_open(exp_pdu_t *exp_pdu_tap_data)
 
 end:
     g_free(capfile_name);
-    wtap_free_shb(shb_hdr);
+    wtap_optionblock_free(shb_hdr);
     wtap_free_idb_info(idb_inf);
 }
 

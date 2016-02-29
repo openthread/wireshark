@@ -55,8 +55,9 @@ guint dissect_cbs_serial_number(tvbuff_t *tvb, proto_tree *tree, guint offset);
  * @param tvb the tv buffer of the current data
  * @param pinfo the packet info of the current data
  * @param tree the tree to append this item to
+ * @param data parameter to pass to subdissector
  */
-void dissect_umts_cell_broadcast_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
+int dissect_umts_cell_broadcast_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 
 /**
  * Dissects CB Data

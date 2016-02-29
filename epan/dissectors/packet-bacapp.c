@@ -71,8 +71,6 @@ static int bacapp_tap = -1;
  * @param pinfo the packet info of the current data
  * @param tree the tree to append this item to
  **/
-static void
-dissect_bacapp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 
 /**
  * ConfirmedRequest-PDU ::= SEQUENCE {
@@ -10796,8 +10794,8 @@ do_the_dissection(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     return offset;
 }
 
-static void
-dissect_bacapp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_bacapp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8      flag, bacapp_type;
     guint       save_fragmented  = FALSE, data_offset = 0, /*bacapp_apdu_size,*/ fragment = FALSE;
@@ -11060,6 +11058,7 @@ dissect_bacapp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* tapping */
     tap_queue_packet(bacapp_tap, pinfo, &bacinfo);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -11318,7 +11317,7 @@ proto_register_bacapp(void)
 
     bacapp_dissector_table = register_dissector_table("bacapp.vendor_identifier",
                                                       "BACapp Vendor Identifier",
-                                                      FT_UINT8, BASE_HEX);
+                                                      FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Register BACnet Statistic trees */
     register_bacapp_stat_trees();

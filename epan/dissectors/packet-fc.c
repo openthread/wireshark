@@ -229,7 +229,7 @@ fc_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, c
     conv_hash_t *hash = (conv_hash_t*) pct;
     const fc_hdr *fchdr=(const fc_hdr *)vip;
 
-    add_conversation_table_data(hash, &fchdr->s_id, &fchdr->d_id, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &fc_ct_dissector_info, PT_NONE);
+    add_conversation_table_data(hash, &fchdr->s_id, &fchdr->d_id, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &fc_ct_dissector_info, PT_NONE);
 
     return 1;
 }
@@ -747,13 +747,13 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
      * will use ip addresses instead and still work.
      */
     if(!is_ifcp){
-        TVB_SET_ADDRESS (&pinfo->dst, AT_FC, tvb, offset+1, 3);
-        TVB_SET_ADDRESS (&pinfo->src, AT_FC, tvb, offset+5, 3);
+        set_address_tvb (&pinfo->dst, AT_FC, 3, tvb, offset+1);
+        set_address_tvb (&pinfo->src, AT_FC, 3, tvb, offset+5);
         pinfo->srcport=0;
         pinfo->destport=0;
     }
-    SET_ADDRESS(&fchdr->d_id, pinfo->dst.type, pinfo->dst.len, pinfo->dst.data);
-    SET_ADDRESS(&fchdr->s_id, pinfo->src.type, pinfo->src.len, pinfo->src.data);
+    set_address(&fchdr->d_id, pinfo->dst.type, pinfo->dst.len, pinfo->dst.data);
+    set_address(&fchdr->s_id, pinfo->src.type, pinfo->src.len, pinfo->src.data);
 
     fchdr->cs_ctl = tvb_get_guint8 (tvb, offset+4);
     fchdr->type  = tvb_get_guint8 (tvb, offset+8);
@@ -918,7 +918,7 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     PROTO_ITEM_SET_HIDDEN(hidden_item);
 
     /* XXX - use "fc_wka_vals[]" on this? */
-    SET_ADDRESS(&addr, AT_FC, 3, fchdr->d_id.data);
+    set_address(&addr, AT_FC, 3, fchdr->d_id.data);
     proto_tree_add_item(fc_tree, hf_fc_did, tvb, offset+1, 3, ENC_NA);
     hidden_item = proto_tree_add_item (fc_tree, hf_fc_id, tvb, offset+1, 3, ENC_NA);
     PROTO_ITEM_SET_HIDDEN(hidden_item);
@@ -926,7 +926,7 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     proto_tree_add_uint (fc_tree, hf_fc_csctl, tvb, offset+4, 1, fchdr->cs_ctl);
 
     /* XXX - use "fc_wka_vals[]" on this? */
-    SET_ADDRESS(&addr, AT_FC, 3, fchdr->s_id.data);
+    set_address(&addr, AT_FC, 3, fchdr->s_id.data);
     proto_tree_add_item(fc_tree, hf_fc_sid, tvb, offset+5, 3, ENC_NA);
     hidden_item = proto_tree_add_item (fc_tree, hf_fc_id, tvb, offset+5, 3, ENC_NA);
     PROTO_ITEM_SET_HIDDEN(hidden_item);
@@ -1196,7 +1196,7 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
         fc_ex=wmem_new(wmem_file_scope(), fc_exchange_t);
         fc_ex->first_exchange_frame=0;
         fc_ex->last_exchange_frame=0;
-        fc_ex->fc_time=pinfo->fd->abs_ts;
+        fc_ex->fc_time=pinfo->abs_ts;
 
         wmem_tree_insert32(fc_conv_data->exchanges, exchange_key, fc_ex);
     }
@@ -1206,11 +1206,11 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     /* populate the exchange struct */
     if(!pinfo->fd->flags.visited){
         if(fchdr->fctl&FC_FCTL_EXCHANGE_FIRST){
-            fc_ex->first_exchange_frame=pinfo->fd->num;
-            fc_ex->fc_time = pinfo->fd->abs_ts;
+            fc_ex->first_exchange_frame=pinfo->num;
+            fc_ex->fc_time = pinfo->abs_ts;
         }
         if(fchdr->fctl&FC_FCTL_EXCHANGE_LAST){
-            fc_ex->last_exchange_frame=pinfo->fd->num;
+            fc_ex->last_exchange_frame=pinfo->num;
         }
     }
 
@@ -1221,7 +1221,7 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
         PROTO_ITEM_SET_GENERATED(it);
         if(fchdr->fctl&FC_FCTL_EXCHANGE_LAST){
             nstime_t delta_ts;
-            nstime_delta(&delta_ts, &pinfo->fd->abs_ts, &fc_ex->fc_time);
+            nstime_delta(&delta_ts, &pinfo->abs_ts, &fc_ex->fc_time);
             it=proto_tree_add_time(ti, hf_fc_time, tvb, 0, 0, &delta_ts);
             PROTO_ITEM_SET_GENERATED(it);
         }
@@ -1271,8 +1271,8 @@ dissect_fc_ifcp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     return tvb_captured_length(tvb);
 }
 
-static void
-dissect_fcsof(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_fcsof(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
 
     proto_item *it = NULL;
     proto_tree *fcsof_tree = NULL;
@@ -1353,6 +1353,7 @@ dissect_fcsof(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
     /* Call FC dissector */
     call_dissector_with_data(fc_handle, next_tvb, pinfo, tree, &fc_data);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -1564,8 +1565,8 @@ proto_register_fc(void)
 
     /* Register the protocol name and description */
     proto_fc = proto_register_protocol ("Fibre Channel", "FC", "fc");
-    fc_handle = new_register_dissector ("fc", dissect_fc, proto_fc);
-    new_register_dissector ("fc_ifcp", dissect_fc_ifcp, proto_fc);
+    fc_handle = register_dissector ("fc", dissect_fc, proto_fc);
+    register_dissector ("fc_ifcp", dissect_fc_ifcp, proto_fc);
     fc_tap = register_tap("fc");
 
     /* Required function calls to register the header fields and subtrees used */
@@ -1579,7 +1580,7 @@ proto_register_fc(void)
      */
     fcftype_dissector_table = register_dissector_table ("fc.ftype",
                                                         "FC Frame Type",
-                                                        FT_UINT8, BASE_HEX);
+                                                        FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Register preferences */
     fc_module = prefs_register_protocol (proto_fc, NULL);
@@ -1620,7 +1621,7 @@ void
 proto_reg_handoff_fc (void)
 {
     dissector_add_uint("wtap_encap", WTAP_ENCAP_FIBRE_CHANNEL_FC2,
-                       new_create_dissector_handle(dissect_fc_wtap, proto_fc));
+                       create_dissector_handle(dissect_fc_wtap, proto_fc));
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_FIBRE_CHANNEL_FC2_WITH_FRAME_DELIMS, fcsof_handle);
 

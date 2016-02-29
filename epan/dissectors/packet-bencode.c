@@ -281,9 +281,10 @@ static int dissect_bencoding_rec(tvbuff_t *tvb, packet_info *pinfo _U_,
    return -1;
 }
 
-static void dissect_bencoding(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_bencoding(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
    dissect_bencoding_rec(tvb, pinfo, 0, tvb_reported_length(tvb), tree, 0, NULL, 0);
+   return tvb_captured_length(tvb);
 }
 
 void

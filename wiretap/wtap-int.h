@@ -22,7 +22,6 @@
 #define __WTAP_INT_H__
 
 #include <glib.h>
-#include <stdio.h>
 #include <time.h>
 
 #ifdef HAVE_WINSOCK2_H
@@ -32,6 +31,7 @@
 #include <wsutil/file_util.h>
 
 #include "wtap.h"
+#include "wtap_opttypes.h"
 
 WS_DLL_PUBLIC
 int wtap_fstat(wtap *wth, ws_statb64 *statb, int *err);
@@ -40,6 +40,7 @@ typedef gboolean (*subtype_read_func)(struct wtap*, int*, char**, gint64*);
 typedef gboolean (*subtype_seek_read_func)(struct wtap*, gint64,
                                            struct wtap_pkthdr *, Buffer *buf,
                                            int *, char **);
+
 /**
  * Struct holding data of the currently read file.
  */
@@ -50,9 +51,9 @@ struct wtap {
     guint                       snapshot_length;
     struct Buffer               *frame_buffer;
     struct wtap_pkthdr          phdr;
-    struct wtapng_section_s     shb_hdr;
+    wtap_optionblock_t          shb_hdr;
     GArray                      *interface_data;        /**< An array holding the interface data from pcapng IDB:s or equivalent(?)*/
-    wtapng_name_res_t           *nrb_hdr;               /**< holds the Name Res Block's comment/custom_opts, or NULL */
+    wtap_optionblock_t          nrb_hdr;               /**< holds the Name Res Block's comment/custom_opts, or NULL */
 
     void                        *priv;          /* this one holds per-file state and is free'd automatically by wtap_close() */
     void                        *wslua_data;    /* this one holds wslua state info and is not free'd */
@@ -92,29 +93,30 @@ typedef void *WFILE_T;
 typedef gboolean (*subtype_write_func)(struct wtap_dumper*,
                                        const struct wtap_pkthdr*,
                                        const guint8*, int*, gchar**);
-typedef gboolean (*subtype_close_func)(struct wtap_dumper*, int*);
+typedef gboolean (*subtype_finish_func)(struct wtap_dumper*, int*);
 
 struct wtap_dumper {
     WFILE_T                 fh;
+    gboolean                is_stdout;      /* TRUE if we're writing to the standard output */
     int                     file_type_subtype;
     int                     snaplen;
     int                     encap;
     gboolean                compressed;
     gint64                  bytes_dumped;
 
-    void                    *priv;       /* this one holds per-file state and is free'd automatically by wtap_dump_close() */
-    void                    *wslua_data; /* this one holds wslua state info and is not free'd */
+    void                    *priv;          /* this one holds per-file state and is free'd automatically by wtap_dump_close() */
+    void                    *wslua_data;    /* this one holds wslua state info and is not free'd */
 
-    subtype_write_func      subtype_write;
-    subtype_close_func      subtype_close;
+    subtype_write_func      subtype_write;  /* write out a record */
+    subtype_finish_func     subtype_finish; /* write out information to finish writing file */
 
     int                     tsprecision;    /**< timestamp precision of the lower 32bits
                                              * e.g. WTAP_TSPREC_USEC
                                              */
-    addrinfo_lists_t        *addrinfo_lists;    /**< Struct containing lists of resolved addresses */
-    wtapng_section_t        *shb_hdr;
-    wtapng_name_res_t       *nrb_hdr;           /**< name resolution comment/custom_opt, or NULL */
-    GArray                  *interface_data;    /**< An array holding the interface data from pcapng IDB:s or equivalent(?) NULL if not present.*/
+    addrinfo_lists_t        *addrinfo_lists; /**< Struct containing lists of resolved addresses */
+    wtap_optionblock_t       shb_hdr;
+    wtap_optionblock_t       nrb_hdr;        /**< name resolution comment/custom_opt, or NULL */
+    GArray                  *interface_data; /**< An array holding the interface data from pcapng IDB:s or equivalent(?) NULL if not present.*/
 };
 
 WS_DLL_PUBLIC gboolean wtap_dump_file_write(wtap_dumper *wdh, const void *buf,
@@ -247,8 +249,11 @@ extern gint wtap_num_file_types;
 #define g_ptr_array_len(a)      ((a)->len)
 #endif
 
-/*** get GSList of all compressed file extensions ***/
-GSList *wtap_get_compressed_file_extensions(void);
+/*
+ * Table of extensions for compressed file types we support.
+ * Last pointer in the list is null.
+ */
+extern const char *compressed_file_extension_table[];
 
 /*
  * Read a given number of bytes from a file.

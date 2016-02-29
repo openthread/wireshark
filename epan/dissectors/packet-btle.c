@@ -30,6 +30,8 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
+
 #include <wiretap/wtap.h>
 
 #include "packet-btle.h"
@@ -387,14 +389,14 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     else
         interface_id = HCI_INTERFACE_DEFAULT;
 
-    if (bluetooth_data)
-        adapter_id = bluetooth_data->adapter_id;
-    else if (ubertooth_data)
+    if (ubertooth_data)
         adapter_id = ubertooth_data->bus_id << 8 | ubertooth_data->device_address;
+    else if (bluetooth_data)
+        adapter_id = bluetooth_data->adapter_id;
     else
         adapter_id = HCI_ADAPTER_DEFAULT;
 
-    frame_number = pinfo->fd->num;
+    frame_number = pinfo->num;
 
     if (access_address == ACCESS_ADDRESS_ADVERTISING) {
         proto_item  *advertising_header_item;
@@ -425,10 +427,10 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             proto_tree_add_item(advertising_header_tree, hf_advertising_header_randomized_rx, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         }
         proto_tree_add_item(advertising_header_tree, hf_advertising_header_pdu_type, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        proto_item_append_text(advertising_header_item, " (PDU Type: %s, TxAdd=%s, RxAdd=%s)",
+        proto_item_append_text(advertising_header_item, " (PDU Type: %s, RandomRxBdAddr=%s, RandomTxBdAddr=%s)",
                 val_to_str_ext_const(pdu_type, &pdu_type_vals_ext, "Unknown"),
-                (tvb_get_guint8(tvb, offset) & 0x20) ? "true" : "false",
-                (tvb_get_guint8(tvb, offset) & 0x10) ? "true" : "false");
+                (tvb_get_guint8(tvb, offset) & 0x80) ? "true" : "false",
+                (tvb_get_guint8(tvb, offset) & 0x40) ? "true" : "false");
         offset += 1;
 
         col_set_str(pinfo->cinfo, COL_INFO, val_to_str_ext_const(pdu_type, &pdu_type_vals_ext, "Unknown"));
@@ -444,13 +446,13 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         case 0x06: /* ADV_SCAN_IND */
             offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
 
-            SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
-            COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+            set_address(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
+            copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+            copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, 10, "broadcast");
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_dst, &pinfo->net_dst);
-            COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+            set_address(&pinfo->net_dst, AT_STRINGZ, 10, "broadcast");
+            copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+            copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
             if (!pinfo->fd->flags.visited) {
                 address *addr;
@@ -479,13 +481,13 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
             offset = dissect_bd_addr(hf_initiator_addresss, pinfo, btle_tree, tvb, offset, FALSE, interface_id, adapter_id, dst_bd_addr);
 
-            SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
-            COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+            set_address(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
+            copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+            copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            SET_ADDRESS(&pinfo->net_dst, AT_ETHER, 6, dst_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_dst, &pinfo->net_dst);
-            COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+            set_address(&pinfo->net_dst, AT_ETHER, 6, dst_bd_addr);
+            copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+            copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
             if (!pinfo->fd->flags.visited) {
                 address *addr;
@@ -504,13 +506,13 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             offset = dissect_bd_addr(hf_scanning_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
             offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, FALSE, interface_id, adapter_id, dst_bd_addr);
 
-            SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
-            COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+            set_address(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
+            copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+            copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            SET_ADDRESS(&pinfo->net_dst, AT_ETHER, 6, dst_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_dst, &pinfo->net_dst);
-            COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+            set_address(&pinfo->net_dst, AT_ETHER, 6, dst_bd_addr);
+            copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+            copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
             if (!pinfo->fd->flags.visited) {
                 address *addr;
@@ -528,13 +530,13 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         case 0x04: /* SCAN_RSP */
             offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, src_bd_addr);
 
-            SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
-            COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+            set_address(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
+            copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+            copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, 10, "broadcast");
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_dst, &pinfo->net_dst);
-            COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+            set_address(&pinfo->net_dst, AT_STRINGZ, 10, "broadcast");
+            copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+            copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
             if (!pinfo->fd->flags.visited) {
                 address *addr;
@@ -566,13 +568,13 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             offset = dissect_bd_addr(hf_initiator_addresss, pinfo, btle_tree, tvb, offset, FALSE, interface_id, adapter_id, src_bd_addr);
             offset = dissect_bd_addr(hf_advertising_address, pinfo, btle_tree, tvb, offset, TRUE, interface_id, adapter_id, dst_bd_addr);
 
-            SET_ADDRESS(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
-            COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+            set_address(&pinfo->net_src, AT_ETHER, 6, src_bd_addr);
+            copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+            copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            SET_ADDRESS(&pinfo->net_dst, AT_ETHER, 6, dst_bd_addr);
-            COPY_ADDRESS_SHALLOW(&pinfo->dl_dst, &pinfo->net_dst);
-            COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+            set_address(&pinfo->net_dst, AT_ETHER, 6, dst_bd_addr);
+            copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+            copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
             if (!pinfo->fd->flags.visited) {
                 address *addr;
@@ -668,7 +670,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
         wmem_tree = (wmem_tree_t *) wmem_tree_lookup32_array(connection_addresses, key);
         if (wmem_tree) {
-            connection_address = (connection_address_t *) wmem_tree_lookup32_le(wmem_tree, pinfo->fd->num);
+            connection_address = (connection_address_t *) wmem_tree_lookup32_le(wmem_tree, pinfo->num);
             if (connection_address) {
                 gchar  *str_addr;
                 int     str_addr_len = 18 + 1;
@@ -683,13 +685,13 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
                 g_snprintf(str_addr, str_addr_len, "unknown_0x%08x", connection_address->access_address);
 
-                SET_ADDRESS(&pinfo->net_src, AT_STRINGZ, str_addr_len, str_addr);
-                COPY_ADDRESS_SHALLOW(&pinfo->dl_src, &pinfo->net_src);
-                COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
+                set_address(&pinfo->net_src, AT_STRINGZ, str_addr_len, str_addr);
+                copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+                copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-                SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, str_addr_len, str_addr);
-                COPY_ADDRESS_SHALLOW(&pinfo->dl_dst, &pinfo->net_dst);
-                COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+                set_address(&pinfo->net_dst, AT_STRINGZ, str_addr_len, str_addr);
+                copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+                copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
                 if (!pinfo->fd->flags.visited) {
                     address *addr;
@@ -1378,7 +1380,7 @@ proto_register_btle(void)
 
     proto_btle = proto_register_protocol("Bluetooth Low Energy Link Layer",
             "BT LE LL", "btle");
-    btle_handle = new_register_dissector("btle", dissect_btle, proto_btle);
+    btle_handle = register_dissector("btle", dissect_btle, proto_btle);
 
     proto_register_field_array(proto_btle, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

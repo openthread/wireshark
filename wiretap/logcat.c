@@ -107,6 +107,8 @@ static gint detect_version(FILE_T fh, int *err, gchar **err_info)
             entry_len = sizeof(*log_entry_v2) + payload_length;
             if (hdr_size != sizeof(*log_entry_v2))
                 continue;
+        } else {
+            continue;
         }
 
         if (!wtap_read_bytes(fh, buffer + read_sofar, entry_len - read_sofar, err, err_info)) {
@@ -342,7 +344,6 @@ static gboolean logcat_binary_dump(wtap_dumper *wdh,
 gboolean logcat_binary_dump_open(wtap_dumper *wdh, int *err)
 {
     wdh->subtype_write = logcat_binary_dump;
-    wdh->subtype_close = NULL;
 
     switch (wdh->encap) {
         case WTAP_ENCAP_LOGCAT:

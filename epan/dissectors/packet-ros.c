@@ -168,11 +168,11 @@ register_ros_protocol_info(const char *oid, const ros_info_t *rinfo, int proto _
 	  register_ber_oid_dissector_handle(oid, ros_handle, proto, name);
 }
 
-static new_dissector_t ros_lookup_opr_dissector(gint32 opcode_lcl, const ros_opr_t *operations, gboolean argument)
+static dissector_t ros_lookup_opr_dissector(gint32 opcode_lcl, const ros_opr_t *operations, gboolean argument)
 {
 	/* we don't know what order asn2wrs/module definition is, so ... */
 	if(operations) {
-		for(;operations->arg_pdu != (new_dissector_t)(-1); operations++)
+		for(;operations->arg_pdu != (dissector_t)(-1); operations++)
 			if(operations->opcode == opcode_lcl)
 				return argument ? operations->arg_pdu : operations->res_pdu;
 
@@ -180,11 +180,11 @@ static new_dissector_t ros_lookup_opr_dissector(gint32 opcode_lcl, const ros_opr
 	return NULL;
 }
 
-static new_dissector_t ros_lookup_err_dissector(gint32 errcode, const ros_err_t *errors)
+static dissector_t ros_lookup_err_dissector(gint32 errcode, const ros_err_t *errors)
 {
 	/* we don't know what order asn2wrs/module definition is, so ... */
 	if(errors) {
-		for(;errors->err_pdu != (new_dissector_t) (-1); errors++) {
+		for(;errors->err_pdu != (dissector_t) (-1); errors++) {
 			if(errors->errcode == errcode)
 				return errors->err_pdu;
 		}
@@ -200,7 +200,7 @@ ros_try_string(const char *oid, tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 	gint32     opcode_lcl = 0;
 	const gchar *opname = NULL;
 	const gchar *suffix = NULL;
-	new_dissector_t opdissector = NULL;
+	dissector_t opdissector = NULL;
 	const value_string *lookup;
 	proto_item *item=NULL;
 	proto_tree *ros_tree=NULL;
@@ -342,11 +342,11 @@ ros_match_call_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
   rcr.is_request = isInvoke;
 
   if(isInvoke) {
-    rcr.req_frame=pinfo->fd->num;
+    rcr.req_frame=pinfo->num;
     rcr.rep_frame=0;
   } else {
     rcr.req_frame=0;
-    rcr.rep_frame=pinfo->fd->num;
+    rcr.rep_frame=pinfo->num;
   }
 
   rcrp=(ros_call_response_t *)g_hash_table_lookup(ros_info->matched, &rcr);
@@ -378,8 +378,8 @@ ros_match_call_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
 	rcrp=wmem_new(wmem_file_scope(), ros_call_response_t);
       }
       rcrp->invokeId=invokeId;
-      rcrp->req_frame=pinfo->fd->num;
-      rcrp->req_time=pinfo->fd->abs_ts;
+      rcrp->req_frame=pinfo->num;
+      rcrp->req_time=pinfo->abs_ts;
       rcrp->rep_frame=0;
       rcrp->is_request=TRUE;
       g_hash_table_insert(ros_info->unmatched, rcrp, rcrp);
@@ -396,7 +396,7 @@ ros_match_call_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
 
 	if(!rcrp->rep_frame){
 	  g_hash_table_remove(ros_info->unmatched, rcrp);
-	  rcrp->rep_frame=pinfo->fd->num;
+	  rcrp->rep_frame=pinfo->num;
 	  rcrp->is_request=FALSE;
 	  g_hash_table_insert(ros_info->matched, rcrp, rcrp);
 	}
@@ -414,7 +414,7 @@ ros_match_call_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
       nstime_t ns;
       item=proto_tree_add_uint(tree, hf_ros_response_to, tvb, 0, 0, rcrp->req_frame);
       PROTO_ITEM_SET_GENERATED (item);
-      nstime_delta(&ns, &pinfo->fd->abs_ts, &rcrp->req_time);
+      nstime_delta(&ns, &pinfo->abs_ts, &rcrp->req_time);
       item=proto_tree_add_time(tree, hf_ros_time, tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (item);
     }
@@ -1272,14 +1272,14 @@ void proto_register_ros(void) {
 
   /* Register protocol */
   proto_ros = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  new_register_dissector("ros", dissect_ros, proto_ros);
+  register_dissector("ros", dissect_ros, proto_ros);
   /* Register fields and subtrees */
   proto_register_field_array(proto_ros, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_ros = expert_register_protocol(proto_ros);
   expert_register_field_array(expert_ros, ei, array_length(ei));
 
-  ros_oid_dissector_table = register_dissector_table("ros.oid", "ROS OID Dissectors", FT_STRING, BASE_NONE);
+  ros_oid_dissector_table = register_dissector_table("ros.oid", "ROS OID Dissectors", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
   oid_table=g_hash_table_new(g_str_hash, g_str_equal);
   protocol_table=g_hash_table_new(g_str_hash, g_str_equal);
 

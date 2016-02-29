@@ -997,9 +997,11 @@ dissect_quic_tag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *quic_tree, guint
                 tag_len -= 4;
             break;
             case TAG_CCS:
-                proto_tree_add_item(tag_tree, hf_quic_tag_ccs, tvb, tag_offset_start + tag_offset, 8, ENC_NA);
-                tag_offset += 8;
-                tag_len -= 8;
+                while(tag_len > 0){
+                    proto_tree_add_item(tag_tree, hf_quic_tag_ccs, tvb, tag_offset_start + tag_offset, 8, ENC_NA);
+                    tag_offset += 8;
+                    tag_len -= 8;
+                }
             break;
             case TAG_PDMD:
                 proto_tree_add_item(tag_tree, hf_quic_tag_pdmd, tvb, tag_offset_start + tag_offset, tag_len, ENC_ASCII|ENC_NA);
@@ -1181,7 +1183,8 @@ dissect_quic_tag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *quic_tree, guint
         if(tag_len){
             /* Wrong Tag len... */
             proto_tree_add_expert(tag_tree, pinfo, &ei_quic_tag_unknown, tvb, tag_offset_start + tag_offset, tag_len);
-            tag_len  -= tag_len;
+            tag_offset += tag_len;
+            tag_len -= tag_len;
         }
 
         tag_number--;
@@ -1559,23 +1562,18 @@ dissect_quic_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
     }
 
+    col_append_fstr(pinfo->cinfo, COL_INFO, ", Seq: %" G_GINT64_MODIFIER "u", seq);
+
     if(cid){
         col_append_fstr(pinfo->cinfo, COL_INFO, ", CID: %" G_GINT64_MODIFIER "u", cid);
     }
-    col_append_fstr(pinfo->cinfo, COL_INFO, ", Seq: %" G_GINT64_MODIFIER "u", seq);
+
 
     return offset;
 }
 
 static int
 dissect_quic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-              void *data _U_)
-{
-    return dissect_quic_common(tvb, pinfo, tree, NULL);
-}
-
-static int
-dissect_quics(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
               void *data _U_)
 {
     return dissect_quic_common(tvb, pinfo, tree, NULL);
@@ -1666,7 +1664,7 @@ proto_register_quic(void)
               "The hash is an FNV1a-128 hash, serialized in little endian order", HFILL }
         },
         { &hf_quic_frame,
-            { "Frame", "quic.frame_type",
+            { "Frame", "quic.frame",
                FT_NONE, BASE_NONE, NULL, 0x0,
               NULL, HFILL }
         },
@@ -1881,7 +1879,7 @@ proto_register_quic(void)
               NULL, HFILL }
         },
         { &hf_quic_data_len,
-            { "Data Length", "quic.offset_len",
+            { "Data Length", "quic.data_len",
                FT_UINT32, BASE_DEC, NULL, 0x0,
               NULL, HFILL }
         },
@@ -2105,7 +2103,7 @@ proto_register_quic(void)
     static ei_register_info ei[] = {
         { &ei_quic_tag_undecoded, { "quic.tag.undecoded", PI_UNDECODED, PI_NOTE, "Dissector for QUIC Tag code not implemented, Contact Wireshark developers if you want this supported", EXPFILL }},
         { &ei_quic_tag_length, { "quic.tag.length.truncated", PI_MALFORMED, PI_NOTE, "Truncated Tag Length...", EXPFILL }},
-        { &ei_quic_tag_unknown, { "quic.tag.unknown", PI_UNDECODED, PI_NOTE, "Unknown Data", EXPFILL }}
+        { &ei_quic_tag_unknown, { "quic.tag.unknown.data", PI_UNDECODED, PI_NOTE, "Unknown Data", EXPFILL }}
 
     };
 
@@ -2137,20 +2135,17 @@ proto_reg_handoff_quic(void)
 {
     static gboolean initialized = FALSE;
     static dissector_handle_t quic_handle;
-    static dissector_handle_t quics_handle;
     static int current_quic_port;
     static int current_quics_port;
 
     if (!initialized) {
-        quic_handle = new_create_dissector_handle(dissect_quic,
-                proto_quic);
-        quics_handle = new_create_dissector_handle(dissect_quics,
+        quic_handle = create_dissector_handle(dissect_quic,
                 proto_quic);
         initialized = TRUE;
 
     } else {
         dissector_delete_uint("udp.port", current_quic_port, quic_handle);
-        dissector_delete_uint("udp.port", current_quics_port, quics_handle);
+        dissector_delete_uint("udp.port", current_quics_port, quic_handle);
     }
 
     current_quic_port = g_quic_port;
@@ -2158,7 +2153,7 @@ proto_reg_handoff_quic(void)
 
 
     dissector_add_uint("udp.port", current_quic_port, quic_handle);
-    dissector_add_uint("udp.port", current_quics_port, quics_handle);
+    dissector_add_uint("udp.port", current_quics_port, quic_handle);
 }
 
 

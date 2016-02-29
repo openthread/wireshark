@@ -46,6 +46,9 @@
 #include <epan/asn1.h>
 #include <epan/strutil.h>
 #include <epan/uat.h>
+#include <epan/proto_data.h>
+
+#include <wsutil/str_util.h>
 
 #include "packet-p1.h"
 #include "packet-p22.h"
@@ -363,13 +366,16 @@ static int hf_analysis_total_time = -1;
 static int hf_analysis_retrans_time = -1;
 static int hf_analysis_total_retrans_time = -1;
 static int hf_analysis_msg_num = -1;
+static int hf_analysis_acks_msg_num = -1;
 static int hf_analysis_retrans_no = -1;
 static int hf_analysis_ack_num = -1;
 static int hf_analysis_ack_missing = -1;
 static int hf_analysis_ack_dup_no = -1;
 static int hf_analysis_rep_num = -1;
+static int hf_analysis_acks_rep_num = -1;
 static int hf_analysis_rep_time = -1;
 static int hf_analysis_not_num = -1;
+static int hf_analysis_acks_not_num = -1;
 static int hf_analysis_not_time = -1;
 static int hf_analysis_msg_resend_from = -1;
 static int hf_analysis_rep_resend_from = -1;
@@ -1376,8 +1382,8 @@ static gint dmp_id_hash_equal (gconstpointer k1, gconstpointer k2)
   if (dmp1->id != dmp2->id)
     return 0;
 
-  return (ADDRESSES_EQUAL (&dmp1->src, &dmp2->src) &&
-          ADDRESSES_EQUAL (&dmp1->dst, &dmp2->dst));
+  return (addresses_equal (&dmp1->src, &dmp2->src) &&
+          addresses_equal (&dmp1->dst, &dmp2->dst));
 }
 
 static void register_dmp_id (packet_info *pinfo, guint8 reason)
@@ -1401,8 +1407,8 @@ static void register_dmp_id (packet_info *pinfo, guint8 reason)
   {
     /* Try to match corresponding message */
     dmp_key->id = (guint) dmp.subj_id;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &dmp_key->src, &(pinfo->dst));
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &dmp_key->dst, &(pinfo->src));
+    copy_address_wmem(wmem_file_scope(), &dmp_key->src, &(pinfo->dst));
+    copy_address_wmem(wmem_file_scope(), &dmp_key->dst, &(pinfo->src));
 
     dmp_data = (dmp_id_val *) g_hash_table_lookup (dmp_id_hash_table, dmp_key);
 
@@ -1419,12 +1425,12 @@ static void register_dmp_id (packet_info *pinfo, guint8 reason)
 
   if (dmp.msg_type == ACK) {
     dmp_key->id = (guint) dmp.subj_id;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &dmp_key->src, &(pinfo->dst));
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &dmp_key->dst, &(pinfo->src));
+    copy_address_wmem(wmem_file_scope(), &dmp_key->src, &(pinfo->dst));
+    copy_address_wmem(wmem_file_scope(), &dmp_key->dst, &(pinfo->src));
   } else {
     dmp_key->id = (guint) dmp.msg_id;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &dmp_key->src, &(pinfo->src));
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &dmp_key->dst, &(pinfo->dst));
+    copy_address_wmem(wmem_file_scope(), &dmp_key->src, &(pinfo->src));
+    copy_address_wmem(wmem_file_scope(), &dmp_key->dst, &(pinfo->dst));
   }
 
   dmp_data = (dmp_id_val *) g_hash_table_lookup (dmp_id_hash_table, dmp_key);
@@ -1436,7 +1442,7 @@ static void register_dmp_id (packet_info *pinfo, guint8 reason)
         if (reason == 0) {
           if (dmp_data->ack_id == 0) {
             /* Only save reference to first ACK */
-            dmp_data->ack_id = pinfo->fd->num;
+            dmp_data->ack_id = pinfo->num;
           } else {
             /* Only count when resending */
             dmp_data->ack_resend_count++;
@@ -1445,9 +1451,9 @@ static void register_dmp_id (packet_info *pinfo, guint8 reason)
       } else {
         /* Message resent */
         dmp_data->msg_resend_count++;
-        dmp_data->prev_msg_id = pinfo->fd->num;
+        dmp_data->prev_msg_id = pinfo->num;
         dmp_data->prev_msg_time = dmp_data->msg_time;
-        dmp_data->msg_time = pinfo->fd->abs_ts;
+        dmp_data->msg_time = pinfo->abs_ts;
       }
     } else {
       /* New message */
@@ -1456,21 +1462,21 @@ static void register_dmp_id (packet_info *pinfo, guint8 reason)
 
       if (dmp.msg_type == ACK) {
         /* No matching message for this ack */
-        dmp_data->ack_id = pinfo->fd->num;
+        dmp_data->ack_id = pinfo->num;
       } else {
-        dmp_data->first_msg_time = pinfo->fd->abs_ts;
-        dmp_data->msg_time = pinfo->fd->abs_ts;
+        dmp_data->first_msg_time = pinfo->abs_ts;
+        dmp_data->msg_time = pinfo->abs_ts;
 
         if (dmp.msg_type == REPORT) {
-          dmp_data->rep_id = pinfo->fd->num;
+          dmp_data->rep_id = pinfo->num;
           dmp_data->msg_id = msg_id;
           dmp_data->rep_not_msg_time = msg_time;
         } else if (dmp.msg_type == NOTIF) {
-          dmp_data->not_id = pinfo->fd->num;
+          dmp_data->not_id = pinfo->num;
           dmp_data->msg_id = msg_id;
           dmp_data->rep_not_msg_time = msg_time;
         } else {
-          dmp_data->msg_id = pinfo->fd->num;
+          dmp_data->msg_id = pinfo->num;
         }
 
         g_hash_table_insert (dmp_id_hash_table, dmp_key, dmp_data);
@@ -1536,7 +1542,7 @@ static void dmp_add_seq_ack_analysis (tvbuff_t *tvb, packet_info *pinfo,
                                   tvb, 0, 0, dmp.id_val->msg_id);
         PROTO_ITEM_SET_GENERATED (en);
 
-        nstime_delta (&ns, &pinfo->fd->abs_ts, &dmp.id_val->rep_not_msg_time);
+        nstime_delta (&ns, &pinfo->abs_ts, &dmp.id_val->rep_not_msg_time);
         en = proto_tree_add_time (analysis_tree, hf_analysis_rep_time,
                                   tvb, 0, 0, &ns);
         PROTO_ITEM_SET_GENERATED (en);
@@ -1549,7 +1555,7 @@ static void dmp_add_seq_ack_analysis (tvbuff_t *tvb, packet_info *pinfo,
                                   tvb, 0, 0, dmp.id_val->msg_id);
         PROTO_ITEM_SET_GENERATED (en);
 
-        nstime_delta (&ns, &pinfo->fd->abs_ts, &dmp.id_val->rep_not_msg_time);
+        nstime_delta (&ns, &pinfo->abs_ts, &dmp.id_val->rep_not_msg_time);
         en = proto_tree_add_time (analysis_tree, hf_analysis_not_time,
                                   tvb, 0, 0, &ns);
         PROTO_ITEM_SET_GENERATED (en);
@@ -1577,12 +1583,12 @@ static void dmp_add_seq_ack_analysis (tvbuff_t *tvb, packet_info *pinfo,
       }
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &dmp.id_val->prev_msg_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &dmp.id_val->prev_msg_time);
       en = proto_tree_add_time (analysis_tree, hf_analysis_retrans_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &dmp.id_val->first_msg_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &dmp.id_val->first_msg_time);
       eh = proto_tree_add_time (analysis_tree, hf_analysis_total_retrans_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (eh);
@@ -1596,23 +1602,23 @@ static void dmp_add_seq_ack_analysis (tvbuff_t *tvb, packet_info *pinfo,
   } else if (dmp.msg_type == ACK) {
     if (dmp.id_val->msg_type != ACK) {
       if (dmp.id_val->msg_type == REPORT) {
-        en = proto_tree_add_uint (analysis_tree, hf_analysis_rep_num,
+        en = proto_tree_add_uint (analysis_tree, hf_analysis_acks_rep_num,
                                   tvb, 0, 0, dmp.id_val->rep_id);
       } else if (dmp.id_val->msg_type == NOTIF) {
-        en = proto_tree_add_uint (analysis_tree, hf_analysis_not_num,
+        en = proto_tree_add_uint (analysis_tree, hf_analysis_acks_not_num,
                                   tvb, 0, 0, dmp.id_val->not_id);
       } else {
-        en = proto_tree_add_uint (analysis_tree, hf_analysis_msg_num,
+        en = proto_tree_add_uint (analysis_tree, hf_analysis_acks_msg_num,
                                   tvb, 0, 0, dmp.id_val->msg_id);
       }
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &dmp.id_val->msg_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &dmp.id_val->msg_time);
       en = proto_tree_add_time (analysis_tree, hf_analysis_ack_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &dmp.id_val->first_msg_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &dmp.id_val->first_msg_time);
       eh = proto_tree_add_time (analysis_tree, hf_analysis_total_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (eh);
@@ -2947,7 +2953,7 @@ static gint dissect_dmp_envelope (tvbuff_t *tvb, packet_info *pinfo,
   /* Submission Time */
   subm_time = tvb_get_ntohs (tvb, offset);
   dmp.subm_time = dmp_dec_subm_time ((guint16)(subm_time & 0x7FFF),
-                                     (gint32) pinfo->fd->abs_ts.secs);
+                                     (gint32) pinfo->abs_ts.secs);
   tf = proto_tree_add_uint_format (envelope_tree, hf_envelope_subm_time, tvb,
                                    offset, 2, subm_time,
                                    "Submission time: %s",
@@ -4373,7 +4379,7 @@ void proto_register_dmp (void)
       { "Recipient Number (bits 14-7)", "dmp.rec_no_offset2", FT_UINT8,
         BASE_DEC, NULL, 0xFF, "Recipient Number (bits 14-7) Offset", HFILL } },
     { &hf_addr_ext_address,
-      { "Extended Address", "dmp.addr_form", FT_NONE, BASE_NONE,
+      { "Extended Address", "dmp.addr_form_ext", FT_NONE, BASE_NONE,
         NULL, 0x0, NULL, HFILL } },
     { &hf_addr_ext_type,
       { "Address Type", "dmp.addr_type", FT_UINT8, BASE_DEC,
@@ -4624,13 +4630,13 @@ void proto_register_dmp (void)
       { "Structured Id", "dmp.body.id", FT_UINT32, BASE_DEC,
         NULL, 0x0, "Structured Body Id (4 bytes)", HFILL } },
     { &hf_message_bodyid_uint64,
-      { "Structured Id", "dmp.body.id", FT_UINT64, BASE_DEC,
+      { "Structured Id", "dmp.body.id64", FT_UINT64, BASE_DEC,
         NULL, 0x0, "Structured Body Id (8 bytes)", HFILL } },
     { &hf_message_bodyid_string,
-      { "Structured Id", "dmp.body.id", FT_STRING, BASE_NONE,
+      { "Structured Id", "dmp.body.idstring", FT_STRING, BASE_NONE,
         NULL, 0x0, "Structured Body Id (fixed text string)", HFILL } },
     { &hf_message_bodyid_zstring,
-      { "Structured Id", "dmp.body.id", FT_STRINGZ, BASE_NONE,
+      { "Structured Id", "dmp.body.idstring", FT_STRINGZ, BASE_NONE,
         NULL, 0x0, "Structured Body Id (zero terminated text string)",
         HFILL } },
     { &hf_message_body_structured,
@@ -4784,15 +4790,24 @@ void proto_register_dmp (void)
     { &hf_analysis_msg_num,
       { "Message in", "dmp.analysis.msg_in", FT_FRAMENUM, BASE_NONE,
         NULL, 0x0, "This packet has a Message in this frame", HFILL } },
+    { &hf_analysis_acks_msg_num,
+      { "This is an Ack to the Message in", "dmp.analysis.acks_msg_in", FT_FRAMENUM, BASE_NONE,
+        FRAMENUM_TYPE(FT_FRAMENUM_ACK), 0x0, "This packet ACKs a Message in this frame", HFILL } },
     { &hf_analysis_ack_num,
       { "Acknowledgement in", "dmp.analysis.ack_in", FT_FRAMENUM, BASE_NONE,
         NULL, 0x0, "This packet has an Acknowledgement in this frame", HFILL } },
     { &hf_analysis_rep_num,
       { "Report in", "dmp.analysis.report_in", FT_FRAMENUM, BASE_NONE,
         NULL, 0x0, "This packet has a Report in this frame", HFILL } },
+    { &hf_analysis_acks_rep_num,
+      { "This is an Ack to the Report in", "dmp.analysis.acks_report_in", FT_FRAMENUM, BASE_NONE,
+        FRAMENUM_TYPE(FT_FRAMENUM_ACK), 0x0, "This packet ACKs a Report in this frame", HFILL } },
     { &hf_analysis_not_num,
       { "Notification in", "dmp.analysis.notif_in", FT_FRAMENUM, BASE_NONE,
         NULL, 0x0, "This packet has a Notification in this frame", HFILL } },
+    { &hf_analysis_acks_not_num,
+      { "This is an Ack to the Notification in", "dmp.analysis.acks_notif_in", FT_FRAMENUM, BASE_NONE,
+        FRAMENUM_TYPE(FT_FRAMENUM_ACK), 0x0, "This packet ACKs a Notification in this frame", HFILL } },
     { &hf_analysis_ack_missing,
       { "Acknowledgement missing", "dmp.analysis.ack_missing", FT_NONE, BASE_NONE,
         NULL, 0x0, "The acknowledgement for this packet is missing", HFILL } },
@@ -4981,7 +4996,7 @@ void proto_register_dmp (void)
 
   proto_dmp = proto_register_protocol (PNAME, PSNAME, PFNAME);
 
-  dmp_handle = new_register_dissector(PFNAME, dissect_dmp, proto_dmp);
+  dmp_handle = register_dissector(PFNAME, dissect_dmp, proto_dmp);
 
   proto_register_field_array (proto_dmp, hf, array_length (hf));
   proto_register_subtree_array (ett, array_length (ett));

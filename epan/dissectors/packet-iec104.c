@@ -112,7 +112,7 @@ static const value_string apci_types [] = {
 };
 
 /* Constants relative to the filed, independent of the field position in the byte */
-/* U (Unnombered) constants */
+/* U (Unnumbered) constants */
 #define U_STARTDT_ACT 		0x01
 #define U_STARTDT_CON	 	0x02
 #define U_STOPDT_ACT 		0x04
@@ -363,7 +363,7 @@ static const td_asdu_length asdu_length [] = {
 	{ 0, 0 }
 };
 
-/* Cause of Transmision (CauseTx) */
+/* Cause of Transmission (CauseTx) */
 #define Per_Cyc         1
 #define Back            2
 #define Spont           3
@@ -489,22 +489,22 @@ static const value_string coi_r_types[] = {
 static const value_string qoi_r_types[] = {
 	{ 0,		"Not specified" },
 	{ 20,		"Station interrogation (global)" },
-	{ 21,		"Group 1 interrotagion" },
-	{ 22,		"Group 2 interrotagion" },
-	{ 23,		"Group 3 interrotagion" },
-	{ 24,		"Group 4 interrotagion" },
-	{ 25,		"Group 5 interrotagion" },
-	{ 26,		"Group 6 interrotagion" },
-	{ 27,		"Group 7 interrotagion" },
-	{ 28,		"Group 8 interrotagion" },
-	{ 29,		"Group 9 interrotagion" },
-	{ 30,		"Group 10 interrotagion" },
-	{ 31,		"Group 11 interrotagion" },
-	{ 32,		"Group 12 interrotagion" },
-	{ 33,		"Group 13 interrotagion" },
-	{ 34,		"Group 14 interrotagion" },
-	{ 35,		"Group 15 interrotagion" },
-	{ 36,		"Group 16 interrotagion" },
+	{ 21,		"Group 1 interrogation" },
+	{ 22,		"Group 2 interrogation" },
+	{ 23,		"Group 3 interrogation" },
+	{ 24,		"Group 4 interrogation" },
+	{ 25,		"Group 5 interrogation" },
+	{ 26,		"Group 6 interrogation" },
+	{ 27,		"Group 7 interrogation" },
+	{ 28,		"Group 8 interrogation" },
+	{ 29,		"Group 9 interrogation" },
+	{ 30,		"Group 10 interrogation" },
+	{ 31,		"Group 11 interrogation" },
+	{ 32,		"Group 12 interrogation" },
+	{ 33,		"Group 13 interrogation" },
+	{ 34,		"Group 14 interrogation" },
+	{ 35,		"Group 15 interrogation" },
+	{ 36,		"Group 16 interrogation" },
 	{ 0, NULL }
 };
 
@@ -1054,7 +1054,7 @@ static guint get_iec104apdu_len(packet_info *pinfo _U_, tvbuff_t *tvb,
 
 
 /* Is is called twice: For 'Packet List' and for 'Packet Details' */
-static void dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint Len = tvb_reported_length(tvb);
 	guint8 Bytex;
@@ -1196,7 +1196,7 @@ static void dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 					/* check length */
 					if(Len < (guint)(offset + 3)) {
 						expert_add_info(pinfo, itSignal, &ei_iec104_short_asdu);
-						return;
+						return offset;
 					}
 					get_InfoObjectAddress(&asdu_info_obj_addr, tvb, &offset, trSignal);
 				} else {
@@ -1212,7 +1212,7 @@ static void dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 						/* check length */
 						if(Len < (guint)(offset + 3)) {
 							expert_add_info(pinfo, itSignal, &ei_iec104_short_asdu);
-							return;
+							return offset;
 						}
 						get_InfoObjectAddress(&asdu_info_obj_addr, tvb, &offset, trSignal);
 					}
@@ -1223,7 +1223,7 @@ static void dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 				/* check length */
 				if(Len < (guint)(offset + asduh.DataLength)) {
 					expert_add_info(pinfo, itSignal, &ei_iec104_short_asdu);
-					return;
+					return offset;
 				}
 
 				switch (asduh.TypeId) {
@@ -1371,6 +1371,7 @@ static void dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 			break;
 	} /* end 'switch (asdu_typeid)' */
 
+	return tvb_captured_length(tvb);
 }
 
 
@@ -1393,6 +1394,7 @@ static int dissect_iec104apci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
 	res = wmem_strbuf_new_label(wmem_packet_scope());
 
+	Start = 0;
 	for (Off = 0; Off <= TcpLen - 2; Off++) {
 		Start = tvb_get_guint8(tvb, Off);
 		if (Start == APCI_START) {
@@ -1854,7 +1856,7 @@ proto_reg_handoff_iec104(void)
 {
 	dissector_handle_t iec104apci_handle;
 
-	iec104apci_handle = new_create_dissector_handle(dissect_iec104reas, proto_iec104apci);
+	iec104apci_handle = create_dissector_handle(dissect_iec104reas, proto_iec104apci);
 	iec104asdu_handle = create_dissector_handle(dissect_iec104asdu, proto_iec104asdu);
 
 	dissector_add_uint("tcp.port", IEC104_PORT, iec104apci_handle);

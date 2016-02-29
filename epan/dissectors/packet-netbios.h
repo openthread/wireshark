@@ -30,8 +30,6 @@
 /* Length of NetBIOS names */
 #define NETBIOS_NAME_LEN	16
 
-void capture_netbios(packet_counts *);
-
 extern int process_netbios_name(const guchar *name_ptr, char *name_ret, int name_ret_len);
 extern int get_netbios_name(tvbuff_t *tvb, int offset,
     char *name_ret, int name_ret_len);

@@ -1068,8 +1068,8 @@ ehs_data_zone_dissector ( int protocol, proto_tree* ehs_tree, tvbuff_t* tvb, int
 
 
 /* Code to actually dissect the packets */
-static void
-dissect_ehs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ehs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   int         offset = 0;
   guint16     first_word;
@@ -1193,6 +1193,7 @@ dissect_ehs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   /* build the ehs data zone tree for well known protocols such as AOS/LOS and UDSM */
   ehs_data_zone_dissector ( protocol, ehs_tree, tvb, &offset, pinfo );
 
+  return tvb_captured_length(tvb);
 }
 
 

@@ -668,8 +668,8 @@ dissect_mp4ves_VisualObjectSequence(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 	return bit_offset;
 }
 
-void
-dissect_mp4ves_config(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mp4ves_config(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *item;
 	proto_tree *mp4ves_tree;
@@ -678,10 +678,11 @@ dissect_mp4ves_config(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	mp4ves_tree = proto_item_add_subtree(item, ett_mp4ves_config);
 
 	dissect_mp4ves_VisualObjectSequence(tvb, pinfo, mp4ves_tree, 0);
+	return tvb_captured_length(tvb);
 }
 
-static void
-dissect_mp4ves(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mp4ves(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int bit_offset = 0;
 	proto_item *item;
@@ -731,7 +732,7 @@ dissect_mp4ves(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	GOV	- Group_of_VideoObjectPlane
 	VOP	- Video Object Plane
 	VP	- Video Plane
-	Otherwies it's a VOP fragment.
+	Otherwise it's a VOP fragment.
 
 	visual_object_sequence_start_code: The visual_object_sequence_start_code is
 	the bit string '000001B0' in hexadecimal. It initiates a visual session.
@@ -746,13 +747,13 @@ dissect_mp4ves(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		if (tvb_reported_length(tvb)< 4){
 			/* To short to be a start code */
 			proto_tree_add_item(mp4ves_tree, hf_mp4ves_data, tvb, bit_offset>>3, -1, ENC_NA);
-			return;
+			return tvb_captured_length(tvb);
 		}
 		dword = tvb_get_bits32(tvb,bit_offset, 24, ENC_BIG_ENDIAN);
 		if (dword != 1){
 			/* if it's not 23 zeros followed by 1 it isn't a start code */
 			proto_tree_add_item(mp4ves_tree, hf_mp4ves_data, tvb, bit_offset>>3, -1, ENC_NA);
-			return;
+			return tvb_captured_length(tvb);
 		}
 		dword = tvb_get_bits8(tvb,24, 8);
 		bit_offset = bit_offset+8;
@@ -775,6 +776,7 @@ dissect_mp4ves(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 	}
 
+	return tvb_captured_length(tvb);
 }
 /*
  * Parameter name profileAndLevel
@@ -841,7 +843,7 @@ dissect_mp4ves_par_decoderConfigurationInformation(tvbuff_t *tvb, packet_info *p
 	actx = get_asn1_ctx(data);
 	DISSECTOR_ASSERT(actx);
 
-	dissect_mp4ves_config(tvb, pinfo, tree);
+	dissect_mp4ves_config(tvb, pinfo, tree, data);
 
 	return tvb_reported_length(tvb);
 }
@@ -849,7 +851,7 @@ dissect_mp4ves_par_decoderConfigurationInformation(tvbuff_t *tvb, packet_info *p
 typedef struct _mp4ves_capability_t {
 	const gchar *id;
 	const gchar *name;
-	new_dissector_t content_pdu;
+	dissector_t content_pdu;
 } mp4ves_capability_t;
 
 static mp4ves_capability_t mp4ves_capability_tab[] = {
@@ -1016,6 +1018,7 @@ proto_register_mp4ves(void)
 	/* Register a configuration option for port */
 
 	register_dissector("mp4ves", dissect_mp4ves, proto_mp4ves);
+	register_dissector("mp4ves_config", dissect_mp4ves_config, proto_mp4ves);
 
 	/* Register a configuration option for port */
 	mp4ves_module = prefs_register_protocol(proto_mp4ves, proto_reg_handoff_mp4ves);
@@ -1044,12 +1047,12 @@ proto_reg_handoff_mp4ves(void)
 		dissector_add_string("rtp_dyn_payload_type","MP4V-ES", mp4ves_handle);
 		mp4ves_prefs_initialized = TRUE;
 
-		mp4ves_name_handle = new_create_dissector_handle(dissect_mp4ves_name, proto_mp4ves);
+		mp4ves_name_handle = create_dissector_handle(dissect_mp4ves_name, proto_mp4ves);
 		for (ftr=mp4ves_capability_tab; ftr->id; ftr++) {
 		    if (ftr->name)
 				dissector_add_string("h245.gef.name", ftr->id, mp4ves_name_handle);
 			if (ftr->content_pdu)
-				dissector_add_string("h245.gef.content", ftr->id, new_create_dissector_handle(ftr->content_pdu, proto_mp4ves));
+				dissector_add_string("h245.gef.content", ftr->id, create_dissector_handle(ftr->content_pdu, proto_mp4ves));
 		}
 	}else{
 		if ( dynamic_payload_type > 95 )

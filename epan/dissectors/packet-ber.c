@@ -27,7 +27,7 @@
  *     Specification of Basic Encoding Rules (BER), Canonical Encoding Rules (CER) and Distinguished Encoding Rules (DER)
  *
  */
-/* TODO: change #.REGISTER signature to new_dissector_t and
+/* TODO: change #.REGISTER signature to dissector_t and
  * update call_ber_oid_callback() accordingly.
  *
  * Since we don't pass the TAG/LENGTH from the CHOICE/SEQUENCE/SEQUENCE OF/
@@ -188,6 +188,7 @@ static expert_field ei_ber_illegal_padding = EI_INIT;
 static expert_field ei_ber_invalid_format_generalized_time = EI_INIT;
 static expert_field ei_ber_invalid_format_utctime = EI_INIT;
 static expert_field ei_hf_field_not_integer_type = EI_INIT;
+static expert_field ei_ber_constr_bitstr = EI_INIT;
 
 static dissector_handle_t ber_handle;
 
@@ -405,22 +406,22 @@ static void ber_populate_list(const gchar *table_name _U_, decode_as_add_to_list
     ber_decode_as_foreach(decode_ber_add_to_list, &populate);
 }
 
-static gboolean ber_decode_as_reset(const char *name _U_, const gpointer pattern _U_)
+static gboolean ber_decode_as_reset(const char *name _U_, gconstpointer pattern _U_)
 {
     ber_decode_as(NULL);
     return FALSE;
 }
 
-static gboolean ber_decode_as_change(const char *name _U_, const gpointer pattern _U_, gpointer handle _U_, gchar* list_name)
+static gboolean ber_decode_as_change(const char *name _U_, gconstpointer pattern _U_, gpointer handle _U_, gchar* list_name)
 {
     ber_decode_as(list_name);
     return FALSE;
 }
 
-void
-dissect_ber_oid_NULL_callback(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_)
+int
+dissect_ber_oid_NULL_callback(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void* data _U_)
 {
-    return;
+    return tvb_captured_length(tvb);
 }
 
 
@@ -442,31 +443,11 @@ register_ber_oid_dissector(const char *oid, dissector_t dissector, int proto, co
 }
 
 void
-new_register_ber_oid_dissector(const char *oid, new_dissector_t dissector, int proto, const char *name)
-{
-    dissector_handle_t dissector_handle;
-
-    dissector_handle = new_create_dissector_handle(dissector, proto);
-    dissector_add_string("ber.oid", oid, dissector_handle);
-    oid_add_from_string(name, oid);
-}
-
-void
 register_ber_syntax_dissector(const char *syntax, int proto, dissector_t dissector)
 {
     dissector_handle_t dissector_handle;
 
     dissector_handle = create_dissector_handle(dissector, proto);
-    dissector_add_string("ber.syntax", syntax, dissector_handle);
-
-}
-
-void
-new_register_ber_syntax_dissector(const char *syntax, int proto, new_dissector_t dissector)
-{
-    dissector_handle_t dissector_handle;
-
-    dissector_handle = new_create_dissector_handle(dissector, proto);
     dissector_add_string("ber.syntax", syntax, dissector_handle);
 
 }
@@ -1440,7 +1421,10 @@ static void ber_defragment_cleanup(void) {
 }
 
 static int
-reassemble_octet_string(asn1_ctx_t *actx, proto_tree *tree, gint hf_id, tvbuff_t *tvb, int offset, guint32 con_len, gboolean ind, tvbuff_t **out_tvb)
+dissect_ber_constrained_octet_string_impl(gboolean implicit_tag, asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int offset, gint32 min_len, gint32 max_len, gint hf_id, tvbuff_t **out_tvb, guint nest_level);
+
+static int
+reassemble_octet_string(asn1_ctx_t *actx, proto_tree *tree, gint hf_id, tvbuff_t *tvb, int offset, guint32 con_len, gboolean ind, tvbuff_t **out_tvb, guint nest_level)
 {
     fragment_head *fd_head         = NULL;
     tvbuff_t      *next_tvb        = NULL;
@@ -1449,6 +1433,11 @@ reassemble_octet_string(asn1_ctx_t *actx, proto_tree *tree, gint hf_id, tvbuff_t
     int            start_offset    = offset;
     gboolean       fragment        = TRUE;
     gboolean       firstFragment   = TRUE;
+
+    if (nest_level > BER_MAX_NESTING) {
+        /* Assume that we have a malformed packet. */
+        THROW(ReportedBoundsError);
+    }
 
     /* so we need to consume octet strings for the given length */
 
@@ -1463,7 +1452,8 @@ reassemble_octet_string(asn1_ctx_t *actx, proto_tree *tree, gint hf_id, tvbuff_t
 
     while(!fd_head) {
 
-        offset = dissect_ber_octet_string(FALSE, actx, NULL, tvb, offset, hf_id, &next_tvb);
+        offset = dissect_ber_constrained_octet_string_impl(FALSE, actx, NULL,
+                tvb, offset, NO_BOUND, NO_BOUND, hf_id, &next_tvb, nest_level + 1);
 
         if (next_tvb == NULL) {
             /* Assume that we have a malformed packet. */
@@ -1539,6 +1529,11 @@ reassemble_octet_string(asn1_ctx_t *actx, proto_tree *tree, gint hf_id, tvbuff_t
 /* 8.7 Encoding of an octetstring value */
 int
 dissect_ber_constrained_octet_string(gboolean implicit_tag, asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int offset, gint32 min_len, gint32 max_len, gint hf_id, tvbuff_t **out_tvb) {
+  return dissect_ber_constrained_octet_string_impl(implicit_tag, actx, tree, tvb, offset, min_len, max_len, hf_id, out_tvb, 0);
+}
+
+static int
+dissect_ber_constrained_octet_string_impl(gboolean implicit_tag, asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb, int offset, gint32 min_len, gint32 max_len, gint hf_id, tvbuff_t **out_tvb, guint nest_level) {
     gint8       ber_class;
     gboolean    pc, ind;
     gint32      tag;
@@ -1632,7 +1627,7 @@ printf("OCTET STRING dissect_ber_octet_string(%s) entered\n", name);
 
     if (pc) {
         /* constructed */
-        end_offset = reassemble_octet_string(actx, tree, hf_id, tvb, offset, len, ind, out_tvb);
+        end_offset = reassemble_octet_string(actx, tree, hf_id, tvb, offset, len, ind, out_tvb, nest_level);
     } else {
         /* primitive */
         gint length_remaining;
@@ -2613,6 +2608,10 @@ printf("SET dissect_ber_set(%s) entered\n", name);
 
                 cset = set; /* reset to the beginning */
                 set_idx = 0;
+                /* If the set has no values, there is no point in trying again. */
+                if (!cset->func) {
+                    break;
+                }
             }
 
             if ((first_pass && ((cset->ber_class == ber_class) && (cset->tag == tag))) ||
@@ -2823,7 +2822,7 @@ printf("CHOICE dissect_ber_choice(%s) entered len:%d\n", name, tvb_reported_leng
             proto_tree_add_expert_format(
                 tree, actx->pinfo, &ei_hf_field_not_integer_type, tvb, offset, len,
                 "dissect_ber_choice(): frame:%u offset:%d Was passed an HF field that was not integer type : %s",
-                actx->pinfo->fd->num, offset, hfinfo->abbrev);
+                actx->pinfo->num, offset, hfinfo->abbrev);
             return end_offset;
         }
     }
@@ -3624,51 +3623,90 @@ dissect_ber_GeneralizedTime(gboolean implicit_tag, asn1_ctx_t *actx, proto_tree 
     first_delim[0]  = 0;
     second_delim[0] = 0;
     ret = sscanf( tmpstr, "%14d%1[.,+-Z]%4d%1[+-Z]%4d", &tmp_int, first_delim, &first_digits, second_delim, &second_digits);
-    /* tmp_int does not contain valid value bacause of overflow but we use it just for format checking */
+    /* tmp_int does not contain valid value because of overflow but we use it just for format checking */
     if (ret < 1) {
-        cause = proto_tree_add_string_format_value(
-            tree, hf_ber_error, tvb, offset, len, "invalid_generalized_time",
-            "GeneralizedTime invalid format: %s",
-            tmpstr);
-        expert_add_info(actx->pinfo, cause, &ei_ber_invalid_format_generalized_time);
-        if (decode_unexpected) {
-            proto_tree *unknown_tree = proto_item_add_subtree(cause, ett_ber_unknown);
-            dissect_unknown_ber(actx->pinfo, tvb, offset, unknown_tree);
-        }
-        return end_offset;
+        /* Nothing matched */
+        goto invalid;
     }
 
-    switch (first_delim[0]) {
-    case '.':
-    case ',':
-        strptr += g_snprintf(strptr, 5, "%c%.3d", first_delim[0], first_digits);
-        switch (second_delim[0]) {
+    if (ret >= 2) {
+        /*
+         * We saw the date+time and the first delimiter.
+         *
+         * Either:
+         *
+         *    it's '.' or ',', in which case we have a fraction of a
+         *    minute or hour;
+         *
+         *    it's '+' or '-', in which case we have an offset from UTC;
+         *
+         *    it's 'Z', in which case the time is UTC.
+         */
+        switch (first_delim[0]) {
+        case '.':
+        case ',':
+            /*
+             * Fraction of a minute or an hour.
+             */
+            if (ret == 2) {
+                /*
+                 * We saw the decimal sign, but didn't see the fraction.
+                 */
+                goto invalid;
+            }
+            strptr += g_snprintf(strptr, 5, "%c%.3d", first_delim[0], first_digits);
+            if (ret >= 4) {
+                /*
+                 * We saw the fraction and the second delimiter.
+                 *
+                 * Either:
+                 *
+                 *    it's '+' or '-', in which case we have an offset
+                 *    from UTC;
+                 *
+                 *    it's 'Z', in which case the time is UTC.
+                 */
+                switch (second_delim[0]) {
+                case '+':
+                case '-':
+                    if (ret == 4) {
+                        /*
+                         * We saw the + or -, but didn't see the offset
+                         * from UTC.
+                         */
+                        goto invalid;
+                    }
+                    g_snprintf(strptr, 12, " (UTC%c%.4d)", second_delim[0], second_digits);
+                    break;
+                case 'Z':
+                    g_snprintf(strptr, 7, " (UTC)");
+                    break;
+                default:
+                    /* handle the malformed field */
+                    break;
+                }
+            }
+            break;
         case '+':
         case '-':
-            g_snprintf(strptr, 12, " (UTC%c%.4d)", second_delim[0], second_digits);
+            /*
+             * Offset from UTC.
+             */
+            if (ret == 2) {
+                /*
+                 * We saw the + or -1, but didn't see the offset.
+                 */
+                goto invalid;
+            }
+            g_snprintf(strptr, 12, " (UTC%c%.4d)", first_delim[0], first_digits);
             break;
         case 'Z':
             g_snprintf(strptr, 7, " (UTC)");
-            break;
-        case 0:
             break;
         default:
             /* handle the malformed field */
             break;
         }
-        break;
-    case '+':
-    case '-':
-        g_snprintf(strptr, 12, " (UTC%c%.4d)", first_delim[0], first_digits);
-        break;
-    case 'Z':
-        g_snprintf(strptr, 7, " (UTC)");
-        break;
-    case 0:
-        break;
-    default:
-        /* handle the malformed field */
-        break;
     }
 
     if (hf_id >= 0) {
@@ -3677,6 +3715,18 @@ dissect_ber_GeneralizedTime(gboolean implicit_tag, asn1_ctx_t *actx, proto_tree 
 
     offset+=len;
     return offset;
+
+invalid:
+    cause = proto_tree_add_string_format_value(
+        tree, hf_ber_error, tvb, offset, len, "invalid_generalized_time",
+        "GeneralizedTime invalid format: %s",
+        tmpstr);
+    expert_add_info(actx->pinfo, cause, &ei_ber_invalid_format_generalized_time);
+    if (decode_unexpected) {
+        proto_tree *unknown_tree = proto_item_add_subtree(cause, ett_ber_unknown);
+        dissect_unknown_ber(actx->pinfo, tvb, offset, unknown_tree);
+    }
+    return end_offset;
 }
 
 
@@ -3882,7 +3932,13 @@ dissect_ber_constrained_bitstring(gboolean implicit_tag, asn1_ctx_t *actx, proto
         len = tvb_reported_length_remaining(tvb, offset);
         end_offset = offset+len;
     }
-
+    if (len == 0) {
+        proto_tree_add_expert_format(
+            parent_tree, actx->pinfo, &ei_ber_constr_bitstr, tvb, offset, len,
+            "dissect_ber_constrained_bitstring(): frame:%u offset:%d Was passed an illegal length of 0",
+            actx->pinfo->num, offset);
+        return offset;
+    }
     actx->created_item = NULL;
 
     if (pc) {
@@ -4002,7 +4058,7 @@ dissect_ber_bitstring32(gboolean implicit_tag, asn1_ctx_t *actx, proto_tree *par
     tree = proto_item_get_subtree(actx->created_item);
     if (bit_fields && tree && tmp_tvb) {
         /* tmp_tvb points to the actual bitstring (including any pad bits at the end.
-         * note that this bitstring is not neccessarily always encoded as 4 bytes
+         * note that this bitstring is not necessarily always encoded as 4 bytes
          * so we have to read it byte by byte.
          */
         val = 0;
@@ -4081,6 +4137,7 @@ dissect_ber_T_octet_aligned(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int of
 static int
 dissect_ber_OBJECT_IDENTIFIER(gboolean implicit_tag, tvbuff_t *tvb, int offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index)
 {
+    DISSECTOR_ASSERT(actx);
     offset = dissect_ber_object_identifier_str(implicit_tag, actx, tree, tvb, offset, hf_index, &actx->external.direct_reference);
     actx->external.direct_ref_present = TRUE;
 
@@ -4090,6 +4147,7 @@ dissect_ber_OBJECT_IDENTIFIER(gboolean implicit_tag, tvbuff_t *tvb, int offset, 
 static int
 dissect_ber_ObjectDescriptor(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_)
 {
+    DISSECTOR_ASSERT(actx);
     offset = dissect_ber_restricted_string(implicit_tag, BER_UNI_TAG_ObjectDescriptor,
                                            actx, tree, tvb, offset, hf_index,
                                            &actx->external.data_value_descriptor);
@@ -4160,10 +4218,6 @@ dissect_ber_external_U(gboolean implicit_tag, tvbuff_t *tvb, int offset, asn1_ct
     offset = dissect_ber_sequence(implicit_tag, actx, tree, tvb, offset,
                                   external_U_sequence, hf_index, ett_ber_EXTERNAL);
 
-    if (actx->external.u.ber.ber_callback) {
-      offset = actx->external.u.ber.ber_callback(FALSE, tvb, offset, actx, tree, hf_index);
-    }
-
     return offset;
 }
 
@@ -4190,10 +4244,10 @@ dissect_ber_EmbeddedPDV_Type(gboolean implicit_tag, proto_tree *tree, tvbuff_t *
     return offset;
 }
 
-static void
-dissect_ber_syntax(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ber_syntax(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-    (void) dissect_unknown_ber(pinfo, tvb, 0, tree);
+    return dissect_unknown_ber(pinfo, tvb, 0, tree);
 }
 
 static int
@@ -4452,6 +4506,7 @@ proto_register_ber(void)
         { &ei_ber_invalid_format_generalized_time, { "ber.error.invalid_format.generalized_time", PI_MALFORMED, PI_WARN, "BER Error: GeneralizedTime invalid format", EXPFILL }},
         { &ei_ber_invalid_format_utctime, { "ber.error.invalid_format.utctime", PI_MALFORMED, PI_WARN, "BER Error: malformed UTCTime encoding", EXPFILL }},
         { &ei_hf_field_not_integer_type, { "ber.error.hf_field_not_integer_type", PI_PROTOCOL, PI_ERROR, "Was passed a HF field that was not integer type", EXPFILL }},
+        { &ei_ber_constr_bitstr,{ "ber.error.constr_bitstr.len", PI_MALFORMED, PI_WARN, "BER Error: malformed Bitstring encoding", EXPFILL } },
     };
 
     /* Decode As handling */
@@ -4478,7 +4533,7 @@ proto_register_ber(void)
 
     proto_ber = proto_register_protocol("Basic Encoding Rules (ASN.1 X.690)", "BER", "ber");
 
-    ber_handle = new_register_dissector("ber", dissect_ber, proto_ber);
+    ber_handle = register_dissector("ber", dissect_ber, proto_ber);
 
     proto_register_field_array(proto_ber, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -4518,8 +4573,8 @@ proto_register_ber(void)
                                   " and the syntax of any associated values",
                                   users_uat);
 
-    ber_oid_dissector_table = register_dissector_table("ber.oid", "BER OID Dissectors", FT_STRING, BASE_NONE);
-    ber_syntax_dissector_table = register_dissector_table("ber.syntax", "BER syntax", FT_STRING, BASE_NONE);
+    ber_oid_dissector_table = register_dissector_table("ber.oid", "BER OID Dissectors", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+    ber_syntax_dissector_table = register_dissector_table("ber.syntax", "BER syntax", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
     syntax_table = g_hash_table_new(g_str_hash, g_str_equal); /* oid to syntax */
 
     register_ber_syntax_dissector("ASN.1", proto_ber, dissect_ber_syntax);

@@ -29,6 +29,7 @@
 
 #include <epan/packet.h>
 #include <wiretap/wtap.h>
+#include <wsutil/str_util.h>
 
 #define	SOH	(0x01)
 #define	STX	(0x02)
@@ -98,8 +99,8 @@ set_addr(packet_info *pinfo _U_ , int field, gchar rid, gchar sid, gchar did)
 	}
 }
 
-static void
-dissect_uts(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree)
+static int
+dissect_uts(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree, void* data _U_)
 {
 	proto_tree	*uts_tree		= NULL;
 	proto_tree	*uts_header_tree	= NULL;
@@ -316,6 +317,7 @@ dissect_uts(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

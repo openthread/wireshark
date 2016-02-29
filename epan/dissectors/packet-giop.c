@@ -915,6 +915,8 @@ struct comp_req_list_entry {
   giop_sub_handle_t *subh;      /* handle to sub dissector */
   guint32            reqid;     /* request id */
   gchar             *repoid;    /* repository ID */
+  address            src;       /* source address */
+  guint32            srcport;   /* source port */
 };
 
 typedef struct comp_req_list_entry comp_req_list_entry_t;
@@ -1086,7 +1088,7 @@ static const char *giop_ior_file = "IOR.txt";
  * Insert FN, reqid, operation and sub handle in list. DOES not check for duplicates yet.
  */
 
-static GList *insert_in_comp_req_list(GList *list, guint32 fn, guint32 reqid, const gchar * op, giop_sub_handle_t *sh ) {
+static GList *insert_in_comp_req_list(GList *list, guint32 fn, guint32 reqid, const gchar * op, giop_sub_handle_t *sh, address *addr, guint32 port ) {
   comp_req_list_entry_t *entry;
 
   entry =  wmem_new(wmem_file_scope(), comp_req_list_entry_t);
@@ -1096,6 +1098,8 @@ static GList *insert_in_comp_req_list(GList *list, guint32 fn, guint32 reqid, co
   entry->subh      = sh;
   entry->operation = wmem_strdup(wmem_file_scope(), op); /* duplicate operation for storage */
   entry->repoid    = NULL;      /* don't have yet */
+  entry->srcport   = port ;
+  copy_address_wmem (wmem_file_scope (), &entry->src, addr) ;
 
   return g_list_append (list, entry); /* append */
 }
@@ -1229,7 +1233,7 @@ static guint32 get_mfn_from_fn(guint32 fn) {
  * only used when we are building
  */
 
-static guint32 get_mfn_from_fn_and_reqid(guint32 fn, guint32 reqid) {
+static guint32 get_mfn_from_fn_and_reqid(guint32 fn, guint32 reqid, address *addr, guint32 pnum) {
 
   GList                 *element; /* last entry in list */
   comp_req_list_entry_t *entry_ptr = NULL;
@@ -1255,7 +1259,7 @@ static guint32 get_mfn_from_fn_and_reqid(guint32 fn, guint32 reqid) {
 
   while (element) {                      /* valid list entry */
     entry_ptr = (comp_req_list_entry_t *)element->data;  /* grab data pointer */
-    if (entry_ptr->reqid == reqid) {    /* similar reqid  */
+    if (entry_ptr->reqid == reqid && cmp_address (&entry_ptr->src, addr) == 0 && entry_ptr->srcport == pnum) {    /* similar reqid  */
       return entry_ptr->fn;     /* return MFN */
     }
     element = g_list_previous(element); /* try next previous */
@@ -2025,7 +2029,7 @@ static gboolean try_explicit_giop_dissector(tvbuff_t *tvb, packet_info *pinfo, p
     /* but only if user not clicking */
 
     if (!pinfo->fd->flags.visited)
-      add_sub_handle_repoid_to_comp_req_list(pinfo->fd->num, subdiss, repoid);
+      add_sub_handle_repoid_to_comp_req_list(pinfo->num, subdiss, repoid);
 
 
     /* Call subdissector if current offset exists , and dissector is enabled in GUI "edit protocols" */
@@ -3884,12 +3888,9 @@ static void decode_ServiceContextList(tvbuff_t *tvb, packet_info *pinfo _U_, pro
   /* return if zero length sequence */
 
   if (seqlen == 0) {
-    if (tf) {
-      if (*offset - start_offset <= 0)
-        THROW(ReportedBoundsError);
+    if (*offset-start_offset > 0) {
       proto_item_set_len(tf, *offset - start_offset);
     }
-
     return;
   }
 
@@ -4042,9 +4043,9 @@ dissect_reply_body (tvbuff_t *tvb, guint offset, packet_info *pinfo,
 
     /* lookup MFN in hash directly */
 
-    mfn = get_mfn_from_fn(pinfo->fd->num);
+    mfn = get_mfn_from_fn(pinfo->num);
 
-    if (mfn == pinfo->fd->num)
+    if (mfn == pinfo->num)
       return;                 /* no matching frame number, what am I */
 
     /* get entry for this MFN */
@@ -4175,9 +4176,9 @@ static void dissect_giop_reply (tvbuff_t * tvb, packet_info * pinfo, proto_tree 
    */
 
   if (! pinfo->fd->flags.visited) {
-    mfn = get_mfn_from_fn_and_reqid(pinfo->fd->num, request_id); /* find MFN for this FN */
-    if (mfn != pinfo->fd->num) { /* if mfn is not fn, good */
-      insert_in_complete_reply_hash(pinfo->fd->num, mfn);
+    mfn = get_mfn_from_fn_and_reqid(pinfo->num, request_id, &pinfo->dst, pinfo->destport); /* find MFN for this FN */
+    if (mfn != pinfo->num) { /* if mfn is not fn, good */
+      insert_in_complete_reply_hash(pinfo->num, mfn);
     }
   }
 
@@ -4241,9 +4242,9 @@ static void dissect_giop_reply_1_2 (tvbuff_t * tvb, packet_info * pinfo,
    */
 
   if (! pinfo->fd->flags.visited) {
-    mfn = get_mfn_from_fn_and_reqid(pinfo->fd->num, request_id); /* find MFN for this FN */
-    if (mfn != pinfo->fd->num) { /* if mfn is not fn, good */
-      insert_in_complete_reply_hash(pinfo->fd->num, mfn);
+    mfn = get_mfn_from_fn_and_reqid(pinfo->num, request_id, &pinfo->dst, pinfo->destport); /* find MFN for this FN */
+    if (mfn != pinfo->num) { /* if mfn is not fn, good */
+      insert_in_complete_reply_hash(pinfo->num, mfn);
     }
   }
 
@@ -4404,8 +4405,8 @@ dissect_giop_request_1_1 (tvbuff_t * tvb, packet_info * pinfo,
    * But only if user is NOT clicking.
    */
   if (! pinfo->fd->flags.visited)
-    giop_complete_request_list = insert_in_comp_req_list(giop_complete_request_list, pinfo->fd->num,
-                                                         request_id, operation, NULL);
+    giop_complete_request_list = insert_in_comp_req_list(giop_complete_request_list, pinfo->num,
+                                                         request_id, operation, NULL, &pinfo->src, pinfo->srcport);
 
 
   /*
@@ -4527,8 +4528,8 @@ dissect_giop_request_1_2 (tvbuff_t * tvb, packet_info * pinfo,
    */
 
   if (! pinfo->fd->flags.visited)
-    giop_complete_request_list = insert_in_comp_req_list(giop_complete_request_list, pinfo->fd->num,
-                                                         request_id, operation, NULL);
+    giop_complete_request_list = insert_in_comp_req_list(giop_complete_request_list, pinfo->num,
+                                                         request_id, operation, NULL, &pinfo->src, pinfo->srcport);
 
   /*
    *
@@ -4747,7 +4748,7 @@ static int dissect_giop_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree 
                               giop_message_flags, ENC_BIG_ENDIAN);
       if ((header.flags & GIOP_MESSAGE_FLAGS_ENDIANNESS) == 0)
         proto_item_append_text(ti, ", (Big Endian)");  /* hack to show "Big Endian" when endianness flag == 0 */
-        break;
+      break;
     case 0:
       proto_tree_add_boolean(header_tree, hf_giop_message_flags_little_endian, tvb, 6, 1, stream_is_big_endian ? 0 : 1);
       break;
@@ -5516,7 +5517,7 @@ proto_register_giop (void)
   proto_giop = proto_register_protocol("General Inter-ORB Protocol", "GIOP", "giop");
 
   /* Register by name */
-  giop_tcp_handle = new_register_dissector("giop", dissect_giop_tcp, proto_giop);
+  giop_tcp_handle = register_dissector("giop", dissect_giop_tcp, proto_giop);
 
   proto_register_field_array (proto_giop, hf, array_length (hf));
   proto_register_subtree_array (ett, array_length (ett));

@@ -38,8 +38,8 @@ void proto_reg_handoff_docsis_intrngreq(void);
 static gint ett_docsis_intrngreq = -1;
 
 /* Dissection */
-static void
-dissect_intrngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_intrngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *intrngreq_item;
   proto_tree *intrngreq_tree;
@@ -47,7 +47,7 @@ dissect_intrngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
 
   sid = tvb_get_ntohs (tvb, 0);
 
-  col_add_fstr (pinfo->cinfo, COL_INFO, "Ranging Request: SID = %u",sid);
+  col_add_fstr (pinfo->cinfo, COL_INFO, "Initial Ranging Request: SID = %u",sid);
 
   if (tree)
     {
@@ -63,6 +63,7 @@ dissect_intrngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
       proto_tree_add_item (intrngreq_tree, hf_docsis_intrngreq_up_chid, tvb, 3,
                            1, ENC_BIG_ENDIAN);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

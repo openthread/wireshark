@@ -25,6 +25,8 @@
 
 #include "epan/packet.h"
 #include "epan/prefs.h"
+#include "wsutil/report_err.h"
+#include "wsutil/inet_addr.h"
 
 #include "packet-uaudp.h"
 
@@ -62,7 +64,7 @@ static int hf_uaudp_sntseq          = -1;
 static gint ett_uaudp               = -1;
 
 /* pref */
-static guint8 sys_ip[4];
+static guint32 sys_ip;
 static const char* pref_sys_ip_s = "";
 
 static gboolean use_sys_ip = FALSE;
@@ -329,19 +331,22 @@ static void _dissect_uaudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 #if 0
 /* XXX: The following are never actually used ?? */
-static void dissect_uaudp_dir_unknown(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_uaudp_dir_unknown(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     _dissect_uaudp(tvb, pinfo, tree, DIR_UNKNOWN);
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_uaudp_term_to_serv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static void dissect_uaudp_term_to_serv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     _dissect_uaudp(tvb, pinfo, tree, TERM_TO_SYS);
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_uaudp_serv_to_term(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static void dissect_uaudp_serv_to_term(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     _dissect_uaudp(tvb, pinfo, tree, SYS_TO_TERM);
+    return tvb_captured_length(tvb);
 }
 #endif
 
@@ -349,20 +354,20 @@ static void dissect_uaudp_serv_to_term(tvbuff_t *tvb, packet_info *pinfo, proto_
  * UA/UDP DISSECTOR
  Wireshark packet dissector entry point
 */
-static void dissect_uaudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_uaudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* server address, if present, has precedence on ports */
     if (use_sys_ip) {
         /* use server address to find direction*/
-        if (memcmp((pinfo->src).data, sys_ip, 4*sizeof(guint8)) == 0)
+        if (memcmp((pinfo->src).data, &sys_ip, sizeof(sys_ip)) == 0)
         {
             _dissect_uaudp(tvb, pinfo, tree, SYS_TO_TERM);
-            return;
+            return tvb_captured_length(tvb);
         }
-        else if (memcmp((pinfo->dst).data, sys_ip, 4*sizeof(guint8)) == 0)
+        else if (memcmp((pinfo->dst).data, &sys_ip, sizeof(sys_ip)) == 0)
         {
             _dissect_uaudp(tvb, pinfo, tree, TERM_TO_SYS);
-            return;
+            return tvb_captured_length(tvb);
         }
     }
 
@@ -370,44 +375,16 @@ static void dissect_uaudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (find_terminal_port(pinfo->srcport))
     {
         _dissect_uaudp(tvb, pinfo, tree, TERM_TO_SYS);
-        return;
+        return tvb_captured_length(tvb);
     }
     else if (find_terminal_port(pinfo->destport))
     {
         _dissect_uaudp(tvb, pinfo, tree, SYS_TO_TERM);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     _dissect_uaudp(tvb, pinfo, tree, DIR_UNKNOWN);
-}
-
-/* XXX: Presumably there's a util fcn for this ... */
-static gboolean str_to_addr_ip(const gchar *addr, guint8 *ad)
-{
-    int          i;
-    const gchar *p = addr;
-    guint32      value;
-
-    if (addr == NULL)
-        return FALSE;
-
-    for (i=0; i<4; i++)
-    {
-        value = 0;
-        while (*p != '.' && *p != '\0')
-        {
-            value = value * 10 + (*p - '0');
-            p++;
-        }
-        if (value > 255)
-        {
-            return FALSE;
-        }
-        ad[i] = value;
-        p++;
-    }
-
-    return TRUE;
+    return tvb_captured_length(tvb);
 }
 
 
@@ -642,7 +619,7 @@ void proto_reg_handoff_uaudp(void)
             register_dissector_table("uaudp.opcode",
                                      "UAUDP opcode",
                                      FT_UINT8,
-                                     BASE_DEC);
+                                     BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 #endif
         prefs_initialized     = TRUE;
     }
@@ -653,14 +630,12 @@ void proto_reg_handoff_uaudp(void)
             if (ports[i].last_port)
                 dissector_delete_uint("udp.port", ports[i].last_port, uaudp_handle);
         }
-        if (str_to_addr_ip(pref_sys_ip_s, sys_ip))
-        {
-            use_sys_ip = TRUE;
-        }
-        else
-        {
-            use_sys_ip = FALSE;
-            pref_sys_ip_s = "";
+        if (*pref_sys_ip_s) {
+            use_sys_ip = ws_inet_pton4(pref_sys_ip_s, &sys_ip);
+            if (!use_sys_ip) {
+                report_failure("Invalid value for pref uaudp.system_ip: %s",
+                        pref_sys_ip_s);
+            }
         }
     }
 

@@ -2,7 +2,7 @@
  *  uat.h
  *
  *  User Accessible Tables
- *  Mantain an array of user accessible data strucures
+ *  Maintain an array of user accessible data strucures
  *
  * (c) 2007, Luis E. Garcia Ontanon <luis@ontanon.org>
  *
@@ -151,7 +151,7 @@ typedef void (*uat_fld_set_cb_t)(void*, const char*, unsigned, const void*, cons
  * given a record returns a string representation of the field
  * mandatory
  */
-typedef void (*uat_fld_tostr_cb_t)(void*, const char**, unsigned*, const void*, const void*);
+typedef void (*uat_fld_tostr_cb_t)(void*, char**, unsigned*, const void*, const void*);
 
 /***********
  * Text Mode
@@ -325,9 +325,6 @@ gboolean uat_fld_chk_enum(void*, const char*, unsigned, const void*, const void*
 WS_DLL_PUBLIC
 gboolean uat_fld_chk_range(void*, const char*, unsigned, const void*, const void*, char**);
 
-#define CHK_STR_IS_DECL(what) \
-gboolean uat_fld_chk_str_ ## what (void*, const char*, unsigned, const void*, const void*, char**)
-
 typedef void (*uat_cb_t)(void* uat,void* user_data);
 WS_DLL_PUBLIC
 void uat_foreach_table(uat_cb_t cb,void* user_data);
@@ -338,31 +335,22 @@ char* uat_unbinstring(const char* si, guint in_len, guint* len_p);
 char* uat_unesc(const char* si, guint in_len, guint* len_p);
 char* uat_esc(const char* buf, guint len);
 
-#ifdef __cplusplus
-#define UNUSED_PARAMETER(n)
-#else
-#define UNUSED_PARAMETER(n) n _U_
-#endif
-
 /* Some strings entirely made of ... already declared */
-WS_DLL_PUBLIC
-CHK_STR_IS_DECL(isprint);
-WS_DLL_PUBLIC
-CHK_STR_IS_DECL(isalpha);
-WS_DLL_PUBLIC
-CHK_STR_IS_DECL(isalnum);
-WS_DLL_PUBLIC
-CHK_STR_IS_DECL(isdigit);
-WS_DLL_PUBLIC
-CHK_STR_IS_DECL(isxdigit);
 
-#define CHK_STR_IS_DEF(what) \
-gboolean uat_fld_chk_str_ ## what (void* UNUSED_PARAMETER(u1), const char* strptr, guint len, const void* UNUSED_PARAMETER(u2), const void* UNUSED_PARAMETER(u3), char** err) { \
-	guint i; for (i=0;i<len;i++) { \
-		char c = strptr[i]; \
-			if (! g_ascii_ ## what(c)) { \
-				*err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c); return FALSE;  } } \
-		*err = NULL; return TRUE; }
+WS_DLL_PUBLIC
+gboolean uat_fld_chk_str_isprint(void*, const char*, unsigned, const void*, const void*, char**);
+
+WS_DLL_PUBLIC
+gboolean uat_fld_chk_str_isalpha(void*, const char*, unsigned, const void*, const void*, char**);
+
+WS_DLL_PUBLIC
+gboolean uat_fld_chk_str_isalnum(void*, const char*, unsigned, const void*, const void*, char**);
+
+WS_DLL_PUBLIC
+gboolean uat_fld_chk_str_isdigit(void*, const char*, unsigned, const void*, const void*, char**);
+
+WS_DLL_PUBLIC
+gboolean uat_fld_chk_str_isxdigit(void*, const char*, unsigned, const void*, const void*, char**);
 
 
 /*
@@ -370,6 +358,12 @@ gboolean uat_fld_chk_str_ ## what (void* UNUSED_PARAMETER(u1), const char* strpt
  *   to define basic uat_fld_set_cbs, uat_fld_tostr_cbs
  *   for those elements in uat_field_t array
  */
+
+#ifdef __cplusplus
+#define UNUSED_PARAMETER(n)
+#else
+#define UNUSED_PARAMETER(n) n _U_
+#endif
 
 /*
  * CSTRING macros,
@@ -380,7 +374,7 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
     char* new_buf = g_strndup(buf,len); \
 	g_free((((rec_t*)rec)->field_name)); \
 	(((rec_t*)rec)->field_name) = new_buf; } \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
 		if (((rec_t*)rec)->field_name ) { \
 			*out_ptr = g_strdup((((rec_t*)rec)->field_name)); \
 			*out_len = (unsigned)strlen((((rec_t*)rec)->field_name)); \
@@ -435,7 +429,7 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 	char* new_val = uat_unesc(buf,len,&(((rec_t*)rec)->len_element)); \
         g_free((((rec_t*)rec)->ptr_element)); \
 	(((rec_t*)rec)->ptr_element) = new_val; }\
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
 	if (((rec_t*)rec)->ptr_element ) { \
 		*out_ptr = uat_esc(((rec_t*)rec)->ptr_element, (((rec_t*)rec)->len_element)); \
 		*out_len = (unsigned)strlen(*out_ptr); \
@@ -461,8 +455,8 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 	g_free((((rec_t*)rec)->ptr_element)); \
 	(((rec_t*)rec)->ptr_element) = new_buf; \
 	(((rec_t*)rec)->len_element) = len; } \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
-	*out_ptr = ((rec_t*)rec)->ptr_element ? (const char*)g_memdup(((rec_t*)rec)->ptr_element,((rec_t*)rec)->len_element) : g_strdup(""); \
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+	*out_ptr = ((rec_t*)rec)->ptr_element ? (char*)g_memdup(((rec_t*)rec)->ptr_element,((rec_t*)rec)->len_element) : g_strdup(""); \
 	*out_len = ((rec_t*)rec)->len_element; }
 
 #define UAT_FLD_BUFFER(basename,field_name,title,desc) \
@@ -478,7 +472,7 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 	char* tmp_str = g_strndup(buf,len); \
 	((rec_t*)rec)->field_name = (guint)strtol(tmp_str,NULL,10); \
 	g_free(tmp_str); } \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
 	*out_ptr = g_strdup_printf("%d",((rec_t*)rec)->field_name); \
 	*out_len = (unsigned)strlen(*out_ptr); }
 
@@ -498,13 +492,12 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 	char* tmp_str = g_strndup(buf,len); \
 	((rec_t*)rec)->field_name = (guint)strtol(tmp_str,NULL,16); \
 	g_free(tmp_str); } \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
 	*out_ptr = g_strdup_printf("%x",((rec_t*)rec)->field_name); \
 	*out_len = (unsigned)strlen(*out_ptr); }
 
 #define UAT_FLD_HEX(basename,field_name,title,desc) \
 {#field_name, title, PT_TXTMOD_STRING,{uat_fld_chk_num_hex,basename ## _ ## field_name ## _set_cb,basename ## _ ## field_name ## _tostr_cb},{0,0,0},0,desc,FLDFILL}
-
 
 /*
  * ENUM macros
@@ -527,18 +520,17 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 		} \
 	} \
 	g_free(str); } \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* vs, const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* vs, const void* UNUSED_PARAMETER(u2)) {\
 	guint i; \
-	*out_ptr = g_strdup(default_str); \
-	*out_len = (unsigned)strlen(default_str);\
 	for(i=0;((const value_string*)vs)[i].strptr;i++) { \
 		if ( ((const value_string*)vs)[i].value == ((rec_t*)rec)->field_name ) { \
-			g_free((char*)*out_ptr); \
 			*out_ptr = g_strdup(((const value_string*)vs)[i].strptr); \
 			*out_len = (unsigned)strlen(*out_ptr); \
 			return; \
 		} \
-    } } \
+	} \
+	*out_ptr = g_strdup(default_str); \
+	*out_len = (unsigned)strlen(default_str); }
 
 #define UAT_VS_CSTRING_DEF(basename,field_name,rec_t,default_val,default_str) \
 static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, guint len, const void* vs, const void* UNUSED_PARAMETER(u2)) {\
@@ -554,7 +546,7 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 		} \
 	} \
 	g_free(str);} \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(vs), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(vs), const void* UNUSED_PARAMETER(u2)) {\
 		if (((rec_t*)rec)->field_name ) { \
 			*out_ptr = g_strdup((((rec_t*)rec)->field_name)); \
 			*out_len = (unsigned)strlen((((rec_t*)rec)->field_name)); \
@@ -581,7 +573,7 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 		((rec_t*)rec)->dissector_field = find_dissector("data"); \
 		((rec_t*)rec)->name_field = NULL; \
 		} } \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
 	if ( ((rec_t*)rec)->name_field ) { \
 		*out_ptr = g_strdup((((rec_t*)rec)->name_field)); \
 		*out_len = (unsigned)strlen(*out_ptr); \
@@ -602,7 +594,7 @@ static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, g
 		range_convert_str(&(((rec_t*)rec)->field_name), rng,GPOINTER_TO_UINT(u2)); \
 		g_free(rng); \
 	} \
-static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
+static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* UNUSED_PARAMETER(u1), const void* UNUSED_PARAMETER(u2)) {\
 	if ( ((rec_t*)rec)->field_name ) { \
 		*out_ptr = range_convert_range(NULL, ((rec_t*)rec)->field_name); \
 		*out_len = (unsigned)strlen(*out_ptr); \

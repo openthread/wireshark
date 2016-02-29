@@ -355,7 +355,7 @@ dissect_winsrepl_wins_address_list(tvbuff_t *winsrepl_tvb, packet_info *pinfo,
 		winsrepl_offset = dissect_winsrepl_wins_ip(winsrepl_tvb, pinfo,
 							   winsrepl_offset, addr_list_tree,
 							   &ip, addr_list_tree, i);
-		SET_ADDRESS(&addr, AT_IPv4, 4, &ip);
+		set_address(&addr, AT_IPv4, 4, &ip);
 		addr_str = address_to_str(wmem_packet_scope(), &addr);
 		if (i == 0) {
 			proto_item_append_text(parent_item, ": %s", addr_str);
@@ -428,7 +428,7 @@ dissect_winsrepl_wins_name(tvbuff_t *winsrepl_tvb, packet_info *pinfo,
 	/* ALIGN to 4 Byte */
 	/* winsrepl_offset += ((winsrepl_offset & (4-1)) == 0 ? 0 : (4 - (winsrepl_offset & (4-1)))); */
 	/* Windows including w2k8 add 4 padding bytes, when it's already 4 byte
-	 * alligned... This happens when the name has a "scope" part
+	 * aligned... This happens when the name has a "scope" part
 	 */
 	winsrepl_offset += 4 - (winsrepl_offset & (4-1));
 
@@ -550,7 +550,7 @@ dissect_winsrepl_replication(tvbuff_t *winsrepl_tvb, packet_info *pinfo,
 	repl_tree = proto_tree_add_subtree(winsrepl_tree, winsrepl_tvb, winsrepl_offset, -1,
 							ett_winsrepl_replication, &repl_item, "WREPL_REPLICATION");
 
-	/* REPLIICATION_CMD */
+	/* REPLICATION_CMD */
 	command = (enum wrepl_replication_cmd)tvb_get_ntohl(winsrepl_tvb, winsrepl_offset);
 	proto_tree_add_uint(repl_tree, hf_winsrepl_replication_command, winsrepl_tvb, winsrepl_offset, 4, command);
 	winsrepl_offset += 4;
@@ -879,7 +879,7 @@ proto_reg_handoff_winsrepl(void)
 {
 	dissector_handle_t winsrepl_handle;
 
-	winsrepl_handle = new_create_dissector_handle(dissect_winsrepl, proto_winsrepl);
+	winsrepl_handle = create_dissector_handle(dissect_winsrepl, proto_winsrepl);
 	dissector_add_uint("tcp.port", glb_winsrepl_tcp_port, winsrepl_handle);
 }
 

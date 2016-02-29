@@ -34,28 +34,13 @@
 
 #include "file.h"
 
-#include "ui/follow.h"
+#include "epan/follow.h"
 
 #include "wireshark_dialog.h"
 
 #include <QFile>
 #include <QMap>
 #include <QPushButton>
-
-extern "C" {
-WS_DLL_PUBLIC FILE *data_out_file;
-}
-
-// Shouldn't these be member variables?
-typedef struct {
-    show_stream_t   show_stream;
-    show_type_t     show_type;
-    gboolean        is_ipv6;
-    GList           *payload;
-    guint           bytes_written[2]; /* Index with FROM_CLIENT or FROM_SERVER for readability. */
-    guint           client_port;
-    address         client_ip;
-} follow_info_t;
 
 namespace Ui {
 class FollowStreamDialog;
@@ -69,7 +54,7 @@ public:
     explicit FollowStreamDialog(QWidget &parent, CaptureFile &cf, follow_type_t type = FOLLOW_TCP);
     ~FollowStreamDialog();
 
-    bool follow(QString previous_filter = QString(), bool use_stream_index = false);
+    bool follow(QString previous_filter = QString(), bool use_stream_index = false, int stream_num = -1);
 
 public slots:
     void captureFileClosing();
@@ -79,13 +64,14 @@ protected:
     void keyPressEvent(QKeyEvent *event);
 
 private slots:
-    void on_cbCharset_currentIndexChanged(int index);
-    void on_cbDirections_currentIndexChanged(int index);
+    void on_cbCharset_currentIndexChanged(int idx);
+    void on_cbDirections_currentIndexChanged(int idx);
     void on_bFind_clicked();
     void on_leFind_returnPressed();
 
     void helpButton();
     void filterOut();
+    void useRegexFind(bool use_regex);
     void findText(bool go_back = true);
     void saveAs();
     void printStream();
@@ -110,8 +96,7 @@ private:
                 guint32 packet_num, guint32 *global_pos);
 
     frs_return_t readStream();
-    frs_return_t readTcpStream();
-    frs_return_t readUdpStream();
+    frs_return_t readFollowStream();
     frs_return_t readSslStream();
 
     void followStream();
@@ -126,6 +111,8 @@ private:
 
     follow_type_t           follow_type_;
     follow_info_t           follow_info_;
+    register_follow_t*      follower_;
+    show_type_t             show_type_;
     QString                 data_out_filename_;
     static const int        max_document_length_;
     bool                    truncated_;
@@ -140,6 +127,7 @@ private:
     QMap<int,guint32>       text_pos_to_packet_;
 
     bool                    save_as_;
+    bool                    use_regex_find_;
     QFile                   file_;
 };
 

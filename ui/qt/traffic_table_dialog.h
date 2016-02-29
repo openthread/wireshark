@@ -28,7 +28,7 @@
 
 #include "epan/conversation_table.h"
 
-#include "ui/follow.h"
+#include "epan/follow.h"
 
 #include "capture_file.h"
 #include "filter_action.h"
@@ -152,6 +152,8 @@ private slots:
     void on_displayFilterCheckBox_toggled(bool checked);
     void setTabText(QWidget *tree, const QString &text);
     void toggleTable();
+    void retapStarted();
+    void retapFinished();
 
     void copyAsCsv();
     void copyAsYaml();

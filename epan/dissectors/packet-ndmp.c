@@ -32,6 +32,7 @@
 
 #include <epan/packet.h>
 #include <epan/expert.h>
+#include <wsutil/str_util.h>
 #include "packet-rpc.h"
 #include "packet-ndmp.h"
 #include "packet-tcp.h"
@@ -337,11 +338,11 @@ get_itl_nexus(packet_info *pinfo, gboolean create_new)
 {
 	itl_nexus_t *itl;
 
-	if(create_new || !(itl=(itl_nexus_t *)wmem_tree_lookup32_le(ndmp_conv_data->itl, pinfo->fd->num))){
+	if(create_new || !(itl=(itl_nexus_t *)wmem_tree_lookup32_le(ndmp_conv_data->itl, pinfo->num))){
 		itl=wmem_new(wmem_file_scope(), itl_nexus_t);
 		itl->cmdset=0xff;
 		itl->conversation=ndmp_conv_data->conversation;
-		wmem_tree_insert32(ndmp_conv_data->itl, pinfo->fd->num, itl);
+		wmem_tree_insert32(ndmp_conv_data->itl, pinfo->num, itl);
 	}
 	return itl;
 }
@@ -1368,7 +1369,7 @@ dissect_execute_cdb_cdb(tvbuff_t *tvb, int offset, packet_info *pinfo,
 		if(ndmp_conv_data->task && !ndmp_conv_data->task->itlq){
 			ndmp_conv_data->task->itlq=wmem_new(wmem_file_scope(), itlq_nexus_t);
 			ndmp_conv_data->task->itlq->lun=0xffff;
-			ndmp_conv_data->task->itlq->first_exchange_frame=pinfo->fd->num;
+			ndmp_conv_data->task->itlq->first_exchange_frame=pinfo->num;
 			ndmp_conv_data->task->itlq->last_exchange_frame=0;
 			ndmp_conv_data->task->itlq->scsi_opcode=0xffff;
 			ndmp_conv_data->task->itlq->task_flags=0;
@@ -1376,7 +1377,7 @@ dissect_execute_cdb_cdb(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			ndmp_conv_data->task->itlq->bidir_data_length=0;
 			ndmp_conv_data->task->itlq->flags=0;
 			ndmp_conv_data->task->itlq->alloc_len=0;
-			ndmp_conv_data->task->itlq->fc_time=pinfo->fd->abs_ts;
+			ndmp_conv_data->task->itlq->fc_time=pinfo->abs_ts;
 			ndmp_conv_data->task->itlq->extra_data=NULL;
 		}
 		if(ndmp_conv_data->task && ndmp_conv_data->task->itlq){
@@ -3046,7 +3047,7 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 		/*
 		 * Determine the direction of the flow, so we can use the correct fragment tree
 		 */
-		direction=CMP_ADDRESS(&pinfo->src, &pinfo->dst);
+		direction=cmp_address(&pinfo->src, &pinfo->dst);
 		if(direction==0) {
 			direction= (pinfo->srcport > pinfo->destport) ? 1 : -1;
 		}
@@ -3235,9 +3236,9 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	case NDMP_MESSAGE_REQUEST:
 		if(!pinfo->fd->flags.visited){
 			ndmp_conv_data->task=wmem_new(wmem_file_scope(), ndmp_task_data_t);
-			ndmp_conv_data->task->request_frame=pinfo->fd->num;
+			ndmp_conv_data->task->request_frame=pinfo->num;
 			ndmp_conv_data->task->response_frame=0;
-			ndmp_conv_data->task->ndmp_time=pinfo->fd->abs_ts;
+			ndmp_conv_data->task->ndmp_time=pinfo->abs_ts;
 			ndmp_conv_data->task->itlq=NULL;
 			wmem_map_insert(ndmp_conv_data->tasks, GUINT_TO_POINTER(nh.seq), ndmp_conv_data->task);
 		} else {
@@ -3254,9 +3255,9 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 		ndmp_conv_data->task=(ndmp_task_data_t *)wmem_map_lookup(ndmp_conv_data->tasks, GUINT_TO_POINTER(nh.rep_seq));
 
 		if(ndmp_conv_data->task && !pinfo->fd->flags.visited){
-			ndmp_conv_data->task->response_frame=pinfo->fd->num;
+			ndmp_conv_data->task->response_frame=pinfo->num;
 			if(ndmp_conv_data->task->itlq){
-				ndmp_conv_data->task->itlq->last_exchange_frame=pinfo->fd->num;
+				ndmp_conv_data->task->itlq->last_exchange_frame=pinfo->num;
 			}
 		}
 		if(ndmp_conv_data->task && ndmp_conv_data->task->request_frame){
@@ -3267,7 +3268,7 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 
 			PROTO_ITEM_SET_GENERATED(it);
 
-			nstime_delta(&delta_ts, &pinfo->fd->abs_ts, &ndmp_conv_data->task->ndmp_time);
+			nstime_delta(&delta_ts, &pinfo->abs_ts, &ndmp_conv_data->task->ndmp_time);
 			it=proto_tree_add_time(ndmp_tree, hf_ndmp_time, new_tvb, 0, 0, &delta_ts);
 			PROTO_ITEM_SET_GENERATED(it);
 		}
@@ -4262,7 +4263,7 @@ proto_register_ndmp(void)
 void
 proto_reg_handoff_ndmp(void)
 {
-	ndmp_handle = new_create_dissector_handle(dissect_ndmp, proto_ndmp);
+	ndmp_handle = create_dissector_handle(dissect_ndmp, proto_ndmp);
 	dissector_add_uint("tcp.port",TCP_PORT_NDMP, ndmp_handle);
 	heur_dissector_add("tcp", dissect_ndmp_heur, "NDMP over TCP", "ndmp_tcp", proto_ndmp, HEURISTIC_ENABLE);
 }

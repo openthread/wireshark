@@ -11935,8 +11935,8 @@ static int dissect_qsig_mid_Extension_PDU(tvbuff_t *tvb _U_, packet_info *pinfo 
 
 typedef struct _qsig_op_t {
   gint32 opcode;
-  new_dissector_t arg_pdu;
-  new_dissector_t res_pdu;
+  dissector_t arg_pdu;
+  dissector_t res_pdu;
 } qsig_op_t;
 
 static const qsig_op_t qsig_op_tab[] = {
@@ -12158,7 +12158,7 @@ static const qsig_op_t qsig_op_tab[] = {
 
 typedef struct _qsig_err_t {
   gint32 errcode;
-  new_dissector_t err_pdu;
+  dissector_t err_pdu;
 } qsig_err_t;
 
 static const qsig_err_t qsig_err_tab[] = {
@@ -12596,14 +12596,16 @@ dissect_qsig_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int codeset
   }
 }
 /*--- dissect_qsig_ie_cs4 ---------------------------------------------------*/
-static void
-dissect_qsig_ie_cs4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_qsig_ie_cs4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   dissect_qsig_ie(tvb, pinfo, tree, 4);
+  return tvb_captured_length(tvb);
 }
 /*--- dissect_qsig_ie_cs5 ---------------------------------------------------*/
-static void
-dissect_qsig_ie_cs5(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_qsig_ie_cs5(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   dissect_qsig_ie(tvb, pinfo, tree, 5);
+  return tvb_captured_length(tvb);
 }
 
 /*--- qsig_init_tables ---------------------------------------------------------*/
@@ -15905,7 +15907,7 @@ void proto_register_qsig(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-qsig-hfarr.c ---*/
-#line 665 "../../asn1/qsig/packet-qsig-template.c"
+#line 667 "../../asn1/qsig/packet-qsig-template.c"
   };
 
   /* List of subtrees */
@@ -16356,7 +16358,7 @@ void proto_register_qsig(void) {
     &ett_qsig_mid_SEQUENCE_OF_Extension,
 
 /*--- End of included file: packet-qsig-ettarr.c ---*/
-#line 673 "../../asn1/qsig/packet-qsig-template.c"
+#line 675 "../../asn1/qsig/packet-qsig-template.c"
     &ett_cnq_PSS1InformationElement,
   };
 
@@ -16378,7 +16380,7 @@ void proto_register_qsig(void) {
   expert_register_field_array(expert_qsig, ei, array_length(ei));
 
   /* Register dissector tables */
-  extension_dissector_table = register_dissector_table("qsig.ext", "QSIG Extension", FT_STRING, BASE_NONE);
+  extension_dissector_table = register_dissector_table("qsig.ext", "QSIG Extension", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   qsig_init_tables();
 }
@@ -16398,8 +16400,8 @@ void proto_reg_handoff_qsig(void) {
   q931_handle = find_dissector("q931");
   q931_ie_handle = find_dissector("q931.ie");
 
-  qsig_arg_handle = new_create_dissector_handle(dissect_qsig_arg, proto_qsig);
-  qsig_res_handle = new_create_dissector_handle(dissect_qsig_res, proto_qsig);
+  qsig_arg_handle = create_dissector_handle(dissect_qsig_arg, proto_qsig);
+  qsig_res_handle = create_dissector_handle(dissect_qsig_res, proto_qsig);
   for (i=0; i<(int)array_length(qsig_op_tab); i++) {
     dissector_add_uint("q932.ros.local.arg", qsig_op_tab[i].opcode, qsig_arg_handle);
     dissector_add_uint("q932.ros.local.res", qsig_op_tab[i].opcode, qsig_res_handle);
@@ -16410,7 +16412,7 @@ void proto_reg_handoff_qsig(void) {
       dissector_add_string("q932.ros.global.res", oid, qsig_res_handle);
     }
   }
-  qsig_err_handle = new_create_dissector_handle(dissect_qsig_err, proto_qsig);
+  qsig_err_handle = create_dissector_handle(dissect_qsig_err, proto_qsig);
   for (i=0; i<(int)array_length(qsig_err_tab); i++) {
     dissector_add_uint("q932.ros.local.err", qsig_err_tab[i].errcode, qsig_err_handle);
   }

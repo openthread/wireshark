@@ -55,17 +55,6 @@
 #define ISIS_MASK_RESTART_RA(x)            ((x)&ISIS_RESTART_RA)
 #define ISIS_MASK_RESTART_SA(x)            ((x)&ISIS_RESTART_SA)
 
-
-#define APPEND_BOOLEAN_FLAG(flag, item, string) \
-    if(flag){                            \
-        if(item)                        \
-            proto_item_append_text(item, string, sep);    \
-        sep = cont_sep;                        \
-    }
-
-static const char initial_sep[] = " (";
-static const char cont_sep[] = ", ";
-
 void proto_register_isis_hello(void);
 void proto_reg_handoff_isis_hello(void);
 
@@ -106,6 +95,8 @@ static int hf_isis_hello_bvid = -1;
 static int hf_isis_hello_bvid_u = -1;
 static int hf_isis_hello_bvid_m = -1;
 static int hf_isis_hello_area_address = -1;
+static int hf_isis_hello_instance_identifier = -1;
+static int hf_isis_hello_supported_itid = -1;
 static int hf_isis_hello_clv_nlpid = -1;
 static int hf_isis_hello_clv_ip_authentication = -1;
 static int hf_isis_hello_authentication = -1;
@@ -147,6 +138,7 @@ static int hf_isis_hello_trill_unassigned_2 = -1;
 
 static gint ett_isis_hello = -1;
 static gint ett_isis_hello_clv_area_addr = -1;
+static gint ett_isis_hello_clv_instance_identifier = -1;
 static gint ett_isis_hello_clv_is_neighbors = -1;
 static gint ett_isis_hello_clv_padding = -1;
 static gint ett_isis_hello_clv_unknown = -1;
@@ -176,7 +168,7 @@ static expert_field ei_isis_hello_long_packet = EI_INIT;
 static expert_field ei_isis_hello_authentication = EI_INIT;
 static expert_field ei_isis_hello_subtlv = EI_INIT;
 static expert_field ei_isis_hello_clv_mt = EI_INIT;
-
+static expert_field ei_isis_hello_clv_unknown = EI_INIT;
 
 static const value_string isis_hello_circuit_type_vals[] = {
     { ISIS_HELLO_TYPE_RESERVED,    "Reserved 0 (discard PDU)"},
@@ -517,9 +509,7 @@ dissect_hello_restart_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
         proto_tree *tree, int offset, int id_length, int length)
 {
     int restart_options=0;
-    proto_item *restart_flags_item;
     proto_item *hold_time_item;
-    const char *sep;
 
     if (length >= 1) {
         static const int * flags[] = {
@@ -530,20 +520,7 @@ dissect_hello_restart_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
         };
 
         restart_options = tvb_get_guint8(tvb, offset);
-        restart_flags_item = proto_tree_add_bitmask(tree, tvb, offset, hf_isis_hello_clv_restart_flags, ett_isis_hello_clv_restart_flags, flags, ENC_NA);
-
-        /* Append an indication of which flags are set in the restart
-         * options
-         */
-        sep = initial_sep;
-        APPEND_BOOLEAN_FLAG(ISIS_MASK_RESTART_SA(restart_options), restart_flags_item, "%sSA");
-        APPEND_BOOLEAN_FLAG(ISIS_MASK_RESTART_RA(restart_options), restart_flags_item, "%sRA");
-        APPEND_BOOLEAN_FLAG(ISIS_MASK_RESTART_RR(restart_options), restart_flags_item, "%sRR");
-        if (sep != initial_sep)
-        {
-            proto_item_append_text (restart_flags_item, ")");
-        }
-
+        proto_tree_add_bitmask_with_flags(tree, tvb, offset, hf_isis_hello_clv_restart_flags, ett_isis_hello_clv_restart_flags, flags, ENC_NA, BMT_NO_FALSE|BMT_NO_TFS);
     }
 
     /* The Remaining Time field should only be present if the RA flag is
@@ -667,7 +644,7 @@ dissect_hello_ipv6_int_addr_clv(tvbuff_t *tvb, packet_info* pinfo,
  * Name: dissect_hello_authentication_clv()
  *
  * Description:
- *    Decode for a hello packets authenticaion clv.
+ *    Decode for a hello packets authentication clv.
  *      Calls into the CLV common one.
  *
  * Input:
@@ -691,7 +668,7 @@ dissect_hello_authentication_clv(tvbuff_t *tvb, packet_info* pinfo,
  * Name: dissect_hello_ip_authentication_clv()
  *
  * Description:
- *    Decode for a hello packets IP authenticaion clv.
+ *    Decode for a hello packets IP authentication clv.
  *      Calls into the CLV common one.
  *
  * Input:
@@ -840,6 +817,30 @@ dissect_hello_area_address_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
     isis_dissect_area_address_clv(tree, pinfo, tvb, &ei_isis_hello_short_packet, hf_isis_hello_area_address, offset, length);
 }
 
+/*
+ * Name: dissect_hello_instance_identifier_clv()
+ *
+ * Description:
+ *    Decode for a hello packets Instance Identifier clv.
+ *      Calls into the CLV common one.
+ *
+ * Input:
+ *    tvbuff_t * : tvbuffer for packet data
+ *    proto_tree * : proto tree to build on (may be null)
+ *    int : current offset into packet data
+ *    int : length of IDs in packet.
+ *    int : length of this clv
+ *
+ * Output:
+ *    void, will modify proto_tree if not null.
+ */
+static void
+dissect_hello_instance_identifier_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
+    proto_tree *tree, int offset, int id_length _U_, int length)
+{
+    isis_dissect_instance_identifier_clv(tree, pinfo, tvb, &ei_isis_hello_short_packet, hf_isis_hello_instance_identifier, hf_isis_hello_supported_itid, offset, length);
+}
+
 static const value_string adj_state_vals[] = {
     { 0, "Up" },
     { 1, "Initializing" },
@@ -952,6 +953,12 @@ static const isis_clv_handle_t clv_l1_hello_opts[] = {
         dissect_hello_is_neighbors_clv
     },
     {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_hello_clv_instance_identifier,
+        dissect_hello_instance_identifier_clv
+    },
+    {
         ISIS_CLV_PADDING,
         "Padding",
         &ett_isis_hello_clv_padding,
@@ -1039,6 +1046,12 @@ static const isis_clv_handle_t clv_l2_hello_opts[] = {
         dissect_hello_is_neighbors_clv
     },
     {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_hello_clv_instance_identifier,
+        dissect_hello_instance_identifier_clv
+    },
+    {
         ISIS_CLV_PADDING,
         "Padding",
         &ett_isis_hello_clv_padding,
@@ -1106,6 +1119,12 @@ static const isis_clv_handle_t clv_ptp_hello_opts[] = {
         "Area address(es)",
         &ett_isis_hello_clv_area_addr,
         dissect_hello_area_address_clv
+    },
+    {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_hello_clv_instance_identifier,
+        dissect_hello_instance_identifier_clv
     },
     {
         ISIS_CLV_PADDING,
@@ -1245,7 +1264,7 @@ dissect_isis_hello(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offs
      */
     isis_dissect_clvs(tvb, pinfo, hello_tree, offset,
             opts, &ei_isis_hello_short_packet, pdu_length, id_length,
-            ett_isis_hello_clv_unknown, hf_isis_hello_clv_type, hf_isis_hello_clv_length);
+            ett_isis_hello_clv_unknown, hf_isis_hello_clv_type, hf_isis_hello_clv_length, ei_isis_hello_clv_unknown);
 }
 
 
@@ -1391,10 +1410,12 @@ proto_register_isis_hello(void)
       { &hf_isis_hello_digest_a, { "A", "isis.hello.digest.a", FT_UINT8, BASE_DEC, NULL, 0x0c, NULL, HFILL }},
       { &hf_isis_hello_digest_d, { "D", "isis.hello.digest.d", FT_UINT8, BASE_DEC, NULL, 0x03, NULL, HFILL }},
       { &hf_isis_hello_ect, { "ECT", "isis.hello.ect", FT_BYTES, SEP_DASH, NULL, 0x0, NULL, HFILL }},
-      { &hf_isis_hello_bvid, { "BVID", "isis.hello.bvid", FT_UINT16, BASE_HEX_DEC, NULL, 0x0FFF, NULL, HFILL }},
+      { &hf_isis_hello_bvid, { "BVID", "isis.hello.bvid", FT_UINT16, BASE_HEX_DEC, NULL, 0xFFF0, NULL, HFILL }},
       { &hf_isis_hello_bvid_u, { "U", "isis.hello.bvid.u", FT_UINT16, BASE_HEX_DEC, NULL, 0x0008, NULL, HFILL }},
       { &hf_isis_hello_bvid_m, { "M", "isis.hello.bvid.m", FT_UINT16, BASE_HEX_DEC, NULL, 0x0004, NULL, HFILL }},
-      { &hf_isis_hello_area_address, { "Srea address", "isis.hello.area_address", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_isis_hello_area_address, { "Area address", "isis.hello.area_address", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_isis_hello_instance_identifier, { "Instance Identifier", "isis.hello.iid", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_isis_hello_supported_itid, { "Supported ITID", "isis.hello.supported_itid", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_clv_nlpid, { "NLPID", "isis.hello.clv_nlpid", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_clv_ip_authentication, { "NLPID", "isis.hello.clv_ip_authentication", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_authentication, { "Authentication", "isis.hello.clv_authentication", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -1438,6 +1459,7 @@ proto_register_isis_hello(void)
     static gint *ett[] = {
         &ett_isis_hello,
         &ett_isis_hello_clv_area_addr,
+        &ett_isis_hello_clv_instance_identifier,
         &ett_isis_hello_clv_is_neighbors,
         &ett_isis_hello_clv_padding,
         &ett_isis_hello_clv_unknown,
@@ -1469,6 +1491,7 @@ proto_register_isis_hello(void)
         { &ei_isis_hello_subtlv, { "isis.hello.subtlv.unknown", PI_PROTOCOL, PI_WARN, "Unknown Sub-TLV", EXPFILL }},
         { &ei_isis_hello_authentication, { "isis.hello.authentication.unknown", PI_PROTOCOL, PI_WARN, "Unknown authentication type", EXPFILL }},
         { &ei_isis_hello_clv_mt, { "isis.hello.clv_mt.malformed", PI_MALFORMED, PI_ERROR, "malformed MT-ID", EXPFILL }},
+        { &ei_isis_hello_clv_unknown, { "isis.hello.clv.unknown", PI_UNDECODED, PI_NOTE, "Unknown option", EXPFILL }},
     };
 
     expert_module_t* expert_isis_hello;
@@ -1485,9 +1508,9 @@ proto_register_isis_hello(void)
 void
 proto_reg_handoff_isis_hello(void)
 {
-    dissector_add_uint("isis.type", ISIS_TYPE_L1_HELLO, new_create_dissector_handle(dissect_isis_l1_hello, proto_isis_hello));
-    dissector_add_uint("isis.type", ISIS_TYPE_L2_HELLO, new_create_dissector_handle(dissect_isis_l2_hello, proto_isis_hello));
-    dissector_add_uint("isis.type", ISIS_TYPE_PTP_HELLO, new_create_dissector_handle(dissect_isis_ptp_hello, proto_isis_hello));
+    dissector_add_uint("isis.type", ISIS_TYPE_L1_HELLO, create_dissector_handle(dissect_isis_l1_hello, proto_isis_hello));
+    dissector_add_uint("isis.type", ISIS_TYPE_L2_HELLO, create_dissector_handle(dissect_isis_l2_hello, proto_isis_hello));
+    dissector_add_uint("isis.type", ISIS_TYPE_PTP_HELLO, create_dissector_handle(dissect_isis_ptp_hello, proto_isis_hello));
 }
 
 /*

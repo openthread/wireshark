@@ -40,23 +40,11 @@
 #include <locale.h>
 #include <limits.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
 
 #include <errno.h>
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
 
 #ifndef HAVE_GETOPT_LONG
 #include "wsutil/wsgetopt.h"
@@ -441,13 +429,11 @@ main(int argc, char *argv[])
     GPtrArray           *disp_fields = g_ptr_array_new();
     guint                fc;
     gboolean             skip_pcap_header = FALSE;
-DIAG_OFF(cast-qual)
     static const struct option long_options[] = {
-      {(char *)"help", no_argument, NULL, 'h'},
-      {(char *)"version", no_argument, NULL, 'v'},
+      {"help", no_argument, NULL, 'h'},
+      {"version", no_argument, NULL, 'v'},
       {0, 0, 0, 0 }
     };
-DIAG_ON(cast-qual)
 
 #define OPTSTRING_INIT "d:F:hlnN:o:pr:R:sS:t:v"
 
@@ -498,7 +484,7 @@ DIAG_ON(cast-qual)
     /*
      * Attempt to get the pathname of the executable file.
      */
-    init_progfile_dir_error = init_progfile_dir(argv[0], (void *)main);
+    init_progfile_dir_error = init_progfile_dir(argv[0], main);
     if (init_progfile_dir_error != NULL) {
         fprintf(stderr, "rawshark: Can't get pathname of rawshark program: %s.\n",
                 init_progfile_dir_error);
@@ -529,7 +515,9 @@ DIAG_ON(cast-qual)
        "-G" flag, as the "-G" flag dumps information registered by the
        dissectors, and we must do it before we read the preferences, in
        case any dissectors register preferences. */
-    epan_init(register_all_protocols, register_all_protocol_handoffs, NULL, NULL);
+    if (!epan_init(register_all_protocols, register_all_protocol_handoffs,
+                   NULL, NULL))
+        return 2;
 
     prefs_p = read_prefs(&gpf_open_errno, &gpf_read_errno, &gpf_path,
                          &pf_open_errno, &pf_read_errno, &pf_path);
@@ -615,7 +603,7 @@ DIAG_ON(cast-qual)
             case 'h':        /* Print help and exit */
                 printf("Rawshark (Wireshark) %s\n"
                        "Dump and analyze network traffic.\n"
-                       "See http://www.wireshark.org for more information.\n",
+                       "See https://www.wireshark.org for more information.\n",
                        get_ws_vcs_version_info());
                 print_usage(stdout);
                 exit(0);
@@ -840,7 +828,7 @@ DIAG_ON(cast-qual)
             size_t bytes_left = sizeof(struct pcap_hdr) + sizeof(guint32);
             gchar buf[sizeof(struct pcap_hdr) + sizeof(guint32)];
             while (bytes_left != 0) {
-                ssize_t bytes = read(fd, buf, (int)bytes_left);
+                ssize_t bytes = ws_read(fd, buf, (int)bytes_left);
                 if (bytes <= 0) {
                     cmdarg_err("Not enough bytes for pcap header.");
                     exit(2);
@@ -893,7 +881,7 @@ raw_pipe_read(struct wtap_pkthdr *phdr, guchar * pd, int *err, gchar **err_info,
 
     /* Copied from capture_loop.c */
     while (bytes_needed > 0) {
-        bytes_read = read(fd, ptr, (int)bytes_needed);
+        bytes_read = ws_read(fd, ptr, (int)bytes_needed);
         if (bytes_read == 0) {
             *err = 0;
             *err_info = NULL;
@@ -939,7 +927,7 @@ raw_pipe_read(struct wtap_pkthdr *phdr, guchar * pd, int *err, gchar **err_info,
 
     ptr = pd;
     while (bytes_needed > 0) {
-        bytes_read = read(fd, ptr, (int)bytes_needed);
+        bytes_read = ws_read(fd, ptr, (int)bytes_needed);
         if (bytes_read == 0) {
             *err = WTAP_ERR_SHORT_READ;
             *err_info = NULL;

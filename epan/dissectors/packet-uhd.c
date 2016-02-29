@@ -155,8 +155,8 @@ static const value_string uhd_reg_actions[] = {
 void proto_reg_handoff_uhd(void);
 
 /* dissect a UHD header and hand payload off to respective dissector */
-static void
-dissect_uhd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_uhd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int	    ind;
 	proto_item *ti;
@@ -172,7 +172,7 @@ dissect_uhd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	col_add_str(pinfo->cinfo, COL_INFO, val_to_str(id, uhd_ids, "Unknown UHD message type '%c'"));
 
 	if (tree == NULL)
-		return;
+		return tvb_captured_length(tvb);
 
 	ti = proto_tree_add_protocol_format(tree, proto_uhd, tvb, 0, 34, "UHD id = %c ", id);
 	uhd_tree = proto_item_add_subtree(ti, ett_uhd);
@@ -221,6 +221,7 @@ dissect_uhd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			proto_tree_add_item(uhd_tree, hf_uhd_echo_len,   tvb, 12, 4, ENC_BIG_ENDIAN);
 			break;
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

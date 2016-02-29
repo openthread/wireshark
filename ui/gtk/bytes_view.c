@@ -39,11 +39,7 @@
 #include <epan/charsets.h>
 #include <epan/packet.h>
 
-#include "packet_panes.h"
-
-#ifndef offsetof
-#define offsetof(type, member)  ((size_t)(&((type *)0)->member))
-#endif
+#include "ui/recent.h"
 
 #define MARGIN 2
 #define REFRESH_TIMEOUT 10

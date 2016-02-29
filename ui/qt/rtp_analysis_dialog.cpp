@@ -45,6 +45,7 @@
 
 #include "color_utils.h"
 #include "qt_ui_utils.h"
+#include "rtp_player_dialog.h"
 #include "stock_icon.h"
 #include "wireshark_application.h"
 
@@ -82,7 +83,7 @@ public:
     RtpAnalysisTreeWidgetItem(QTreeWidget *tree, tap_rtp_stat_t *statinfo, packet_info *pinfo, const struct _rtp_info *rtpinfo) :
         QTreeWidgetItem(tree, rtp_analysis_type_)
     {
-        frame_num_ = pinfo->fd->num;
+        frame_num_ = pinfo->num;
         sequence_num_ = rtpinfo->info_seq_num;
         pkt_len_ = pinfo->fd->pkt_len;
         flags_ = statinfo->flags;
@@ -132,7 +133,7 @@ public:
             status = "Marker missing?";
             bg_color = color_rtp_warn_;
         } else if (statinfo->flags & STAT_FLAG_PT_T_EVENT) {
-            status = QString("PT=%u telephone/event").arg(statinfo->pt);
+            status = QString("PT=%1 telephone/event").arg(statinfo->pt);
             /* XXX add color? */
             bg_color = color_pt_event_;
         } else {
@@ -241,22 +242,28 @@ enum {
     num_graphs_
 };
 
-RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf) :
+RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf, struct _rtp_stream_info *stream_fwd, struct _rtp_stream_info *stream_rev) :
     WiresharkDialog(parent, cf),
     ui(new Ui::RtpAnalysisDialog),
     port_src_fwd_(0),
     port_dst_fwd_(0),
     ssrc_fwd_(0),
+    packet_count_fwd_(0),
+    setup_frame_number_fwd_(0),
     port_src_rev_(0),
     port_dst_rev_(0),
-    ssrc_rev_(0)
+    ssrc_rev_(0),
+    packet_count_rev_(0),
+    setup_frame_number_rev_(0),
+    num_streams_(0)
 {
     ui->setupUi(this);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 4 / 5);
     setWindowSubtitle(tr("RTP Stream Analysis"));
 
-    // XXX Use recent settings instead
-    resize(parent.width() * 4 / 5, parent.height() * 4 / 5);
     ui->progressFrame->hide();
+
+    player_button_ = RtpPlayerDialog::addPlayerButton(ui->buttonBox);
 
     stream_ctx_menu_.addAction(ui->actionGoToPacket);
     stream_ctx_menu_.addAction(ui->actionNextProblem);
@@ -293,6 +300,8 @@ RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf) :
     memset(&dst_fwd_, 0, sizeof(address));
     memset(&src_rev_, 0, sizeof(address));
     memset(&dst_rev_, 0, sizeof(address));
+    nstime_set_zero(&start_rel_time_fwd_);
+    nstime_set_zero(&start_rel_time_rev_);
 
     QList<QCheckBox *> graph_cbs = QList<QCheckBox *>()
             << ui->fJitterCheckBox << ui->fDiffCheckBox << ui->fDeltaCheckBox
@@ -300,11 +309,11 @@ RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf) :
 
     for (int i = 0; i < num_graphs_; i++) {
         QCPGraph *graph = ui->streamGraph->addGraph();
-        graph->setPen(QPen(ColorUtils::graph_colors_[i]));
+        graph->setPen(QPen(ColorUtils::graphColor(i)));
         graph->setName(graph_cbs[i]->text());
         graphs_ << graph;
         graph_cbs[i]->setChecked(true);
-        graph_cbs[i]->setIcon(StockIcon::colorIcon(ColorUtils::graph_colors_[i], QPalette::Text));
+        graph_cbs[i]->setIcon(StockIcon::colorIcon(ColorUtils::graphColor(i), QPalette::Text));
     }
     ui->streamGraph->xAxis->setLabel("Arrival Time");
     ui->streamGraph->yAxis->setLabel("Value (ms)");
@@ -337,107 +346,38 @@ RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf) :
     save_menu->addAction(ui->actionSaveGraph);
     ui->buttonBox->button(QDialogButtonBox::Save)->setMenu(save_menu);
 
-    const gchar *filter_text = "rtp && rtp.version && rtp.ssrc && (ip || ipv6)";
-    dfilter_t *sfcode;
-    gchar *err_msg;
-
-    if (!dfilter_compile(filter_text, &sfcode, &err_msg)) {
-        QMessageBox::warning(this, tr("No RTP packets found"), QString("%1").arg(err_msg));
-        g_free(err_msg);
-        close();
-    }
-
-    if (!cap_file_.capFile() || !cap_file_.capFile()->current_frame) close();
-
-    frame_data *fdata = cap_file_.capFile()->current_frame;
-
-    if (!cf_read_record(cap_file_.capFile(), fdata)) close();
-
-    epan_dissect_t edt;
-
-    epan_dissect_init(&edt, cap_file_.capFile()->epan, TRUE, FALSE);
-    epan_dissect_prime_dfilter(&edt, sfcode);
-    epan_dissect_run(&edt, cap_file_.capFile()->cd_t, &cap_file_.capFile()->phdr,
-                     frame_tvbuff_new_buffer(fdata, &cap_file_.capFile()->buf), fdata, NULL);
-
-    // This shouldn't happen (the menu item should be disabled) but check anyway
-    if (!dfilter_apply_edt(sfcode, &edt)) {
-        epan_dissect_cleanup(&edt);
-        dfilter_free(sfcode);
-        err_str_ = tr("Please select an RTP packet");
-        updateWidgets();
-        return;
-    }
-
-    dfilter_free(sfcode);
-
-    /* OK, it is an RTP frame. Let's get the IP and port values */
-    COPY_ADDRESS(&(src_fwd_), &(edt.pi.src));
-    COPY_ADDRESS(&(dst_fwd_), &(edt.pi.dst));
-    port_src_fwd_ = edt.pi.srcport;
-    port_dst_fwd_ = edt.pi.destport;
-
-    /* assume the inverse ip/port combination for the reverse direction */
-    COPY_ADDRESS(&(src_rev_), &(edt.pi.dst));
-    COPY_ADDRESS(&(dst_rev_), &(edt.pi.src));
-    port_src_rev_ = edt.pi.destport;
-    port_dst_rev_ = edt.pi.srcport;
-
-    /* Check if it is RTP Version 2 */
-    unsigned int  version_fwd;
-    bool ok;
-    version_fwd = getIntFromProtoTree(edt.tree, "rtp", "rtp.version", &ok);
-    if (!ok || version_fwd != 2) {
-        err_str_ = tr("RTP version %1 found. Only version 2 is supported.").arg(version_fwd);
-        updateWidgets();
-        return;
-    }
-
-    /* now we need the SSRC value of the current frame */
-    ssrc_fwd_ = getIntFromProtoTree(edt.tree, "rtp", "rtp.ssrc", &ok);
-    if (!ok) {
-        err_str_ = tr("SSRC value not found.");
-        updateWidgets();
-        return;
-    }
-
-    /* Register the tap listener */
-    memset(&tapinfo_, 0, sizeof(rtpstream_tapinfo_t));
-    tapinfo_.tap_data = this;
-    tapinfo_.mode = TAP_ANALYSE;
-
-//    register_tap_listener_rtp_stream(&tapinfo_, NULL);
-    /* Scan for RTP streams (redissect all packets) */
-    rtpstream_scan(&tapinfo_, cap_file_.capFile(), NULL);
-
-    num_streams_ = 0;
-    GList *filtered_list = NULL;
-    for (GList *strinfo_list = g_list_first(tapinfo_.strinfo_list); strinfo_list; strinfo_list = g_list_next(strinfo_list)) {
-        rtp_stream_info_t * strinfo = (rtp_stream_info_t*)(strinfo_list->data);
-        if (ADDRESSES_EQUAL(&(strinfo->src_addr), &(src_fwd_))
-            && (strinfo->src_port == port_src_fwd_)
-            && (ADDRESSES_EQUAL(&(strinfo->dest_addr), &(dst_fwd_)))
-            && (strinfo->dest_port == port_dst_fwd_))
-        {
-            ++num_streams_;
-            filtered_list = g_list_prepend(filtered_list, strinfo);
+    if (stream_fwd) { // XXX What if stream_fwd == 0 && stream_rev != 0?
+        copy_address(&src_fwd_, &(stream_fwd->src_addr));
+        port_src_fwd_ = stream_fwd->src_port;
+        copy_address(&dst_fwd_, &(stream_fwd->dest_addr));
+        port_dst_fwd_ = stream_fwd->dest_port;
+        ssrc_fwd_ = stream_fwd->ssrc;
+        packet_count_fwd_ = stream_fwd->packet_count;
+        setup_frame_number_fwd_ = stream_fwd->setup_frame_number;
+        nstime_copy(&start_rel_time_fwd_, &stream_fwd->start_rel_time);
+        num_streams_++;
+        if (stream_rev) {
+            copy_address(&src_rev_, &(stream_rev->src_addr));
+            port_src_rev_ = stream_rev->src_port;
+            copy_address(&dst_rev_, &(stream_rev->dest_addr));
+            port_dst_rev_ = stream_rev->dest_port;
+            ssrc_rev_ = stream_rev->ssrc;
+            packet_count_rev_ = stream_rev->packet_count;
+            setup_frame_number_rev_ = stream_rev->setup_frame_number;
+            nstime_copy(&start_rel_time_rev_, &stream_rev->start_rel_time);
+            num_streams_++;
         }
-
-        if (ADDRESSES_EQUAL(&(strinfo->src_addr), &(src_rev_))
-            && (strinfo->src_port == port_src_rev_)
-            && (ADDRESSES_EQUAL(&(strinfo->dest_addr), &(dst_rev_)))
-            && (strinfo->dest_port == port_dst_rev_))
-        {
-            ++num_streams_;
-            filtered_list = g_list_append(filtered_list, strinfo);
-            if (ssrc_rev_ == 0)
-                ssrc_rev_ = strinfo->ssrc;
-        }
+    } else {
+        findStreams();
     }
 
-    if (num_streams_ < 1) {
+    if (err_str_.isEmpty() && num_streams_ < 1) {
         err_str_ = tr("No streams found.");
     }
+
+    registerTapListener("rtp", this, NULL, 0, tapReset, tapPacket, tapDraw);
+    cap_file_.retapPackets();
+    removeTapListeners();
 
     connect(ui->tabWidget, SIGNAL(currentChanged(int)),
             this, SLOT(updateWidgets()));
@@ -448,10 +388,6 @@ RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf) :
     connect(&cap_file_, SIGNAL(captureFileClosing()),
             this, SLOT(updateWidgets()));
     updateWidgets();
-
-    registerTapListener("rtp", this, NULL, 0, tapReset, tapPacket, tapDraw);
-    cap_file_.retapPackets();
-    removeTapListeners();
 
     updateStatistics();
 }
@@ -501,10 +437,19 @@ void RtpAnalysisDialog::updateWidgets()
     ui->actionSaveForwardCsv->setEnabled(enable_save_fwd_csv);
     ui->actionSaveReverseCsv->setEnabled(enable_save_rev_csv);
 
+#if defined(QT_MULTIMEDIA_LIB)
+    player_button_->setEnabled(num_streams_ > 0);
+#else
+    player_button_->setEnabled(false);
+    player_button_->setText(tr("No Audio"));
+#endif
+
     ui->tabWidget->setEnabled(enable_tab);
     hint.prepend("<small><i>");
     hint.append("</i></small>");
     ui->hintLabel->setText(hint);
+
+    WiresharkDialog::updateWidgets();
 }
 
 void RtpAnalysisDialog::on_actionGoToPacket_triggered()
@@ -657,6 +602,13 @@ void RtpAnalysisDialog::on_actionSaveGraph_triggered()
     }
 }
 
+void RtpAnalysisDialog::on_buttonBox_clicked(QAbstractButton *button)
+{
+    if (button == player_button_) {
+        showPlayer();
+    }
+}
+
 void RtpAnalysisDialog::on_buttonBox_helpRequested()
 {
     wsApp->helpTopicAction(HELP_RTP_ANALYSIS_DIALOG);
@@ -686,18 +638,18 @@ gboolean RtpAnalysisDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo, epa
         return FALSE;
     /* is it the forward direction?  */
     else if (rtp_analysis_dialog->ssrc_fwd_ == rtpinfo->info_sync_src
-         && (CMP_ADDRESS(&(rtp_analysis_dialog->src_fwd_), &(pinfo->src)) == 0)
+         && (cmp_address(&(rtp_analysis_dialog->src_fwd_), &(pinfo->src)) == 0)
          && (rtp_analysis_dialog->port_src_fwd_ == pinfo->srcport)
-         && (CMP_ADDRESS(&(rtp_analysis_dialog->dst_fwd_), &(pinfo->dst)) == 0)
+         && (cmp_address(&(rtp_analysis_dialog->dst_fwd_), &(pinfo->dst)) == 0)
          && (rtp_analysis_dialog->port_dst_fwd_ == pinfo->destport))  {
 
         rtp_analysis_dialog->addPacket(true, pinfo, rtpinfo);
     }
     /* is it the reversed direction? */
     else if (rtp_analysis_dialog->ssrc_rev_ == rtpinfo->info_sync_src
-         && (CMP_ADDRESS(&(rtp_analysis_dialog->src_rev_), &(pinfo->src)) == 0)
+         && (cmp_address(&(rtp_analysis_dialog->src_rev_), &(pinfo->src)) == 0)
          && (rtp_analysis_dialog->port_src_rev_ == pinfo->srcport)
-         && (CMP_ADDRESS(&(rtp_analysis_dialog->dst_rev_), &(pinfo->dst)) == 0)
+         && (cmp_address(&(rtp_analysis_dialog->dst_rev_), &(pinfo->dst)) == 0)
          && (rtp_analysis_dialog->port_dst_rev_ == pinfo->destport))  {
 
         rtp_analysis_dialog->addPacket(false, pinfo, rtpinfo);
@@ -751,20 +703,20 @@ void RtpAnalysisDialog::addPacket(bool forward, packet_info *pinfo, const _rtp_i
         rtp_packet_analyse(&fwd_statinfo_, pinfo, rtpinfo);
         new RtpAnalysisTreeWidgetItem(ui->forwardTreeWidget, &fwd_statinfo_, pinfo, rtpinfo);
 
-        fwd_time_vals_.append((fwd_statinfo_.time - fwd_statinfo_.start_time) / 1000);
-        fwd_jitter_vals_.append(fwd_statinfo_.jitter * 1000);
-        fwd_diff_vals_.append(fwd_statinfo_.diff * 1000);
-        fwd_delta_vals_.append(fwd_statinfo_.delta * 1000);
+        fwd_time_vals_.append(fwd_statinfo_.time / 1000);
+        fwd_jitter_vals_.append(fwd_statinfo_.jitter);
+        fwd_diff_vals_.append(fwd_statinfo_.diff);
+        fwd_delta_vals_.append(fwd_statinfo_.delta);
 
         savePayload(fwd_tempfile_, &fwd_statinfo_, pinfo, rtpinfo);
     } else {
         rtp_packet_analyse(&rev_statinfo_, pinfo, rtpinfo);
         new RtpAnalysisTreeWidgetItem(ui->reverseTreeWidget, &rev_statinfo_, pinfo, rtpinfo);
 
-        rev_time_vals_.append((rev_statinfo_.time - rev_statinfo_.start_time) / 1000);
-        rev_jitter_vals_.append(rev_statinfo_.jitter * 1000);
-        rev_diff_vals_.append(rev_statinfo_.diff * 1000);
-        rev_delta_vals_.append(rev_statinfo_.delta * 1000);
+        rev_time_vals_.append(rev_statinfo_.time / 1000);
+        rev_jitter_vals_.append(rev_statinfo_.jitter);
+        rev_diff_vals_.append(rev_statinfo_.diff);
+        rev_delta_vals_.append(rev_statinfo_.delta);
 
         savePayload(rev_tempfile_, &rev_statinfo_, pinfo, rtpinfo);
     }
@@ -790,13 +742,15 @@ void RtpAnalysisDialog::savePayload(QTemporaryFile *tmpfile, tap_rtp_stat_t *sta
     /* Save the voice information */
 
     /* If there was already an error, we quit */
-    if (!tmpfile->isOpen() || tmpfile->error() != QFile::NoError) return;
+    if (!tmpfile->isOpen() || tmpfile->error() != QFile::NoError)
+        return;
 
     /* Quit if the captured length and packet length aren't equal or
      * if the RTP dissector thinks there is some information missing
      */
-    if ((pinfo->fd->pkt_len != pinfo->fd->cap_len)
-        && (!rtpinfo->info_all_data_present)) {
+    if ((pinfo->fd->pkt_len != pinfo->fd->cap_len) &&
+        (!rtpinfo->info_all_data_present))
+    {
         tmpfile->close();
         err_str_ = tr("Can't save in a file: Wrong length of captured packets.");
         return;
@@ -805,18 +759,20 @@ void RtpAnalysisDialog::savePayload(QTemporaryFile *tmpfile, tap_rtp_stat_t *sta
     /* If padding bit is set but the padding count is bigger
      * then the whole RTP data - error with padding count
      */
-    if ( (rtpinfo->info_padding_set != FALSE)
-         && (rtpinfo->info_padding_count > rtpinfo->info_payload_len) ) {
+    if ((rtpinfo->info_padding_set != FALSE) &&
+        (rtpinfo->info_padding_count > rtpinfo->info_payload_len))
+    {
         tmpfile->close();
         err_str_ = tr("Can't save in a file: RTP data with padding.");
         return;
     }
 
     /* Do we need to insert some silence? */
-    if ((rtpinfo->info_marker_set)
-        && ! (statinfo->flags & STAT_FLAG_FIRST)
-        && ! (statinfo->flags & STAT_FLAG_WRONG_TIMESTAMP)
-        && (statinfo->delta_timestamp > (rtpinfo->info_payload_len - rtpinfo->info_padding_count)) )  {
+    if ((rtpinfo->info_marker_set) &&
+        !(statinfo->flags & STAT_FLAG_FIRST) &&
+        !(statinfo->flags & STAT_FLAG_WRONG_TIMESTAMP) &&
+        (statinfo->delta_timestamp > (rtpinfo->info_payload_len - rtpinfo->info_padding_count)))
+    {
         /* the amount of silence should be the difference between
         * the last timestamp and the current one minus x
         * x should equal the amount of information in the last frame
@@ -850,8 +806,8 @@ void RtpAnalysisDialog::savePayload(QTemporaryFile *tmpfile, tap_rtp_stat_t *sta
     }
 
 
-    if ((rtpinfo->info_payload_type == PT_CN)
-        || (rtpinfo->info_payload_type == PT_CN_OLD)) {
+    if ((rtpinfo->info_payload_type == PT_CN) ||
+        (rtpinfo->info_payload_type == PT_CN_OLD)) {
     } else { /* All other payloads */
         const char *data;
         size_t nchars;
@@ -1026,6 +982,45 @@ void RtpAnalysisDialog::updateGraph()
     ui->streamGraph->replot();
 }
 
+void RtpAnalysisDialog::showPlayer()
+{
+#ifdef QT_MULTIMEDIA_LIB
+    if (num_streams_ < 1) return;
+
+    RtpPlayerDialog rtp_player_dialog(*this, cap_file_);
+    rtp_stream_info_t stream_info;
+
+    // XXX We might want to create an "rtp_stream_id_t" struct with only
+    // addresses, ports & SSRC.
+    memset(&stream_info, 0, sizeof(stream_info));
+    copy_address(&(stream_info.src_addr), &src_fwd_);
+    stream_info.src_port = port_src_fwd_;
+    copy_address(&(stream_info.dest_addr), &dst_fwd_);
+    stream_info.dest_port = port_dst_fwd_;
+    stream_info.ssrc = ssrc_fwd_;
+    stream_info.packet_count = packet_count_fwd_;
+    stream_info.setup_frame_number = setup_frame_number_fwd_;
+    nstime_copy(&stream_info.start_rel_time, &start_rel_time_fwd_);
+
+    rtp_player_dialog.addRtpStream(&stream_info);
+    if (num_streams_ > 1) {
+        copy_address(&(stream_info.src_addr), &src_rev_);
+        stream_info.src_port = port_src_rev_;
+        copy_address(&(stream_info.dest_addr), &dst_rev_);
+        stream_info.dest_port = port_dst_rev_;
+        stream_info.ssrc = ssrc_rev_;
+        stream_info.packet_count = packet_count_rev_;
+        stream_info.setup_frame_number = setup_frame_number_rev_;
+        rtp_player_dialog.addRtpStream(&stream_info);
+        nstime_copy(&stream_info.start_rel_time, &start_rel_time_rev_);
+    }
+
+    connect(&rtp_player_dialog, SIGNAL(goToPacket(int)), this, SIGNAL(goToPacket(int)));
+
+    rtp_player_dialog.exec();
+#endif // QT_MULTIMEDIA_LIB
+}
+
 // rtp_analysis.c:copy_file
 enum { save_audio_none_, save_audio_au_, save_audio_raw_ };
 void RtpAnalysisDialog::saveAudio(RtpAnalysisDialog::StreamDirection direction)
@@ -1068,6 +1063,16 @@ void RtpAnalysisDialog::saveAudio(RtpAnalysisDialog::StreamDirection direction)
     if (save_format == save_audio_none_) {
         QMessageBox::warning(this, tr("Warning"), tr("Unable to save in that format"));
         return;
+    }
+
+    if (save_format == save_audio_au_) {
+        if ((((direction == dir_forward_) || (direction == dir_both_)) &&
+             (fwd_statinfo_.pt != PT_PCMU) && (fwd_statinfo_.pt != PT_PCMA)) ||
+             (((direction == dir_reverse_) || (direction == dir_both_)) &&
+             (rev_statinfo_.pt != PT_PCMU) && (rev_statinfo_.pt != PT_PCMA))) {
+            QMessageBox::warning(this, tr("Warning"), tr("Can't save in a file: saving in au format supported only for alaw/ulaw streams"));
+            return;
+        }
     }
 
     QFile      save_file(file_path);
@@ -1374,75 +1379,6 @@ void RtpAnalysisDialog::saveCsv(RtpAnalysisDialog::StreamDirection direction)
     }
 }
 
-// Adapted from rtp_analysis.c:process_node
-guint32 RtpAnalysisDialog::processNode(proto_node *ptree_node, header_field_info *hfinformation, const gchar *proto_field, bool *ok)
-{
-    field_info        *finfo;
-    proto_node        *proto_sibling_node;
-    header_field_info *hfssrc;
-    ipv4_addr         *ipv4;
-
-    finfo = PNODE_FINFO(ptree_node);
-
-    /* Caller passed top of the protocol tree. Expected child node */
-    g_assert(finfo);
-
-    if (hfinformation == (finfo->hfinfo)) {
-        hfssrc = proto_registrar_get_byname(proto_field);
-        if (hfssrc == NULL) {
-            return 0;
-        }
-        for (ptree_node = ptree_node->first_child;
-             ptree_node != NULL;
-             ptree_node = ptree_node->next) {
-            finfo = PNODE_FINFO(ptree_node);
-            if (hfssrc == finfo->hfinfo) {
-                guint32 result;
-                if (hfinformation->type == FT_IPv4) {
-                    ipv4 = (ipv4_addr *)fvalue_get(&finfo->value);
-                    result = ipv4_get_net_order_addr(ipv4);
-                } else {
-                    result = fvalue_get_uinteger(&finfo->value);
-                }
-                if (ok) *ok = true;
-                return result;
-            }
-        }
-        if (!ptree_node) {
-            return 0;
-        }
-    }
-
-    proto_sibling_node = ptree_node->next;
-
-    if (proto_sibling_node) {
-        return processNode(proto_sibling_node, hfinformation, proto_field, ok);
-    } else {
-        return 0;
-    }
-}
-
-// Adapted from rtp_analysis.c:get_int_value_from_proto_tree
-guint32 RtpAnalysisDialog::getIntFromProtoTree(proto_tree *protocol_tree, const gchar *proto_name, const gchar *proto_field, bool *ok)
-{
-    proto_node *ptree_node;
-    header_field_info *hfinformation;
-
-    if (ok) *ok = false;
-
-    hfinformation = proto_registrar_get_byname(proto_name);
-    if (hfinformation == NULL) {
-        return 0;
-    }
-
-    ptree_node = ((proto_node *)protocol_tree)->first_child;
-    if (!ptree_node) {
-        return 0;
-    }
-
-    return processNode(ptree_node, hfinformation, proto_field, ok);
-}
-
 bool RtpAnalysisDialog::eventFilter(QObject *, QEvent *event)
 {
     if (event->type() != QEvent::KeyPress) return false;
@@ -1467,6 +1403,117 @@ void RtpAnalysisDialog::graphClicked(QMouseEvent *event)
     updateWidgets();
     if (event->button() == Qt::RightButton) {
         graph_ctx_menu_.exec(event->globalPos());
+    }
+}
+
+void RtpAnalysisDialog::findStreams()
+{
+    const gchar filter_text[] = "rtp && rtp.version == 2 && rtp.ssrc && (ip || ipv6)";
+    dfilter_t *sfcode;
+    gchar *err_msg;
+
+    /* Try to get the hfid for "rtp.ssrc". */
+    int hfid_rtp_ssrc = proto_registrar_get_id_byname("rtp.ssrc");
+    if (hfid_rtp_ssrc == -1) {
+        err_str_ = tr("There is no \"rtp.ssrc\" field in this version of Wireshark.");
+        updateWidgets();
+        return;
+    }
+
+    /* Try to compile the filter. */
+    if (!dfilter_compile(filter_text, &sfcode, &err_msg)) {
+        err_str_ = QString(err_msg);
+        g_free(err_msg);
+        updateWidgets();
+        return;
+    }
+
+    if (!cap_file_.capFile() || !cap_file_.capFile()->current_frame) close();
+
+    frame_data *fdata = cap_file_.capFile()->current_frame;
+
+    if (!cf_read_record(cap_file_.capFile(), fdata)) close();
+
+    epan_dissect_t edt;
+
+    epan_dissect_init(&edt, cap_file_.capFile()->epan, TRUE, FALSE);
+    epan_dissect_prime_dfilter(&edt, sfcode);
+    epan_dissect_prime_hfid(&edt, hfid_rtp_ssrc);
+    epan_dissect_run(&edt, cap_file_.capFile()->cd_t, &cap_file_.capFile()->phdr,
+                     frame_tvbuff_new_buffer(fdata, &cap_file_.capFile()->buf), fdata, NULL);
+
+    /*
+     * Packet must be an RTPv2 packet with an SSRC; we use the filter to
+     * check.
+     */
+    if (!dfilter_apply_edt(sfcode, &edt)) {
+        epan_dissect_cleanup(&edt);
+        dfilter_free(sfcode);
+        err_str_ = tr("Please select an RTPv2 packet with an SSRC value");
+        updateWidgets();
+        return;
+    }
+
+    dfilter_free(sfcode);
+
+    /* OK, it is an RTP frame. Let's get the IP and port values */
+    copy_address(&(src_fwd_), &(edt.pi.src));
+    copy_address(&(dst_fwd_), &(edt.pi.dst));
+    port_src_fwd_ = edt.pi.srcport;
+    port_dst_fwd_ = edt.pi.destport;
+
+    /* assume the inverse ip/port combination for the reverse direction */
+    copy_address(&(src_rev_), &(edt.pi.dst));
+    copy_address(&(dst_rev_), &(edt.pi.src));
+    port_src_rev_ = edt.pi.destport;
+    port_dst_rev_ = edt.pi.srcport;
+
+    /* now we need the SSRC value of the current frame */
+    GPtrArray *gp = proto_get_finfo_ptr_array(edt.tree, hfid_rtp_ssrc);
+    if (gp == NULL || gp->len == 0) {
+        /* XXX - should not happen, as the filter includes rtp.ssrc */
+        epan_dissect_cleanup(&edt);
+        err_str_ = tr("SSRC value not found.");
+        updateWidgets();
+        return;
+    }
+    ssrc_fwd_ = fvalue_get_uinteger(&((field_info *)gp->pdata[0])->value);
+
+    /* Register the tap listener */
+    memset(&tapinfo_, 0, sizeof(rtpstream_tapinfo_t));
+    tapinfo_.tap_data = this;
+    tapinfo_.mode = TAP_ANALYSE;
+
+//    register_tap_listener_rtp_stream(&tapinfo_, NULL);
+    /* Scan for RTP streams (redissect all packets) */
+    rtpstream_scan(&tapinfo_, cap_file_.capFile(), NULL);
+
+    for (GList *strinfo_list = g_list_first(tapinfo_.strinfo_list); strinfo_list; strinfo_list = g_list_next(strinfo_list)) {
+        rtp_stream_info_t * strinfo = (rtp_stream_info_t*)(strinfo_list->data);
+        if (addresses_equal(&(strinfo->src_addr), &(src_fwd_))
+            && (strinfo->src_port == port_src_fwd_)
+            && (addresses_equal(&(strinfo->dest_addr), &(dst_fwd_)))
+            && (strinfo->dest_port == port_dst_fwd_))
+        {
+            packet_count_fwd_ = strinfo->packet_count;
+            setup_frame_number_fwd_ = strinfo->setup_frame_number;
+            nstime_copy(&start_rel_time_fwd_, &strinfo->start_rel_time);
+            num_streams_++;
+        }
+
+        if (addresses_equal(&(strinfo->src_addr), &(src_rev_))
+            && (strinfo->src_port == port_src_rev_)
+            && (addresses_equal(&(strinfo->dest_addr), &(dst_rev_)))
+            && (strinfo->dest_port == port_dst_rev_))
+        {
+            packet_count_rev_ = strinfo->packet_count;
+            setup_frame_number_rev_ = strinfo->setup_frame_number;
+            nstime_copy(&start_rel_time_rev_, &strinfo->start_rel_time);
+            num_streams_++;
+            if (ssrc_rev_ == 0) {
+                ssrc_rev_ = strinfo->ssrc;
+            }
+        }
     }
 }
 

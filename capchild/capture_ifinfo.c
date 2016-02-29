@@ -28,22 +28,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#ifdef HAVE_ARPA_INET_H
-#include <arpa/inet.h>
-#endif
-
-#ifdef HAVE_SYS_SOCKET_H
-#include <sys/socket.h>         /* needed to define AF_ values on UNIX */
-#endif
-
-#ifdef HAVE_WINSOCK2_H
-#include <winsock2.h>           /* needed to define AF_ values on Windows */
-#endif
-
-#ifdef NEED_INET_V6DEFS_H
-# include "wsutil/inet_v6defs.h"
-#endif
-
 #include <glib.h>
 
 #include "capture_opts.h"
@@ -56,11 +40,12 @@
 #include "log.h"
 
 #include <caputils/capture_ifinfo.h>
+#include <wsutil/inet_addr.h>
 
 #ifdef HAVE_PCAP_REMOTE
 static GList *remote_interface_list = NULL;
 
-static void append_remote_list(GList *iflist)
+static GList * append_remote_list(GList *iflist)
 {
     GSList *list;
     GList *rlist;
@@ -94,6 +79,7 @@ static void append_remote_list(GList *iflist)
         temp->loopback = if_info->loopback;
         iflist = g_list_append(iflist, temp);
    }
+   return iflist;
 }
 #endif
 
@@ -121,10 +107,6 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface List ...");
 
     *err = 0;
-#ifdef HAVE_EXTCAP
-    g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Loading External Capture Interface List ...");
-    if_list = extcap_interface_list(err_str);
-#endif
 
     /* Try to get our interface list */
     ret = sync_interface_list_open(&data, &primary_msg, &secondary_msg, update_cb);
@@ -139,7 +121,7 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
         }
         g_free(secondary_msg);
         *err = CANT_GET_INTERFACE_LIST;
-        return NULL;
+        return if_list;
     }
 
     /* Split our lines */
@@ -187,10 +169,9 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
         addr_parts = g_strsplit(if_parts[4], ",", 0);
         for (j = 0; addr_parts[j] != NULL; j++) {
             if_addr = g_new0(if_addr_t,1);
-            if (inet_pton(AF_INET, addr_parts[j], &if_addr->addr.ip4_addr) > 0) {
+            if (ws_inet_pton4(addr_parts[j], &if_addr->addr.ip4_addr)) {
                 if_addr->ifat_type = IF_AT_IPv4;
-            } else if (inet_pton(AF_INET6, addr_parts[j],
-                    &if_addr->addr.ip6_addr) > 0) {
+            } else if (ws_inet_pton6(addr_parts[j], (struct e_in6_addr *)&if_addr->addr.ip6_addr)) {
                 if_addr->ifat_type = IF_AT_IPv6;
             } else {
                 g_free(if_addr);
@@ -213,9 +194,16 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
 
 #ifdef HAVE_PCAP_REMOTE
     if (remote_interface_list && g_list_length(remote_interface_list) > 0) {
-        append_remote_list(if_list);
+        if_list = append_remote_list(if_list);
     }
 #endif
+
+#ifdef HAVE_EXTCAP
+    /* Add the extcap interfaces after the native and remote interfaces */
+    g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Loading External Capture Interface List ...");
+    if_list = append_extcap_interface_list(if_list, err_str);
+#endif
+
     return if_list;
 }
 
@@ -278,6 +266,7 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
         if (err_str) {
             *err_str = g_strdup("Dumpcap returned no interface capability information");
         }
+        g_strfreev(raw_list);
         return NULL;
     }
 
@@ -302,6 +291,7 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
                                        raw_list[0]);
         }
         g_free(caps);
+        g_strfreev(raw_list);
         return NULL;
     }
 

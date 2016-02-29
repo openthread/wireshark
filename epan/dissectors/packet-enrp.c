@@ -43,6 +43,8 @@
 #include <epan/to_str.h>
 #include <epan/sctpppids.h>
 
+#include <wsutil/str_util.h>
+
 void proto_register_enrp(void);
 void proto_reg_handoff_enrp(void);
 
@@ -110,8 +112,8 @@ static void
 dissect_parameters(tvbuff_t *, proto_tree *);
 static void
 dissect_parameter(tvbuff_t *, proto_tree *);
-static void
-dissect_enrp(tvbuff_t *, packet_info *, proto_tree *);
+static int
+dissect_enrp(tvbuff_t *, packet_info *, proto_tree *, void*);
 
 #define ADD_PADDING(x) ((((x) + 3) >> 2) << 2)
 
@@ -191,7 +193,7 @@ dissect_error_cause(tvbuff_t *cause_tvb, proto_tree *parameter_tree)
     break;
   case UNRECONGNIZED_MESSAGE_CAUSE_CODE:
     message_tvb = tvb_new_subset_remaining(cause_tvb, CAUSE_INFO_OFFSET);
-    dissect_enrp(message_tvb, NULL, cause_tree);
+    dissect_enrp(message_tvb, NULL, cause_tree, NULL);
     break;
   case INVALID_VALUES:
     parameter_tvb = tvb_new_subset_remaining(cause_tvb, CAUSE_INFO_OFFSET);
@@ -986,8 +988,8 @@ dissect_enrp_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *enrp
   }
 }
 
-static void
-dissect_enrp(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_enrp(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *enrp_item;
   proto_tree *enrp_tree;
@@ -996,17 +998,13 @@ dissect_enrp(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
   if (pinfo)
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "ENRP");
 
-  /* In the interest of speed, if "tree" is NULL, don't do any work not
-     necessary to generate protocol tree items. */
-  if (tree) {
-    /* create the enrp protocol tree */
-    enrp_item = proto_tree_add_item(tree, proto_enrp, message_tvb, 0, -1, ENC_NA);
-    enrp_tree = proto_item_add_subtree(enrp_item, ett_enrp);
-  } else {
-    enrp_tree = NULL;
-  };
+  /* create the enrp protocol tree */
+  enrp_item = proto_tree_add_item(tree, proto_enrp, message_tvb, 0, -1, ENC_NA);
+  enrp_tree = proto_item_add_subtree(enrp_item, ett_enrp);
+
   /* dissect the message */
   dissect_enrp_message(message_tvb, pinfo, enrp_tree);
+  return tvb_captured_length(message_tvb);
 }
 
 /* Register the protocol with Wireshark */

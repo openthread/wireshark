@@ -32,14 +32,13 @@
 #include <epan/prefs.h>
 #include <epan/prefs-int.h>
 #include <epan/dissector_filters.h>
-#include <epan/color_dissector_filters.h>
 #include <epan/epan_dissect.h>
 #include <epan/column.h>
 #include <epan/stats_tree_priv.h>
 #include <epan/plugin_if.h>
 
 #include "globals.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 
 #include "ui/main_statusbar.h"
 #include "ui/preference_utils.h"
@@ -66,9 +65,7 @@
 #include "ui/gtk/summary_dlg.h"
 #include "ui/gtk/prefs_dlg.h"
 #include "ui/gtk/packet_win.h"
-#include "ui/gtk/follow_tcp.h"
-#include "ui/gtk/follow_udp.h"
-#include "ui/gtk/follow_ssl.h"
+#include "ui/gtk/follow_stream.h"
 #include "ui/gtk/decode_as_dlg.h"
 #include "ui/gtk/help_dlg.h"
 #include "ui/gtk/supported_protos_dlg.h"
@@ -190,13 +187,17 @@ edit_window_cb(GtkWidget *widget _U_)
 #endif
 
 static void
-colorize_conversation_cb(color_conversation_filter_t* color_filter, int action_num)
+colorize_conversation_cb(conversation_filter_t* color_filter, int action_num)
 {
     gchar *filter = NULL;
     packet_info *pi = &cfile.edt->pi;
+    gchar *err_msg = NULL;
 
     if (action_num == 255) {
-        color_filters_reset_tmp();
+        if (!color_filters_reset_tmp(&err_msg)) {
+            simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+            g_free(err_msg);
+        }
         packet_list_colorize_packets();
     } else if (cfile.current_frame) {
         if (color_filter == NULL) {
@@ -204,26 +205,26 @@ colorize_conversation_cb(color_conversation_filter_t* color_filter, int action_n
                 * or through an accelerator key. Try to build a conversation
                 * filter in the order TCP, UDP, IP, Ethernet and apply the
                 * coloring */
-            color_filter = find_color_conversation_filter("tcp");
+            color_filter = find_conversation_filter("tcp");
             if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
                 filter = color_filter->build_filter_string(pi);
             if (filter == NULL) {
-                color_filter = find_color_conversation_filter("udp");
+                color_filter = find_conversation_filter("udp");
                 if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
                     filter = color_filter->build_filter_string(pi);
             }
             if (filter == NULL) {
-                color_filter = find_color_conversation_filter("ip");
+                color_filter = find_conversation_filter("ip");
                 if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
                     filter = color_filter->build_filter_string(pi);
             }
             if (filter == NULL) {
-                color_filter = find_color_conversation_filter("ipv6");
+                color_filter = find_conversation_filter("ipv6");
                 if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
                     filter = color_filter->build_filter_string(pi);
             }
             if (filter == NULL) {
-                color_filter = find_color_conversation_filter("eth");
+                color_filter = find_conversation_filter("eth");
                 if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
                     filter = color_filter->build_filter_string(pi);
             }
@@ -240,7 +241,10 @@ colorize_conversation_cb(color_conversation_filter_t* color_filter, int action_n
             color_display_with_filter(filter);
         } else {
             /* Set one of the temporary coloring filters */
-            color_filters_set_tmp(action_num, filter, FALSE);
+            if (!color_filters_set_tmp(action_num, filter, FALSE, &err_msg)) {
+                simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+                g_free(err_msg);
+            }
             packet_list_colorize_packets();
         }
 
@@ -255,23 +259,23 @@ goto_conversation_frame(gboolean dir)
     dfilter_t *dfcode       = NULL;
     gboolean   found_packet = FALSE;
     packet_info *pi = &cfile.edt->pi;
-    color_conversation_filter_t* color_filter;
+    conversation_filter_t* conv_filter;
 
     /* Try to build a conversation
      * filter in the order TCP, UDP, IP, Ethernet and apply the
      * coloring */
-    color_filter = find_color_conversation_filter("tcp");
-    if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-        filter = color_filter->build_filter_string(pi);
-    color_filter = find_color_conversation_filter("udp");
-    if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-        filter = color_filter->build_filter_string(pi);
-    color_filter = find_color_conversation_filter("ip");
-    if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-        filter = color_filter->build_filter_string(pi);
-    color_filter = find_color_conversation_filter("ipv6");
-    if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-        filter = color_filter->build_filter_string(pi);
+    conv_filter = find_conversation_filter("tcp");
+    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
+        filter = conv_filter->build_filter_string(pi);
+    conv_filter = find_conversation_filter("udp");
+    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
+        filter = conv_filter->build_filter_string(pi);
+    conv_filter = find_conversation_filter("ip");
+    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
+        filter = conv_filter->build_filter_string(pi);
+    conv_filter = find_conversation_filter("ipv6");
+    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
+        filter = conv_filter->build_filter_string(pi);
 
     if( filter == NULL ) {
         statusbar_push_temporary_msg("Unable to build conversation filter.");
@@ -860,6 +864,7 @@ static const char *ui_desc_menubar =
 "        <menuitem name='EditPacket' action='/Edit/EditPacket'/>\n"
 #endif
 "        <menuitem name='AddEditPktComment' action='/Edit/AddEditPktComment'/>\n"
+"        <menuitem name='AddEditCaptureComment' action='/Edit/AddEditCaptureComment'/>\n"
 "        <separator/>\n"
 "        <menuitem name='ConfigurationProfiles' action='/Edit/ConfigurationProfiles'/>\n"
 "        <menuitem name='Preferences' action='/Edit/Preferences'/>\n"
@@ -995,6 +1000,7 @@ static const char *ui_desc_menubar =
 "      <menuitem name='FollowTCPStream' action='/Analyze/FollowTCPStream'/>\n"
 "      <menuitem name='FollowUDPStream' action='/Analyze/FollowUDPStream'/>\n"
 "      <menuitem name='FollowSSLStream' action='/Analyze/FollowSSLStream'/>\n"
+"      <menuitem name='FollowHTTPStream' action='/Analyze/FollowHTTPStream'/>\n"
 "      <menuitem name='ExpertInfo' action='/Analyze/ExpertInfo'/>\n"
 "      <menu name= 'ConversationFilterMenu' action='/Analyze/ConversationFilter'>\n"
 "        <placeholder name='Filters'/>\n"
@@ -1365,15 +1371,16 @@ static const GtkActionEntry main_menu_bar_entries[] = {
    { "/Edit/ConfigurationProfiles", NULL,                   "_Configuration Profiles...",           "<shift><control>A",        NULL,           G_CALLBACK(profile_dialog_cb) },
    { "/Edit/Preferences",           GTK_STOCK_PREFERENCES,  "_Preferences...",                      "<shift><control>P",        NULL,           G_CALLBACK(menus_prefs_cb) },
 #ifdef WANT_PACKET_EDITOR
-   { "/Edit/EditPacket",                NULL,               "_Edit Packet",                         NULL,                       NULL,           G_CALLBACK(edit_window_cb) },
+   { "/Edit/EditPacket",                NULL,               "_Edit Packet",                          NULL,                      NULL,           G_CALLBACK(edit_window_cb) },
 #endif
-   { "/Edit/AddEditPktComment",         WIRESHARK_STOCK_EDIT,   "Packet Comment...",   NULL,                   NULL,           G_CALLBACK(edit_packet_comment_dlg) },
+   { "/Edit/AddEditPktComment",         WIRESHARK_STOCK_EDIT,   "Packet Comment...",                 NULL,                      NULL,           G_CALLBACK(edit_packet_comment_dlg) },
+   { "/Edit/AddEditCaptureComment",     NULL,                   "Capture Comment...",                NULL,                      NULL,           G_CALLBACK(edit_capture_comment_dlg_launch) },
 
-   { "/View/TimeDisplayFormat",     NULL,                   "_Time Display Format",                 NULL,                       NULL,           NULL },
+   { "/View/TimeDisplayFormat",     NULL,                   "_Time Display Format",                  NULL,                      NULL,           NULL },
 
-   { "/View/NameResolution",                    NULL,        "Name Resol_ution",                     NULL,                       NULL,           NULL },
-   { "/View/NameResolution/ResolveName",        NULL,        "_Resolve Name",                        NULL,                       NULL,           G_CALLBACK(resolve_name_cb) },
-   { "/View/NameResolution/ManuallyResolveName",NULL,        "Manually Resolve Name",                NULL,                       NULL,           G_CALLBACK(manual_addr_resolv_dlg) },
+   { "/View/NameResolution",                    NULL,        "Name Resol_ution",                     NULL,                      NULL,           NULL },
+   { "/View/NameResolution/ResolveName",        NULL,        "_Resolve Name",                        NULL,                      NULL,           G_CALLBACK(resolve_name_cb) },
+   { "/View/NameResolution/ManuallyResolveName",NULL,        "Manually Resolve Name",                NULL,                      NULL,           G_CALLBACK(manual_addr_resolv_dlg) },
 
    { "/View/ZoomIn",                GTK_STOCK_ZOOM_IN,      "_Zoom In",                             "<control>plus",            NULL,           G_CALLBACK(view_zoom_in_cb) },
    { "/View/ZoomOut",               GTK_STOCK_ZOOM_OUT,     "Zoom _Out",                            "<control>minus",           NULL,           G_CALLBACK(view_zoom_out_cb) },
@@ -1428,6 +1435,7 @@ static const GtkActionEntry main_menu_bar_entries[] = {
    { "/Analyze/FollowTCPStream",                            NULL,       "Follow TCP Stream",                    NULL, NULL, G_CALLBACK(follow_tcp_stream_cb) },
    { "/Analyze/FollowUDPStream",                            NULL,       "Follow UDP Stream",                    NULL, NULL, G_CALLBACK(follow_udp_stream_cb) },
    { "/Analyze/FollowSSLStream",                            NULL,       "Follow SSL Stream",                    NULL, NULL, G_CALLBACK(follow_ssl_stream_cb) },
+   { "/Analyze/FollowHTTPStream",                           NULL,       "Follow HTTP Stream",                   NULL, NULL, G_CALLBACK(follow_http_stream_cb) },
 
    { "/Analyze/ExpertInfo",          WIRESHARK_STOCK_EXPERT_INFO,       "Expert _Info",               NULL, NULL, G_CALLBACK(expert_comp_dlg_launch) },
 
@@ -1607,9 +1615,9 @@ static const GtkRadioActionEntry main_menu_bar_radio_view_time_fileformat_prec_e
 static void
 select_bytes_view_cb (GtkRadioAction *action, GtkRadioAction *current _U_, gpointer user_data _U_)
 {
-    gint value;
+    bytes_view_type value;
 
-    value = gtk_radio_action_get_current_value (action);
+    value = (bytes_view_type)gtk_radio_action_get_current_value (action);
     /* Fix me */
     select_bytes_view( NULL, NULL, value);
 }
@@ -1887,77 +1895,77 @@ typedef void (*packet_list_menu_color_conv_color_cb_t)(GtkAction *action, gpoint
 static void
 packet_list_menu_color_conv_color1_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 1);
 }
 
 static void
 packet_list_menu_color_conv_color2_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 2);
 }
 
 static void
 packet_list_menu_color_conv_color3_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 3);
 }
 
 static void
 packet_list_menu_color_conv_color4_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 4);
 }
 
 static void
 packet_list_menu_color_conv_color5_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 5);
 }
 
 static void
 packet_list_menu_color_conv_color6_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 6);
 }
 
 static void
 packet_list_menu_color_conv_color7_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 7);
 }
 
 static void
 packet_list_menu_color_conv_color8_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 8);
 }
 
 static void
 packet_list_menu_color_conv_color9_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 9);
 }
 
 static void
 packet_list_menu_color_conv_color10_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 10);
 }
 
 static void
 packet_list_menu_color_conv_new_rule_cb(GtkAction *action _U_, gpointer user_data)
 {
-    color_conversation_filter_t* color_filter = (color_conversation_filter_t*)user_data;
+    conversation_filter_t* color_filter = (conversation_filter_t*)user_data;
     colorize_conversation_cb(color_filter, 0);
 }
 
@@ -2193,6 +2201,7 @@ static const char *ui_desc_packet_list_menu_popup =
 "     <menuitem name='FollowTCPStream' action='/Follow TCP Stream'/>\n"
 "     <menuitem name='FollowUDPStream' action='/Follow UDP Stream'/>\n"
 "     <menuitem name='FollowSSLStream' action='/Follow SSL Stream'/>\n"
+"     <menuitem name='FollowHTTPStream' action='/Follow HTTP Stream'/>\n"
 "     <separator/>\n"
 "     <menu name= 'Copy' action='/Copy'>\n"
 "        <menuitem name='SummaryTxt' action='/Copy/SummaryTxt'/>\n"
@@ -2242,9 +2251,9 @@ static const GtkActionEntry packet_list_menu_popup_action_entries[] = {
   { "/TimeShift",                       WIRESHARK_STOCK_TIME,   "Time Shift...",                NULL,                   NULL,           G_CALLBACK(time_shift_cb) },
   { "/ManuallyResolveAddress",          NULL,                   "Manually Resolve Address",     NULL,                   NULL,           G_CALLBACK(manual_addr_resolv_dlg) },
 #ifdef WANT_PACKET_EDITOR
-   { "/Edit/EditPacket",                NULL,               "_Edit Packet",                         NULL,                       NULL,           G_CALLBACK(edit_window_cb) },
+   { "/Edit/EditPacket",                NULL,                   "_Edit Packet",                 NULL,                   NULL,           G_CALLBACK(edit_window_cb) },
 #endif
-  { "/Edit/AddEditPktComment",          WIRESHARK_STOCK_EDIT,   "Packet Comment...",   NULL,                   NULL,           G_CALLBACK(edit_packet_comment_dlg) },
+  { "/Edit/AddEditPktComment",          WIRESHARK_STOCK_EDIT,   "Packet Comment...",            NULL,                   NULL,           G_CALLBACK(edit_packet_comment_dlg) },
 
   { "/Conversation Filter",             NULL, "Conversation Filter",    NULL, NULL, NULL },
   { "/Colorize Conversation",           NULL, "Colorize Conversation",  NULL, NULL, NULL },
@@ -2257,6 +2266,7 @@ static const GtkActionEntry packet_list_menu_popup_action_entries[] = {
   { "/Follow TCP Stream",                           NULL,       "Follow TCP Stream",                    NULL, NULL, G_CALLBACK(follow_tcp_stream_cb) },
   { "/Follow UDP Stream",                           NULL,       "Follow UDP Stream",                    NULL, NULL, G_CALLBACK(follow_udp_stream_cb) },
   { "/Follow SSL Stream",                           NULL,       "Follow SSL Stream",                    NULL, NULL, G_CALLBACK(follow_ssl_stream_cb) },
+  { "/Follow HTTP Stream",                          NULL,       "Follow HTTP Stream",                   NULL, NULL, G_CALLBACK(follow_http_stream_cb) },
 
   { "/Copy",        NULL, "Copy",                   NULL, NULL, NULL },
   { "/Copy/SummaryTxt",                             NULL,       "Summary (Text)",                       NULL, NULL, G_CALLBACK(packet_list_menu_copy_sum_txt) },
@@ -2321,6 +2331,7 @@ static const char *ui_desc_tree_view_menu_popup =
 "     <menuitem name='FollowTCPStream' action='/Follow TCP Stream'/>\n"
 "     <menuitem name='FollowUDPStream' action='/Follow UDP Stream'/>\n"
 "     <menuitem name='FollowSSLStream' action='/Follow SSL Stream'/>\n"
+"     <menuitem name='FollowHTTPStream' action='/Follow HTTP Stream'/>\n"
 "     <separator/>\n"
 "     <menu name= 'Copy' action='/Copy'>\n"
 "        <menuitem name='Description' action='/Copy/Description'/>\n"
@@ -2379,6 +2390,7 @@ static const GtkActionEntry tree_view_menu_popup_action_entries[] = {
   { "/Follow TCP Stream",                           NULL,       "Follow TCP Stream",                    NULL, NULL, G_CALLBACK(follow_tcp_stream_cb) },
   { "/Follow UDP Stream",                           NULL,       "Follow UDP Stream",                    NULL, NULL, G_CALLBACK(follow_udp_stream_cb) },
   { "/Follow SSL Stream",                           NULL,       "Follow SSL Stream",                    NULL, NULL, G_CALLBACK(follow_ssl_stream_cb) },
+  { "/Follow HTTP Stream",                          NULL,       "Follow HTTP Stream",                   NULL, NULL, G_CALLBACK(follow_http_stream_cb) },
 
   { "/Copy",        NULL, "Copy",                   NULL, NULL, NULL },
   { "/Copy/Description",                            NULL,       "Description",                      NULL, NULL, G_CALLBACK(tree_view_menu_copy_desc) },
@@ -2558,7 +2570,7 @@ main_menu_new(GtkAccelGroup ** table)
 static void
 menu_dissector_filter_cb(GtkAction *action _U_,  gpointer callback_data)
 {
-    dissector_filter_t      *filter_entry = (dissector_filter_t *)callback_data;
+    conversation_filter_t  *filter_entry = (conversation_filter_t *)callback_data;
     GtkWidget               *filter_te;
     const char              *buf;
 
@@ -2581,7 +2593,7 @@ menu_dissector_filter_cb(GtkAction *action _U_,  gpointer callback_data)
 static gboolean
 menu_dissector_filter_spe_cb(frame_data *fd _U_, epan_dissect_t *edt, gpointer callback_data)
 {
-    dissector_filter_t *filter_entry = (dissector_filter_t *)callback_data;
+    conversation_filter_t *filter_entry = (conversation_filter_t*)callback_data;
 
     /* XXX - this gets the packet_info of the last dissected packet, */
     /* which is not necessarily the last selected packet */
@@ -2592,8 +2604,8 @@ menu_dissector_filter_spe_cb(frame_data *fd _U_, epan_dissect_t *edt, gpointer c
 static void
 menu_dissector_filter(capture_file *cf)
 {
-    GList *list_entry = dissector_filter_list;
-    dissector_filter_t *filter_entry;
+    GList *list_entry = conv_filter_list;
+    conversation_filter_t *filter_entry;
 
     guint merge_id;
     GtkActionGroup *action_group;
@@ -2639,12 +2651,12 @@ menu_dissector_filter(capture_file *cf)
     }
 
     while (list_entry != NULL) {
-        filter_entry = (dissector_filter_t *)list_entry->data;
+        filter_entry = (conversation_filter_t *)list_entry->data;
         action_name = g_strdup_printf ("filter-%u", i);
         /*g_warning("action_name %s, filter_entry->name %s",action_name,filter_entry->name);*/
         action = (GtkAction *)g_object_new (GTK_TYPE_ACTION,
                  "name", action_name,
-                 "label", filter_entry->name,
+                 "label", filter_entry->display_name,
                  "sensitive", menu_dissector_filter_spe_cb(/* frame_data *fd _U_*/ NULL, cf->edt, filter_entry),
                  NULL);
         g_signal_connect (action, "activate",
@@ -2796,9 +2808,9 @@ menu_hostlist_list(capture_file *cf)
 }
 
 static void
-menu_color_conversation_filter_cb(GtkAction *action _U_, gpointer data)
+menu_conversation_display_filter_cb(GtkAction *action _U_, gpointer data)
 {
-    color_conversation_filter_t *filter_entry = (color_conversation_filter_t *)data;
+    conversation_filter_t *filter_entry = (conversation_filter_t *)data;
 
     gchar     *filter;
     GtkWidget *filter_te;
@@ -2821,7 +2833,7 @@ menu_color_conversation_filter_cb(GtkAction *action _U_, gpointer data)
 static gboolean
 menu_color_dissector_filter_spe_cb(frame_data *fd _U_, epan_dissect_t *edt, gpointer callback_data)
 {
-    color_conversation_filter_t *filter_entry = (color_conversation_filter_t *)callback_data;
+    conversation_filter_t *filter_entry = (conversation_filter_t *)callback_data;
 
     /* XXX - this gets the packet_info of the last dissected packet, */
     /* which is not necessarily the last selected packet */
@@ -2829,14 +2841,16 @@ menu_color_dissector_filter_spe_cb(frame_data *fd _U_, epan_dissect_t *edt, gpoi
     return (edt != NULL) ? filter_entry->is_filter_valid(&edt->pi) : FALSE;
 }
 
+#define MAX_NUM_COLOR_CONVERSATION_COLORS       10
+
 static void
 menu_color_conversation_filter(capture_file *cf)
 {
     GtkWidget *submenu_conv_filters, *submenu_color_conv_filters;
     guint merge_id, color_merge_id;
     GtkActionGroup *action_group, *color_action_group;
-    GList *list_entry = color_conv_filter_list;
-    color_conversation_filter_t* color_filter;
+    GList *list_entry = conv_filter_list;
+    conversation_filter_t* color_filter;
     int conv_counter = 0;
 
     static packet_list_menu_color_conv_color_cb_t callbacks[MAX_NUM_COLOR_CONVERSATION_COLORS] = {
@@ -2892,7 +2906,7 @@ menu_color_conversation_filter(capture_file *cf)
         GtkAction *action, *color_action;
         GtkWidget *color_conv_filter_menuitem, *color_conv_filter_submenu, *color_conv_widget;
 
-        color_filter = (color_conversation_filter_t*)list_entry->data;
+        color_filter = (conversation_filter_t*)list_entry->data;
 
         /* Create conversation filter menu item for each registered protocol */
         action_name = g_strdup_printf ("color_conversation-%u", conv_counter);
@@ -2902,7 +2916,7 @@ menu_color_conversation_filter(capture_file *cf)
                  "label", color_filter->display_name,
                  "sensitive", menu_color_dissector_filter_spe_cb(NULL, cf->edt, color_filter),
                  NULL);
-        g_signal_connect (action, "activate", G_CALLBACK (menu_color_conversation_filter_cb), color_filter);
+        g_signal_connect (action, "activate", G_CALLBACK (menu_conversation_display_filter_cb), color_filter);
         gtk_action_group_add_action (action_group, action);
         g_object_unref (action);
 
@@ -4518,13 +4532,12 @@ set_menus_for_captured_packets(gboolean have_captured_packets)
 void
 set_menus_for_selected_packet(capture_file *cf)
 {
-    GList      *list_entry = dissector_filter_list;
-    GList      *color_list_entry = color_conv_filter_list;
+    GList      *conv_filter_list_entry;
     guint       i          = 0;
     gboolean    properties = FALSE;
     const char *abbrev     = NULL;
     char       *prev_abbrev;
-    gboolean is_ip = FALSE, is_tcp = FALSE, is_udp = FALSE, is_sctp = FALSE, is_ssl = FALSE;
+    gboolean is_ip = FALSE, is_tcp = FALSE, is_udp = FALSE, is_sctp = FALSE, is_ssl = FALSE, is_lte_rlc = FALSE, is_http = FALSE;
 
     /* Making the menu context-sensitive allows for easier selection of the
        desired item and has the added benefit, with large captures, of
@@ -4547,8 +4560,10 @@ set_menus_for_selected_packet(capture_file *cf)
            than one time reference frame or the current frame isn't a
            time reference frame). (XXX - why check frame_selected?) */
     if (cf->edt)
-        proto_get_frame_protocols(cf->edt->pi.layers, &is_ip, &is_tcp, &is_udp, &is_sctp, &is_ssl, NULL);
-
+    {
+        proto_get_frame_protocols(cf->edt->pi.layers, &is_ip, &is_tcp, &is_udp, &is_sctp, &is_ssl, NULL, &is_lte_rlc);
+        is_http = proto_is_frame_protocol(cf->edt->pi.layers, "http");
+    }
     if (cf->edt && cf->edt->tree) {
         GPtrArray          *ga;
         header_field_info  *hfinfo;
@@ -4601,6 +4616,8 @@ set_menus_for_selected_packet(capture_file *cf)
 #endif /* WANT_PACKET_EDITOR */
     set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/EditMenu/AddEditPktComment",
                          frame_selected && wtap_dump_can_write(cf->linktypes, WTAP_COMMENT_PER_PACKET));
+    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/EditMenu/AddEditCaptureComment",
+                         frame_selected && wtap_dump_can_write(cf->linktypes, WTAP_COMMENT_PER_PACKET));
     set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/IgnorePacket",
                          frame_selected);
     set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/EditMenu/IgnoreAllDisplayedPackets",
@@ -4652,11 +4669,16 @@ set_menus_for_selected_packet(capture_file *cf)
                          frame_selected ? is_udp : FALSE);
     set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/FollowSSLStream",
                          frame_selected ? is_ssl : FALSE);
+    set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/FollowHTTPStream",
+                         frame_selected ? is_http : FALSE);
+
     set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/FollowSSLStream",
                          frame_selected ? is_ssl : FALSE);
-
     set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/FollowUDPStream",
                          frame_selected ? is_udp : FALSE);
+    set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/FollowHTTPStream",
+                         frame_selected ? is_http : FALSE);
+
     set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/ColorizeConversation",
                          frame_selected);
     set_menu_sensitivity(ui_manager_packet_list_menu, "/PacketListMenuPopup/DecodeAs",
@@ -4693,6 +4715,8 @@ set_menus_for_selected_packet(capture_file *cf)
                          frame_selected ? is_udp : FALSE);
     set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/AnalyzeMenu/FollowSSLStream",
                          frame_selected ? is_ssl : FALSE);
+    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/AnalyzeMenu/FollowHTTPStream",
+                         frame_selected ? is_http : FALSE);
     set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/AnalyzeMenu/DecodeAs",
                          frame_selected && decode_as_ok());
     set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/ViewMenu/NameResolution/ResolveName",
@@ -4702,39 +4726,30 @@ set_menus_for_selected_packet(capture_file *cf)
                          frame_selected);
     set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/StatisticsMenu/TCPStreamGraphMenu",
                          is_tcp);
+    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/TelephonyMenu/LTEmenu/LTE_RLC_Graph",
+                         is_lte_rlc);
 
-    while (list_entry != NULL) {
-        dissector_filter_t *filter_entry;
+    for (i = 0, conv_filter_list_entry = conv_filter_list;
+         conv_filter_list_entry != NULL;
+         conv_filter_list_entry = g_list_next(conv_filter_list_entry), i++) {
+        conversation_filter_t *filter_entry;
         gchar *path;
 
-        filter_entry = (dissector_filter_t *)list_entry->data;
+        filter_entry = (conversation_filter_t *)conv_filter_list_entry->data;
         path = g_strdup_printf("/Menubar/AnalyzeMenu/ConversationFilterMenu/Filters/filter-%u", i);
-
         set_menu_sensitivity(ui_manager_main_menubar, path,
             menu_dissector_filter_spe_cb(/* frame_data *fd _U_*/ NULL, cf->edt, filter_entry));
         g_free(path);
-        i++;
-        list_entry = g_list_next(list_entry);
-    }
 
-    i = 0;
-    while (color_list_entry != NULL) {
-        color_conversation_filter_t* color_filter;
-        gchar *path;
-
-        color_filter = (color_conversation_filter_t *)color_list_entry->data;
         path = g_strdup_printf("/PacketListMenuPopup/ConversationFilter/Conversations/color_conversation-%d", i);
-        i++;
-
         set_menu_sensitivity(ui_manager_packet_list_menu, path,
-            menu_color_dissector_filter_spe_cb(NULL, cf->edt, color_filter));
+            menu_color_dissector_filter_spe_cb(NULL, cf->edt, filter_entry));
         g_free(path);
 
-        path = g_strdup_printf("/PacketListMenuPopup/ColorizeConversation/Colorize/%s", color_filter->display_name);
+        path = g_strdup_printf("/PacketListMenuPopup/ColorizeConversation/Colorize/%s", filter_entry->display_name);
         set_menu_sensitivity(ui_manager_packet_list_menu, path,
-            menu_color_dissector_filter_spe_cb(NULL, cf->edt, color_filter));
+            menu_color_dissector_filter_spe_cb(NULL, cf->edt, filter_entry));
         g_free(path);
-        color_list_entry = g_list_next(color_list_entry);
     }
 }
 
@@ -4793,7 +4808,6 @@ menu_prefs_change_ok (GtkWidget *w, gpointer parent_w)
     module_t    *module    = (module_t *)g_object_get_data (G_OBJECT(w), "module");
     pref_t      *pref      = (pref_t *)g_object_get_data (G_OBJECT(w), "pref");
     const gchar *new_value = gtk_entry_get_text(GTK_ENTRY(entry));
-    range_t     *newrange;
     gchar       *p;
     guint        uval;
 
@@ -4812,25 +4826,14 @@ menu_prefs_change_ok (GtkWidget *w, gpointer parent_w)
         }
         break;
     case PREF_STRING:
-        if (strcmp (*pref->varp.string, new_value) != 0) {
-            module->prefs_changed = TRUE;
-            g_free((void*)*pref->varp.string);
-            *pref->varp.string = g_strdup(new_value);
-        }
+        prefs_set_string_like_value(pref, new_value, &module->prefs_changed);
         break;
     case PREF_RANGE:
-        if (range_convert_str(&newrange, new_value, pref->info.max_value) != CVT_NO_ERROR) {
+        if (!prefs_set_range_value(pref, new_value, &module->prefs_changed)) {
             simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
                           "The value \"%s\" isn't a valid range.",
                           new_value);
             return;
-        }
-        if (!ranges_are_equal(*pref->varp.range, newrange)) {
-            module->prefs_changed = TRUE;
-            g_free(*pref->varp.range);
-            *pref->varp.range = newrange;
-        } else {
-            g_free (newrange);
         }
         break;
     default:
@@ -5134,13 +5137,13 @@ rebuild_visible_columns_menu (void)
             cfmt = (fmt_data *) clp->data;
             if (cfmt->title[0]) {
                 if (cfmt->fmt == COL_CUSTOM) {
-                    title = g_strdup_printf ("%s  (%s)", cfmt->title, cfmt->custom_field);
+                    title = g_strdup_printf ("%s  (%s)", cfmt->title, cfmt->custom_fields);
                 } else {
                     title = g_strdup_printf ("%s  (%s)", cfmt->title, col_format_desc (cfmt->fmt));
                 }
             } else {
                 if (cfmt->fmt == COL_CUSTOM) {
-                    title = g_strdup_printf ("(%s)", cfmt->custom_field);
+                    title = g_strdup_printf ("(%s)", cfmt->custom_fields);
                 } else {
                     title = g_strdup_printf ("(%s)", col_format_desc (cfmt->fmt));
                 }
@@ -5202,7 +5205,7 @@ menus_set_column_align_default (gboolean right_justify)
         menu_item_child = gtk_bin_get_child(GTK_BIN(child_list_item->data));
         if (menu_item_child != NULL) {
             menu_item_name = gtk_label_get_text(GTK_LABEL(menu_item_child));
-            menu_item_len = strlen (menu_item_name);
+            menu_item_len = strlen(menu_item_name);
             if(strncmp(menu_item_name, "Align Left", 10) == 0) {
                 if (!right_justify && menu_item_len == 10) {
                     gtk_label_set_text(GTK_LABEL(menu_item_child), "Align Left\t(default)");

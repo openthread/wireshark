@@ -32,6 +32,7 @@
 #include <epan/prefs.h>
 #include <epan/prefs-int.h>
 #include <epan/column.h>
+#include <epan/value_string.h>
 
 #include "ui/last_open_dir.h"
 #include "ui/recent.h"
@@ -70,6 +71,7 @@
 #define RECENT_GUI_CONVERSATION_TABS          "gui.conversation_tabs"
 #define RECENT_GUI_ENDPOINT_TABS              "gui.endpoint_tabs"
 #define RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES   "gui.rlc_pdus_from_mac_frames"
+#define RECENT_GUI_CUSTOM_COLORS              "gui.custom_colors"
 
 #define RECENT_GUI_GEOMETRY                   "gui.geom."
 
@@ -81,33 +83,38 @@
 
 recent_settings_t recent;
 
-static const char *ts_type_text[] =
-  { "RELATIVE", "ABSOLUTE", "ABSOLUTE_WITH_DATE", "DELTA", "DELTA_DIS", "EPOCH", "UTC", "UTC_WITH_DATE", NULL };
+static const value_string ts_type_values[] = {
+  { TS_RELATIVE,             "RELATIVE"           },
+  { TS_ABSOLUTE,             "ABSOLUTE"           },
+  { TS_ABSOLUTE_WITH_YMD,    "ABSOLUTE_WITH_YMD"  },
+  { TS_ABSOLUTE_WITH_YDOY,   "ABSOLUTE_WITH_YDOY" },
+  { TS_ABSOLUTE_WITH_YMD,    "ABSOLUTE_WITH_DATE" },  /* Backward compability */
+  { TS_DELTA,                "DELTA"              },
+  { TS_DELTA_DIS,            "DELTA_DIS"          },
+  { TS_EPOCH,                "EPOCH"              },
+  { TS_UTC,                  "UTC"                },
+  { TS_UTC_WITH_YMD,         "UTC_WITH_YMD"       },
+  { TS_UTC_WITH_YDOY,        "UTC_WITH_YDOY"      },
+  { TS_UTC_WITH_YMD,         "UTC_WITH_DATE"      },  /* Backward compability */
+  { 0, NULL }
+};
 
-static const char *ts_precision_text[] =
-{ "AUTO", "SEC", "DSEC", "CSEC", "MSEC", "USEC", "NSEC", NULL };
+static const value_string ts_precision_values[] = {
+  { TS_PREC_AUTO,            "AUTO" },
+  { TS_PREC_FIXED_SEC,       "SEC"  },
+  { TS_PREC_FIXED_DSEC,      "DSEC" },
+  { TS_PREC_FIXED_CSEC,      "CSEC" },
+  { TS_PREC_FIXED_MSEC,      "MSEC" },
+  { TS_PREC_FIXED_USEC,      "USEC" },
+  { TS_PREC_FIXED_NSEC,      "NSEC" },
+  { 0, NULL }
+};
 
-static const char *ts_seconds_text[] =
-  { "SECONDS", "HOUR_MIN_SEC", NULL };
-
-/* Takes an string and a pointer to an array of strings, and a default int value.
- * The array must be terminated by a NULL string. If the string is found in the array
- * of strings, the index of that string in the array is returned. Otherwise, the
- * default value that was passed as the third argument is returned.
- */
-static int
-find_index_from_string_array(const char *needle, const char **haystack, int default_value)
-{
-  int i = 0;
-
-  while (haystack[i] != NULL) {
-    if (strcmp(needle, haystack[i]) == 0) {
-      return i;
-    }
-    i++;
-  }
-  return default_value;
-}
+static const value_string ts_seconds_values[] = {
+  { TS_SECONDS_DEFAULT,      "SECONDS"      },
+  { TS_SECONDS_HOUR_MIN_SEC, "HOUR_MIN_SEC" },
+  { 0, NULL }
+};
 
 static void
 free_col_width_info(recent_settings_t *rs)
@@ -203,6 +210,18 @@ window_geom_load(const gchar       *name,
   }
 }
 
+/* parse values of particular types */
+static void
+parse_recent_boolean(const gchar *val_str, gboolean *valuep)
+{
+    if (g_ascii_strcasecmp(val_str, "true") == 0) {
+        *valuep = TRUE;
+    }
+    else {
+        *valuep = FALSE;
+    }
+}
+
 /** Read in a single geometry key value pair from the recent file.
  *
  * @param name the geom_name of the window
@@ -244,12 +263,7 @@ window_geom_recent_read_pair(const char *name,
     geom.height = (gint)strtol(value, NULL, 10);
     geom.set_size = TRUE;
   } else if (strcmp(key, "maximized") == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-      geom.maximized = TRUE;
-    }
-    else {
-      geom.maximized = FALSE;
-    }
+    parse_recent_boolean(value, &geom.maximized);
     geom.set_maximized = TRUE;
   } else {
     /*
@@ -533,7 +547,40 @@ cfilter_recent_write_all(FILE *rf)
   }
 }
 
-/* Attempt to Write out "recent common" to the user's recent common file.
+/* Write out recent settings of particular types. */
+static void
+write_recent_boolean(FILE *rf, const char *description, const char *name,
+                     gboolean value)
+{
+  fprintf(rf, "\n# %s.\n", description);
+  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
+  fprintf(rf, "%s: %s\n", name, value == TRUE ? "TRUE" : "FALSE");
+}
+
+static void
+write_recent_enum(FILE *rf, const char *description, const char *name,
+                  const value_string *values, guint value)
+{
+  const char *if_invalid = NULL;
+  const value_string *valp;
+
+  fprintf(rf, "\n# %s.\n", description);
+  fprintf(rf, "# One of: ");
+  valp = values;
+  while (valp->strptr != NULL) {
+    if (if_invalid == NULL)
+      if_invalid = valp->strptr;
+    fprintf(rf, "%s", valp->strptr);
+    valp++;
+    if (valp->strptr != NULL)
+      fprintf(rf, ", ");
+  }
+  fprintf(rf, "\n");
+  fprintf(rf, "%s: %s\n", name,
+          val_to_str(value, values, if_invalid != NULL ? if_invalid : "Unknown"));
+}
+
+/* Attempt to write out "recent common" to the user's recent common file.
    If we got an error report it with a dialog box and return FALSE,
    otherwise return TRUE. */
 gboolean
@@ -542,6 +589,7 @@ write_recent(void)
   char        *pf_dir_path;
   char        *rf_path;
   FILE        *rf;
+  char        *string_list;
 
   /* To do:
    * - Split output lines longer than MAX_VAL_LEN
@@ -608,10 +656,9 @@ write_recent(void)
   fprintf(rf, RECENT_GUI_GEOMETRY_MAIN_HEIGHT ": %d\n",
           recent.gui_geometry_main_height);
 
-  fprintf(rf, "\n# Main window maximized.\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_GUI_GEOMETRY_MAIN_MAXIMIZED ": %s\n",
-          recent.gui_geometry_main_maximized == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Main window maximized",
+                       RECENT_GUI_GEOMETRY_MAIN_MAXIMIZED,
+                       recent.gui_geometry_main_maximized);
 
   fprintf(rf, "\n# Statusbar left pane size.\n");
   fprintf(rf, "# Decimal number.\n");
@@ -634,17 +681,21 @@ write_recent(void)
   fprintf(rf, RECENT_GUI_GEOMETRY_WLAN_STATS_PANE ": %d\n",
           recent.gui_geometry_wlan_stats_pane);
 
-  fprintf(rf, "\n# Warn if running with elevated permissions (e.g. as root).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_PRIVS_WARN_IF_ELEVATED ": %s\n",
-          recent.privs_warn_if_elevated == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Warn if running with elevated permissions (e.g. as root)",
+                       RECENT_KEY_PRIVS_WARN_IF_ELEVATED,
+                       recent.privs_warn_if_elevated);
 
-  fprintf(rf, "\n# Warn if npf.sys isn't loaded on Windows >= 6.0.\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_PRIVS_WARN_IF_NO_NPF ": %s\n",
-          recent.privs_warn_if_no_npf == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Warn if npf.sys isn't loaded on Windows >= 6.0",
+                       RECENT_KEY_PRIVS_WARN_IF_NO_NPF,
+                       recent.privs_warn_if_no_npf);
 
   window_geom_recent_write_all(rf);
+
+  fprintf(rf, "\n# Custom colors.\n");
+  fprintf(rf, "# List of custom colors selected in Qt color picker.\n");
+  string_list = join_string_list(recent.custom_colors);
+  fprintf(rf, RECENT_GUI_CUSTOM_COLORS ": %s\n", string_list);
+  g_free(string_list);
 
   fclose(rf);
 
@@ -700,67 +751,55 @@ write_profile_recent(void)
     "# So be careful, if you want to make manual changes here.\n"
     "\n", rf);
 
-  fprintf(rf, "\n# Main Toolbar show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_MAIN_TOOLBAR_SHOW ": %s\n",
-          recent.main_toolbar_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Main Toolbar show (hide)",
+                       RECENT_KEY_MAIN_TOOLBAR_SHOW,
+                       recent.main_toolbar_show);
 
-  fprintf(rf, "\n# Filter Toolbar show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_FILTER_TOOLBAR_SHOW ": %s\n",
-          recent.filter_toolbar_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Filter Toolbar show (hide)",
+                       RECENT_KEY_FILTER_TOOLBAR_SHOW,
+                       recent.filter_toolbar_show);
 
-  fprintf(rf, "\n# Wireless Settings Toolbar show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_WIRELESS_TOOLBAR_SHOW ": %s\n",
-          recent.wireless_toolbar_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Wireless Settings Toolbar show (hide)",
+                       RECENT_KEY_WIRELESS_TOOLBAR_SHOW,
+                       recent.wireless_toolbar_show);
 
 #ifdef HAVE_AIRPCAP
-  fprintf(rf, "\n# Show (hide) old AirPcap driver warning dialog box.\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_DRIVER_CHECK_SHOW ": %s\n",
-          recent.airpcap_driver_check_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Show (hide) old AirPcap driver warning dialog box",
+                       RECENT_KEY_DRIVER_CHECK_SHOW,
+                       recent.airpcap_driver_check_show);
 #endif
 
-  fprintf(rf, "\n# Packet list show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_PACKET_LIST_SHOW ": %s\n",
-          recent.packet_list_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Packet list show (hide)",
+                       RECENT_KEY_PACKET_LIST_SHOW,
+                       recent.packet_list_show);
 
-  fprintf(rf, "\n# Tree view show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_TREE_VIEW_SHOW ": %s\n",
-          recent.tree_view_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Tree view show (hide)",
+                       RECENT_KEY_TREE_VIEW_SHOW,
+                       recent.tree_view_show);
 
-  fprintf(rf, "\n# Byte view show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_BYTE_VIEW_SHOW ": %s\n",
-          recent.byte_view_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Byte view show (hide)",
+                       RECENT_KEY_BYTE_VIEW_SHOW,
+                       recent.byte_view_show);
 
-  fprintf(rf, "\n# Statusbar show (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_STATUSBAR_SHOW ": %s\n",
-          recent.statusbar_show == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Statusbar show (hide)",
+                       RECENT_KEY_STATUSBAR_SHOW,
+                       recent.statusbar_show);
 
-  fprintf(rf, "\n# Packet list colorize (hide).\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_KEY_PACKET_LIST_COLORIZE ": %s\n",
-          recent.packet_list_colorize == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "Packet list colorize (hide)",
+                       RECENT_KEY_PACKET_LIST_COLORIZE,
+                       recent.packet_list_colorize);
 
-  fprintf(rf, "\n# Timestamp display format.\n");
-  fprintf(rf, "# One of: RELATIVE, ABSOLUTE, ABSOLUTE_WITH_DATE, DELTA, DELTA_DIS, EPOCH, UTC, UTC_WITH_DATE\n");
-  fprintf(rf, RECENT_GUI_TIME_FORMAT ": %s\n",
-          ts_type_text[recent.gui_time_format]);
+  write_recent_enum(rf, "Timestamp display format",
+                    RECENT_GUI_TIME_FORMAT, ts_type_values,
+                    recent.gui_time_format);
 
-  fprintf(rf, "\n# Timestamp display precision.\n");
-  fprintf(rf, "# One of: AUTO, SEC, DSEC, CSEC, MSEC, USEC, NSEC\n");
-  fprintf(rf, RECENT_GUI_TIME_PRECISION ": %s\n",
-          ts_precision_text[recent.gui_time_precision]);
+  write_recent_enum(rf, "Timestamp display precision",
+                    RECENT_GUI_TIME_PRECISION, ts_precision_values,
+                    recent.gui_time_precision);
 
-  fprintf(rf, "\n# Seconds display format.\n");
-  fprintf(rf, "# One of: SECONDS, HOUR_MIN_SEC\n");
-  fprintf(rf, RECENT_GUI_SECONDS_FORMAT ": %s\n",
-          ts_seconds_text[recent.gui_seconds_format]);
+  write_recent_enum(rf, "Seconds display format",
+                    RECENT_GUI_SECONDS_FORMAT, ts_seconds_values,
+                    recent.gui_seconds_format);
 
   fprintf(rf, "\n# Zoom level.\n");
   fprintf(rf, "# A decimal number.\n");
@@ -801,10 +840,9 @@ write_profile_recent(void)
   fprintf(rf, RECENT_GUI_ENDPOINT_TABS ": %s\n", string_list);
   g_free(string_list);
 
-  fprintf(rf, "\n# For RLC stats, whether to use RLC PDUs found inside MAC frames.\n");
-  fprintf(rf, "# TRUE or FALSE (case-insensitive).\n");
-  fprintf(rf, RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES ": %s\n",
-          recent.gui_rlc_use_pdus_from_mac == TRUE ? "TRUE" : "FALSE");
+  write_recent_boolean(rf, "For RLC stats, whether to use RLC PDUs found inside MAC frames",
+                       RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES,
+                       recent.gui_rlc_use_pdus_from_mac);
 
   if (get_last_open_dir() != NULL) {
     fprintf(rf, "\n# Last directory navigated to in File Open dialog.\n");
@@ -834,13 +872,7 @@ read_set_recent_common_pair_static(gchar *key, const gchar *value,
   char *p;
 
   if (strcmp(key, RECENT_GUI_GEOMETRY_MAIN_MAXIMIZED) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.gui_geometry_main_maximized = TRUE;
-    }
-    else {
-        recent.gui_geometry_main_maximized = FALSE;
-    }
-
+    parse_recent_boolean(value, &recent.gui_geometry_main_maximized);
   } else if (strcmp(key, RECENT_GUI_GEOMETRY_MAIN_X) == 0) {
     num = strtol(value, &p, 0);
     if (p == value || *p != '\0')
@@ -902,19 +934,11 @@ read_set_recent_common_pair_static(gchar *key, const gchar *value,
       window_geom_recent_read_pair(win, sub_key, value);
     }
   } else if (strcmp(key, RECENT_KEY_PRIVS_WARN_IF_ELEVATED) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.privs_warn_if_elevated = TRUE;
-    }
-    else {
-        recent.privs_warn_if_elevated = FALSE;
-    }
+    parse_recent_boolean(value, &recent.privs_warn_if_elevated);
   } else if (strcmp(key, RECENT_KEY_PRIVS_WARN_IF_NO_NPF) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.privs_warn_if_no_npf = TRUE;
-    }
-    else {
-        recent.privs_warn_if_no_npf = FALSE;
-    }
+    parse_recent_boolean(value, &recent.privs_warn_if_no_npf);
+  } else if (strcmp(key, RECENT_GUI_CUSTOM_COLORS) == 0) {
+    recent.custom_colors = prefs_get_string_list(value);
   }
 
   return PREFS_SET_OK;
@@ -934,78 +958,33 @@ read_set_recent_pair_static(gchar *key, const gchar *value,
   int cust_format_len = (int) strlen(cust_format);
 
   if (strcmp(key, RECENT_KEY_MAIN_TOOLBAR_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.main_toolbar_show = TRUE;
-    }
-    else {
-        recent.main_toolbar_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.main_toolbar_show);
   } else if (strcmp(key, RECENT_KEY_FILTER_TOOLBAR_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.filter_toolbar_show = TRUE;
-    }
-    else {
-        recent.filter_toolbar_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.filter_toolbar_show);
   /* check both the old and the new keyword */
   } else if (strcmp(key, RECENT_KEY_WIRELESS_TOOLBAR_SHOW) == 0 || (strcmp(key, "gui.airpcap_toolbar_show") == 0)) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.wireless_toolbar_show = TRUE;
-    }
-    else {
-        recent.wireless_toolbar_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.wireless_toolbar_show);
   } else if (strcmp(key, RECENT_KEY_DRIVER_CHECK_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.airpcap_driver_check_show = TRUE;
-    }
-    else {
-        recent.airpcap_driver_check_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.airpcap_driver_check_show);
   } else if (strcmp(key, RECENT_KEY_PACKET_LIST_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.packet_list_show = TRUE;
-    }
-    else {
-        recent.packet_list_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.packet_list_show);
   } else if (strcmp(key, RECENT_KEY_TREE_VIEW_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.tree_view_show = TRUE;
-    }
-    else {
-        recent.tree_view_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.tree_view_show);
   } else if (strcmp(key, RECENT_KEY_BYTE_VIEW_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.byte_view_show = TRUE;
-    }
-    else {
-        recent.byte_view_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.byte_view_show);
   } else if (strcmp(key, RECENT_KEY_STATUSBAR_SHOW) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.statusbar_show = TRUE;
-    }
-    else {
-        recent.statusbar_show = FALSE;
-    }
+    parse_recent_boolean(value, &recent.statusbar_show);
   } else if (strcmp(key, RECENT_KEY_PACKET_LIST_COLORIZE) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.packet_list_colorize = TRUE;
-    }
-    else {
-        recent.packet_list_colorize = FALSE;
-    }
+    parse_recent_boolean(value, &recent.packet_list_colorize);
   } else if (strcmp(key, RECENT_GUI_TIME_FORMAT) == 0) {
     recent.gui_time_format =
-      (ts_type)find_index_from_string_array(value, ts_type_text, TS_RELATIVE);
+      (ts_type)str_to_val(value, ts_type_values, TS_RELATIVE);
   } else if (strcmp(key, RECENT_GUI_TIME_PRECISION) == 0) {
     recent.gui_time_precision =
-      find_index_from_string_array(value, ts_precision_text, TS_PREC_AUTO);
+      (ts_precision)str_to_val(value, ts_precision_values, TS_PREC_AUTO);
   } else if (strcmp(key, RECENT_GUI_SECONDS_FORMAT) == 0) {
     recent.gui_seconds_format =
-      (ts_seconds_type)find_index_from_string_array(value, ts_seconds_text, TS_SECONDS_DEFAULT);
+      (ts_seconds_type)str_to_val(value, ts_seconds_values, TS_SECONDS_DEFAULT);
   } else if (strcmp(key, RECENT_GUI_ZOOM_LEVEL) == 0) {
     num = strtol(value, &p, 0);
     if (p == value || *p != '\0')
@@ -1015,15 +994,9 @@ read_set_recent_pair_static(gchar *key, const gchar *value,
     num = strtol(value, &p, 0);
     if (p == value || *p != '\0')
       return PREFS_SET_SYNTAX_ERR;      /* number was bad */
-    recent.gui_bytes_view = (gint)num;
+    recent.gui_bytes_view = (bytes_view_type)num;
   } else if (strcmp(key, RECENT_GUI_GEOMETRY_MAIN_MAXIMIZED) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.gui_geometry_main_maximized = TRUE;
-    }
-    else {
-        recent.gui_geometry_main_maximized = FALSE;
-    }
-
+    parse_recent_boolean(value, &recent.gui_geometry_main_maximized);
   } else if (strcmp(key, RECENT_GUI_GEOMETRY_MAIN_UPPER_PANE) == 0) {
     num = strtol(value, &p, 0);
     if (p == value || *p != '\0')
@@ -1045,12 +1018,7 @@ read_set_recent_pair_static(gchar *key, const gchar *value,
   } else if (strcmp(key, RECENT_GUI_ENDPOINT_TABS) == 0) {
     recent.endpoint_tabs = prefs_get_string_list(value);
   } else if (strcmp(key, RECENT_GUI_RLC_PDUS_FROM_MAC_FRAMES) == 0) {
-    if (g_ascii_strcasecmp(value, "true") == 0) {
-        recent.gui_rlc_use_pdus_from_mac = TRUE;
-    }
-    else {
-        recent.gui_rlc_use_pdus_from_mac = FALSE;
-    }
+    parse_recent_boolean(value, &recent.gui_rlc_use_pdus_from_mac);
   } else if (strcmp(key, RECENT_KEY_COL_WIDTH) == 0) {
     col_l = prefs_get_string_list(value);
     if (col_l == NULL)
@@ -1278,7 +1246,7 @@ recent_read_profile_static(char **rf_path_return, int *rf_errno_return)
   recent.gui_time_precision        = TS_PREC_AUTO;
   recent.gui_seconds_format        = TS_SECONDS_DEFAULT;
   recent.gui_zoom_level            = 0;
-  recent.gui_bytes_view            = 0;
+  recent.gui_bytes_view            = BYTES_HEX;
 
   /* pane size of zero will autodetect */
   recent.gui_geometry_main_upper_pane   = 0;
@@ -1387,7 +1355,7 @@ recent_get_column_width(gint col)
 
   cfmt = get_column_format(col);
   if (cfmt == COL_CUSTOM) {
-    cfield = get_column_custom_field(col);
+    cfield = get_column_custom_fields(col);
   }
 
   col_l = g_list_first(recent.col_width_list);
@@ -1415,7 +1383,7 @@ recent_set_column_width(gint col, gint width)
 
   cfmt = get_column_format(col);
   if (cfmt == COL_CUSTOM) {
-    cfield = get_column_custom_field(col);
+    cfield = get_column_custom_fields(col);
   }
 
   col_l = g_list_first(recent.col_width_list);
@@ -1455,7 +1423,7 @@ recent_get_column_xalign(gint col)
 
   cfmt = get_column_format(col);
   if (cfmt == COL_CUSTOM) {
-    cfield = get_column_custom_field(col);
+    cfield = get_column_custom_fields(col);
   }
 
   col_l = g_list_first(recent.col_width_list);
@@ -1483,7 +1451,7 @@ recent_set_column_xalign(gint col, gchar xalign)
 
   cfmt = get_column_format(col);
   if (cfmt == COL_CUSTOM) {
-    cfield = get_column_custom_field(col);
+    cfield = get_column_custom_fields(col);
   }
 
   col_l = g_list_first(recent.col_width_list);

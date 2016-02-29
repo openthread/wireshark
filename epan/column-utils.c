@@ -32,7 +32,7 @@
 #include "wsutil/pint.h"
 #include "addr_resolv.h"
 #include "address_types.h"
-#include "ipv6-utils.h"
+#include "ipv6.h"
 #include "osi-utils.h"
 #include "value_string.h"
 #include "column-info.h"
@@ -41,6 +41,11 @@
 #include <epan/strutil.h>
 #include <epan/epan.h>
 #include <epan/dfilter/dfilter.h>
+#include <wsutil/utf8_entities.h>
+
+#ifdef HAVE_LUA
+#include <epan/wslua/wslua.h>
+#endif
 
 /* Allocate all the data structures for constructing column data, given
    the number of columns. */
@@ -54,7 +59,7 @@ col_setup(column_info *cinfo, const gint num_cols)
   cinfo->col_first             = g_new(int, NUM_COL_FMTS);
   cinfo->col_last              = g_new(int, NUM_COL_FMTS);
   for (i = 0; i < num_cols; i++) {
-    cinfo->columns[i].col_custom_field_ids = NULL;
+    cinfo->columns[i].col_custom_fields_ids = NULL;
   }
   cinfo->col_expr.col_expr     = g_new(const gchar*, num_cols + 1);
   cinfo->col_expr.col_expr_val = g_new(gchar*, num_cols + 1);
@@ -63,7 +68,7 @@ col_setup(column_info *cinfo, const gint num_cols)
     cinfo->col_first[i] = -1;
     cinfo->col_last[i] = -1;
   }
-  cinfo->prime_regex = g_regex_new(" *([^ \\|]+) *(?:(?:\\|\\|)|(?:or))? *",
+  cinfo->prime_regex = g_regex_new(COL_CUSTOM_PRIME_REGEX,
     G_REGEX_ANCHORED, G_REGEX_MATCH_ANCHORED, NULL);
 }
 
@@ -74,13 +79,13 @@ col_custom_ids_free_wrapper(gpointer data, gpointer user_data _U_)
 }
 
 static void
-col_custom_field_ids_free(GSList** custom_field_id)
+col_custom_fields_ids_free(GSList** custom_fields_id)
 {
-  if (*custom_field_id != NULL) {
-    g_slist_foreach(*custom_field_id, col_custom_ids_free_wrapper, NULL);
-    g_slist_free(*custom_field_id);
+  if (*custom_fields_id != NULL) {
+    g_slist_foreach(*custom_fields_id, col_custom_ids_free_wrapper, NULL);
+    g_slist_free(*custom_fields_id);
   }
-  *custom_field_id = NULL;
+  *custom_fields_id = NULL;
 }
 
 /* Cleanup all the data structures for constructing column data; undoes
@@ -95,12 +100,12 @@ col_cleanup(column_info *cinfo)
     col_item = &cinfo->columns[i];
     g_free(col_item->fmt_matx);
     g_free(col_item->col_title);
-    g_free(col_item->col_custom_field);
+    g_free(col_item->col_custom_fields);
     dfilter_free(col_item->col_custom_dfilter);
     /* col_item->col_data points to col_buf or static memory */
     g_free(col_item->col_buf);
     g_free(cinfo->col_expr.col_expr_val[i]);
-    col_custom_field_ids_free(&col_item->col_custom_field_ids);
+    col_custom_fields_ids_free(&col_item->col_custom_fields_ids);
   }
 
   g_free(cinfo->columns);
@@ -291,6 +296,16 @@ have_custom_cols(column_info *cinfo)
   return HAVE_CUSTOM_COLS(cinfo);
 }
 
+gboolean
+have_field_extractors(void)
+{
+#ifdef HAVE_LUA
+    return wslua_has_field_extractors();
+#else
+    return FALSE;
+#endif
+}
+
 /* search in edt tree custom fields */
 void col_custom_set_edt(epan_dissect_t *edt, column_info *cinfo)
 {
@@ -304,10 +319,10 @@ void col_custom_set_edt(epan_dissect_t *edt, column_info *cinfo)
        i <= cinfo->col_last[COL_CUSTOM]; i++) {
     col_item = &cinfo->columns[i];
     if (col_item->fmt_matx[COL_CUSTOM] &&
-        col_item->col_custom_field &&
-        col_item->col_custom_field_ids) {
+        col_item->col_custom_fields &&
+        col_item->col_custom_fields_ids) {
         col_item->col_data = col_item->col_buf;
-        cinfo->col_expr.col_expr[i] = epan_custom_set(edt, col_item->col_custom_field_ids,
+        cinfo->col_expr.col_expr[i] = epan_custom_set(edt, col_item->col_custom_fields_ids,
                                      col_item->col_custom_occurrence,
                                      col_item->col_buf,
                                      cinfo->col_expr.col_expr_val[i],
@@ -327,41 +342,11 @@ col_custom_prime_edt(epan_dissect_t *edt, column_info *cinfo)
 
   for (i = cinfo->col_first[COL_CUSTOM];
        i <= cinfo->col_last[COL_CUSTOM]; i++) {
-    int i_list = 0;
-
     col_item = &cinfo->columns[i];
-    col_custom_field_ids_free(&col_item->col_custom_field_ids);
 
     if (col_item->fmt_matx[COL_CUSTOM] &&
         col_item->col_custom_dfilter) {
       epan_dissect_prime_dfilter(edt, col_item->col_custom_dfilter);
-      if (col_item->col_custom_field) {
-        gchar  **fields;
-        guint    i_field = 0;
-
-        /* Not using a GRegex here would improve performance. */
-        fields = g_regex_split(cinfo->prime_regex, col_item->col_custom_field,
-                G_REGEX_MATCH_ANCHORED);
-
-        for (i_field =0; i_field < g_strv_length(fields); i_field += 1) {
-            if (fields[i_field] && *fields[i_field]) {
-                int id;
-
-                header_field_info* hfinfo = proto_registrar_get_byname(fields[i_field]);
-                id = hfinfo ? hfinfo->id : -1;
-                if (id >= 0) {
-                    int *idx;
-
-                    idx = g_new(int, 1);
-                    *idx = id;
-                    col_item->col_custom_field_ids =
-                            g_slist_insert(col_item->col_custom_field_ids, idx, i_list);
-                    i_list += 1;
-                }
-            }
-        }
-        g_strfreev(fields);
-      }
     }
   }
 }
@@ -410,12 +395,37 @@ col_append_lstr(column_info *cinfo, const gint el, const gchar *str1, ...)
 }
 
 void
-col_append_str_uint(column_info *cinfo, const gint col, const gchar *sep, const gchar *abbrev, guint32 val)
+col_append_str_uint(column_info *cinfo, const gint col, const gchar *abbrev, guint32 val, const gchar *sep)
 {
   char buf[16];
 
   guint32_to_str_buf(val, buf, sizeof(buf));
   col_append_lstr(cinfo, col, sep ? sep : "", abbrev, "=", buf, COL_ADD_LSTR_TERMINATOR);
+}
+
+static int
+col_snprint_port(gchar *buf, gulong buf_siz, port_type typ, guint16 val)
+{
+  const char *str;
+  int n;
+
+  if (gbl_resolv_flags.transport_name &&
+        (str = try_serv_name_lookup(typ, val)) != NULL) {
+    n = g_snprintf(buf, buf_siz, "%s(%"G_GUINT16_FORMAT")", str, val);
+  } else {
+    n = g_snprintf(buf, buf_siz, "%"G_GUINT16_FORMAT, val);
+  }
+  return n;
+}
+
+void
+col_append_ports(column_info *cinfo, const gint col, port_type typ, guint16 src, guint16 dst)
+{
+  char buf_src[32], buf_dst[32];
+
+  col_snprint_port(buf_src, 32, typ, src);
+  col_snprint_port(buf_dst, 32, typ, dst);
+  col_append_lstr(cinfo, col, buf_src, UTF8_RIGHTWARDS_ARROW, buf_dst, COL_ADD_LSTR_TERMINATOR);
 }
 
 static void
@@ -1793,8 +1803,7 @@ col_set_fmt_time(const frame_data *fd, column_info *cinfo, const gint fmt, const
 /* --------------------------- */
 /* Set the given (relative) time to a column element.
  *
- * Used by multiple dissectors to set the time in the column
- * COL_DELTA_CONV_TIME
+ * Used by dissectors to set the time in a column
  *
  * @param cinfo         the current packet row
  * @param el            the column to use, e.g. COL_INFO

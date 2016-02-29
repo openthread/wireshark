@@ -64,6 +64,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/ipproto.h>
 #include <epan/in_cksum.h>
 #include <epan/expert.h>
@@ -896,7 +897,7 @@ static bitfield_info bfinfo_v3_prefix_options = {
     &hf_ospf_v3_prefix_option, &ett_ospf_v3_prefix_options,
     bf_v3_prefix_options, array_length(bf_v3_prefix_options)
 };
-/* Structure used for dissecing the Options bitfield of the Optional Router Informational
+/* Structure used for dissecting the Options bitfield of the Optional Router Informational
    Capabilities RI LSA. */
 static bitfield_info bfinfo_ri_options = {
     &hf_ospf_ri_options, &ett_ospf_ri_options,
@@ -1038,8 +1039,16 @@ ospf_has_at_block(tvbuff_t *tvb, int offset, guint8 packet_type, guint8 version)
 
     return 0;
 }
-static void
-dissect_ospf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+
+static gboolean
+capture_ospf(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+{
+    capture_dissector_increment_count(cpinfo, proto_ospf);
+    return TRUE;
+}
+
+static int
+dissect_ospf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *ospf_tree = NULL;
     proto_item *ti, *ti_sum, *hidden_item;
@@ -1115,7 +1124,7 @@ dissect_ospf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* Quit at this point if it's an unknown OSPF version. */
     if(version != OSPF_VERSION_2 && version != OSPF_VERSION_3) {
-        return;
+        return 12;
     }
 
     length = tvb_captured_length(tvb);
@@ -1276,6 +1285,7 @@ dissect_ospf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         dissect_ospf_authentication_trailer(tvb, ospflen + crypto_len, ospf_tree);
     }
 
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -1779,11 +1789,11 @@ static const value_string oif_stlv_str[] = {
 };
 
 static const range_string ospf_instance_id_rvals[] = {
-    { 0, 32, "IPv6 unicast AF" },
-    { 33, 64, "IPv6 multicast AF" },
-    { 65, 96, "IPv4 unicast AF" },
-    { 97, 128, "IPv4 multicast AF" },
-    { 129, 255, "Reserved" },
+    { 0, 31, "IPv6 unicast AF" },
+    { 32, 63, "IPv6 multicast AF" },
+    { 64, 95, "IPv4 unicast AF" },
+    { 96, 127, "IPv4 multicast AF" },
+    { 128, 255, "Reserved" },
     { 0, 0, NULL },
 };
 
@@ -3066,7 +3076,7 @@ static void dissect_ospf_v3_address_prefix(tvbuff_t *tvb, packet_info *pinfo, in
     }
     if (address_family == OSPF_AF_6) {
         proto_tree_add_ipv6(tree, hf_ospf_v3_address_prefix_ipv6, tvb, offset, bytes_to_process,
-                            prefix.bytes);
+                            &prefix);
     } else {
         proto_tree_add_item(tree, hf_ospf_v3_address_prefix_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
     }
@@ -3389,7 +3399,7 @@ proto_register_ospf(void)
          { "Link Max BW", "ospf.mpls.link_max_bw", FT_FLOAT,
            BASE_NONE, NULL, 0x0, NULL, HFILL }},
         {&hf_ospf_ls_mpls_bc_model_id,
-         { "MPLS/DSTE Bandwidth Constraints Model Id", "ospf.mpls.bc", FT_UINT8,
+         { "MPLS/DSTE Bandwidth Constraints Model Id", "ospf.mpls.bc.model_id", FT_UINT8,
            BASE_RANGE_STRING | BASE_DEC, RVALS(mpls_link_stlv_bcmodel_rvals), 0x0,
            NULL, HFILL }},
 
@@ -3711,7 +3721,7 @@ proto_register_ospf(void)
       { &hf_ospf_pad_bytes, { "Pad Bytes", "ospf.pad_bytes", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_ospf_ls_metric, { "Metric", "ospf.ls.metric", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_ospf_v3_lsa_forwarding_address_ipv4, { "Forwarding Address", "ospf.v3.lsa.forwarding_address.ipv4", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_ospf_link_local_interface_address_ipv4, { "Link-local Interface Address", "ospf.v3.lsa.link_local_interface_address.ipv6", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_ospf_link_local_interface_address_ipv4, { "Link-local Interface Address", "ospf.v3.lsa.link_local_interface_address.ipv4", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_ospf_v3_lsa_num_prefixes, { "# prefixes", "ospf.v3.lsa.num_prefixes", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_ospf_v3_address_prefix_ipv6, { "Address Prefix", "ospf.v3.address_prefix.ipv6", FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_ospf_v3_address_prefix_ipv4, { "Address Prefix", "ospf.v3.address_prefix.ipv4", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -3793,6 +3803,8 @@ proto_reg_handoff_ospf(void)
 
     ospf_handle = create_dissector_handle(dissect_ospf, proto_ospf);
     dissector_add_uint("ip.proto", IP_PROTO_OSPF, ospf_handle);
+    register_capture_dissector("ip.proto", IP_PROTO_OSPF, capture_ospf, proto_ospf);
+    register_capture_dissector("ipv6.nxt", IP_PROTO_OSPF, capture_ospf, proto_ospf);
     data_handle = find_dissector("data");
 }
 

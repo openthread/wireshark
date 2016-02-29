@@ -40,6 +40,8 @@
 #include <epan/packet.h>
 #include <epan/expert.h>
 
+#include <wsutil/str_util.h>
+
 #include "packet-mtp3.h"
 
 void proto_register_mtp3mg(void);
@@ -964,8 +966,8 @@ dissect_mtp3mg_test(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 }
 
-static void
-dissect_mtp3mg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mtp3mg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
     guint8 h0, h1;
@@ -1160,6 +1162,7 @@ dissect_mtp3mg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         } /* switch */
     } /* else */
 
+    return tvb_captured_length(tvb);
 }
 
 void

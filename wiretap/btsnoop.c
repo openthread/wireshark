@@ -198,7 +198,6 @@ static gboolean btsnoop_read_record(wtap *wth, FILE_T fh,
     ts -= KUnixTimeBase;
 
     phdr->rec_type = REC_TYPE_PACKET;
-    phdr->pkt_encap = wth->file_encap;
     phdr->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
     phdr->ts.secs = (guint)(ts / 1000000);
     phdr->ts.nsecs = (guint)((ts % 1000000) * 1000);
@@ -399,9 +398,8 @@ gboolean btsnoop_dump_open_h1(wtap_dumper *wdh, int *err)
 {
     struct btsnoop_hdr file_hdr;
 
-    /* This is a libpcap file */
+    /* This is a btsnoop file */
     wdh->subtype_write = btsnoop_dump_h1;
-    wdh->subtype_close = NULL;
 
     /* Write the file header. */
     switch (wdh->file_type_subtype) {
@@ -441,9 +439,8 @@ gboolean btsnoop_dump_open_h4(wtap_dumper *wdh, int *err)
 {
     struct btsnoop_hdr file_hdr;
 
-    /* This is a libpcap file */
+    /* This is a btsnoop file */
     wdh->subtype_write = btsnoop_dump_h4;
-    wdh->subtype_close = NULL;
 
     /* Write the file header. */
     switch (wdh->file_type_subtype) {

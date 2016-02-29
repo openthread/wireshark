@@ -65,6 +65,7 @@
 #include <epan/prefs.h>
 #include <wsutil/file_util.h>
 #include <wsutil/ws_diag_control.h>
+#include <wsutil/str_util.h>
 #include "packet-kerberos.h"
 #include "packet-netbios.h"
 #include "packet-tcp.h"
@@ -277,8 +278,8 @@ add_encryption_key(packet_info *pinfo, int keytype, int keylength, const char *k
 	}
 
 	new_key=(enc_key_t *)g_malloc(sizeof(enc_key_t));
-	g_snprintf(new_key->key_origin, KRB_MAX_ORIG_LEN, "%s learnt from frame %u",origin,pinfo->fd->num);
-	new_key->fd_num = pinfo->fd->num;
+	g_snprintf(new_key->key_origin, KRB_MAX_ORIG_LEN, "%s learnt from frame %u",origin,pinfo->num);
+	new_key->fd_num = pinfo->num;
 	new_key->next=enc_key_list;
 	enc_key_list=new_key;
 	new_key->keytype=keytype;
@@ -412,7 +413,7 @@ decrypt_krb5_data(proto_tree *tree _U_, packet_info *pinfo,
 
 			expert_add_info_format(pinfo, NULL, &ei_kerberos_decrypted_keytype,
 								   "Decrypted keytype %d in frame %u using %s",
-								   ek->keytype, pinfo->fd->num, ek->key_origin);
+								   ek->keytype, pinfo->num, ek->key_origin);
 
 			/* return a private g_malloced blob to the caller */
 			user_data=data.data;
@@ -564,7 +565,7 @@ decrypt_krb5_data(proto_tree *tree _U_, packet_info *pinfo,
 
 			expert_add_info_format(pinfo, NULL, &ei_kerberos_decrypted_keytype,
 								   "Decrypted keytype %d in frame %u using %s",
-								   ek->keytype, pinfo->fd->num, ek->key_origin);
+								   ek->keytype, pinfo->num, ek->key_origin);
 
 			krb5_crypto_destroy(krb5_ctx, crypto);
 			/* return a private g_malloced blob to the caller */
@@ -608,7 +609,7 @@ add_encryption_key(packet_info *pinfo, int keytype, int keylength, const char *k
 	new_key->keytype = keytype;
 	new_key->length = keylength;
 	new_key->contents = g_memdup(keyvalue, keylength);
-	g_snprintf(new_key->origin, KRB_MAX_ORIG_LEN, "%s learnt from frame %u", origin, pinfo->fd->num);
+	g_snprintf(new_key->origin, KRB_MAX_ORIG_LEN, "%s learnt from frame %u", origin, pinfo->num);
 	service_key_list = g_slist_append(service_key_list, (gpointer) new_key);
 }
 
@@ -2469,10 +2470,10 @@ proto_reg_handoff_kerberos(void)
 
 	krb4_handle = find_dissector("krb4");
 
-	kerberos_handle_udp = new_create_dissector_handle(dissect_kerberos_udp,
+	kerberos_handle_udp = create_dissector_handle(dissect_kerberos_udp,
 	proto_kerberos);
 
-	kerberos_handle_tcp = new_create_dissector_handle(dissect_kerberos_tcp,
+	kerberos_handle_tcp = create_dissector_handle(dissect_kerberos_tcp,
 	proto_kerberos);
 
 	dissector_add_uint("udp.port", UDP_PORT_KERBEROS, kerberos_handle_udp);

@@ -713,7 +713,8 @@ static int dissect_BISPDU_UPDATE(tvbuff_t * tvb, int offset, proto_tree * tree)
                     for (i = nb_of_snpa; i > 0; i--) {
                         /* SNPS length in multiples of 4 bit */
                         length_indicator_guint8 =
-                            (guint8) ceil((float)tvb_get_guint8(tvb, offset) / (float)2.0);
+                            /* length = half the length in semi-octets rounded up */
+                            (tvb_get_guint8(tvb, offset) + 1) / 2;
                         offset += 1;
                         proto_tree_add_item(tree,
                                 hf_idrp_update_path_attr_next_hop_snpa,
@@ -1176,7 +1177,7 @@ dissect_idrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
             tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    /* 4 octets Achnowledge */
+    /* 4 octets Acknowledge */
     proto_tree_add_item(idrp_tree, hf_idrp_ack,
             tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -1240,7 +1241,7 @@ void proto_register_idrp(void)
                 VALS(idrp_pdu_types), 0xff, NULL, HFILL}},
         {&hf_idrp_sequence,
             {"Sequence Number", "idrp.seq", FT_UINT32, BASE_DEC, NULL, 0x0,
-                "Sequence number, Sequence number of curent BISPDU ", HFILL}},
+                "Sequence number, Sequence number of current BISPDU ", HFILL}},
         {&hf_idrp_ack,
             {"Acknowledgment number", "idrp.ack", FT_UINT32, BASE_DEC, NULL, 0x0,
                 "Acknowledgment number, Sequence number of the PDU that the sender last received correctly and in sequence number order",
@@ -1295,7 +1296,7 @@ void proto_register_idrp(void)
         {&hf_idrp_open_rib_attr_security_reg_id,
             {"Rib Attribute Value Security Registration ID",
                 "idrp.open.rib-attr.security.reg-id", FT_BYTES, BASE_NONE,
-                NULL, 0, "Identifys the Security Authority" ,
+                NULL, 0, "Identifies the Security Authority" ,
                 HFILL}},
         {&hf_idrp_open_rib_attr_security_info,
             {"Rib Attribute Value Security Registration ID",
@@ -1411,22 +1412,22 @@ void proto_register_idrp(void)
         {&hf_idrp_update_path_attr_dist_list_incl_nb_rdi,
             {"Path Attribute Value Dist List Incl Number of RDIs",
                 "idrp.update.path-attr.dist-list-incl.number-rdi", FT_UINT8, BASE_DEC,
-                NULL, 0, "Number of RDIs which NLRI infomation may be distributed" ,
+                NULL, 0, "Number of RDIs which NLRI information may be distributed" ,
                 HFILL}},
         {&hf_idrp_update_path_attr_dist_list_incl_rdi,
             {"Path Attribute Value Dist List Incl RDI",
                 "idrp.update.path-attr.dist-list-incl.rdi", FT_BYTES, BASE_NONE,
-                NULL, 0, "RDI which NLRI infomation may be distributed" ,
+                NULL, 0, "RDI which NLRI information may be distributed" ,
                 HFILL}},
         {&hf_idrp_update_path_attr_dist_list_excl_nb_rdi,
             {"Path Attribute Value Dist List Excl Number of RDIs",
                 "idrp.update.path-attr.dist-list-excl.number-rdi", FT_UINT8, BASE_DEC,
-                NULL, 0, "Number of RDIs which NLRI infomation may not be distributed" ,
+                NULL, 0, "Number of RDIs which NLRI information may not be distributed" ,
                 HFILL}},
         {&hf_idrp_update_path_attr_dist_list_excl_rdi,
             {"Path Attribute Value Dist List Excl RDI",
                 "idrp.update.path-attr.dist-list-excl.rdi", FT_BYTES, BASE_NONE,
-                NULL, 0, "RDI which NLRI infomation may be distributed" ,
+                NULL, 0, "RDI which NLRI information may be distributed" ,
                 HFILL}},
         {&hf_idrp_update_path_attr_multi_exit_disc,
             {"Path Attribute Value Multi Exit Disc",
@@ -1476,7 +1477,7 @@ void proto_register_idrp(void)
         {&hf_idrp_update_path_attr_security_reg_id,
             {"Path Attribute Value Security Registration ID",
                 "idrp.update.path-attr.security.reg-id", FT_BYTES, BASE_NONE,
-                NULL, 0, "Identifys the Security Authority" ,
+                NULL, 0, "Identifies the Security Authority" ,
                 HFILL}},
         {&hf_idrp_update_path_attr_security_info,
             {"Path Attribute Value Security Registration ID",
@@ -1546,7 +1547,7 @@ void proto_register_idrp(void)
                 "Diagnosis data that depends upon the error code and error subcode",
                 HFILL}},
         {&hf_idrp_rib_refresh_opcode,
-            {"Rib Refresh upcode", "idrp.rib-refresh.opcode", FT_UINT8, BASE_DEC,
+            {"Rib Refresh opcode", "idrp.rib-refresh.opcode", FT_UINT8, BASE_DEC,
                 VALS(idrp_error_rib_refresh_subcodes),
                 0xff, NULL, HFILL}},
         {&hf_idrp_rib_refresh_rib_attr_locally_defined_qos_nsap,
@@ -1570,7 +1571,7 @@ void proto_register_idrp(void)
         {&hf_idrp_rib_refresh_rib_attr_security_reg_id,
             {"Rib Attribute Value Security Registration ID",
                 "idrp.rib-refresh.rib-attr.security.reg-id", FT_BYTES, BASE_NONE,
-                NULL, 0, "Identifys the Security Authority" ,
+                NULL, 0, "Identifies the Security Authority" ,
                 HFILL}},
         {&hf_idrp_rib_refresh_rib_attr_security_info,
             {"Rib Attribute Value Security Registration ID",
@@ -1596,7 +1597,7 @@ void proto_register_idrp(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_idrp = expert_register_protocol(proto_idrp);
     expert_register_field_array(expert_idrp, ei, array_length(ei));
-    new_register_dissector("idrp", dissect_idrp, proto_idrp);
+    register_dissector("idrp", dissect_idrp, proto_idrp);
 
 }
 

@@ -58,10 +58,10 @@ static int hf_sbc_bitpool                                                  = -1;
 static int hf_sbc_crc_check                                                = -1;
 static int hf_sbc_expected_data_speed                                      = -1;
 static int hf_sbc_frame_duration                                           = -1;
-static int hf_sbc_cummulative_frame_duration                               = -1;
+static int hf_sbc_cumulative_frame_duration                               = -1;
 static int hf_sbc_delta_time                                               = -1;
 static int hf_sbc_delta_time_from_the_beginning                            = -1;
-static int hf_sbc_cummulative_duration                                     = -1;
+static int hf_sbc_cumulative_duration                                     = -1;
 static int hf_sbc_avrcp_song_position                                      = -1;
 static int hf_sbc_diff                                                     = -1;
 
@@ -135,7 +135,7 @@ dissect_sbc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     gint        frame_length;
     gint        expected_speed_data;
     gdouble     frame_duration;
-    gdouble     cummulative_frame_duration = 0;
+    gdouble     cumulative_frame_duration = 0;
     bta2dp_codec_info_t  *info;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "SBC");
@@ -232,7 +232,7 @@ dissect_sbc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         PROTO_ITEM_SET_GENERATED(pitem);
 
         frame_duration = (((double) frame_length / (double) expected_speed_data) * 1000.0);
-        cummulative_frame_duration += frame_duration;
+        cumulative_frame_duration += frame_duration;
 
         pitem = proto_tree_add_double(rtree, hf_sbc_frame_duration, tvb, offset, 0, frame_duration);
         proto_item_append_text(pitem, " ms");
@@ -241,7 +241,7 @@ dissect_sbc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         counter += 1;
     }
 
-    pitem = proto_tree_add_double(sbc_tree, hf_sbc_cummulative_frame_duration, tvb, offset, 0, cummulative_frame_duration);
+    pitem = proto_tree_add_double(sbc_tree, hf_sbc_cumulative_frame_duration, tvb, offset, 0, cumulative_frame_duration);
     proto_item_append_text(pitem, " ms");
     PROTO_ITEM_SET_GENERATED(pitem);
 
@@ -252,7 +252,7 @@ dissect_sbc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     if (info && info->previous_media_packet_info && info->current_media_packet_info) {
         nstime_t  delta;
 
-        nstime_delta(&delta, &pinfo->fd->abs_ts, &info->previous_media_packet_info->abs_ts);
+        nstime_delta(&delta, &pinfo->abs_ts, &info->previous_media_packet_info->abs_ts);
         pitem = proto_tree_add_double(sbc_tree, hf_sbc_delta_time, tvb, offset, 0, nstime_to_msec(&delta));
         proto_item_append_text(pitem, " ms");
         PROTO_ITEM_SET_GENERATED(pitem);
@@ -261,21 +261,21 @@ dissect_sbc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         proto_item_append_text(pitem, " ms");
         PROTO_ITEM_SET_GENERATED(pitem);
 
-        nstime_delta(&delta, &pinfo->fd->abs_ts, &info->previous_media_packet_info->first_abs_ts);
+        nstime_delta(&delta, &pinfo->abs_ts, &info->previous_media_packet_info->first_abs_ts);
         pitem = proto_tree_add_double(sbc_tree, hf_sbc_delta_time_from_the_beginning, tvb, offset, 0,  nstime_to_msec(&delta));
         proto_item_append_text(pitem, " ms");
         PROTO_ITEM_SET_GENERATED(pitem);
 
         if (!pinfo->fd->flags.visited) {
-            info->current_media_packet_info->cummulative_frame_duration += cummulative_frame_duration;
-            info->current_media_packet_info->avrcp_song_position        += cummulative_frame_duration;
+            info->current_media_packet_info->cumulative_frame_duration += cumulative_frame_duration;
+            info->current_media_packet_info->avrcp_song_position        += cumulative_frame_duration;
         }
 
-        pitem = proto_tree_add_double(sbc_tree, hf_sbc_cummulative_duration, tvb, offset, 0, info->previous_media_packet_info->cummulative_frame_duration);
+        pitem = proto_tree_add_double(sbc_tree, hf_sbc_cumulative_duration, tvb, offset, 0, info->previous_media_packet_info->cumulative_frame_duration);
         proto_item_append_text(pitem, " ms");
         PROTO_ITEM_SET_GENERATED(pitem);
 
-        pitem = proto_tree_add_double(sbc_tree, hf_sbc_diff, tvb, offset, 0, info->previous_media_packet_info->cummulative_frame_duration - nstime_to_msec(&delta));
+        pitem = proto_tree_add_double(sbc_tree, hf_sbc_diff, tvb, offset, 0, info->previous_media_packet_info->cumulative_frame_duration - nstime_to_msec(&delta));
         proto_item_append_text(pitem, " ms");
         PROTO_ITEM_SET_GENERATED(pitem);
     }
@@ -369,8 +369,8 @@ proto_register_sbc(void)
             FT_DOUBLE, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
-        { &hf_sbc_cummulative_frame_duration,
-            { "Cummulative Frame Duration",      "sbc.cummulative_frame_duration",
+        { &hf_sbc_cumulative_frame_duration,
+            { "Cumulative Frame Duration",      "sbc.cumulative_frame_duration",
             FT_DOUBLE, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
@@ -384,8 +384,8 @@ proto_register_sbc(void)
             FT_DOUBLE, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
-        { &hf_sbc_cummulative_duration,
-            { "Cummulative Music Duration",      "sbc.cummulative_music_duration",
+        { &hf_sbc_cumulative_duration,
+            { "Cumulative Music Duration",      "sbc.cumulative_music_duration",
             FT_DOUBLE, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
@@ -422,7 +422,7 @@ proto_register_sbc(void)
     expert_sbc = expert_register_protocol(proto_sbc);
     expert_register_field_array(expert_sbc, ei, array_length(ei));
 
-    new_register_dissector("sbc", dissect_sbc, proto_sbc);
+    register_dissector("sbc", dissect_sbc, proto_sbc);
 
     module = prefs_register_protocol(proto_sbc, NULL);
     prefs_register_static_text_preference(module, "a2dp.version",

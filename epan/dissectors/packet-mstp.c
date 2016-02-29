@@ -35,7 +35,7 @@
 #include <wiretap/wtap.h>
 #include <epan/expert.h>
 #include <epan/address_types.h>
-#include <epan/to_str-int.h>
+#include <epan/to_str.h>
 #include "packet-mstp.h"
 
 void proto_register_mstp(void);
@@ -341,8 +341,8 @@ dissect_mstp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	}
 }
 
-static void
-dissect_mstp_wtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mstp_wtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *subtree;
@@ -354,10 +354,10 @@ dissect_mstp_wtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 #endif
 
 	/* set the MS/TP MAC address in the source/destination */
-	TVB_SET_ADDRESS(&pinfo->dl_dst,	mstp_address_type, tvb, offset+3, 1);
-	COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
-	TVB_SET_ADDRESS(&pinfo->dl_src,	mstp_address_type, tvb, offset+4, 1);
-	COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
+	set_address_tvb(&pinfo->dl_dst,	mstp_address_type, 1, tvb, offset+3);
+	copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
+	set_address_tvb(&pinfo->dl_src,	mstp_address_type, 1, tvb, offset+4);
+	copy_address_shallow(&pinfo->src, &pinfo->dl_src);
 
 #ifdef BACNET_MSTP_SUMMARY_IN_TREE
 	mstp_frame_type = tvb_get_guint8(tvb, offset+2);
@@ -376,6 +376,7 @@ dissect_mstp_wtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	proto_tree_add_item(subtree, hf_mstp_preamble_FF, tvb,
 			offset+1, 1, ENC_LITTLE_ENDIAN);
 	dissect_mstp(tvb, pinfo, tree, subtree, offset+2);
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -462,7 +463,7 @@ proto_register_mstp(void)
 	register_dissector("mstp", dissect_mstp_wtap, proto_mstp);
 
 	subdissector_table = register_dissector_table("mstp.vendor_frame_type",
-	    "MSTP Vendor specific Frametypes", FT_UINT24, BASE_DEC);
+	    "MSTP Vendor specific Frametypes", FT_UINT24, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	/* Table_type: (Vendor ID << 16) + Frametype */
 
 	mstp_address_type = address_type_dissector_register("AT_MSTP", "BACnet MS/TP Address", mstp_to_str, mstp_str_len, mstp_col_filter_str, mstp_len, NULL, NULL);

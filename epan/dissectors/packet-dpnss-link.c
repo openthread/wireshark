@@ -93,8 +93,8 @@ static const value_string dpnss_link_frameType_vals[] = {
 static int ett_dpnss_link = -1;
 
 /* Code to actually dissect the packets */
-static void
-dissect_dpnss_link(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dpnss_link(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *item;
 	proto_tree *dpnss_link_tree;
@@ -149,6 +149,7 @@ dissect_dpnss_link(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	default:
 	    break;
 	}
+	return tvb_captured_length(tvb);
 }
 
 

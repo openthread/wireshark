@@ -49,7 +49,7 @@
 #include "ui/gtk/packet_history.h"
 #include "ui/gtk/keys.h"
 #include "ui/gtk/menus.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 #include "ui/gtk/color_utils.h"
 #include "ui/gtk/packet_win.h"
 #include "ui/gtk/main.h"
@@ -178,9 +178,9 @@ col_title_change_ok (GtkWidget *w, gpointer parent_w)
 	}
 
 	if (cur_fmt == COL_CUSTOM) {
-		const gchar *custom_field = get_column_custom_field(col_id);
-		if ((custom_field && strcmp (name, custom_field) != 0) || (custom_field == NULL)) {
-			set_column_custom_field (col_id, name);
+		const gchar *custom_fields = get_column_custom_fields(col_id);
+		if ((custom_fields && strcmp (name, custom_fields) != 0) || (custom_fields == NULL)) {
+			set_column_custom_fields(col_id, name);
 			recreate = TRUE;
 		}
 
@@ -339,7 +339,7 @@ col_details_edit_dlg (gint col_id, GtkTreeViewColumn *col)
 	cur_fmt = get_column_format (col_id);
 	gtk_combo_box_set_active(GTK_COMBO_BOX(format_cmb), cur_fmt);
 	if (cur_fmt == COL_CUSTOM) {
-		gtk_entry_set_text(GTK_ENTRY(field_te), get_column_custom_field(col_id));
+		gtk_entry_set_text(GTK_ENTRY(field_te), get_column_custom_fields(col_id));
 		g_snprintf(custom_occurrence_str, sizeof(custom_occurrence_str), "%d", get_column_custom_occurrence(col_id));
 		gtk_entry_set_text(GTK_ENTRY(occurrence_te), custom_occurrence_str);
 	}
@@ -656,7 +656,6 @@ create_view_and_model(void)
 	gint i, col_width;
 	gdouble value;
 	gchar *tooltip_text;
-	header_field_info *hfi;
 	gint col_min_width;
 	gchar *escaped_title;
 	col_item_t* col_item;
@@ -705,26 +704,7 @@ create_view_and_model(void)
 							show_cell_data_func,
 							GINT_TO_POINTER(i),
 							NULL);
-		if (col_item->col_fmt == COL_CUSTOM) {
-			hfi = proto_registrar_get_byname(col_item->col_custom_field);
-			/* Check if this is a valid custom_field */
-			if (hfi != NULL) {
-				if (hfi->parent != -1) {
-					/* Prefix with protocol name */
-					if (col_item->col_custom_occurrence != 0) {
-						tooltip_text = g_strdup_printf("%s\n%s (%s#%d)", proto_get_protocol_name(hfi->parent), hfi->name, hfi->abbrev, col_item->col_custom_occurrence);
-					} else {
-						tooltip_text = g_strdup_printf("%s\n%s (%s)", proto_get_protocol_name(hfi->parent), hfi->name, hfi->abbrev);
-					}
-				} else {
-					tooltip_text = g_strdup_printf("%s (%s)", hfi->name, hfi->abbrev);
-				}
-			} else {
-				tooltip_text = g_strdup_printf("Unknown Field: %s", get_column_custom_field(i));
-			}
-		} else {
-			tooltip_text = g_strdup(col_format_desc(col_item->col_fmt));
-		}
+
 		escaped_title = ws_strdup_escape_char(col_item->col_title, '_');
 		gtk_tree_view_column_set_title(col, escaped_title);
 		g_free (escaped_title);
@@ -769,6 +749,7 @@ create_view_and_model(void)
 
 		gtk_tree_view_append_column(GTK_TREE_VIEW(packetlist->view), col);
 
+		tooltip_text = get_column_tooltip(i);
 		gtk_widget_set_tooltip_text(gtk_tree_view_column_get_button(col), tooltip_text);
 		g_free(tooltip_text);
 		g_signal_connect(gtk_tree_view_column_get_button(col), "button_press_event",
@@ -1648,7 +1629,7 @@ packet_list_recent_write_all(FILE *rf)
 	for (col = 0; col < num_cols; col++) {
 		col_fmt = get_column_format(col);
 		if (col_fmt == COL_CUSTOM) {
-			fprintf (rf, " %%Cus:%s,", get_column_custom_field(col));
+			fprintf (rf, " %%Cus:%s,", get_column_custom_fields(col));
 		} else {
 			fprintf (rf, " %s,", col_format_to_string(col_fmt));
 		}

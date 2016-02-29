@@ -888,7 +888,7 @@ dissect_lg8979(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 
                     offset += 3;
 
-                    /* Retreive the +90% reference */
+                    /* Retrieve the +90% reference */
                     ana12_val = ( tvb_get_guint8(tvb, offset) | ((tvb_get_guint8(tvb, offset+1) & 0x0F) << 8) );
                     proto_tree_add_uint(lg8979_tree, hf_lg8979_adc_ref_pos90, tvb, offset, 2, ana12_val);
                     offset += 2;
@@ -1500,7 +1500,7 @@ proto_register_lg8979(void)
     proto_lg8979 = proto_register_protocol("Landis & Gyr Telegyr 8979", "L&G 8979", "lg8979");
 
     /* Registering protocol to be called by another dissector */
-    new_register_dissector("lg8979", dissect_lg8979_simple, proto_lg8979);
+    register_dissector("lg8979", dissect_lg8979_simple, proto_lg8979);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_lg8979, lg8979_hf, array_length(lg8979_hf));
@@ -1534,7 +1534,7 @@ proto_reg_handoff_lg8979(void)
 
     /* Make sure to use L&G 8979 Protocol Preferences field to determine default TCP port */
     if (! lg8979_prefs_initialized) {
-        lg8979_handle = new_create_dissector_handle(dissect_lg8979_tcp, proto_lg8979);
+        lg8979_handle = create_dissector_handle(dissect_lg8979_tcp, proto_lg8979);
         lg8979_prefs_initialized = TRUE;
     }
 

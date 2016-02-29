@@ -28,11 +28,7 @@
 
 #include "config.h"
 
-#include <stdio.h>
-
 #include <epan/packet.h>
-
-
 
 void proto_register_abis_om2000(void);
 
@@ -974,8 +970,8 @@ dissect_om2k_mo(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree
 	return 4;
 }
 
-static void
-dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *om2k_tree;
@@ -983,9 +979,6 @@ dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	guint8      tmp;
 
 	int offset;
-
-	if ((tree == NULL) && (pinfo->cinfo == NULL))
-		return;   /* no dissection required */
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "OM2000");
 	/* Don't do col_clear() so this dissector can append to COL_INFO*/
@@ -1008,7 +1001,7 @@ dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				   "unknown 0x%04x"));
 
 	if (tree == NULL)
-		return;   /* No refs to COL_...  beyond this point */
+		return tvb_captured_length(tvb);   /* No refs to COL_...  beyond this point */
 
 	proto_item_append_text(ti, " %s ",
 			       val_to_str_ext(msg_code, &om2k_msgcode_vals_ext,
@@ -1038,6 +1031,7 @@ dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		break;
 	}
 	dissect_om2k_attrs(tvb, offset, om2k_tree);
+	return tvb_captured_length(tvb);
 }
 
 void

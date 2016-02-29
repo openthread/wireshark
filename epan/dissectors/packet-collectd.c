@@ -31,6 +31,8 @@
 #include <epan/stats_tree.h>
 #include <epan/to_str.h>
 
+#include <wsutil/str_util.h>
+
 #define STR_NONNULL(str) ((str) ? (str) : "(null)")
 
 #define TYPE_HOST            0x0000
@@ -908,8 +910,8 @@ stats_account_string (string_counter_t **ret_list, const gchar *new_value)
 	return (0);
 }
 
-static void
-dissect_collectd (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_collectd (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	static tap_data_t tap_data;
 
@@ -1342,6 +1344,7 @@ dissect_collectd (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Dispatch tap data. */
 	tap_queue_packet (tap_collectd, pinfo, &tap_data);
+	return tvb_captured_length(tvb);
 } /* void dissect_collectd */
 
 void proto_register_collectd(void)

@@ -228,7 +228,7 @@ static expert_field ei_format_info          = EI_INIT;
 static expert_field ei_clock_reference_type = EI_INIT;
 
 
-static void dissect_1722a (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_1722a (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti                 = NULL;
     proto_tree *ieee1722a_tree     = NULL;
@@ -252,7 +252,7 @@ static void dissect_1722a (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         ieee1722a_tree = proto_item_add_subtree(ti, ett_1722a);
     }
 
-    /* Version field ends the common AVTPDU. Now parse the specfic packet type */
+    /* Version field ends the common AVTPDU. Now parse the specific packet type */
     subtype = tvb_get_guint8(tvb, IEEE_1722A_CD_OFFSET);
     subtype &= IEEE_1722A_SUBTYPE_MASK;
 
@@ -382,6 +382,7 @@ static void dissect_1722a (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         DISSECTOR_ASSERT_NOT_REACHED();
         break;
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

@@ -198,6 +198,12 @@ parseReservedText ( guint8* pTpktData )
 
     return value;
 }
+
+/*
+ * Length of the TPKT text-layer header.
+ */
+static const int TEXT_LAYER_LENGTH   = 9;
+
 /*
  * Dissect ASCII TPKT-encapsulated data in a TCP stream.
  */
@@ -556,10 +562,11 @@ dissect_tpkt_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
  * Dissect RFC 1006 TPKT, which wraps a TPKT header around an OSI TP
  * PDU.
  */
-static void
-dissect_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_tpkt_encap(tvb, pinfo, tree, tpkt_desegment, osi_tp_handle);
+    return tvb_captured_length(tvb);
 }
 
 /*
@@ -567,10 +574,11 @@ dissect_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
  * PDU.
  */
 #if 0
-static void
-dissect_ascii_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ascii_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     dissect_asciitpkt(tvb, pinfo, tree, osi_tp_handle);
+    return tvb_captured_length(tvb);
 }
 #endif
 

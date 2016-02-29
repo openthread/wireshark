@@ -31,6 +31,7 @@
 #include <epan/prefs.h>
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 
 #include "packet-bluetooth.h"
 #include "packet-bthci_acl.h"
@@ -60,6 +61,7 @@ static int hf_bthci_acl_mode_last_change_in_frame = -1;
 static gint ett_bthci_acl = -1;
 
 static expert_field ei_invalid_session = EI_INIT;
+static expert_field ei_length_bad = EI_INIT;
 
 static dissector_handle_t bthci_acl_handle;
 static dissector_handle_t btl2cap_handle = NULL;
@@ -75,7 +77,7 @@ typedef struct _multi_fragment_pdu_t {
 } multi_fragment_pdu_t;
 
 typedef struct _chandle_data_t {
-    wmem_tree_t *start_fragments;  /* indexed by pinfo->fd->num */
+    wmem_tree_t *start_fragments;  /* indexed by pinfo->num */
 } chandle_data_t;
 
 static wmem_tree_t *chandle_tree = NULL;
@@ -123,6 +125,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     proto_item               *bthci_acl_itam;
     proto_tree               *bthci_acl_tree;
     proto_item               *sub_item;
+    proto_item               *length_item;
     guint16                   flags;
     guint16                   length;
     gboolean                  fragmented;
@@ -195,7 +198,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     adapter_id        = bluetooth_data->adapter_id;
     connection_handle = flags & 0x0fff;
     direction         = pinfo->p2p_dir;
-    frame_number      = pinfo->fd->num;
+    frame_number      = pinfo->num;
 
     acl_data = wmem_new(wmem_packet_scope(), bthci_acl_data_t);
     acl_data->interface_id                = interface_id;
@@ -213,10 +216,10 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     key[3].key    = NULL;
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->chandle_sessions, key);
-    chandle_session = (subtree) ? (chandle_session_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    chandle_session = (subtree) ? (chandle_session_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (chandle_session &&
-            chandle_session->connect_in_frame < pinfo->fd->num &&
-            chandle_session->disconnect_in_frame > pinfo->fd->num) {
+            chandle_session->connect_in_frame < pinfo->num &&
+            chandle_session->disconnect_in_frame > pinfo->num) {
         acl_data->disconnect_in_frame = &chandle_session->disconnect_in_frame;
     } else {
         acl_data->disconnect_in_frame = &invalid_session;
@@ -227,7 +230,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     acl_data->remote_bd_addr_id          = 0;
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->chandle_to_mode, key);
-    connection_mode = (subtree) ? (connection_mode_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    connection_mode = (subtree) ? (connection_mode_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (connection_mode) {
         mode = connection_mode->mode;
         mode_last_change_in_frame = connection_mode->change_in_frame;
@@ -235,7 +238,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
     /* remote bdaddr and name */
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->chandle_to_bdaddr, key);
-    remote_bdaddr = (subtree) ? (remote_bdaddr_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    remote_bdaddr = (subtree) ? (remote_bdaddr_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (remote_bdaddr) {
         guint32         k_bd_addr_oui;
         guint32         k_bd_addr_id;
@@ -269,7 +272,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         key[4].key    = NULL;
 
         subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->bdaddr_to_role, key);
-        device_role = (subtree) ? (device_role_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+        device_role = (subtree) ? (device_role_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
         if (device_role) {
             if ((pinfo->p2p_dir == P2P_DIR_SENT && device_role->role == ROLE_MASTER) ||
                     (pinfo->p2p_dir == P2P_DIR_RECV && device_role->role == ROLE_SLAVE)) {
@@ -284,7 +287,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         }
 
         subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->bdaddr_to_name, key);
-        device_name = (subtree) ? (device_name_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+        device_name = (subtree) ? (device_name_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
         if (device_name)
             remote_name = device_name->name;
         else
@@ -322,7 +325,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->localhost_bdaddr, key);
-    localhost_bdaddr_entry = (subtree) ? (localhost_bdaddr_entry_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    localhost_bdaddr_entry = (subtree) ? (localhost_bdaddr_entry_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (localhost_bdaddr_entry) {
         localhost_ether_addr = get_ether_name(localhost_bdaddr_entry->bd_addr);
         memcpy(localhost_bdaddr, localhost_bdaddr_entry->bd_addr, 6);
@@ -332,7 +335,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     }
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->localhost_name, key);
-    localhost_name_entry = (subtree) ? (localhost_name_entry_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    localhost_name_entry = (subtree) ? (localhost_name_entry_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (localhost_name_entry)
         localhost_name = localhost_name_entry->name;
     else
@@ -366,7 +369,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     key[4].key = NULL;
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(chandle_tree, key);
-    chandle_data = (subtree) ? (chandle_data_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    chandle_data = (subtree) ? (chandle_data_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (!pinfo->fd->flags.visited && !chandle_data) {
         key[0].length = 1;
         key[0].key = &interface_id;
@@ -390,7 +393,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     }
 
     length = tvb_get_letohs(tvb, offset);
-    proto_tree_add_item(bthci_acl_tree, hf_bthci_acl_length, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    length_item = proto_tree_add_item(bthci_acl_tree, hf_bthci_acl_length, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
 
     /* determine if packet is fragmented */
@@ -413,6 +416,12 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         /* call L2CAP dissector for PDUs that are not fragmented
          * also for the first fragment if reassembly is disabled
          */
+        if (length < tvb_captured_length_remaining(tvb, offset)) {
+            expert_add_info(pinfo, length_item, &ei_length_bad);
+            /* Try to dissect as more as possible */
+            length = tvb_captured_length_remaining(tvb, offset);
+        }
+
         next_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), length);
         offset += call_dissector_with_data(btl2cap_handle, next_tvb, pinfo, tree, acl_data);
     } else if (fragmented && acl_reassembly) {
@@ -422,7 +431,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         if (!(pb_flag & 0x01)) { /* first fragment */
             if (!pinfo->fd->flags.visited) {
                 mfp = (multi_fragment_pdu_t *) wmem_new(wmem_file_scope(), multi_fragment_pdu_t);
-                mfp->first_frame = pinfo->fd->num;
+                mfp->first_frame = pinfo->num;
                 mfp->last_frame  = 0;
                 mfp->tot_len     = l2cap_length + 4;
                 mfp->reassembled = (char *) wmem_alloc(wmem_file_scope(), mfp->tot_len);
@@ -430,10 +439,10 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 if (len <= mfp->tot_len) {
                     tvb_memcpy(tvb, (guint8 *) mfp->reassembled, offset, len);
                     mfp->cur_off = len;
-                    wmem_tree_insert32(chandle_data->start_fragments, pinfo->fd->num, mfp);
+                    wmem_tree_insert32(chandle_data->start_fragments, pinfo->num, mfp);
                 }
             } else {
-                mfp = (multi_fragment_pdu_t *)wmem_tree_lookup32(chandle_data->start_fragments, pinfo->fd->num);
+                mfp = (multi_fragment_pdu_t *)wmem_tree_lookup32(chandle_data->start_fragments, pinfo->num);
             }
             if (mfp != NULL && mfp->last_frame) {
                 proto_item *item;
@@ -444,14 +453,14 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             }
         }
         if (pb_flag == 0x01) { /* continuation fragment */
-            mfp = (multi_fragment_pdu_t *)wmem_tree_lookup32_le(chandle_data->start_fragments, pinfo->fd->num);
+            mfp = (multi_fragment_pdu_t *)wmem_tree_lookup32_le(chandle_data->start_fragments, pinfo->num);
             if (!pinfo->fd->flags.visited) {
                 len = tvb_captured_length_remaining(tvb, offset);
                 if (mfp != NULL && !mfp->last_frame && (mfp->tot_len >= mfp->cur_off + len)) {
                     tvb_memcpy(tvb, (guint8 *) mfp->reassembled + mfp->cur_off, offset, len);
                     mfp->cur_off += len;
                     if (mfp->cur_off == mfp->tot_len) {
-                        mfp->last_frame = pinfo->fd->num;
+                        mfp->last_frame = pinfo->num;
                     }
                 }
             }
@@ -462,7 +471,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 PROTO_ITEM_SET_GENERATED(item);
                 col_append_fstr(pinfo->cinfo, COL_INFO, " [Continuation to #%u]", mfp->first_frame);
             }
-            if (mfp != NULL && mfp->last_frame == pinfo->fd->num) {
+            if (mfp != NULL && mfp->last_frame == pinfo->num) {
                 next_tvb = tvb_new_child_real_data(tvb, (guint8 *) mfp->reassembled, mfp->tot_len, mfp->tot_len);
                 add_new_data_source(pinfo, next_tvb, "Reassembled BTHCI ACL");
 
@@ -488,13 +497,13 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         expert_add_info(pinfo, bthci_acl_itam, &ei_invalid_session);
     }
 
-    SET_ADDRESS(&pinfo->net_src, AT_STRINGZ, (int)strlen(src_name) + 1, src_name);
-    SET_ADDRESS(&pinfo->dl_src, AT_ETHER, 6, src_bd_addr);
-    SET_ADDRESS(&pinfo->src, AT_STRINGZ, (int)strlen(src_addr_name) + 1, src_addr_name);
+    set_address(&pinfo->net_src, AT_STRINGZ, (int)strlen(src_name) + 1, src_name);
+    set_address(&pinfo->dl_src, AT_ETHER, 6, src_bd_addr);
+    set_address(&pinfo->src, AT_STRINGZ, (int)strlen(src_addr_name) + 1, src_addr_name);
 
-    SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, (int)strlen(dst_name) + 1, dst_name);
-    SET_ADDRESS(&pinfo->dl_dst, AT_ETHER, 6, dst_bd_addr);
-    SET_ADDRESS(&pinfo->dst, AT_STRINGZ, (int)strlen(dst_addr_name) + 1, dst_addr_name);
+    set_address(&pinfo->net_dst, AT_STRINGZ, (int)strlen(dst_name) + 1, dst_name);
+    set_address(&pinfo->dl_dst, AT_ETHER, 6, dst_bd_addr);
+    set_address(&pinfo->dst, AT_STRINGZ, (int)strlen(dst_addr_name) + 1, dst_addr_name);
 
     if (!pinfo->fd->flags.visited) {
         address *addr;
@@ -648,12 +657,13 @@ proto_register_bthci_acl(void)
     };
 
     static ei_register_info ei[] = {
-        { &ei_invalid_session, { "bthci_acl.invalid_session", PI_PROTOCOL, PI_ERROR, "Frame is out of any \"connection handle\" session", EXPFILL }},
+        { &ei_invalid_session, { "bthci_acl.invalid_session", PI_PROTOCOL,  PI_ERROR, "Frame is out of any \"connection handle\" session", EXPFILL }},
+        { &ei_length_bad,      { "bthci_acl.length.bad",      PI_MALFORMED, PI_WARN, "Length too short", EXPFILL }},
     };
 
     /* Register the protocol name and description */
     proto_bthci_acl = proto_register_protocol("Bluetooth HCI ACL Packet", "HCI_ACL", "bthci_acl");
-    bthci_acl_handle = new_register_dissector("bthci_acl", dissect_bthci_acl, proto_bthci_acl);
+    bthci_acl_handle = register_dissector("bthci_acl", dissect_bthci_acl, proto_bthci_acl);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_bthci_acl, hf, array_length(hf));

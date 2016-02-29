@@ -32,8 +32,6 @@
 
 #include "config.h"
 
-/* #include <stdio.h> */
-
 #include <epan/packet.h>
 
 void proto_register_17221(void);
@@ -4694,16 +4692,14 @@ dissect_17221_acmp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *acmp_tree)
    proto_tree_add_item(acmp_tree, hf_acmp_vlan_id, tvb, ACMP_VLAN_ID_OFFSET, 2, ENC_BIG_ENDIAN);
 }
 
-static void
-dissect_17221(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_17221(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
    guint8 subtype = 0;
    proto_item *ieee17221_item;
    proto_tree *ieee17221_tree;
    subtype = tvb_get_guint8(tvb, 0);
    subtype &= 0x7F;
-
-   /* fprintf(stderr, "subtype: %d\n", subtype); */
 
    /* Make entries in Protocol column and Info column on summary display */
    col_set_str(pinfo->cinfo, COL_PROTOCOL, "IEEE1722-1");
@@ -4738,10 +4734,11 @@ dissect_17221(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          {
             /* Shouldn't get here */
             col_set_str(pinfo->cinfo, COL_INFO, "1722.1 Unknown");
-            return;
+            return 0;
          }
    }
 
+   return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -5054,7 +5051,7 @@ proto_register_17221(void)
       },
 #endif
       { &hf_adp_assoc_id,
-         { "Assocation ID", "ieee17221.assocation_id",
+         { "Association ID", "ieee17221.association_id",
             FT_UINT64, BASE_HEX, NULL, 0x00, NULL, HFILL }
       },
 #if 0
@@ -5229,7 +5226,7 @@ proto_register_17221(void)
 
       /* ACQUIRE_ENTITY */
       { &hf_aecp_persistent_flag,
-         { "Peristent Flag", "ieee17221.flags.persistent",
+         { "Persistent Flag", "ieee17221.flags.persistent",
             FT_BOOLEAN, 32, NULL, AECP_PERSISTENT_FLAG_MASK, NULL, HFILL }
       },
       { &hf_aecp_release_flag,
@@ -5245,13 +5242,13 @@ proto_register_17221(void)
 
       /* SET_CLOCK_SOURCE / GET_CLOCK_SOURCE */
       { &hf_aecp_clock_source_id,
-         { "Clock Source ID", "ieee17221.clock_source_id",
+         { "Clock Source ID", "ieee17221.clock_source_id64",
             FT_UINT64, BASE_HEX, NULL, 0x00, NULL, HFILL }
       },
 
       /* SET_STREAM_FORMAT */
       { &hf_aecp_stream_format,
-         {"Stream Format", "ieee17221.stream_format",
+         {"Stream Format", "ieee17221.stream_format64",
             FT_UINT64, BASE_HEX, NULL, 0x00, NULL, HFILL }
       },
       /* GET_STREAM_FORMAT */
@@ -5326,7 +5323,7 @@ proto_register_17221(void)
             FT_UINT64, BASE_HEX, NULL, 0x00, NULL, HFILL }
       },
       { &hf_aecp_avb_info_propegation_delay,
-         {"Progagation Delay", "ieee17221.avb_info_propegation_delay",
+         {"Propagation Delay", "ieee17221.avb_info_propagation_delay",
             FT_UINT32, BASE_DEC, NULL, 0x00, NULL, HFILL }
       },
       { &hf_aecp_avb_info_gptp_domain_number,
@@ -5931,7 +5928,7 @@ proto_register_17221(void)
       },/* draft spec says this is defined by control_type field *
          * start_operation does not include a control type field *
          * There is an operation type table 7.83 that has not    *
-         * yet beed defined. control_type may be part of a       *
+         * yet been defined. control_type may be part of a       *
          * descriptor; will check                                */
 
       /* ABORT_OPERATION */
@@ -6424,7 +6421,7 @@ proto_register_17221(void)
             FT_UINT8, BASE_DEC, NULL, 0x00, NULL, HFILL }
       },
       { &hf_aem_avb_offset_scaled_log_variance,
-         {"Scaled Log Variance", "ieee17221.offset_scaled_log_varianc",
+         {"Scaled Log Variance", "ieee17221.offset_scaled_log_variance",
             FT_UINT16, BASE_DEC, NULL, 0x00, NULL, HFILL }
       },
       { &hf_aem_avb_clock_accuracy,
@@ -6926,7 +6923,7 @@ proto_register_17221(void)
             FT_UINT8, BASE_HEX, NULL, 0x00, NULL, HFILL }
       },
       { &hf_aem_color_space,
-         {"Color Space", "ieee17221.color_sapce",
+         {"Color Space", "ieee17221.color_space",
             FT_UINT8, BASE_HEX, NULL, 0x00, NULL, HFILL }
       },
 #if 0

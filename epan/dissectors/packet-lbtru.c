@@ -49,7 +49,7 @@ static int lbtru_tap_handle = -1;
 /* LBT-RU transport management.                                               */
 /*----------------------------------------------------------------------------*/
 
-static const address lbtru_null_address = { AT_NONE, 0, NULL };
+static const address lbtru_null_address = ADDRESS_INIT_NONE;
 
 static lbtru_transport_t * lbtru_transport_find(const address * source_address, guint16 source_port, guint32 session_id, guint32 frame)
 {
@@ -114,7 +114,7 @@ lbtru_transport_t * lbtru_transport_add(const address * source_address, guint16 
         return (entry);
     }
     entry = wmem_new(wmem_file_scope(), lbtru_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->source_address), source_address);
+    copy_address_wmem(wmem_file_scope(), &(entry->source_address), source_address);
     entry->source_port = source_port;
     entry->session_id = session_id;
     entry->channel = lbm_channel_assign(LBM_CHANNEL_TRANSPORT_LBTRU);
@@ -163,7 +163,7 @@ static lbtru_client_transport_t * lbtru_client_transport_add(lbtru_transport_t *
         return (entry);
     }
     entry = wmem_new0(wmem_file_scope(), lbtru_client_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->receiver_address), receiver_address);
+    copy_address_wmem(wmem_file_scope(), &(entry->receiver_address), receiver_address);
     entry->receiver_port = receiver_port;
     entry->transport = transport;
     entry->id = transport->next_client_id++;
@@ -1087,7 +1087,7 @@ typedef struct
     guint32 current_frame;
 } lbtru_sqn_frame_list_callback_data_t;
 
-static gboolean dissect_lbtru_sqn_frame_list_callback(void * frame, void * user_data)
+static gboolean dissect_lbtru_sqn_frame_list_callback(const void *key _U_, void * frame, void * user_data)
 {
     lbtru_sqn_frame_list_callback_data_t * cb_data = (lbtru_sqn_frame_list_callback_data_t *) user_data;
     proto_item * transport_item = NULL;
@@ -1406,42 +1406,42 @@ static int dissect_lbtru(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
     /* Find (or create) the transport and client entries */
     if (from_source)
     {
-        COPY_ADDRESS_SHALLOW(&source_address, &(pinfo->src));
+        copy_address_shallow(&source_address, &(pinfo->src));
         source_port = pinfo->srcport;
-        COPY_ADDRESS_SHALLOW(&receiver_address, &(pinfo->dst));
+        copy_address_shallow(&receiver_address, &(pinfo->dst));
         receiver_port = pinfo->destport;
     }
     else
     {
-        COPY_ADDRESS_SHALLOW(&source_address, &(pinfo->dst));
+        copy_address_shallow(&source_address, &(pinfo->dst));
         source_port = pinfo->destport;
-        COPY_ADDRESS_SHALLOW(&receiver_address, &(pinfo->src));
+        copy_address_shallow(&receiver_address, &(pinfo->src));
         receiver_port = pinfo->srcport;
     }
     if (pinfo->fd->flags.visited == 0)
     {
-        transport = lbtru_transport_add(&source_address, source_port, session_id, pinfo->fd->num);
+        transport = lbtru_transport_add(&source_address, source_port, session_id, pinfo->num);
     }
     else
     {
-        transport = lbtru_transport_find(&source_address, source_port, session_id, pinfo->fd->num);
+        transport = lbtru_transport_find(&source_address, source_port, session_id, pinfo->num);
     }
     if (transport != NULL)
     {
         if (pinfo->fd->flags.visited == 0)
         {
-            client = lbtru_client_transport_add(transport, &receiver_address, receiver_port, pinfo->fd->num);
+            client = lbtru_client_transport_add(transport, &receiver_address, receiver_port, pinfo->num);
             if (client != NULL)
             {
                 if (lbtru_sequence_analysis)
                 {
-                    lbtru_client_transport_frame_add(client, packet_type, pinfo->fd->num, packet_sqn, retransmission);
+                    lbtru_client_transport_frame_add(client, packet_type, pinfo->num, packet_sqn, retransmission);
                 }
             }
         }
         else
         {
-            client = lbtru_client_transport_find(transport, &receiver_address, receiver_port, pinfo->fd->num);
+            client = lbtru_client_transport_find(transport, &receiver_address, receiver_port, pinfo->num);
         }
         tapinfo->transport = lbtru_transport_source_string_transport(transport);
         channel = transport->channel;
@@ -1465,7 +1465,7 @@ static int dissect_lbtru(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
             lbm_transport_frame_t * frame = NULL;
 
             /* Fill in the tree */
-            frame = lbtru_client_transport_frame_find(client, pinfo->fd->num);
+            frame = lbtru_client_transport_frame_find(client, pinfo->num);
             if (frame != NULL)
             {
                 lbm_transport_sqn_t * sqn = NULL;
@@ -1507,7 +1507,7 @@ static int dissect_lbtru(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
                                 frame_tree = proto_item_add_subtree(frame_tree_item, ett_lbtru_transport_sqn);
                                 cb_data.tree = frame_tree;
                                 cb_data.tvb = tvb;
-                                cb_data.current_frame = pinfo->fd->num;
+                                cb_data.current_frame = pinfo->num;
                                 wmem_tree_foreach(sqn->frame, dissect_lbtru_sqn_frame_list_callback, (void *) &cb_data);
                             }
                         }
@@ -1562,7 +1562,7 @@ static int dissect_lbtru(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
                                 frame_tree = proto_item_add_subtree(frame_tree_item, ett_lbtru_transport_sqn);
                                 cb_data.tree = frame_tree;
                                 cb_data.tvb = tvb;
-                                cb_data.current_frame = pinfo->fd->num;
+                                cb_data.current_frame = pinfo->num;
                                 wmem_tree_foreach(sqn->frame, dissect_lbtru_sqn_frame_list_callback, (void *) &cb_data);
                             }
                         }
@@ -2003,7 +2003,7 @@ void proto_reg_handoff_lbtru(void)
 
     if (!already_registered)
     {
-        lbtru_dissector_handle = new_create_dissector_handle(dissect_lbtru, proto_lbtru);
+        lbtru_dissector_handle = create_dissector_handle(dissect_lbtru, proto_lbtru);
         dissector_add_for_decode_as("udp.port", lbtru_dissector_handle);
         heur_dissector_add("udp", test_lbtru_packet, "LBT Reliable Unicast over UDP", "lbtru_udp", proto_lbtru, HEURISTIC_ENABLE);
         lbtru_tap_handle = register_tap("lbm_lbtru");

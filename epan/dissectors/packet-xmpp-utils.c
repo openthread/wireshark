@@ -51,13 +51,13 @@ xmpp_iq_reqresp_track(packet_info *pinfo, xmpp_element_t *packet, xmpp_conv_info
     if (!pinfo->fd->flags.visited) {
         xmpp_trans = (xmpp_transaction_t *)wmem_tree_lookup_string(xmpp_info->req_resp, id, WMEM_TREE_STRING_NOCASE);
         if (xmpp_trans) {
-            xmpp_trans->resp_frame = pinfo->fd->num;
+            xmpp_trans->resp_frame = pinfo->num;
 
         } else {
             char *se_id = wmem_strdup(wmem_file_scope(), id);
 
             xmpp_trans = wmem_new(wmem_file_scope(), xmpp_transaction_t);
-            xmpp_trans->req_frame = pinfo->fd->num;
+            xmpp_trans->req_frame = pinfo->num;
             xmpp_trans->resp_frame = 0;
 
             wmem_tree_insert_string(xmpp_info->req_resp, se_id, (void *) xmpp_trans, WMEM_TREE_STRING_NOCASE);
@@ -280,7 +280,7 @@ xmpp_unknown_attrs(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, xmpp
                 proto_tree_add_string(tree, hf_xmpp_xmlns, tvb, attr->offset, attr->length, attr->value);
             else {
                 /*xmlns may looks like xmlns:abbrev="sth"*/
-                gchar* xmlns_needle = epan_strcasestr((const char *)keys->data, "xmlns:");
+                const gchar *xmlns_needle = epan_strcasestr((const char *)keys->data, "xmlns:");
                 if (xmlns_needle && xmlns_needle == keys->data) {
                     proto_tree_add_string_format(tree, hf_xmpp_xmlns, tvb, attr->offset, attr->length, attr->value,"%s: %s", (gchar*)keys->data, attr->value);
                 } else {
@@ -560,7 +560,7 @@ xmpp_xml_frame_to_element_t(xml_frame_t *xml_frame, xmpp_element_t *parent, tvbu
             {
                 gint l;
                 gchar *value = NULL;
-                gchar *xmlns_needle = NULL;
+                const gchar *xmlns_needle = NULL;
 
                 xmpp_attr_t *attr = wmem_new(wmem_packet_scope(), xmpp_attr_t);
                 attr->length = 0;
@@ -661,7 +661,7 @@ attr_find_pred(gpointer key, gpointer value _U_, gpointer user_data)
 
     if( strcmp(attr_name, "xmlns") == 0 )
     {
-        gchar *first_occur = epan_strcasestr((const char *)key, "xmlns:");
+        const gchar *first_occur = epan_strcasestr((const char *)key, "xmlns:");
         if(first_occur && first_occur == key)
             return TRUE;
         else
@@ -670,7 +670,7 @@ attr_find_pred(gpointer key, gpointer value _U_, gpointer user_data)
     return FALSE;
 }
 
-/*Functions returns element's attibute by name and set as read*/
+/*Functions returns element's attribute by name and set as read*/
 xmpp_attr_t*
 xmpp_get_attr(xmpp_element_t *element, const gchar* attr_name)
 {
@@ -687,7 +687,7 @@ xmpp_get_attr(xmpp_element_t *element, const gchar* attr_name)
     return result;
 }
 
-/*Functions returns element's attibute by name and namespace abbrev*/
+/*Functions returns element's attribute by name and namespace abbrev*/
 static xmpp_attr_t*
 xmpp_get_attr_ext(xmpp_element_t *element, const gchar* attr_name, const gchar* ns_abbrev)
 {
@@ -958,7 +958,7 @@ xmpp_display_elems(proto_tree *tree, xmpp_element_t *parent, packet_info *pinfo,
         {
             gboolean loop = TRUE;
 
-            name_attr_t *a = (name_attr_t *)(elems[i].data);
+            const name_attr_t *a = (const name_attr_t *)(elems[i].data);
 
             while(loop && (elem = xmpp_steal_element_by_name_and_attr(parent, a->name, a->attr_name, a->attr_value))!=NULL)
             {
@@ -981,7 +981,7 @@ xmpp_display_elems(proto_tree *tree, xmpp_element_t *parent, packet_info *pinfo,
         else if(elems[i].type == ATTR)
         {
             gboolean loop = TRUE;
-            name_attr_t *attr = (name_attr_t *)(elems[i].data);
+            const name_attr_t *attr = (const name_attr_t *)(elems[i].data);
 
             while(loop && (elem = xmpp_steal_element_by_attr(parent, attr->attr_name, attr->attr_value))!=NULL)
             {

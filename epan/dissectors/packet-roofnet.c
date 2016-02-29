@@ -193,7 +193,7 @@ static void dissect_roofnet_data(proto_tree *tree, tvbuff_t *tvb, packet_info * 
 /*
  * entry point of the roofnet dissector
  */
-static void dissect_roofnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_roofnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item * it;
   proto_tree * roofnet_tree;
@@ -219,17 +219,18 @@ static void dissect_roofnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   /* Check that we do not have a malformed roofnet packet */
   if ((roofnet_nlinks*6*4)+ROOFNET_HEADER_LENGTH > ROOFNET_MAX_LENGTH) {
     expert_add_info_format(pinfo, it, &ei_roofnet_too_many_links, "Too many links (%u)", roofnet_nlinks);
-    return;
+    return tvb_captured_length(tvb);
   }
 
   for (; roofnet_nlinks > 0; roofnet_nlinks--) {
     /* Do we have enough buffer to decode the next link ? */
     if (tvb_reported_length_remaining(tvb, offset) < ROOFNET_LINK_DESCRIPTION_LENGTH)
-      return;
+      return offset;
     dissect_roofnet_link(roofnet_tree, tvb, &offset, nlink++);
   }
 
   dissect_roofnet_data(tree, tvb, pinfo, offset+4);
+  return tvb_captured_length(tvb);
 }
 
 void proto_register_roofnet(void)

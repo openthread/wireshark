@@ -38,8 +38,8 @@ static gint ett_lapbether = -1;
 
 static dissector_handle_t lapb_handle;
 
-static void
-dissect_lapbether(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_lapbether(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *lapbether_tree, *ti;
     int         len;
@@ -64,6 +64,7 @@ dissect_lapbether(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     next_tvb = tvb_new_subset_length(tvb, 2, len);
     call_dissector(lapb_handle, next_tvb, pinfo, tree);
 
+    return tvb_captured_length(tvb);
 }
 
 void

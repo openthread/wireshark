@@ -468,7 +468,7 @@ proto_register_flip(void)
     proto_register_field_array(proto_flip, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    subdissector_table = register_dissector_table("flip.payload", "FLIP subdissector", FT_UINT32, BASE_HEX);
+    subdissector_table = register_dissector_table("flip.payload", "FLIP subdissector", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     flip_module = prefs_register_protocol(proto_flip, NULL);
 
@@ -490,7 +490,7 @@ proto_reg_handoff_flip(void)
 {
     dissector_handle_t flip_handle;
 
-    flip_handle = new_create_dissector_handle(dissect_flip, proto_flip);
+    flip_handle = create_dissector_handle(dissect_flip, proto_flip);
     dissector_add_uint("ethertype", ETHERTYPE_FLIP, flip_handle);
 
     data_handle = find_dissector("data");

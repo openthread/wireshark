@@ -3189,8 +3189,8 @@ dissect_homeplug_av_mme(ptvcursor_t *cursor, guint8 homeplug_av_mmver, guint16 h
    return;
 }
 
-static void
-dissect_homeplug_av(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_homeplug_av(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
    proto_item  *ti;
    proto_tree  *homeplug_av_tree;
@@ -3218,6 +3218,7 @@ dissect_homeplug_av(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    }
 
    ptvcursor_free(cursor);
+   return tvb_captured_length(tvb);
 }
 
 void

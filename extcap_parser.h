@@ -30,7 +30,7 @@ typedef enum {
     EXTCAP_SENTENCE_UNKNOWN,
     EXTCAP_SENTENCE_ARG,
     EXTCAP_SENTENCE_VALUE,
-    EXTCAP_SENTENCE_FLAG,
+    EXTCAP_SENTENCE_EXTCAP,
     EXTCAP_SENTENCE_INTERFACE,
     EXTCAP_SENTENCE_DLT
 } extcap_sentence_type;
@@ -45,6 +45,7 @@ typedef enum {
     EXTCAP_ARG_BOOLEAN,
     EXTCAP_ARG_BOOLFLAG,
     EXTCAP_ARG_STRING,
+    EXTCAP_ARG_PASSWORD,
     /* Complex GUI types which are populated with value sentences */
     EXTCAP_ARG_SELECTOR,
     EXTCAP_ARG_RADIO,
@@ -67,7 +68,12 @@ typedef enum {
     EXTCAP_PARAM_NAME,
     EXTCAP_PARAM_ENABLED,
     EXTCAP_PARAM_FILE_MUSTEXIST,
-    EXTCAP_PARAM_PARENT
+    EXTCAP_PARAM_FILE_EXTENSION,
+    EXTCAP_PARAM_PARENT,
+    EXTCAP_PARAM_REQUIRED,
+    EXTCAP_PARAM_SAVE,
+    EXTCAP_PARAM_VALIDATION,
+    EXTCAP_PARAM_VERSION
 } extcap_param_type;
 
 /* Values for a given sentence; values are all stored as a call
@@ -86,15 +92,7 @@ typedef struct _extcap_value {
 /* Complex-ish struct for storing complex values */
 typedef struct _extcap_complex {
     extcap_arg_type complex_type;
-    union {
-        int int_value;
-        unsigned int uint_value;
-        long long_value;
-        double double_value;
-        gboolean bool_value;
-        gchar *string_value;
-    } complex_value;
-    gboolean value_filled;
+    gchar * _val;
 } extcap_complex;
 
 /* An argument sentence and accompanying options */
@@ -104,13 +102,22 @@ typedef struct _extcap_arg {
     gchar *call;
     gchar *display;
     gchar *tooltip;
+
+    gchar * fileextension;
     gboolean fileexists;
+
+    gboolean is_required;
+    gboolean save;
+
+    gchar * regexp;
 
     extcap_arg_type arg_type;
 
     extcap_complex *range_start;
     extcap_complex *range_end;
     extcap_complex *default_complex;
+
+    gchar * storeval;
 
     GList * values;
 } extcap_arg;
@@ -123,7 +130,9 @@ typedef struct _extcap_if {
 typedef struct _extcap_interface {
     gchar *call;
     gchar *display;
+    gchar *version;
 
+    extcap_sentence_type if_type;
     struct _extcap_interface *next_interface;
 } extcap_interface;
 
@@ -179,10 +188,10 @@ void extcap_printf_complex(extcap_complex *comp);
  */
 gchar *extcap_get_complex_as_string(extcap_complex *comp);
 
-int extcap_complex_get_int(extcap_complex *comp);
-unsigned int extcap_complex_get_uint(extcap_complex *comp);
-long extcap_complex_get_long(extcap_complex *comp);
-double extcap_complex_get_double(extcap_complex *comp);
+gint extcap_complex_get_int(extcap_complex *comp);
+guint extcap_complex_get_uint(extcap_complex *comp);
+gint64 extcap_complex_get_long(extcap_complex *comp);
+gdouble extcap_complex_get_double(extcap_complex *comp);
 gboolean extcap_complex_get_bool(extcap_complex *comp);
 gchar *extcap_complex_get_string(extcap_complex *comp);
 
@@ -207,8 +216,6 @@ extcap_token_param *extcap_find_param_by_type(extcap_token_param *first,
         extcap_param_type t);
 
 void extcap_free_value(extcap_value *v);
-
-extcap_arg *extcap_new_arg(void);
 
 /* Free a single argument */
 void extcap_free_arg(extcap_arg *a);

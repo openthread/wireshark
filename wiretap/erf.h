@@ -60,12 +60,37 @@
 #define ERF_TYPE_DSM_COLOR_ETH      16
 #define ERF_TYPE_COLOR_MC_HDLC_POS  17
 #define ERF_TYPE_AAL2               18
+#define ERF_TYPE_COLOR_HASH_POS     19
+#define ERF_TYPE_COLOR_HASH_ETH     20
 #define ERF_TYPE_INFINIBAND         21
 #define ERF_TYPE_IPV4               22
 #define ERF_TYPE_IPV6               23
 #define ERF_TYPE_RAW_LINK           24
 #define ERF_TYPE_INFINIBAND_LINK    25
+/* XXX - what about 26? */
+#define ERF_TYPE_META               27
 
+/* 28-31 reserved for future public ERF types */
+
+/* Record types reserved for local and internal use */
+#define ERF_TYPE_INTERNAL0          32
+#define ERF_TYPE_INTERNAL1          33
+#define ERF_TYPE_INTERNAL2          34
+#define ERF_TYPE_INTERNAL3          35
+#define ERF_TYPE_INTERNAL4          36
+#define ERF_TYPE_INTERNAL5          37
+#define ERF_TYPE_INTERNAL6          38
+#define ERF_TYPE_INTERNAL7          39
+#define ERF_TYPE_INTERNAL8          40
+#define ERF_TYPE_INTERNAL9          41
+#define ERF_TYPE_INTERNAL10         42
+#define ERF_TYPE_INTERNAL11         43
+#define ERF_TYPE_INTERNAL12         44
+#define ERF_TYPE_INTERNAL13         45
+#define ERF_TYPE_INTERNAL14         46
+#define ERF_TYPE_INTERNAL15         47
+
+/* Pad records */
 #define ERF_TYPE_PAD                48
 
 #define ERF_TYPE_MIN  1   /* sanity checking */
@@ -90,12 +115,18 @@ typedef struct erf_mc_hdr {
 	guint32	mc;
 } erf_mc_header_t;
 
+typedef struct erf_aal2_hdr {
+	guint32	aal2;
+} erf_aal2_header_t;
+
 typedef struct erf_eth_hdr {
-	guint16	eth;
+	guint8 offset;
+	guint8 pad;
 } erf_eth_header_t;
 
 union erf_subhdr {
   struct erf_mc_hdr mc_hdr;
+  struct erf_aal2_hdr aal2_hdr;
   struct erf_eth_hdr eth_hdr;
 };
 

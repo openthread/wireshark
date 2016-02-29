@@ -89,8 +89,8 @@ dissect_pw_eth_cw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     return tvb_captured_length(tvb);
 }
 
-static void
-dissect_pw_eth_nocw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pw_eth_nocw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     tvbuff_t *next_tvb;
 
@@ -101,9 +101,9 @@ dissect_pw_eth_nocw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     next_tvb = tvb_new_subset_remaining(tvb, 0);
-    {
-        call_dissector(eth_withoutfcs_handle, next_tvb, pinfo, tree);
-    }
+    call_dissector(eth_withoutfcs_handle, next_tvb, pinfo, tree);
+
+    return tvb_captured_length(tvb);
 }
 
 /*
@@ -130,8 +130,8 @@ looks_like_plain_eth(tvbuff_t *tvb _U_)
     return FALSE;
 }
 
-static void
-dissect_pw_eth_heuristic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pw_eth_heuristic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8 first_nibble = (tvb_get_guint8(tvb, 0) >> 4) & 0x0F;
 
@@ -141,6 +141,7 @@ dissect_pw_eth_heuristic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         call_dissector(pw_eth_handle_cw, tvb, pinfo, tree);
     else
         call_dissector(pw_eth_handle_nocw, tvb, pinfo, tree);
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -202,7 +203,7 @@ proto_reg_handoff_pw_eth(void)
 
     eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
 
-    pw_eth_handle_cw = new_create_dissector_handle( dissect_pw_eth_cw, proto_pw_eth_cw );
+    pw_eth_handle_cw = create_dissector_handle( dissect_pw_eth_cw, proto_pw_eth_cw );
     dissector_add_for_decode_as("mpls.label", pw_eth_handle_cw);
 
     pw_eth_handle_nocw = create_dissector_handle( dissect_pw_eth_nocw, proto_pw_eth_nocw );

@@ -254,8 +254,8 @@ rtp_stream_value_destroy(gpointer rsi_arg)
 
 		rtp_packet_list = g_list_next(rtp_packet_list);
 	}
-	g_free((void *)(rsi->src_addr.data));
-	g_free((void *)(rsi->dest_addr.data));
+	free_address(&rsi->src_addr);
+	free_address(&rsi->dest_addr);
 	g_free(rsi);
 	rsi = NULL;
 }
@@ -339,9 +339,9 @@ add_rtp_packet(const struct _rtp_info *rtp_info, packet_info *pinfo)
 	/* if it is not in the hash table, create a new stream */
 	if (stream_info==NULL) {
 		stream_info = g_new0(rtp_stream_info_t, 1);
-		COPY_ADDRESS(&(stream_info->src_addr), &(pinfo->src));
+		copy_address(&(stream_info->src_addr), &(pinfo->src));
 		stream_info->src_port = pinfo->srcport;
-		COPY_ADDRESS(&(stream_info->dest_addr), &(pinfo->dst));
+		copy_address(&(stream_info->dest_addr), &(pinfo->dst));
 		stream_info->dest_port = pinfo->destport;
 		stream_info->ssrc = rtp_info->info_sync_src;
 		stream_info->start_fd = pinfo->fd;
@@ -399,7 +399,7 @@ mark_rtp_stream_to_play(gchar *key _U_ , rtp_stream_info_t *rsi, gpointer ptr _U
 	while (graph_list)
 	{
 		graph_item = (seq_analysis_item_t *)graph_list->data;
-		if (rsi->start_fd->num == graph_item->fd->num) {
+		if (rsi->start_fd->num == graph_item->frame_number) {
 			rsi->call_num = graph_item->conv_num;
 			/* if it is in the graph list, then check if the voip_call is selected */
 			voip_calls_list = g_queue_peek_nth_link(voip_calls->callsinfos, 0);
@@ -506,8 +506,8 @@ decode_rtp_stream(rtp_stream_info_t *rsi, gpointer ptr)
 	 * uses: src_ip:src_port dst_ip:dst_port call_num
 	 */
 	key_str = g_string_new("");
-	src_addr = (char*)address_to_display(NULL, &(rsi->src_addr));
-	dst_addr = (char*)address_to_display(NULL, &(rsi->dest_addr));
+	src_addr = address_to_display(NULL, &(rsi->src_addr));
+	dst_addr = address_to_display(NULL, &(rsi->dest_addr));
 	g_string_printf(key_str, "%s:%d %s:%d %d %u", src_addr,
 		rsi->src_port, dst_addr,
 		rsi->dest_port, rsi->call_num, info->current_channel);
@@ -1751,8 +1751,8 @@ add_channel_to_window(gchar *key _U_ , rtp_channel_info_t *rci, guint *counter)
 
 
 	label = g_string_new("");
-	src_addr = (char*)address_to_display(NULL, &(rci->first_stream->src_addr));
-	dst_addr = (char*)address_to_display(NULL, &(rci->first_stream->dest_addr));
+	src_addr = address_to_display(NULL, &(rci->first_stream->src_addr));
+	dst_addr = address_to_display(NULL, &(rci->first_stream->dest_addr));
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(cb_use_rtp_timestamp))) {
 		g_string_printf(label, "From %s:%d to %s:%d   Duration:%.2f   Out of Seq: %d(%.1f%%)   Wrong Timestamp: %d(%.1f%%)",
 		src_addr, rci->first_stream->src_port,
@@ -1879,7 +1879,7 @@ play_channels(void)
 			PaHostApiIndex default_host_api_index = Pa_GetDefaultHostApi();
 
 			PaHostApiIndex host_api_index;
-			const PaHostApiInfo *host_api_info;
+			const PaHostApiInfo *host_api_info = NULL;
 
 			for (host_api_index=0; host_api_index<host_api_count; host_api_index++)
 			{

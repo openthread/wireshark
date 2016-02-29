@@ -91,20 +91,18 @@ struct pref_custom_cbs {
  * PREF_OBSOLETE is used for preferences that a module used to support
  * but no longer supports; we give different error messages for them.
  */
-typedef enum {
-    PREF_UINT,
-    PREF_BOOL,
-    PREF_ENUM,
-    PREF_STRING,
-    PREF_RANGE,
-    PREF_STATIC_TEXT,
-    PREF_UAT,
-    PREF_FILENAME,
-    PREF_COLOR,     /* XXX - These are only supported for "internal" (non-protocol) */
-    PREF_CUSTOM,    /* use and not as a generic protocol preference */
-    PREF_OBSOLETE,
-    PREF_DIRNAME
-} pref_type_t;
+#define PREF_UINT        (1u << 0)
+#define PREF_BOOL        (1u << 1)
+#define PREF_ENUM        (1u << 2)
+#define PREF_STRING      (1u << 3)
+#define PREF_RANGE       (1u << 4)
+#define PREF_STATIC_TEXT (1u << 5)
+#define PREF_UAT         (1u << 6)
+#define PREF_FILENAME    (1u << 7)
+#define PREF_COLOR       (1u << 8) /* XXX - These are only supported for "internal" (non-protocol) */
+#define PREF_CUSTOM      (1u << 9) /* use and not as a generic protocol preference */
+#define PREF_OBSOLETE    (1u << 10)
+#define PREF_DIRNAME     (1u << 11)
 
 typedef enum {
 	GUI_ALL,
@@ -118,13 +116,13 @@ struct preference {
     const char *title;               /**< title to use in GUI */
     const char *description;         /**< human-readable description of preference */
     int ordinal;                     /**< ordinal number of this preference */
-    pref_type_t type;                /**< type of that preference */
+    int type;                        /**< type of that preference */
     gui_type_t gui;                  /**< type of the GUI (QT, GTK or both) the preference is registered for */
     union {                          /* The Qt preference code assumes that these will all be pointers (and unique) */
         guint *uint;
         gboolean *boolp;
         gint *enump;
-        const char **string;
+        char **string;
         range_t **range;
         struct epan_uat* uat;
         color_t *colorp;
@@ -174,7 +172,22 @@ struct preference {
  */
 typedef prefs_set_pref_e (*pref_set_pair_cb) (gchar *key, const gchar *value, void *private_data, gboolean return_range_errors);
 
-/** read the preferences file (or similiar) and call the callback
+/** Set the value of a string-like preference. */
+WS_DLL_PUBLIC
+void
+prefs_set_string_like_value(pref_t *pref, const gchar *value, gboolean *changed);
+
+/** Set the value of a range preference.  Return FALSE on error, TRUE otherwise. */
+WS_DLL_PUBLIC
+gboolean
+prefs_set_range_value(pref_t *pref, const gchar *value, gboolean *changed);
+
+/** Set the value of an enum preference. */
+WS_DLL_PUBLIC
+void
+prefs_set_enum_value(pref_t *pref, const gchar *value, gboolean *changed);
+
+/** read the preferences file (or similar) and call the callback
  * function to set each key/value pair found
  */
 WS_DLL_PUBLIC

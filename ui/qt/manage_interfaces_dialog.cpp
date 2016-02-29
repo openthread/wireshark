@@ -84,10 +84,11 @@ enum {
 };
 
 ManageInterfacesDialog::ManageInterfacesDialog(QWidget *parent) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     ui(new Ui::ManageInterfacesDialog)
 {
     ui->setupUi(this);
+    loadGeometry();
 
 #ifdef Q_OS_MAC
     ui->addPipe->setAttribute(Qt::WA_MacSmallSize, true);
@@ -102,6 +103,7 @@ ManageInterfacesDialog::ManageInterfacesDialog(QWidget *parent) :
 #ifndef Q_OS_WIN
     ui->localList->setColumnHidden(col_l_friendly_name_, true);
 #endif
+    ui->localList->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
     ui->pipeList->setItemDelegateForColumn(col_p_pipe_, &new_pipe_item_delegate_);
     new_pipe_item_delegate_.setTree(ui->pipeList);
@@ -122,6 +124,7 @@ ManageInterfacesDialog::ManageInterfacesDialog(QWidget *parent) :
 
     connect(ui->tabWidget, SIGNAL(currentChanged(int)), this, SLOT(updateWidgets()));
     connect(this, SIGNAL(ifsChanged()), parent, SIGNAL(ifsChanged()));
+    connect(ui->localList, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)), this, SLOT(localListItemDoubleClicked(QTreeWidgetItem *, int)));
 
 #ifdef HAVE_PCAP_REMOTE
     connect(this, SIGNAL(remoteAdded(GList*, remote_options*)), this, SLOT(addRemoteInterfaces(GList*, remote_options*)));
@@ -238,6 +241,7 @@ void ManageInterfacesDialog::pipeAccepted()
             continue;
         }
         global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, i);
+        capture_opts_free_interface_t(&device);
     }
 
     // Next rebuild a fresh list
@@ -259,6 +263,7 @@ void ManageInterfacesDialog::pipeAccepted()
             }
         }
 
+        memset(&device, 0, sizeof(device));
         device.name         = qstring_strdup(pipe_name);
         device.display_name = g_strdup(device.name);
         device.hidden       = FALSE;
@@ -338,9 +343,11 @@ void ManageInterfacesDialog::showLocalInterfaces()
             if (comment) {
                 item->setText(col_l_comment_, comment);
                 g_free(comment);
+            } else if (device.if_info.vendor_description) {
+                item->setText(col_l_comment_, device.if_info.vendor_description);
             }
         } else {
-          continue;
+            continue;
         }
     }
     g_free(pr_descr);
@@ -389,14 +396,7 @@ void ManageInterfacesDialog::saveLocalCommentChanges(QTreeWidgetItem* item)
         }
 
         g_free(device.display_name);
-        // XXX The GTK+ UI uses the raw device name instead of the friendly name.
-        // This seems to make more sense.
-        gchar *if_string = device.friendly_name ? device.friendly_name : device.name;
-        if (comment.isEmpty()) {
-            device.display_name = g_strdup(if_string);
-        } else {
-            device.display_name = qstring_strdup(QString("%1: %2").arg(comment).arg(if_string));
-        }
+        device.display_name = get_iface_display_name(comment.toUtf8().constData(), &device.if_info);
         global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, i);
         g_array_insert_val(global_capture_opts.all_ifaces, i, device);
     }
@@ -460,13 +460,20 @@ void ManageInterfacesDialog::localAccepted()
         /* write new description string to preferences */
         if (prefs.capture_devices_descr)
             g_free(prefs.capture_devices_descr);
-        prefs.capture_devices_descr = qstring_strdup(comment_list.join(","));;
+        prefs.capture_devices_descr = qstring_strdup(comment_list.join(","));
     }
 }
 
 void ManageInterfacesDialog::on_buttonBox_helpRequested()
 {
     wsApp->helpTopicAction(HELP_CAPTURE_MANAGE_INTERFACES_DIALOG);
+}
+
+void ManageInterfacesDialog::localListItemDoubleClicked(QTreeWidgetItem * item, int column)
+{
+    if (column == col_l_comment_) {
+        ui->localList->editItem(item, column);
+    }
 }
 
 #ifdef HAVE_PCAP_REMOTE
@@ -513,6 +520,7 @@ void ManageInterfacesDialog::addRemoteInterfaces(GList* rlist, remote_options *r
         ip_str = g_string_new("");
         str = "";
         ips = 0;
+        memset(&device, 0, sizeof(device));
         device.name = g_strdup(if_info->name);
         /* Is this interface hidden and, if so, should we include it
            anyway? */
@@ -569,12 +577,12 @@ void ManageInterfacesDialog::addRemoteInterfaces(GList* rlist, remote_options *r
             addr = (if_addr_t *)curr_addr->data;
             switch (addr->ifat_type) {
             case IF_AT_IPv4:
-                SET_ADDRESS(&addr_str, AT_IPv4, 4, &addr->addr.ip4_addr);
+                set_address(&addr_str, AT_IPv4, 4, &addr->addr.ip4_addr);
                 temp_addr_str = (char*)address_to_str(NULL, &addr_str);
                 g_string_append(ip_str, temp_addr_str);
                 break;
             case IF_AT_IPv6:
-                SET_ADDRESS(&addr_str, AT_IPv6, 16, addr->addr.ip6_addr);
+                set_address(&addr_str, AT_IPv6, 16, addr->addr.ip6_addr);
                 temp_addr_str = (char*)address_to_str(NULL, &addr_str);
                 g_string_append(ip_str, temp_addr_str);
                 break;

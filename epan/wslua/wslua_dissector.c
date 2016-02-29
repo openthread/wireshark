@@ -201,7 +201,7 @@ WSLUA_CONSTRUCTOR DissectorTable_new (lua_State *L) {
             name = g_strdup(name);
             ui_name = g_strdup(ui_name);
 
-            dt->table = register_dissector_table(name, ui_name, type, base);
+            dt->table = register_dissector_table(name, ui_name, type, base, DISSECTOR_TABLE_ALLOW_DUPLICATE);
             dt->name = name;
             dt->ui_name = ui_name;
             dt->created = TRUE;
@@ -614,7 +614,7 @@ WSLUA_METHOD DissectorTable_add_for_decode_as (lua_State *L) {
     dissector_handle_t handle = NULL;
 
     if (! proto->handle) {
-        proto->handle = new_register_dissector(proto->loname, dissect_lua, proto->hfid);
+        proto->handle = register_dissector(proto->loname, dissect_lua, proto->hfid);
     }
 
     handle = proto->handle;

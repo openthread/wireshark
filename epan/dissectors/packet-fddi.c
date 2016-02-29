@@ -32,7 +32,7 @@
 #include <wsutil/bitswap.h>
 #include <epan/prefs.h>
 #include <epan/conversation_table.h>
-#include "packet-fddi.h"
+#include <epan/capture_dissectors.h>
 #include "packet-llc.h"
 #include "packet-sflow.h"
 
@@ -55,6 +55,8 @@ static gint ett_fddi = -1;
 static gint ett_fddi_fc = -1;
 
 static int fddi_tap = -1;
+
+static dissector_handle_t fddi_handle, fddi_bitswapped_handle;
 
 static gboolean fddi_padding = FALSE;
 
@@ -123,6 +125,12 @@ static const value_string mac_subtype_vals[] = {
   { 0,                             NULL }
 };
 
+typedef struct _fddi_hdr {
+  guint8  fc;
+  address dst;
+  address src;
+} fddi_hdr;
+
 #define FDDI_HEADER_SIZE       13
 
 /* field positions */
@@ -163,7 +171,7 @@ fddi_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_,
   conv_hash_t *hash = (conv_hash_t*) pct;
   const fddi_hdr *ehdr=(const fddi_hdr *)vip;
 
-  add_conversation_table_data(hash, &ehdr->src, &ehdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &fddi_ct_dissector_info, PT_NONE);
+  add_conversation_table_data(hash, &ehdr->src, &ehdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &fddi_ct_dissector_info, PT_NONE);
 
   return 1;
 }
@@ -193,15 +201,14 @@ fddi_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, con
   return 1;
 }
 
-void
-capture_fddi(const guchar *pd, int len, packet_counts *ld)
+static gboolean
+capture_fddi(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
-  int offset = 0, fc;
+  int fc;
 
-  if (!BYTES_ARE_IN_FRAME(0, len, FDDI_HEADER_SIZE + FDDI_PADDING)) {
-    ld->other++;
-    return;
-  }
+  if (!BYTES_ARE_IN_FRAME(0, len, FDDI_HEADER_SIZE + FDDI_PADDING))
+    return FALSE;
+
   offset = FDDI_PADDING + FDDI_HEADER_SIZE;
 
   fc = (int) pd[FDDI_P_FC+FDDI_PADDING];
@@ -226,14 +233,10 @@ capture_fddi(const guchar *pd, int len, packet_counts *ld)
     case FDDI_FC_LLC_ASYNC + 13 :
     case FDDI_FC_LLC_ASYNC + 14 :
     case FDDI_FC_LLC_ASYNC + 15 :
-      capture_llc(pd, offset, len, ld);
-      return;
-    default :
-      ld->other++;
-      return;
-
+      return capture_llc(pd, offset, len, cpinfo, pseudo_header);
   } /* fc */
 
+  return FALSE;
 } /* capture_fddi */
 
 static const gchar *
@@ -368,9 +371,9 @@ dissect_fddi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     tvb_memcpy(tvb, dst, FDDI_P_DHOST + FDDI_PADDING, 6);
   swap_mac_addr(dst_swapped, tvb, FDDI_P_DHOST + FDDI_PADDING);
 
-  SET_ADDRESS(&pinfo->dl_dst, AT_ETHER, 6, dst);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
-  COPY_ADDRESS_SHALLOW(&fddihdr->dst, &pinfo->dl_dst);
+  set_address(&pinfo->dl_dst, AT_ETHER, 6, dst);
+  copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
+  copy_address_shallow(&fddihdr->dst, &pinfo->dl_dst);
 
   if (fh_tree) {
     proto_tree_add_ether(fh_tree, hf_fddi_dst, tvb, FDDI_P_DHOST + FDDI_PADDING, 6, dst);
@@ -391,9 +394,9 @@ dissect_fddi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     tvb_memcpy(tvb, src, FDDI_P_SHOST + FDDI_PADDING, 6);
   swap_mac_addr(src_swapped, tvb, FDDI_P_SHOST + FDDI_PADDING);
 
-  SET_ADDRESS(&pinfo->dl_src, AT_ETHER, 6, src);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-  COPY_ADDRESS_SHALLOW(&fddihdr->src, &pinfo->dl_src);
+  set_address(&pinfo->dl_src, AT_ETHER, 6, src);
+  copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+  copy_address_shallow(&fddihdr->src, &pinfo->dl_src);
 
   if (fh_tree) {
     proto_tree_add_ether(fh_tree, hf_fddi_src, tvb, FDDI_P_SHOST + FDDI_PADDING, 6, src);
@@ -443,16 +446,18 @@ dissect_fddi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 } /* dissect_fddi */
 
 
-static void
-dissect_fddi_bitswapped(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_fddi_bitswapped(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_fddi(tvb, pinfo, tree, TRUE);
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_fddi_not_bitswapped(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_fddi_not_bitswapped(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_fddi(tvb, pinfo, tree, FALSE);
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -509,7 +514,12 @@ proto_register_fddi(void)
    * Called from various dissectors for encapsulated FDDI frames.
    * We assume the MAC addresses in them aren't bitswapped.
    */
-  register_dissector("fddi", dissect_fddi_not_bitswapped, proto_fddi);
+  fddi_handle = register_dissector("fddi", dissect_fddi_not_bitswapped, proto_fddi);
+
+  /*
+   * Here, we assume they are bitswapped.
+   */
+  fddi_bitswapped_handle = register_dissector("fddi_bitswapped", dissect_fddi_bitswapped, proto_fddi);
 
   fddi_module = prefs_register_protocol(proto_fddi, NULL);
   prefs_register_bool_preference(fddi_module, "padding",
@@ -525,22 +535,17 @@ proto_register_fddi(void)
 void
 proto_reg_handoff_fddi(void)
 {
-  dissector_handle_t fddi_handle, fddi_bitswapped_handle;
-
   /*
    * Get a handle for the LLC dissector.
    */
   llc_handle = find_dissector("llc");
   data_handle = find_dissector("data");
 
-  fddi_handle = find_dissector("fddi");
-  dissector_add_uint("wtap_encap", WTAP_ENCAP_FDDI, fddi_handle);
-  dissector_add_uint("sflow_245.header_protocol", SFLOW_245_HEADER_FDDI, fddi_handle);
-
-  fddi_bitswapped_handle =
-    create_dissector_handle(dissect_fddi_bitswapped, proto_fddi);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_FDDI_BITSWAPPED,
                      fddi_bitswapped_handle);
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_FDDI, capture_fddi, proto_fddi);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_FDDI_BITSWAPPED, capture_fddi, proto_fddi);
 }
 
 /*

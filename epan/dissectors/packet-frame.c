@@ -28,6 +28,7 @@
 #endif
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/epan.h>
 #include <epan/exceptions.h>
 #include <epan/show_exception.h>
@@ -38,12 +39,12 @@
 #include <epan/tap.h>
 #include <epan/expert.h>
 #include <wsutil/md5.h>
+#include <wsutil/str_util.h>
 
 #include "packet-frame.h"
 #include "log.h"
 
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 
 void proto_register_frame(void);
 void proto_reg_handoff_frame(void);
@@ -147,7 +148,7 @@ static const value_string packet_word_reception_types[] = {
 	{ 0, NULL }
 };
 
-dissector_table_t wtap_encap_dissector_table;
+static dissector_table_t wtap_encap_dissector_table;
 static dissector_table_t wtap_fts_rec_dissector_table;
 
 /*
@@ -177,18 +178,22 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 	guint	     cap_len = 0, frame_len = 0;
 	proto_tree  *volatile tree;
 	proto_tree  *comments_tree;
+	proto_tree  *volatile fh_tree = NULL;
 	proto_item  *item;
 	const gchar *cap_plurality, *frame_plurality;
 	frame_data_t *fr_data = (frame_data_t*)data;
+	const color_filter_t *color_filter;
 
 	tree=parent_tree;
+
+	DISSECTOR_ASSERT(fr_data);
 
 	switch (pinfo->phdr->rec_type) {
 
 	case REC_TYPE_PACKET:
 		pinfo->current_proto = "Frame";
 		if (pinfo->pseudo_header != NULL) {
-			switch (pinfo->fd->lnk_t) {
+			switch (pinfo->pkt_encap) {
 
 			case WTAP_ENCAP_WFLEET_HDLC:
 			case WTAP_ENCAP_CHDLC_WITH_PHDR:
@@ -251,7 +256,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 		break;
 	}
 
-	if (fr_data && fr_data->pkt_comment) {
+	if (fr_data->pkt_comment) {
 		item = proto_tree_add_item(tree, proto_pkt_comment, tvb, 0, 0, ENC_NA);
 		comments_tree = proto_item_add_subtree(item, ett_comments);
 		comment_item = proto_tree_add_string_format(comments_tree, hf_comments_text, tvb, 0, 0,
@@ -267,12 +272,11 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 	   generating any tree items.  */
 	if (!proto_field_is_referenced(tree, proto_frame)) {
 		tree=NULL;
-		if (pinfo->fd->flags.has_ts) {
-			if (pinfo->fd->abs_ts.nsecs < 0 || pinfo->fd->abs_ts.nsecs >= 1000000000)
+		if (pinfo->presence_flags & PINFO_HAS_TS) {
+			if (pinfo->abs_ts.nsecs < 0 || pinfo->abs_ts.nsecs >= 1000000000)
 				expert_add_info(pinfo, NULL, &ei_arrive_time_out_of_range);
 		}
 	} else {
-		proto_tree *fh_tree;
 		gboolean old_visible;
 
 		/* Put in frame header information. */
@@ -284,7 +288,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 
 		ti = proto_tree_add_protocol_format(tree, proto_frame, tvb, 0, tvb_captured_length(tvb),
 		    "Frame %u: %u byte%s on wire",
-		    pinfo->fd->num, frame_len, frame_plurality);
+		    pinfo->num, frame_len, frame_plurality);
 		if (generate_bits_field)
 			proto_item_append_text(ti, " (%u bits)", frame_len * 8);
 		proto_item_append_text(ti, ", %u byte%s captured",
@@ -340,16 +344,16 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 		}
 
 		if (pinfo->phdr->rec_type == REC_TYPE_PACKET)
-			proto_tree_add_int(fh_tree, hf_frame_wtap_encap, tvb, 0, 0, pinfo->fd->lnk_t);
+			proto_tree_add_int(fh_tree, hf_frame_wtap_encap, tvb, 0, 0, pinfo->pkt_encap);
 
-		if (pinfo->fd->flags.has_ts) {
+		if (pinfo->presence_flags & PINFO_HAS_TS) {
 			proto_tree_add_time(fh_tree, hf_frame_arrival_time, tvb,
-					    0, 0, &(pinfo->fd->abs_ts));
-			if (pinfo->fd->abs_ts.nsecs < 0 || pinfo->fd->abs_ts.nsecs >= 1000000000) {
+					    0, 0, &(pinfo->abs_ts));
+			if (pinfo->abs_ts.nsecs < 0 || pinfo->abs_ts.nsecs >= 1000000000) {
 				expert_add_info_format(pinfo, ti, &ei_arrive_time_out_of_range,
 								  "Arrival Time: Fractional second %09ld is invalid,"
 								  " the valid range is 0-1000000000",
-								  (long) pinfo->fd->abs_ts.nsecs);
+								  (long) pinfo->abs_ts.nsecs);
 			}
 			item = proto_tree_add_time(fh_tree, hf_frame_shift_offset, tvb,
 					    0, 0, &(pinfo->fd->shift_offset));
@@ -357,13 +361,13 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 
 			if (generate_epoch_time) {
 				proto_tree_add_time(fh_tree, hf_frame_arrival_time_epoch, tvb,
-						    0, 0, &(pinfo->fd->abs_ts));
+						    0, 0, &(pinfo->abs_ts));
 			}
 
 			if (proto_field_is_referenced(tree, hf_frame_time_delta)) {
 				nstime_t     del_cap_ts;
 
-				frame_delta_abs_time(pinfo->epan, pinfo->fd, pinfo->fd->num - 1, &del_cap_ts);
+				frame_delta_abs_time(pinfo->epan, pinfo->fd, pinfo->num - 1, &del_cap_ts);
 
 				item = proto_tree_add_time(fh_tree, hf_frame_time_delta, tvb,
 							   0, 0, &(del_cap_ts));
@@ -391,7 +395,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 		}
 
 		proto_tree_add_uint(fh_tree, hf_frame_number, tvb,
-				    0, 0, pinfo->fd->num);
+				    0, 0, pinfo->num);
 
 		proto_tree_add_uint_format(fh_tree, hf_frame_len, tvb,
 					   0, 0, frame_len, "Frame Length: %u byte%s (%u bits)",
@@ -445,7 +449,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 		}
 
 		/* Check for existences of MTP2 link number */
-		if ((pinfo->pseudo_header != NULL ) && (pinfo->fd->lnk_t == WTAP_ENCAP_MTP2_WITH_PHDR)) {
+		if ((pinfo->pseudo_header != NULL ) && (pinfo->pkt_encap == WTAP_ENCAP_MTP2_WITH_PHDR)) {
 			proto_tree_add_uint(fh_tree, hf_link_number, tvb,
 					    0, 0, pinfo->link_number);
 		}
@@ -455,16 +459,6 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 						    0, 0, pinfo->fd->file_off,
 						    "%" G_GINT64_MODIFIER "d (0x%" G_GINT64_MODIFIER "x)",
 						    pinfo->fd->file_off, pinfo->fd->file_off);
-		}
-
-		if (pinfo->fd->color_filter != NULL) {
-			const color_filter_t *color_filter = (const color_filter_t *)pinfo->fd->color_filter;
-			item = proto_tree_add_string(fh_tree, hf_frame_color_filter_name, tvb,
-						     0, 0, color_filter->filter_name);
-			PROTO_ITEM_SET_GENERATED(item);
-			item = proto_tree_add_string(fh_tree, hf_frame_color_filter_text, tvb,
-						     0, 0, color_filter->filter_text);
-			PROTO_ITEM_SET_GENERATED(item);
 		}
 	}
 
@@ -497,12 +491,12 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 					    (void *)pinfo->pseudo_header);
 				} else {
 					if (!dissector_try_uint_new(wtap_encap_dissector_table,
-					    pinfo->fd->lnk_t, tvb, pinfo,
+					    pinfo->pkt_encap, tvb, pinfo,
 					    parent_tree, TRUE,
 					    (void *)pinfo->pseudo_header)) {
 						col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 						col_add_fstr(pinfo->cinfo, COL_INFO, "WTAP_ENCAP = %d",
-							     pinfo->fd->lnk_t);
+							     pinfo->pkt_encap);
 						call_dissector_with_data(data_handle,
 						    tvb, pinfo, parent_tree,
 						    (void *)pinfo->pseudo_header);
@@ -515,9 +509,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 				{
 					int file_type_subtype = WTAP_FILE_TYPE_SUBTYPE_UNKNOWN;
 
-					if (fr_data) {
-						file_type_subtype = fr_data->file_type_subtype;
-					}
+					file_type_subtype = fr_data->file_type_subtype;
 
 					if (!dissector_try_uint(wtap_fts_rec_dissector_table, file_type_subtype,
 					    tvb, pinfo, parent_tree)) {
@@ -624,6 +616,23 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 		ENDTRY;
 	}
 
+	/* Attempt to (re-)calculate color filters (if any). */
+	if (pinfo->fd->flags.need_colorize) {
+		color_filter = color_filters_colorize_packet(fr_data->color_edt);
+		pinfo->fd->color_filter = color_filter;
+		pinfo->fd->flags.need_colorize = 0;
+	} else {
+		color_filter = pinfo->fd->color_filter;
+	}
+	if (color_filter) {
+		item = proto_tree_add_string(fh_tree, hf_frame_color_filter_name, tvb,
+					     0, 0, color_filter->filter_name);
+		PROTO_ITEM_SET_GENERATED(item);
+		item = proto_tree_add_string(fh_tree, hf_frame_color_filter_text, tvb,
+					     0, 0, color_filter->filter_text);
+		PROTO_ITEM_SET_GENERATED(item);
+	}
+
 	tap_queue_packet(frame_tap, pinfo, NULL);
 
 
@@ -653,9 +662,8 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 						"Dissector %s incomplete in frame %u: undecoded byte number %u "
 						"(0x%.4X+%u)",
 						(fi ? fi->hfinfo->abbrev : "[unknown]"),
-						pinfo->fd->num, i, i - i % 16, i % 16);
-					expert_add_info_format(pinfo, tree, &ei_incomplete,
-						"Undecoded byte number: %u (0x%.4X+%u)", i, i - i % 16, i % 16);
+						pinfo->num, i, i - i % 16, i % 16);
+					proto_tree_add_expert_format(tree, pinfo, &ei_incomplete, tvb, i, 1, "Undecoded byte number: %u (0x%.4X+%u)", i, i - i % 16, i % 16);
 				}
 			}
 		}
@@ -854,7 +862,7 @@ proto_register_frame(void)
 	static ei_register_info ei[] = {
 		{ &ei_comments_text, { "frame.comment.expert", PI_COMMENTS_GROUP, PI_COMMENT, "Formatted comment", EXPFILL }},
 		{ &ei_arrive_time_out_of_range, { "frame.time_invalid", PI_SEQUENCE, PI_NOTE, "Arrival Time: Fractional second out of range (0-1000000000)", EXPFILL }},
-		{ &ei_incomplete, { "frame.incomplete", PI_UNDECODED, PI_WARN, "Incomplete dissector", EXPFILL }}
+		{ &ei_incomplete, { "frame.incomplete", PI_UNDECODED, PI_NOTE, "Incomplete dissector", EXPFILL }}
 	};
 
 	module_t *frame_module;
@@ -876,9 +884,10 @@ proto_register_frame(void)
 	}
 
 	wtap_encap_dissector_table = register_dissector_table("wtap_encap",
-	    "Wiretap encapsulation type", FT_UINT32, BASE_DEC);
+	    "Wiretap encapsulation type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 	wtap_fts_rec_dissector_table = register_dissector_table("wtap_fts_rec",
-	    "Wiretap file type for file-type-specific records", FT_UINT32, BASE_DEC);
+	    "Wiretap file type for file-type-specific records", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	register_capture_dissector_table("wtap_encap", "Wiretap encapsulation type");
 
 	proto_frame = proto_register_protocol("Frame", "Frame", "frame");
 	proto_pkt_comment = proto_register_protocol("Packet comments", "Pkt_Comment", "pkt_comment");
@@ -887,7 +896,7 @@ proto_register_frame(void)
 	proto_register_subtree_array(ett, array_length(ett));
 	expert_frame = expert_register_protocol(proto_frame);
 	expert_register_field_array(expert_frame, ei, array_length(ei));
-	new_register_dissector("frame",dissect_frame,proto_frame);
+	register_dissector("frame",dissect_frame,proto_frame);
 
 	/* You can't disable dissection of "Frame", as that would be
 	   tantamount to not doing any dissection whatsoever. */

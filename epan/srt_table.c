@@ -24,8 +24,8 @@
 
 #include <string.h>
 
-#include "packet_info.h"
 #include "proto.h"
+#include "packet_info.h"
 #include "srt_table.h"
 
 struct register_srt {
@@ -200,8 +200,8 @@ void srt_table_dissector_init(register_srt_t* srt, GArray* srt_array, srt_gui_in
 static gint
 insert_sorted_by_table_name(gconstpointer aparam, gconstpointer bparam)
 {
-    const register_srt_t *a = (register_srt_t *)aparam;
-    const register_srt_t *b = (register_srt_t *)bparam;
+    const register_srt_t *a = (const register_srt_t *)aparam;
+    const register_srt_t *b = (const register_srt_t *)bparam;
 
     return g_ascii_strcasecmp(proto_get_protocol_short_name(find_protocol_by_id(a->proto_id)), proto_get_protocol_short_name(find_protocol_by_id(b->proto_id)));
 }
@@ -298,7 +298,7 @@ add_srt_table_data(srt_stat_table *rst, int indx, const nstime_t *req_time, pack
     rp=&rst->procedures[indx];
 
     /* calculate time delta between request and reply */
-    t=pinfo->fd->abs_ts;
+    t=pinfo->abs_ts;
     nstime_delta(&delta, &t, req_time);
 
     time_stat_update(&rp->stats, &delta, pinfo);

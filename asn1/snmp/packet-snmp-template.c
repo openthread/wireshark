@@ -67,9 +67,7 @@
 #include "packet-ber.h"
 #include "packet-snmp.h"
 
-#ifdef HAVE_LIBGCRYPT
 #include <wsutil/wsgcrypt.h>
-#endif
 
 /* Take a pointer that may be null and return a pointer that's not null
    by turning null pointers into pointers to the above null string,
@@ -148,7 +146,7 @@ static snmp_ue_assoc_t* localized_ues = NULL;
 static snmp_ue_assoc_t* unlocalized_ues = NULL;
 /****/
 
-/* Variabled used for handling enterprise spesific trap types */
+/* Variables used for handling enterprise specific trap types */
 typedef struct _snmp_st_assoc_t {
 	char *enterprise;
 	guint trap;
@@ -1694,7 +1692,7 @@ snmp_usm_priv_des(snmp_usm_params_t* p _U_, tvbuff_t* encryptedData _U_, gchar c
 	cryptgrm_len = tvb_captured_length(encryptedData);
 
 	if ((cryptgrm_len <= 0) || (cryptgrm_len % 8)) {
-		*error = "decryptionError: the length of the encrypted data is not a mutiple of 8 octets";
+		*error = "decryptionError: the length of the encrypted data is not a multiple of 8 octets";
 		return NULL;
 	}
 
@@ -2057,7 +2055,7 @@ dissect_snmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 
 	/*
 	 * See if this looks like SNMP or not. if not, return 0 so
-	 * wireshark can try som other dissector instead.
+	 * wireshark can try some other dissector instead.
 	 */
 	/* All SNMP packets are BER encoded and consist of a SEQUENCE
 	 * that spans the entire PDU. The first item is an INTEGER that
@@ -2072,7 +2070,7 @@ dissect_snmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 	/* then comes a length which spans the rest of the tvb */
 	offset = get_ber_length(tvb, offset, &tmp_length, &tmp_ind);
 	/* if(tmp_length!=(guint32)tvb_reported_length_remaining(tvb, offset)) {
-	 * Losen the heuristic a bit to handle the case where data has intentionally
+	 * Loosen the heuristic a bit to handle the case where data has intentionally
 	 * been added after the snmp PDU ( UDP case)
 	 */
 	if ( pinfo->ptype == PT_UDP ) {
@@ -2111,10 +2109,10 @@ dissect_snmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 	 * wildcarded, and give it the SNMP dissector as a dissector.
 	 */
 	if (pinfo->destport == UDP_PORT_SNMP) {
-		conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, PT_UDP,
+		conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
 					   pinfo->srcport, 0, NO_PORT_B);
-		if( (conversation == NULL) || (conversation->dissector_handle!=snmp_handle) ) {
-			conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst, PT_UDP,
+		if( (conversation == NULL) || (conversation_get_dissector(conversation, pinfo->num)!=snmp_handle) ) {
+			conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
 					    pinfo->srcport, 0, NO_PORT2);
 			conversation_set_dissector(conversation, snmp_handle);
 		}
@@ -2123,8 +2121,8 @@ dissect_snmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 	return dissect_snmp_pdu(tvb, 0, pinfo, tree, proto_snmp, ett_snmp, FALSE);
 }
 
-static void
-dissect_snmp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_snmp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int offset = 0;
 	guint message_len;
@@ -2141,6 +2139,7 @@ dissect_snmp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 		offset += message_len;
 	}
+	return tvb_captured_length(tvb);
 }
 
 static int
@@ -2531,7 +2530,7 @@ void proto_register_snmp(void) {
 
 	/* Register protocol */
 	proto_snmp = proto_register_protocol(PNAME, PSNAME, PFNAME);
-	new_register_dissector("snmp", dissect_snmp, proto_snmp);
+	register_dissector("snmp", dissect_snmp, proto_snmp);
 
 	/* Register fields and subtrees */
 	proto_register_field_array(proto_snmp, hf, array_length(hf));
@@ -2577,7 +2576,7 @@ void proto_register_snmp(void) {
 				"MIB settings can be changed in the Name Resolution preferences");
 #endif
 
-	value_sub_dissectors_table = register_dissector_table("snmp.variable_oid","SNMP Variable OID", FT_STRING, BASE_NONE);
+	value_sub_dissectors_table = register_dissector_table("snmp.variable_oid","SNMP Variable OID", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 	register_init_routine(init_ue_cache);
 	register_cleanup_routine(cleanup_ue_cache);
@@ -2608,10 +2607,10 @@ void proto_reg_handoff_snmp(void) {
 
 	/* SNMPv2-MIB sysDescr "1.3.6.1.2.1.1.1.0" */
 	dissector_add_string("snmp.variable_oid", "1.3.6.1.2.1.1.1.0",
-		new_create_dissector_handle(dissect_snmp_variable_string, proto_snmp));
+		create_dissector_handle(dissect_snmp_variable_string, proto_snmp));
 	/* SNMPv2-MIB::sysName.0 (1.3.6.1.2.1.1.5.0) */
 	dissector_add_string("snmp.variable_oid", "1.3.6.1.2.1.1.5.0",
-		new_create_dissector_handle(dissect_snmp_variable_string, proto_snmp));
+		create_dissector_handle(dissect_snmp_variable_string, proto_snmp));
 
 	/*
 	 * Process preference settings.
@@ -2643,7 +2642,7 @@ proto_reg_handoff_smux(void)
 {
 	dissector_handle_t smux_handle;
 
-	smux_handle = new_create_dissector_handle(dissect_smux, proto_smux);
+	smux_handle = create_dissector_handle(dissect_smux, proto_smux);
 	dissector_add_uint("tcp.port", TCP_PORT_SMUX, smux_handle);
 }
 

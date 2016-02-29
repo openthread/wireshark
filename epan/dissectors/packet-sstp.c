@@ -341,10 +341,11 @@ get_sstp_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data _
   return tvb_get_ntohs(tvb, offset+SSTP_OFFSET_LENGTH);
 }
 
-static void
-dissect_sstp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sstp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-  tcp_dissect_pdus(tvb, pinfo, tree, TRUE, SSTP_OFFSET_LENGTH+SSTP_FSIZE_LENGTH, get_sstp_pdu_len, dissect_sstp_pdu, NULL);
+  tcp_dissect_pdus(tvb, pinfo, tree, TRUE, SSTP_OFFSET_LENGTH+SSTP_FSIZE_LENGTH, get_sstp_pdu_len, dissect_sstp_pdu, data);
+  return tvb_captured_length(tvb);
 }
 
 void

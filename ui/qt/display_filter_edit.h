@@ -22,16 +22,23 @@
 #ifndef DISPLAYFILTEREDIT_H
 #define DISPLAYFILTEREDIT_H
 
+#include "preferences_dialog.h"
 #include "syntax_line_edit.h"
 
 class QEvent;
 class StockIconToolButton;
 
+typedef enum {
+    DisplayFilterToApply,
+    DisplayFilterToEnter,
+    ReadFilterToApply
+} DisplayFilterEditType;
+
 class DisplayFilterEdit : public SyntaxLineEdit
 {
     Q_OBJECT
 public:
-    explicit DisplayFilterEdit(QWidget *parent = 0, bool plain = true);
+    explicit DisplayFilterEdit(QWidget *parent = 0, DisplayFilterEditType type = DisplayFilterToEnter);
 
 protected:
     void paintEvent(QPaintEvent *evt);
@@ -42,6 +49,7 @@ protected:
 
 public slots:
     bool checkFilter();
+    void updateBookmarkMenu();
     void applyDisplayFilter();
     void displayFilterSuccess(bool success);
 
@@ -53,15 +61,19 @@ private slots:
     void saveFilter();
     void removeFilter();
     void showFilters();
+    void showExpressionPrefs();
     void prepareFilter();
 
 private:
-    bool plain_;
+    DisplayFilterEditType type_;
     QString placeholder_text_;
+    QAction *save_action_;
+    QAction *remove_action_;
     StockIconToolButton *bookmark_button_;
     StockIconToolButton *clear_button_;
     StockIconToolButton *apply_button_;
 
+    void setDefaultPlaceholderText();
     void buildCompletionList(const QString& field_word);
 
 signals:
@@ -69,6 +81,7 @@ signals:
     void popFilterSyntaxStatus();
     void pushFilterSyntaxWarning(const QString&);
     void filterPackets(QString new_filter, bool force);
+    void showPreferencesDialog(PreferencesDialog::PreferencesPane start_pane);
 };
 
 #endif // DISPLAYFILTEREDIT_H

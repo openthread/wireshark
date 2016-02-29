@@ -811,12 +811,12 @@ hartip_set_conversation(packet_info *pinfo)
      * be used for it.  This allows the packets to be dissected properly
      * for this protocol.
      */
-    conversation = find_conversation(pinfo->fd->num,
+    conversation = find_conversation(pinfo->num,
                                      &pinfo->src, &pinfo->dst, pinfo->ptype,
                                      pinfo->srcport, 0, NO_PORT_B);
     if( (conversation == NULL) ||
-        (conversation->dissector_handle != hartip_udp_handle) ) {
-      conversation = conversation_new(pinfo->fd->num,
+        (conversation_get_dissector(conversation, pinfo->num) != hartip_udp_handle) ) {
+      conversation = conversation_new(pinfo->num,
                                       &pinfo->src, &pinfo->dst, pinfo->ptype,
                                       pinfo->srcport, 0, NO_PORT2);
       conversation_set_dissector(conversation, hartip_udp_handle);
@@ -1019,7 +1019,7 @@ proto_register_hartip(void)
         "Error Code", HFILL }
     },
 
-    /* HARTIP Pass-through commads. */
+    /* HARTIP Pass-through commands. */
     { &hf_hartip_pt_preambles,
       { "Preambles",           "hart_ip.pt.preambles",
         FT_BYTES, BASE_NONE, NULL, 0x0,
@@ -1527,8 +1527,8 @@ proto_register_hartip(void)
 void
 proto_reg_handoff_hartip(void)
 {
-  hartip_tcp_handle = new_create_dissector_handle(dissect_hartip_tcp, proto_hartip);
-  hartip_udp_handle = new_create_dissector_handle(dissect_hartip_udp, proto_hartip);
+  hartip_tcp_handle = create_dissector_handle(dissect_hartip_tcp, proto_hartip);
+  hartip_udp_handle = create_dissector_handle(dissect_hartip_udp, proto_hartip);
   dissector_add_uint("udp.port", HARTIP_PORT, hartip_udp_handle);
   dissector_add_uint("tcp.port", HARTIP_PORT, hartip_tcp_handle);
 

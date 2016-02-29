@@ -52,7 +52,7 @@ void proto_reg_handoff_artnet(void);
 #define ARTNET_POLL_REPLY_GOOD_OUTPUT_LENGTH    4
 #define ARTNET_POLL_REPLY_SWIN_LENGTH           4
 #define ARTNET_POLL_REPLY_SWOUT_LENGTH          4
-#define ARTNET_ADDRESS_LENGTH                  97
+#define ARTNET_ADDRESS_LENGTH                  95
 #define ARTNET_ADDRESS_SWIN_LENGTH              4
 #define ARTNET_ADDRESS_SWOUT_LENGTH             4
 #define ARTNET_OUTPUT_LENGTH                    1
@@ -72,6 +72,7 @@ void proto_reg_handoff_artnet(void);
 
 #define ARTNET_OP_OUTPUT             0x5000
 #define ARTNET_OP_NZS                0x5100
+#define ARTNET_OP_SYNC               0x5200
 
 #define ARTNET_OP_ADDRESS            0x6000
 
@@ -118,6 +119,7 @@ static const value_string artnet_opcode_vals[] = {
   { ARTNET_OP_COMMAND,            "ArtCommand" },
   { ARTNET_OP_OUTPUT,             "ArtDMX" },
   { ARTNET_OP_NZS,                "ArtNzs" },
+  { ARTNET_OP_SYNC,               "ArtSync" },
   { ARTNET_OP_ADDRESS,            "ArtAddress" },
   { ARTNET_OP_INPUT,              "ArtInput" },
   { ARTNET_OP_TOD_REQUEST,        "ArtTodRequest" },
@@ -1732,6 +1734,10 @@ static int hf_artnet_output_length = -1;
 
 /* ArtAddress */
 static int hf_artnet_address = -1;
+static int hf_artnet_address_netswitch = -1;
+static int hf_artnet_address_netswitch_special = -1;
+static int hf_artnet_address_netswitch_net = -1;
+static int hf_artnet_address_netswitch_write = -1;
 static int hf_artnet_address_short_name = -1;
 static int hf_artnet_address_long_name = -1;
 static int hf_artnet_address_swin = -1;
@@ -1744,8 +1750,33 @@ static int hf_artnet_address_swout_1 = -1;
 static int hf_artnet_address_swout_2 = -1;
 static int hf_artnet_address_swout_3 = -1;
 static int hf_artnet_address_swout_4 = -1;
+static int hf_artnet_address_subswitch = -1;
+static int hf_artnet_address_subswitch_special = -1;
+static int hf_artnet_address_subswitch_sub = -1;
+static int hf_artnet_address_subswitch_write = -1;
 static int hf_artnet_address_swvideo = -1;
 static int hf_artnet_address_command = -1;
+
+static gint ett_artnet_address_netswitch = -1;
+static gint ett_artnet_address_subswitch = -1;
+
+static const int *artnet_address_netswitch_fields[] = {
+  &hf_artnet_address_netswitch_net,
+  &hf_artnet_address_netswitch_write,
+  NULL
+};
+
+static const int *artnet_address_subswitch_fields[] = {
+  &hf_artnet_address_subswitch_sub,
+  &hf_artnet_address_subswitch_write,
+  NULL
+};
+
+static const value_string artnet_address_switch_vals[] = {
+  { 0x00, "Reset to Physical Switch" },
+  { 0x7f, "No Change" },
+  { 0x00, NULL }
+};
 
 /* ArtInput */
 static int hf_artnet_input = -1;
@@ -1843,16 +1874,41 @@ static int hf_artnet_ip_prog_command_prog_sm = -1;
 static int hf_artnet_ip_prog_command_prog_ip = -1;
 static int hf_artnet_ip_prog_command_reset = -1;
 static int hf_artnet_ip_prog_command_unused = -1;
+static int hf_artnet_ip_prog_command_dhcp_enable = -1;
 static int hf_artnet_ip_prog_command_prog_enable = -1;
 static int hf_artnet_ip_prog_ip = -1;
 static int hf_artnet_ip_prog_sm = -1;
 static int hf_artnet_ip_prog_port = -1;
+
+static gint ett_artnet_ip_prog_command = -1;
+
+static const int *artnet_ip_prog_command_fields[] = {
+  &hf_artnet_ip_prog_command_prog_port,
+  &hf_artnet_ip_prog_command_prog_sm,
+  &hf_artnet_ip_prog_command_prog_ip,
+  &hf_artnet_ip_prog_command_reset,
+  &hf_artnet_ip_prog_command_unused,
+  &hf_artnet_ip_prog_command_dhcp_enable,
+  &hf_artnet_ip_prog_command_prog_enable,
+  NULL
+};
 
 /* ArtIpProgReply */
 static int hf_artnet_ip_prog_reply = -1;
 static int hf_artnet_ip_prog_reply_ip = -1;
 static int hf_artnet_ip_prog_reply_sm = -1;
 static int hf_artnet_ip_prog_reply_port = -1;
+static int hf_artnet_ip_prog_reply_status = -1;
+static int hf_artnet_ip_prog_reply_status_unused = -1;
+static int hf_artnet_ip_prog_reply_status_dhcp_enable = -1;
+
+static gint ett_artnet_ip_prog_reply_status = -1;
+
+static const int *artnet_ip_prog_reply_status_fields[] = {
+  &hf_artnet_ip_prog_reply_status_unused,
+  &hf_artnet_ip_prog_reply_status_dhcp_enable,
+  NULL
+};
 
 /* ArtDiagData */
 static int hf_artnet_diag_data = -1;
@@ -2283,10 +2339,25 @@ dissect_artnet_output(tvbuff_t *tvb, guint offset, proto_tree *tree, packet_info
 static guint
 dissect_artnet_address(tvbuff_t *tvb, guint offset, proto_tree *tree) {
   proto_tree *hi, *si, *ti;
+  guint8 net, sub;
+
+  net = tvb_get_guint8(tvb, offset);
+
+  /* Treat the "special" values differently */
+  if (net == 0x00 || net == 0x7F) {
+    proto_tree_add_uint(tree,hf_artnet_address_netswitch_special, tvb,
+                           offset, 0, net);
+  } else {
+    proto_tree_add_bitmask_text(tree, tvb, offset, 1, "NetSwitch: ",
+                  "NetSwitch Error: ", ett_artnet_address_netswitch,
+                  artnet_address_netswitch_fields, ENC_BIG_ENDIAN, 0);
+  }
+
+  offset += 1;
 
   proto_tree_add_item(tree, hf_artnet_filler, tvb,
-                      offset, 2, ENC_NA);
-  offset += 2;
+                      offset, 1, ENC_NA);
+  offset += 1;
 
   proto_tree_add_item(tree, hf_artnet_address_short_name,
                       tvb, offset, 18, ENC_ASCII|ENC_NA);
@@ -2344,6 +2415,19 @@ dissect_artnet_address(tvbuff_t *tvb, guint offset, proto_tree *tree) {
 
   proto_tree_add_item(si, hf_artnet_address_swout_4, tvb,
                       offset, 1, ENC_BIG_ENDIAN);
+  offset += 1;
+
+  sub = tvb_get_guint8(tvb, offset);
+
+  /* Treat the "special" values differently */
+  if (sub == 0x00 || sub == 0x7F) {
+    proto_tree_add_uint(tree,hf_artnet_address_subswitch_special, tvb,
+                           offset, 0, sub);
+  } else {
+    proto_tree_add_bitmask_text(tree, tvb, offset, 1, "SubSwitch: ",
+                  "SubSwitch Error: ", ett_artnet_address_subswitch,
+                  artnet_address_subswitch_fields, ENC_BIG_ENDIAN, 0);
+  }
   offset += 1;
 
   proto_tree_add_item(tree, hf_artnet_address_swvideo, tvb,
@@ -2813,24 +2897,16 @@ dissect_artnet_rdm_sub(tvbuff_t *tvb, guint offset, proto_tree *tree,  packet_in
 }
 
 static guint
-dissect_artnet_ip_prog(tvbuff_t *tvb, guint offset, proto_tree *tree) {
-  proto_tree *flags_tree, *flags_item;
-
+dissect_artnet_ip_prog(tvbuff_t *tvb, guint offset, proto_tree *tree)
+{
   proto_tree_add_item(tree, hf_artnet_filler, tvb,
                       offset, 2, ENC_NA);
   offset += 2;
 
-  flags_item = proto_tree_add_item(tree, hf_artnet_ip_prog_command, tvb,
-                                   offset, 1, ENC_BIG_ENDIAN);
-
-  flags_tree = proto_item_add_subtree(flags_item, ett_artnet);
-  proto_tree_add_item(flags_tree, hf_artnet_ip_prog_command_prog_port,   tvb, offset, 1, ENC_BIG_ENDIAN);
-  proto_tree_add_item(flags_tree, hf_artnet_ip_prog_command_prog_sm,     tvb, offset, 1, ENC_BIG_ENDIAN);
-  proto_tree_add_item(flags_tree, hf_artnet_ip_prog_command_prog_ip,     tvb, offset, 1, ENC_BIG_ENDIAN);
-  proto_tree_add_item(flags_tree, hf_artnet_ip_prog_command_reset,       tvb, offset, 1, ENC_BIG_ENDIAN);
-  proto_tree_add_item(flags_tree, hf_artnet_ip_prog_command_unused,      tvb, offset, 1, ENC_BIG_ENDIAN);
-  proto_tree_add_item(flags_tree, hf_artnet_ip_prog_command_prog_enable, tvb, offset, 1, ENC_BIG_ENDIAN);
-
+  proto_tree_add_bitmask(tree, tvb, offset, hf_artnet_ip_prog_command,
+                         ett_artnet_ip_prog_command,
+                         artnet_ip_prog_command_fields,
+                         ENC_BIG_ENDIAN);
   offset += 1;
 
   proto_tree_add_item(tree, hf_artnet_filler, tvb,
@@ -2875,9 +2951,15 @@ dissect_artnet_ip_prog_reply(tvbuff_t *tvb, guint offset, proto_tree *tree)
                       offset, 2, ENC_BIG_ENDIAN);
   offset += 2;
 
+  proto_tree_add_bitmask(tree, tvb, offset, hf_artnet_ip_prog_reply_status,
+                         ett_artnet_ip_prog_reply_status,
+                         artnet_ip_prog_reply_status_fields,
+                         ENC_BIG_ENDIAN);
+  offset += 1;
+
   proto_tree_add_item(tree, hf_artnet_spare, tvb,
-                      offset, 8, ENC_NA);
-  offset += 8;
+                      offset, 7, ENC_NA);
+  offset += 7;
 
   return offset;
 }
@@ -3096,8 +3178,8 @@ dissect_artnet_file_fn_reply(tvbuff_t *tvb _U_, guint offset, proto_tree *tree _
   return offset;
 }
 
-static void
-dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   gint        offset = 0;
   guint       size;
   guint16     opcode;
@@ -3753,7 +3835,7 @@ dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
                                  ENC_NA);
         si = proto_item_add_subtree(hi, ett_artnet );
 
-        size  = dissect_artnet_ip_prog( tvb, offset, si);
+        size  = dissect_artnet_ip_prog( tvb,offset, si);
         size -= offset;
 
         proto_item_set_len(si, size );
@@ -3784,13 +3866,14 @@ dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
       if (tvb_reported_length_remaining(tvb, offset) > 0) {
         proto_tree_add_item(artnet_tree, hf_artnet_data, tvb, offset, -1, ENC_NA);
       }
-      return;
+      return tvb_captured_length(tvb);
   }
 
   if (tvb_reported_length_remaining(tvb, offset) > 0) {
     proto_tree_add_item(artnet_tree, hf_artnet_excess_bytes, tvb,
       offset, -1, ENC_NA);
   }
+  return tvb_captured_length(tvb);
 }
 
 /* Heuristic dissector */
@@ -3809,7 +3892,7 @@ dissect_artnet_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     return FALSE;
 
   /* if the header matches, dissect it */
-  dissect_artnet(tvb, pinfo, tree);
+  dissect_artnet(tvb, pinfo, tree, data);
 
   return TRUE;
 }
@@ -4332,7 +4415,7 @@ proto_register_artnet(void) {
       { "Bind IP Address",
         "artnet.poll_reply.bind_ip_address",
         FT_IPv4, BASE_NONE, NULL, 0x0,
-        "IP adress of root device", HFILL }},
+        "IP address of root device", HFILL }},
 
     { &hf_artnet_poll_reply_bind_index,
       { "Bind Index",
@@ -4417,6 +4500,30 @@ proto_register_artnet(void) {
         FT_NONE, BASE_NONE, NULL, 0,
         "Art-Net ArtAddress packet", HFILL }},
 
+    { &hf_artnet_address_netswitch_special,
+      { "NetSwitch",
+      "artnet.address.netswitch_special",
+      FT_UINT8, BASE_HEX, VALS(artnet_address_switch_vals), 0,
+      NULL, HFILL }},
+
+    { &hf_artnet_address_netswitch,
+      { "NetSwitch",
+      "artnet.address.netswitch",
+      FT_UINT8, BASE_HEX, NULL, 0,
+      NULL, HFILL }},
+
+    { &hf_artnet_address_netswitch_net,
+      { "Net",
+      "artnet.address.netswitch_net",
+      FT_UINT8, BASE_DEC, NULL, 0x7F,
+      NULL, HFILL }},
+
+    { &hf_artnet_address_netswitch_write,
+      { "Write Net",
+      "artnet.address.netswitch_write",
+      FT_BOOLEAN, 8, NULL, 0x80,
+      NULL, HFILL }},
+
     { &hf_artnet_address_short_name,
       { "Short Name",
         "artnet.address.short_name",
@@ -4488,6 +4595,30 @@ proto_register_artnet(void) {
         "artnet.address.swout_4",
         FT_UINT8, BASE_HEX, NULL, 0x0,
         NULL, HFILL }},
+
+    { &hf_artnet_address_subswitch_special,
+      { "NetSwitch",
+      "artnet.address.subswitch_special",
+      FT_UINT8, BASE_HEX, VALS(artnet_address_switch_vals), 0,
+      NULL, HFILL }},
+
+    { &hf_artnet_address_subswitch,
+      { "SubSwitch",
+      "artnet.address.subswitch",
+      FT_UINT8, BASE_HEX, NULL, 0,
+      NULL, HFILL }},
+
+    { &hf_artnet_address_subswitch_sub,
+      { "Sub-Net",
+      "artnet.address.subswitch_sub",
+      FT_UINT8, BASE_DEC, NULL, 0x0F,
+      NULL, HFILL }},
+
+    { &hf_artnet_address_subswitch_write,
+      { "Write Sub-Net",
+      "artnet.address.subswitch_write",
+      FT_BOOLEAN, 8, NULL, 0x80,
+      NULL, HFILL }},
 
     { &hf_artnet_address_swvideo,
       { "SwVideo",
@@ -4906,37 +5037,43 @@ proto_register_artnet(void) {
     { &hf_artnet_ip_prog_command_prog_port,
       { "Program Port",
         "artnet.ip_prog.command_prog_port",
-        FT_UINT8, BASE_HEX, NULL, 0x01,
+        FT_BOOLEAN, 8, NULL, 0x01,
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_command_prog_sm,
       { "Program Subnet Mask",
         "artnet.ip_prog.command_prog_sm",
-        FT_UINT8, BASE_HEX, NULL, 0x02,
+        FT_BOOLEAN, 8, NULL, 0x02,
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_command_prog_ip,
       { "Program IP",
         "artnet.ip_prog.command_prog_ip",
-        FT_UINT8, BASE_HEX, NULL, 0x04,
+        FT_BOOLEAN, 8, NULL, 0x04,
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_command_reset,
-      { "Reset parameters",
+      { "Reset Parameters",
         "artnet.ip_prog.command_reset",
-        FT_UINT8, BASE_HEX, NULL, 0x08,
+        FT_BOOLEAN, 8, NULL, 0x08,
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_command_unused,
       { "Unused",
         "artnet.ip_prog.command_unused",
-        FT_UINT8, BASE_HEX, NULL, 0x70,
+        FT_UINT8, BASE_HEX, NULL, 0x30,
+        NULL, HFILL }},
+
+    { &hf_artnet_ip_prog_command_dhcp_enable,
+      { "Enable DHCP",
+        "artnet.ip_prog.command_dhcp_enable",
+        FT_BOOLEAN, 8, NULL, 0x40,
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_command_prog_enable,
       { "Enable Programming",
         "artnet.ip_prog.command_prog_enable",
-        FT_UINT8, BASE_HEX, NULL, 0x80,
+        FT_BOOLEAN, 8, NULL, 0x80,
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_ip,
@@ -4946,7 +5083,7 @@ proto_register_artnet(void) {
         NULL, HFILL }},
 
     { &hf_artnet_ip_prog_sm,
-      { "Subnet mask",
+      { "Subnet Mask",
         "artnet.ip_prog.sm",
         FT_IPv4, BASE_NONE, NULL, 0x0,
         "IP Subnet mask", HFILL }},
@@ -4960,7 +5097,7 @@ proto_register_artnet(void) {
 
     /* ArtIpProgReply */
     { &hf_artnet_ip_prog_reply,
-      { "ArtIpProgReplay packet",
+      { "ArtIpProgReply packet",
         "artnet.ip_prog_reply",
         FT_NONE, BASE_NONE, NULL, 0,
         "Art-Net ArtIpProgReply packet", HFILL }},
@@ -4981,6 +5118,24 @@ proto_register_artnet(void) {
       { "Port",
         "artnet.ip_prog_reply.port",
         FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }},
+
+    { &hf_artnet_ip_prog_reply_status,
+      { "Status",
+        "artnet.ip_prog_reply.status",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL, HFILL }},
+
+    { &hf_artnet_ip_prog_reply_status_unused,
+      { "Unused",
+        "artnet.ip_prog_reply.unused",
+        FT_UINT8, BASE_HEX, NULL, 0xbf,
+        NULL, HFILL }},
+
+    { &hf_artnet_ip_prog_reply_status_dhcp_enable,
+      { "DHCP Enabled",
+        "artnet.ip_prog_reply.status_dhcp_enable",
+        FT_BOOLEAN, 8, NULL, 0x40,
         NULL, HFILL }},
 
     /* ArtPollServerReply */
@@ -5248,7 +5403,11 @@ proto_register_artnet(void) {
     &ett_artnet_poll_reply_good_output_2,
     &ett_artnet_poll_reply_good_output_3,
     &ett_artnet_poll_reply_good_output_4,
-    &ett_artnet_poll_reply_status2
+    &ett_artnet_poll_reply_status2,
+    &ett_artnet_ip_prog_command,
+    &ett_artnet_ip_prog_reply_status,
+    &ett_artnet_address_netswitch,
+    &ett_artnet_address_subswitch
   };
 
   proto_artnet = proto_register_protocol("Art-Net", "ARTNET", "artnet");

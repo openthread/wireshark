@@ -2265,7 +2265,7 @@ dissect_skinny_ipv4or6(ptvcursor_t *cursor, int hfindex_ipv4, int hfindex_ipv6, 
     src_addr.len = 4;
     src_addr.data = (guint8 *)&ip_address;
     ip_address = tvb_get_ipv4(tvb, offset);
-    rtp_add_address(pinfo, &src_addr, tvb_get_letohl(tvb, offset), 0, "Skinny", pinfo->fd->num, is_video, NULL);
+    rtp_add_address(pinfo, &src_addr, tvb_get_letohl(tvb, offset), 0, "Skinny", pinfo->num, is_video, NULL);
     ptvcursor_add(cursor, hfindex_ipv4, 4, ENC_BIG_ENDIAN);
     if (hdr_version >= V17_MSG_TYPE) {
       /* skip over the extra room for ipv6 addresses */
@@ -2277,7 +2277,7 @@ dissect_skinny_ipv4or6(ptvcursor_t *cursor, int hfindex_ipv4, int hfindex_ipv6, 
     src_addr.len = 16;
     src_addr.data = (guint8 *)&IPv6;
     tvb_get_ipv6(tvb, offset, &IPv6);
-    rtp_add_address(pinfo, &src_addr, tvb_get_letohl(tvb, offset), 0, "Skinny", pinfo->fd->num, is_video, NULL);
+    rtp_add_address(pinfo, &src_addr, tvb_get_letohl(tvb, offset), 0, "Skinny", pinfo->num, is_video, NULL);
     ptvcursor_add(cursor, hfindex_ipv6, 16, ENC_NA);
   } else {
     /* Invalid : skip over ipv6 space completely */
@@ -2400,7 +2400,7 @@ handle_RegisterMessage(ptvcursor_t *cursor, packet_info * pinfo _U_)
     ptvcursor_add(cursor, hf_skinny_ipV6AddressScope, 4, ENC_LITTLE_ENDIAN);
     ptvcursor_add(cursor, hf_skinny_firmwareLoadName, 32, ENC_ASCII|ENC_NA);
   }
-  if (hdr_data_length > 190) {
+  if (hdr_data_length > 191) {
     ptvcursor_add(cursor, hf_skinny_configVersionStamp, 48, ENC_ASCII|ENC_NA);
   }
 }
@@ -2798,7 +2798,11 @@ handle_SoftKeyEventMessage(ptvcursor_t *cursor, packet_info * pinfo _U_)
 static void
 handle_UnregisterMessage(ptvcursor_t *cursor, packet_info * pinfo _U_)
 {
-  ptvcursor_add(cursor, hf_skinny_unRegReasonCode, 4, ENC_LITTLE_ENDIAN);
+  guint32 hdr_data_length = tvb_get_letohl(ptvcursor_tvbuff(cursor), 0);
+
+  if (hdr_data_length > 12) {
+    ptvcursor_add(cursor, hf_skinny_unRegReasonCode, 4, ENC_LITTLE_ENDIAN);
+  }
 }
 
 /*
@@ -3303,8 +3307,12 @@ handle_ServiceURLStatReqMessage(ptvcursor_t *cursor, packet_info * pinfo _U_)
 static void
 handle_FeatureStatReqMessage(ptvcursor_t *cursor, packet_info * pinfo _U_)
 {
+  guint32 hdr_data_length = tvb_get_letohl(ptvcursor_tvbuff(cursor), 0);
+
   ptvcursor_add(cursor, hf_skinny_featureIndex, 4, ENC_LITTLE_ENDIAN);
-  ptvcursor_add(cursor, hf_skinny_featureCapabilities, 4, ENC_LITTLE_ENDIAN);
+  if (hdr_data_length > 16) {
+    ptvcursor_add(cursor, hf_skinny_featureCapabilities, 4, ENC_LITTLE_ENDIAN);
+  }
 }
 
 /*
@@ -8886,11 +8894,11 @@ proto_register_skinny(void)
     { &hf_skinny_precedenceDomain,
       {
         "precedenceDomain", "skinny.precedenceDomain", FT_UINT32, BASE_DEC, NULL, 0x0,
-        "Precendence Domain", HFILL }},
+        "Precedence Domain", HFILL }},
     { &hf_skinny_precedenceLevel,
       {
         "precedenceLevel", "skinny.precedenceLevel", FT_UINT32, BASE_DEC, NULL, 0x0,
-        "Precendence Level, MLPP priorities", HFILL }},
+        "Precedence Level, MLPP priorities", HFILL }},
     { &hf_skinny_precedenceValue,
       {
         "precedenceValue", "skinny.precedenceValue", FT_UINT32, BASE_DEC, NULL, 0x0,
@@ -9721,6 +9729,8 @@ proto_register_skinny(void)
     " \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
     &skinny_desegment);
 
+  skinny_handle = register_dissector("skinny", dissect_skinny, proto_skinny);
+
   skinny_tap = register_tap("skinny");
 }
 
@@ -9729,9 +9739,8 @@ proto_reg_handoff_skinny(void)
 {
   /* Skinny content type and internet media type used by other dissectors are the same */
   media_type_dissector_table = find_dissector_table("media_type");
-  skinny_handle = new_create_dissector_handle(dissect_skinny, proto_skinny);
   dissector_add_uint("tcp.port", TCP_PORT_SKINNY, skinny_handle);
-  ssl_dissector_add(SSL_PORT_SKINNY, "skinny", TRUE);
+  ssl_dissector_add(SSL_PORT_SKINNY, skinny_handle);
 }
 
 /*

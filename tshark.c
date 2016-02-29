@@ -30,26 +30,14 @@
 #include <locale.h>
 #include <limits.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
 
 #include <errno.h>
 
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
 #ifndef _WIN32
 #include <signal.h>
-#endif
-
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
 #endif
 
 #ifdef HAVE_LIBZ
@@ -79,6 +67,8 @@
 #include <wsutil/report_err.h>
 #include <wsutil/ws_diag_control.h>
 #include <wsutil/ws_version_info.h>
+#include <wiretap/wtap_opttypes.h>
+#include <wiretap/pcapng.h>
 
 #include "globals.h"
 #include <epan/timestamp.h>
@@ -86,7 +76,6 @@
 #ifdef HAVE_LUA
 #include <epan/wslua/init_wslua.h>
 #endif
-#include "file.h"
 #include "frame_tvbuff.h"
 #include <epan/disabled_protos.h>
 #include <epan/prefs.h>
@@ -98,8 +87,10 @@
 #endif
 #include "ui/util.h"
 #include "ui/ui_util.h"
+#include "ui/decode_as_utils.h"
 #include "ui/cli/tshark-tap.h"
 #include "register.h"
+#include "filter_files.h"
 #include <epan/epan_dissect.h>
 #include <epan/tap.h>
 #include <epan/stat_tap_ui.h>
@@ -126,9 +117,12 @@
 #endif /* _WIN32 */
 #include <capchild/capture_session.h>
 #include <capchild/capture_sync.h>
+#include <capture_info.h>
 #endif /* HAVE_LIBPCAP */
 #include "log.h"
 #include <epan/funnel.h>
+
+#include <wsutil/str_util.h>
 
 #ifdef HAVE_PLUGINS
 #include <wsutil/plugins.h>
@@ -195,6 +189,7 @@ static gboolean print_packet_counts;
 
 static capture_options global_capture_opts;
 static capture_session global_capture_session;
+static info_data_t global_info_data;
 
 #ifdef SIGINFO
 static gboolean infodelay;      /* if TRUE, don't print capture info in SIGINFO handler */
@@ -966,14 +961,12 @@ main(int argc, char *argv[])
   GString             *runtime_info_str;
   char                *init_progfile_dir_error;
   int                  opt;
-DIAG_OFF(cast-qual)
   static const struct option long_options[] = {
-    {(char *)"help", no_argument, NULL, 'h'},
-    {(char *)"version", no_argument, NULL, 'v'},
+    {"help", no_argument, NULL, 'h'},
+    {"version", no_argument, NULL, 'v'},
     LONGOPT_CAPTURE_COMMON
     {0, 0, 0, 0 }
   };
-DIAG_ON(cast-qual)
   gboolean             arg_error = FALSE;
 
 #ifdef _WIN32
@@ -982,10 +975,12 @@ DIAG_ON(cast-qual)
 
   char                *gpf_path, *pf_path;
   char                *gdp_path, *dp_path;
+  char                *cf_path;
   int                  gpf_open_errno, gpf_read_errno;
   int                  pf_open_errno, pf_read_errno;
   int                  gdp_open_errno, gdp_read_errno;
   int                  dp_open_errno, dp_read_errno;
+  int                  cf_open_errno;
   int                  err;
   volatile int         exit_status = 0;
 #ifdef HAVE_LIBPCAP
@@ -1072,7 +1067,7 @@ DIAG_ON(cast-qual)
   /*
    * Attempt to get the pathname of the executable file.
    */
-  init_progfile_dir_error = init_progfile_dir(argv[0], (void *)main);
+  init_progfile_dir_error = init_progfile_dir(argv[0], main);
   if (init_progfile_dir_error != NULL) {
     fprintf(stderr, "tshark: Can't get pathname of tshark program: %s.\n",
             init_progfile_dir_error);
@@ -1225,7 +1220,9 @@ DIAG_ON(cast-qual)
      "-G" flag, as the "-G" flag dumps information registered by the
      dissectors, and we must do it before we read the preferences, in
      case any dissectors register preferences. */
-  epan_init(register_all_protocols, register_all_protocol_handoffs, NULL, NULL);
+  if (!epan_init(register_all_protocols, register_all_protocol_handoffs, NULL,
+                 NULL))
+    return 2;
 
   /* Register all tap listeners; we do this before we parse the arguments,
      as the "-z" argument can specify a registered tap. */
@@ -1303,6 +1300,9 @@ DIAG_ON(cast-qual)
     return 0;
   }
 
+  /* load the decode as entries of this profile */
+  load_decode_as_entries();
+
   tshark_debug("tshark reading preferences");
 
   prefs_p = read_prefs(&gpf_open_errno, &gpf_read_errno, &gpf_path,
@@ -1328,6 +1328,13 @@ DIAG_ON(cast-qual)
     }
     g_free(pf_path);
     pf_path = NULL;
+  }
+
+  read_filter_list(CFILTER_LIST, &cf_path, &cf_open_errno);
+  if (cf_path != NULL) {
+      cmdarg_err("Could not open your capture filter file\n\"%s\": %s.",
+          cf_path, g_strerror(cf_open_errno));
+      g_free(cf_path);
   }
 
   /* Read the disabled protocols file. */
@@ -2573,7 +2580,7 @@ capture(void)
   fflush(stderr);
   g_string_free(str, TRUE);
 
-  ret = sync_pipe_start(&global_capture_opts, &global_capture_session, NULL);
+  ret = sync_pipe_start(&global_capture_opts, &global_capture_session, &global_info_data, NULL);
 
   if (!ret)
     return FALSE;
@@ -3165,12 +3172,13 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
   char        *save_file_string = NULL;
   gboolean     filtering_tap_listeners;
   guint        tap_flags;
-  wtapng_section_t            *shb_hdr = NULL;
+  wtap_optionblock_t           shb_hdr = NULL;
   wtapng_iface_descriptions_t *idb_inf = NULL;
-  wtapng_name_res_t           *nrb_hdr = NULL;
+  wtap_optionblock_t           nrb_hdr = NULL;
   struct wtap_pkthdr phdr;
   Buffer       buf;
   epan_dissect_t *edt = NULL;
+  char                        *shb_user_appl;
 
   wtap_phdr_init(&phdr);
 
@@ -3200,21 +3208,36 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
     nrb_hdr = wtap_file_get_nrb_for_new_file(cf->wth);
 
     /* If we don't have an application name add Tshark */
-    if (shb_hdr->shb_user_appl == NULL) {
-        /* this is free'd by wtap_free_shb() later */
-        shb_hdr->shb_user_appl = g_strdup_printf("TShark (Wireshark) %s", get_ws_vcs_version_info());
+    wtap_optionblock_get_option_string(shb_hdr, OPT_SHB_USERAPPL, &shb_user_appl);
+    if (shb_user_appl == NULL) {
+        /* this is free'd by wtap_optionblock_free() later */
+        shb_user_appl = g_strdup_printf("TShark (Wireshark) %s", get_ws_vcs_version_info());
+        wtap_optionblock_set_option_string(shb_hdr, OPT_SHB_USERAPPL, shb_user_appl);
+        g_free(shb_user_appl);
     }
 
     if (linktype != WTAP_ENCAP_PER_PACKET &&
         out_file_type == WTAP_FILE_TYPE_SUBTYPE_PCAP) {
         tshark_debug("tshark: writing PCAP format to %s", save_file);
-        pdh = wtap_dump_open(save_file, out_file_type, linktype,
-            snapshot_length, FALSE /* compressed */, &err);
+        if (strcmp(save_file, "-") == 0) {
+          /* Write to the standard output. */
+          pdh = wtap_dump_open_stdout(out_file_type, linktype,
+              snapshot_length, FALSE /* compressed */, &err);
+        } else {
+          pdh = wtap_dump_open(save_file, out_file_type, linktype,
+              snapshot_length, FALSE /* compressed */, &err);
+        }
     }
     else {
         tshark_debug("tshark: writing format type %d, to %s", out_file_type, save_file);
-        pdh = wtap_dump_open_ng(save_file, out_file_type, linktype,
-            snapshot_length, FALSE /* compressed */, shb_hdr, idb_inf, nrb_hdr, &err);
+        if (strcmp(save_file, "-") == 0) {
+          /* Write to the standard output. */
+          pdh = wtap_dump_open_stdout_ng(out_file_type, linktype,
+              snapshot_length, FALSE /* compressed */, shb_hdr, idb_inf, nrb_hdr, &err);
+        } else {
+          pdh = wtap_dump_open_ng(save_file, out_file_type, linktype,
+              snapshot_length, FALSE /* compressed */, shb_hdr, idb_inf, nrb_hdr, &err);
+        }
     }
 
     g_free(idb_inf);
@@ -3431,8 +3454,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
                 break;
               }
               wtap_dump_close(pdh, &err);
-              wtap_free_shb(shb_hdr);
-              wtap_free_nrb(nrb_hdr);
+              wtap_optionblock_free(shb_hdr);
+              wtap_optionblock_free(nrb_hdr);
               exit(2);
             }
           }
@@ -3546,8 +3569,8 @@ load_cap_file(capture_file *cf, char *save_file, int out_file_type,
               break;
             }
             wtap_dump_close(pdh, &err);
-            wtap_free_shb(shb_hdr);
-            wtap_free_nrb(nrb_hdr);
+            wtap_optionblock_free(shb_hdr);
+            wtap_optionblock_free(nrb_hdr);
             exit(2);
           }
         }
@@ -3663,8 +3686,8 @@ out:
   cf->wth = NULL;
 
   g_free(save_file_string);
-  wtap_free_shb(shb_hdr);
-  wtap_free_nrb(nrb_hdr);
+  wtap_optionblock_free(shb_hdr);
+  wtap_optionblock_free(nrb_hdr);
 
   return err;
 }

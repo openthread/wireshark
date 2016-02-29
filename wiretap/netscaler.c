@@ -491,19 +491,17 @@ typedef struct nspr_pktracepart_v26
 } nspr_pktracepart_v26_t;
 #define nspr_pktracepart_v26_s    ((guint32)(sizeof(nspr_pktracepart_v26_t)))
 
-#define myoffsetof(type,fieldname) (&(((type*)0)->fieldname))
-
 #define __TNDO(phdr,enumprefix,structname,hdrname)\
     static const guint8 enumprefix##_##hdrname##_offset = (guint8)sizeof(nspr_##structname##_t);
 
 #define __TNO(phdr,enumprefix,structprefix,structname,hdrname,structfieldname) \
-    static const guint8 enumprefix##_##hdrname##_offset = (guint8)GPOINTER_TO_INT(myoffsetof(nspr_##structname##_t,structprefix##_##structfieldname));
+    static const guint8 enumprefix##_##hdrname##_offset = (guint8)GPOINTER_TO_INT(offsetof(nspr_##structname##_t,structprefix##_##structfieldname));
 
 #define __TNL(phdr,enumprefix,structprefix,structname,hdrname,structfieldname) \
     static const guint8 enumprefix##_##hdrname##_len = (guint8)sizeof(((nspr_##structname##_t*)0)->structprefix##_##structfieldname);
 
 #define __TNV1O(phdr,enumprefix,structprefix,structname,hdrname,structfieldname) \
-    static const guint8 enumprefix##_##hdrname##_offset = (guint8)GPOINTER_TO_INT(myoffsetof(nspr_##structname##_t,structfieldname));
+    static const guint8 enumprefix##_##hdrname##_offset = (guint8)GPOINTER_TO_INT(offsetof(nspr_##structname##_t,structfieldname));
 
 #define __TNV1L(phdr,enumprefix,structprefix,structname,hdrname,structfieldname) \
     static const guint8 enumprefix##_##hdrname##_len = (guint8)sizeof(((nspr_##structname##_t*)0)->structfieldname);
@@ -1276,22 +1274,23 @@ static gboolean nstrace_read_v20(wtap *wth, int *err, gchar **err_info, gint64 *
         }\
         nst_dataSize = nspr_getv20recordsize(hdp);\
         rec_size = nst_dataSize - nstrace_tmpbuff_off;\
-        nsg_nextPageOffset = ((nstrace_buf_offset + rec_size) >= NSPR_PAGESIZE_TRACE) ?\
+        nsg_nextPageOffset = ((nstrace_buf_offset + rec_size) >= (guint)nstrace->nstrace_buflen) ?\
         ((nstrace_buf_offset + rec_size) - (NSPR_PAGESIZE_TRACE - 1)) : 0;\
         while (nsg_nextPageOffset) {\
-            while (nstrace_buf_offset < NSPR_PAGESIZE_TRACE) {\
+            while (nstrace_buf_offset < nstrace->nstrace_buflen) {\
                 nstrace_tmpbuff[nstrace_tmpbuff_off++] = nstrace_buf[nstrace_buf_offset++];\
             }\
-            nstrace_buflen = NSPR_PAGESIZE_TRACE;\
             nstrace->xxx_offset += nstrace_buflen;\
+            nstrace_buflen = NSPR_PAGESIZE_TRACE;\
             bytes_read = file_read(nstrace_buf, NSPR_PAGESIZE_TRACE, wth->fh);\
             if ( !file_eof(wth->fh) && bytes_read != NSPR_PAGESIZE_TRACE) {\
                 return FALSE;\
             } else {\
                 nstrace_buf_offset = 0;\
             }\
+            nstrace_buflen = bytes_read;\
             rec_size = nst_dataSize - nstrace_tmpbuff_off;\
-            nsg_nextPageOffset = ((nstrace_buf_offset + rec_size) >= NSPR_PAGESIZE_TRACE) ?\
+            nsg_nextPageOffset = ((nstrace_buf_offset + rec_size) >= (guint)nstrace->nstrace_buflen) ?\
             ((nstrace_buf_offset + rec_size) - (NSPR_PAGESIZE_TRACE- 1)): 0;\
         } \
         while (nstrace_tmpbuff_off < nst_dataSize) {\
@@ -1299,7 +1298,7 @@ static gboolean nstrace_read_v20(wtap *wth, int *err, gchar **err_info, gint64 *
         }\
         memcpy(ws_buffer_start_ptr(wth->frame_buffer), nstrace_tmpbuff, (phdr)->caplen);\
         nstrace->nstrace_buf_offset = nstrace_buf_offset;\
-        nstrace->nstrace_buflen = nstrace_buflen = ((gint32)NSPR_PAGESIZE_TRACE);\
+        nstrace->nstrace_buflen = nstrace_buflen;\
         nstrace->nsg_creltime = nsg_creltime;\
         return TRUE;\
     } while(0)
@@ -1317,6 +1316,9 @@ static gboolean nstrace_read_v30(wtap *wth, int *err, gchar **err_info, gint64 *
     int bytes_read = 0;
     *err = 0;
     *err_info = NULL;
+    if(nstrace_buflen == 0){
+      return FALSE; /* Reached End Of File */
+    }
 
     do
     {
@@ -1330,6 +1332,11 @@ static gboolean nstrace_read_v30(wtap *wth, int *err, gchar **err_info, gint64 *
             nstrace_buf[nstrace_buf_offset])
         {
             hdp = (nspr_hd_v20_t *) &nstrace_buf[nstrace_buf_offset];
+            if(nspr_getv20recordsize(hdp) == 0){
+              *err=WTAP_ERR_BAD_FILE;
+              *err_info = g_strdup("Zero size record found");
+              return FALSE;
+            }
             switch (hdp->phd_RecordType)
             {
 

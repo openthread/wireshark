@@ -52,8 +52,6 @@ WIRESHARK_UI_SRC = \
 	export_object_http.c	\
 	export_object_smb.c	\
 	export_object_tftp.c	\
-	filters.c		\
-	follow.c		\
 	iface_lists.c		\
 	io_graph_item.c		\
 	language.c		\
@@ -72,6 +70,7 @@ WIRESHARK_UI_SRC = \
 	ssl_key_export.c	\
 	tap_export_pdu.c	\
 	tap-iax2-analysis.c	\
+	tap-rlc-graph.c	\
 	tap-rtp-common.c	\
 	tap-sctp-analysis.c \
 	tap-sequence-analysis.c	\
@@ -92,8 +91,6 @@ noinst_HEADERS = \
 	export_object.h		\
 	last_open_dir.h		\
 	file_dialog.h		\
-	filters.h		\
-	follow.h		\
 	help_url.h		\
 	packet_list_utils.h	\
 	iface_lists.h		\
@@ -116,6 +113,7 @@ noinst_HEADERS = \
 	ssl_key_export.h	\
 	tap_export_pdu.h	\
 	tap-iax2-analysis.h	\
+	tap-rlc-graph.h	\
 	tap-rtp-analysis.h	\
 	tap-rtp-common.h	\
 	tap-sctp-analysis.h  \

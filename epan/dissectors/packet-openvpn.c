@@ -368,7 +368,7 @@ dissect_openvpn_msg_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *openvp
 
     } else { /* Not last packet of reassembled Short Message */
       col_append_fstr(pinfo->cinfo, COL_INFO, " (Message fragment %d) ", msg_mpid);
-      if (pinfo->fd->num != frag_msg->reassembled_in) {
+      if (pinfo->num != frag_msg->reassembled_in) {
         /* Add a "Reassembled in" link if not reassembled in this frame */
         proto_tree_add_uint(openvpn_tree, hf_openvpn_reassembled_in,
                             tvb, 0, 0, frag_msg->reassembled_in);
@@ -610,8 +610,8 @@ proto_register_openvpn(void)
   proto_register_field_array(proto_openvpn, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  openvpn_udp_handle = new_register_dissector("openvpn.udp", dissect_openvpn_udp, proto_openvpn);
-  openvpn_tcp_handle = new_register_dissector("openvpn.tcp", dissect_openvpn_tcp, proto_openvpn);
+  openvpn_udp_handle = register_dissector("openvpn.udp", dissect_openvpn_udp, proto_openvpn);
+  openvpn_tcp_handle = register_dissector("openvpn.tcp", dissect_openvpn_tcp, proto_openvpn);
 
   register_init_routine(&openvpn_reassemble_init);
   register_cleanup_routine(&openvpn_reassemble_cleanup);

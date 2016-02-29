@@ -59,7 +59,7 @@ static gint hf_hack_symboloffset = -1;
 static gint hf_hack_value = -1;
 
 
-static void dissect_wimax_hack_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_wimax_hack_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	gint offset = 0;
 	guint length, num_of_hacks, i;
@@ -89,6 +89,7 @@ static void dissect_wimax_hack_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_
 			proto_tree_add_item(hack_tree, hf_hack_value, tvb, offset++, 1, ENC_BIG_ENDIAN);
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax HARQ ACK Protocol */

@@ -27,7 +27,9 @@
 
 #include "qcustomplot.h"
 
-
+// Set to nonzero to use device pixel scaling. Uncommenting the debug rects
+// at the bottom of QCPAxisPainterPrivate::draw can be helpful for testing.
+#define WS_ENABLE_DP_RATIO 1
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////// QCPPainter
@@ -6317,10 +6319,10 @@ int QCPAxisPainterPrivate::size() const
     QSize tickLabelsSize(0, 0);
     if (!tickLabels.isEmpty())
     {
-      for (int i=0; i<tickLabels.size(); ++i)
-        getMaxTickLabelSize(tickLabelFont, tickLabels.at(i), &tickLabelsSize);
-      result += QCPAxis::orientation(type) == Qt::Horizontal ? tickLabelsSize.height() : tickLabelsSize.width();
-    result += tickLabelPadding;
+        for (int i=0; i<tickLabels.size(); ++i)
+            getMaxTickLabelSize(tickLabelFont, tickLabels.at(i), &tickLabelsSize);
+        result += QCPAxis::orientation(type) == Qt::Horizontal ? tickLabelsSize.height() : tickLabelsSize.width();
+        result += tickLabelPadding;
     }
   }
 
@@ -6405,7 +6407,7 @@ void QCPAxisPainterPrivate::placeTickLabel(QCPPainter *painter, double position,
       CachedLabel *newCachedLabel = new CachedLabel;
       TickLabelData labelData = getTickLabelData(painter->font(), text);
       newCachedLabel->offset = getTickLabelDrawOffset(labelData)+labelData.rotatedTotalBounds.topLeft();
-#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0) && WS_ENABLE_DP_RATIO
       QSize clSize = labelData.rotatedTotalBounds.size();
       clSize *= painter->device()->devicePixelRatio();
       newCachedLabel->pixmap = QPixmap(clSize);
@@ -6438,6 +6440,9 @@ void QCPAxisPainterPrivate::placeTickLabel(QCPPainter *painter, double position,
     }
     painter->drawPixmap(labelAnchor+cachedLabel->offset, cachedLabel->pixmap);
     finalSize = cachedLabel->pixmap.size();
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0) && WS_ENABLE_DP_RATIO
+    finalSize /= cachedLabel->pixmap.devicePixelRatio();
+#endif
   } else // label caching disabled, draw text directly on surface:
   {
     TickLabelData labelData = getTickLabelData(painter->font(), text);
@@ -6691,6 +6696,9 @@ void QCPAxisPainterPrivate::getMaxTickLabelSize(const QFont &font, const QString
   {
     const CachedLabel *cachedLabel = mLabelCache.object(text);
     finalSize = cachedLabel->pixmap.size();
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0) && WS_ENABLE_DP_RATIO
+    finalSize /= cachedLabel->pixmap.devicePixelRatio();
+#endif
   } else // label caching disabled or no label with this text cached:
   {
     TickLabelData labelData = getTickLabelData(font, text);
@@ -7155,7 +7163,11 @@ bool QCPAbstractPlottable::addToLegend()
 
   if (!mParentPlot->legend->hasItemWithPlottable(this))
   {
-    mParentPlot->legend->addItem(new QCPPlottableLegendItem(mParentPlot->legend, this));
+    QCPPlottableLegendItem* newitem(new QCPPlottableLegendItem(mParentPlot->legend, this));
+    if (!mParentPlot->legend->addItem(newitem)) {
+      delete newitem;
+      return false;
+    }
     return true;
   } else
     return false;
@@ -9078,7 +9090,7 @@ QCustomPlot::QCustomPlot(QWidget *parent) :
   currentLocale.setNumberOptions(QLocale::OmitGroupSeparator);
   setLocale(currentLocale);
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0) && WS_ENABLE_DP_RATIO
   QSize pbSize = mPaintBuffer.size();
   pbSize *= devicePixelRatio();
   mPaintBuffer = QPixmap(pbSize);
@@ -10704,7 +10716,7 @@ void QCustomPlot::paintEvent(QPaintEvent *event)
 void QCustomPlot::resizeEvent(QResizeEvent *event)
 {
   // resize and repaint the buffer:
-#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 1, 0) && WS_ENABLE_DP_RATIO
   QSize pbSize = event->size();
   pbSize *= devicePixelRatio();
   mPaintBuffer = QPixmap(pbSize);
@@ -18272,7 +18284,7 @@ double QCPBarsGroup::keyPixelOffset(const QCPBars *bars, double keyCoord)
   if (index >= 0)
   {
     int startIndex;
-    double lowerPixelWidth, upperPixelWidth;
+    double lowerPixelWidth = 0, upperPixelWidth = 0;
     if (baseBars.size() % 2 == 1 && index == (baseBars.size()-1)/2) // is center bar (int division on purpose)
     {
       return result;
@@ -18910,7 +18922,7 @@ QPolygonF QCPBars::getBarPolygon(double key, double value) const
   if (!keyAxis || !valueAxis) { qDebug() << Q_FUNC_INFO << "invalid key or value axis"; return QPolygonF(); }
 
   QPolygonF result;
-  double lowerPixelWidth, upperPixelWidth;
+  double lowerPixelWidth = 0, upperPixelWidth = 0;
   getPixelWidth(key, lowerPixelWidth, upperPixelWidth);
   double base = getStackedBaseValue(key, value >= 0);
   double basePixel = valueAxis->coordToPixel(base);
@@ -19086,7 +19098,7 @@ QCPRange QCPBars::getKeyRange(bool &foundRange, SignDomain inSignDomain) const
   // determine exact range of bars by including bar width and barsgroup offset:
   if (haveLower && mKeyAxis)
   {
-    double lowerPixelWidth, upperPixelWidth, keyPixel;
+    double lowerPixelWidth, upperPixelWidth = 0, keyPixel;
     getPixelWidth(range.lower, lowerPixelWidth, upperPixelWidth);
     keyPixel = mKeyAxis.data()->coordToPixel(range.lower) + lowerPixelWidth;
     if (mBarsGroup)
@@ -19095,7 +19107,7 @@ QCPRange QCPBars::getKeyRange(bool &foundRange, SignDomain inSignDomain) const
   }
   if (haveUpper && mKeyAxis)
   {
-    double lowerPixelWidth, upperPixelWidth, keyPixel;
+    double lowerPixelWidth, upperPixelWidth = 0, keyPixel;
     getPixelWidth(range.upper, lowerPixelWidth, upperPixelWidth);
     keyPixel = mKeyAxis.data()->coordToPixel(range.upper) + upperPixelWidth;
     if (mBarsGroup)
@@ -19406,7 +19418,7 @@ double QCPStatisticalBox::selectTest(const QPointF &pos, bool onlySelectable, QV
 
   if (mKeyAxis.data()->axisRect()->rect().contains(pos.toPoint()))
   {
-    double posKey, posValue;
+    double posKey = 0, posValue = 0;
     pixelsToCoords(pos, posKey, posValue);
     // quartile box:
     QCPRange keyRange(mKey-mWidth*0.5, mKey+mWidth*0.5);
@@ -20335,7 +20347,7 @@ double QCPColorMap::selectTest(const QPointF &pos, bool onlySelectable, QVariant
 
   if (mKeyAxis.data()->axisRect()->rect().contains(pos.toPoint()))
   {
-    double posKey, posValue;
+    double posKey = 0, posValue = 0;
     pixelsToCoords(pos, posKey, posValue);
     if (mMapData->keyRange().contains(posKey) && mMapData->valueRange().contains(posValue))
       return mParentPlot->selectionTolerance()*0.99;
@@ -21330,7 +21342,7 @@ double QCPFinancial::candlestickSelectTest(const QPointF &pos, const QCPFinancia
       // determine whether pos is in open-close-box:
       QCPRange boxKeyRange(it.value().key-mWidth*0.5, it.value().key+mWidth*0.5);
       QCPRange boxValueRange(it.value().close, it.value().open);
-      double posKey, posValue;
+      double posKey = 0, posValue = 0;
       pixelsToCoords(pos, posKey, posValue);
       if (boxKeyRange.contains(posKey) && boxValueRange.contains(posValue)) // is in open-close-box
       {
@@ -21354,7 +21366,7 @@ double QCPFinancial::candlestickSelectTest(const QPointF &pos, const QCPFinancia
       // determine whether pos is in open-close-box:
       QCPRange boxKeyRange(it.value().key-mWidth*0.5, it.value().key+mWidth*0.5);
       QCPRange boxValueRange(it.value().close, it.value().open);
-      double posKey, posValue;
+      double posKey = 0, posValue = 0;
       pixelsToCoords(pos, posKey, posValue);
       if (boxKeyRange.contains(posKey) && boxValueRange.contains(posValue)) // is in open-close-box
       {
@@ -23484,5 +23496,42 @@ QPointF QCPItemBracket::anchorPixelPoint(int anchorId) const
 QPen QCPItemBracket::mainPen() const
 {
     return mSelected ? mSelectedPen : mPen;
+}
+
+// Legend Title - Added to Wireshark
+// From: http://www.qcustomplot.com/index.php/support/forum/443
+
+QCPStringLegendItem::QCPStringLegendItem(QCPLegend *pParent, const QString& strText)
+    : QCPAbstractLegendItem(pParent)
+    , m_strText(strText)
+{
+}
+
+QString QCPStringLegendItem::text() const
+{
+    return m_strText;
+}
+
+void QCPStringLegendItem::setText(const QString& strText)
+{
+    m_strText = strText;
+}
+
+void QCPStringLegendItem::draw(QCPPainter *pPainter)
+{
+    pPainter->setFont(mFont);
+    pPainter->setPen(QPen(mTextColor));
+    QRectF textRect = pPainter->fontMetrics().boundingRect(0, 0, 0, 0, Qt::TextDontClip, m_strText);
+    pPainter->drawText(mRect.x() + (mMargins.left() * 0.5), mRect.y(), textRect.width(), textRect.height(), Qt::TextDontClip | Qt::AlignHCenter, m_strText);
+}
+
+QSize QCPStringLegendItem::minimumSizeHint() const
+{
+    QSize cSize(0, 0);
+    QFontMetrics fontMetrics(mFont);
+    QRect textRect = fontMetrics.boundingRect(0, 0, 0, 0, Qt::TextDontClip, m_strText);
+    cSize.setWidth(textRect.width() + mMargins.left() + mMargins.right());
+    cSize.setHeight(textRect.height() + mMargins.top() + mMargins.bottom());
+    return cSize;
 }
 

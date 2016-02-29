@@ -46,7 +46,8 @@ typedef enum {
     USB_HEADER_LINUX_48_BYTES,
     USB_HEADER_LINUX_64_BYTES,
     USB_HEADER_USBPCAP,
-    USB_HEADER_MAUSB
+    USB_HEADER_MAUSB,
+    USB_HEADER_USBIP
 } usb_header_t;
 
 #define USB_HEADER_IS_LINUX(type) \
@@ -183,6 +184,8 @@ typedef struct _usb_tap_data_t {
 #define DEV_VENDOR_UNKNOWN            0x0000  /* this id is unassigned */
 #define DEV_PRODUCT_UNKNOWN           0xfffffff /* 0x0000 and 0xffff are used values by vendors, so MSBs encode unknown */
 
+#define IF_SUBCLASS_MISC_U3V          0x05
+
 /* bmRequestType values */
 #define USB_DIR_OUT                     0               /* to device */
 #define USB_DIR_IN                      0x80            /* to host */
@@ -226,19 +229,16 @@ typedef struct _usb_tap_data_t {
 /* 9.6.6 */
 extern const true_false_string tfs_endpoint_direction;
 
-usb_conv_info_t *
-get_usb_conv_info(conversation_t *conversation);
+extern value_string_ext usb_class_vals_ext;
 
-conversation_t *
-get_usb_conversation(packet_info *pinfo,
-                     address *src_addr, address *dst_addr,
-                     guint32 src_endpoint, guint32 dst_endpoint);
+extern value_string_ext usb_urb_status_vals_ext;
 
 usb_conv_info_t *get_usb_iface_conv_info(packet_info *pinfo, guint8 interface_num);
 
 proto_item * dissect_usb_descriptor_header(proto_tree *tree,
                                            tvbuff_t *tvb, int offset,
                                            value_string_ext *type_val_str);
+
 void dissect_usb_endpoint_address(proto_tree *tree, tvbuff_t *tvb, int offset);
 
 int
@@ -251,25 +251,23 @@ dissect_usb_unknown_descriptor(packet_info *pinfo _U_, proto_tree *parent_tree,
                                tvbuff_t *tvb, int offset,
                                usb_conv_info_t  *usb_conv_info _U_);
 
-int
-dissect_usb_setup_response(packet_info *pinfo, proto_tree *tree,
-                           tvbuff_t *tvb, int offset,
-                           guint8 urb_type, usb_conv_info_t *usb_conv_info);
-
-int
-dissect_usb_setup_request(packet_info *pinfo, proto_tree *tree,
-                          tvbuff_t *tvb, int offset,
-                          guint8 urb_type, usb_conv_info_t *usb_conv_info,
-                          usb_header_t header_type);
-
+struct mausb_header;
 
 void
-usb_set_addr(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, guint16 bus_id, guint16 device_address,
-             int endpoint, gboolean req);
-
-usb_trans_info_t
-*usb_get_trans_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                    usb_header_t header_type, usb_conv_info_t *usb_conv_info, guint64 usb_id);
-
+dissect_usb_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent,
+                   usb_header_t header_type, void *extra_data);
 
 #endif
+
+/*
+ * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ *
+ * Local variables:
+ * c-basic-offset: 4
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
+ */

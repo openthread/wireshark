@@ -1249,9 +1249,9 @@ static void decode_mtd(proto_tree  *tree,
 /*-----------------------------------------------------------------------------
   NOE DISSECTOR
   ---------------------------------------------------------------------------*/
-static void dissect_noe(tvbuff_t    *tvb,
+static int dissect_noe(tvbuff_t    *tvb,
                         packet_info *pinfo,
-                        proto_tree  *tree)
+                        proto_tree  *tree, void* data _U_)
 {
     proto_item *noe_item;
     proto_tree *noe_tree;
@@ -1308,7 +1308,7 @@ static void dissect_noe(tvbuff_t    *tvb,
         method);
 
     if (method >= METHOD_INVALID)
-        return;
+        return offset;
 
     /* add text to the frame "INFO" column */
     col_append_fstr(pinfo->cinfo, COL_INFO, ": %s",
@@ -1337,6 +1337,7 @@ static void dissect_noe(tvbuff_t    *tvb,
         length -= 1;
         decode_mtd(noe_tree, tvb, pinfo, method, offset, length);
     }
+    return tvb_captured_length(tvb);
 }
 
 

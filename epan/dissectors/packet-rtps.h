@@ -110,7 +110,17 @@ typedef enum {
     RTI_CDR_TYPE_OBJECT_TYPE_KIND_ANNOTATION_TYPE=23
 } RTICdrTypeObjectTypeKind;
 
+typedef struct _rtps_dissector_data {
+  guint16 encapsulation_id;
+  gboolean info_displayed;
+  /* Represents the position of a sample within a batch. Since the
+     position can be 0, we use -1 as not valid (not a batch) */
+  gint position_in_batch;
+} rtps_dissector_data;
+
+
 #define RTPS_MAGIC_NUMBER   0x52545053 /* RTPS */
+#define RTPX_MAGIC_NUMBER   0x52545058 /* RTPX */
 
 /* Traffic type */
 #define PORT_BASE                       (7400)
@@ -410,11 +420,16 @@ typedef enum {
 #define PRESENTATION_TOPIC              (1)
 #define PRESENTATION_GROUP              (2)
 
-
 #define LOCATOR_KIND_INVALID            (-1)
 #define LOCATOR_KIND_RESERVED           (0)
 #define LOCATOR_KIND_UDPV4              (1)
 #define LOCATOR_KIND_UDPV6              (2)
+/* Vendor specific - rti */
+#define LOCATOR_KIND_TCPV4_LAN          (8)
+#define LOCATOR_KIND_TCPV4_WAN          (9)
+#define LOCATOR_KIND_TLSV4_LAN          (10)
+#define LOCATOR_KIND_TLSV4_WAN          (11)
+#define LOCATOR_KIND_SHMEM              (0x01000000)
 
 /* History Kind */
 #define HISTORY_KIND_KEEP_LAST          (0)
@@ -443,22 +458,27 @@ typedef enum {
 #define APPLICATION_ORDERED_ACKNOWLEDGMENT   (2)
 #define APPLICATION_EXPLICIT_ACKNOWLEDGMENT  (3)
 
-/* NDDS_TRANSPORT_CLASSID */
-#define NDDS_TRANSPORT_CLASSID_ANY          (0)
-#define NDDS_TRANSPORT_CLASSID_UDPv4        (1)
-#define NDDS_TRANSPORT_CLASSID_SHMEM        (2)
-#define NDDS_TRANSPORT_CLASSID_INTRA        (3)
-#define NDDS_TRANSPORT_CLASSID_UDPv6        (5)
-#define NDDS_TRANSPORT_CLASSID_DTLS         (6)
-#define NDDS_TRANSPORT_CLASSID_WAN          (7)
-#define NDDS_TRANSPORT_CLASSID_TCPV4_LAN    (8)
-#define NDDS_TRANSPORT_CLASSID_TCPV4_WAN    (9)
-#define NDDS_TRANSPORT_CLASSID_TLSV4_LAN    (10)
-#define NDDS_TRANSPORT_CLASSID_TLSV4_WAN    (11)
-#define NDDS_TRANSPORT_CLASSID_PCIE         (12)
-#define NDDS_TRANSPORT_CLASSID_ITP          (13)
+/* Vendor specific - rti */
+#define NDDS_TRANSPORT_CLASSID_ANY                  (0)
+#define NDDS_TRANSPORT_CLASSID_UDPv4                (1)
+#define NDDS_TRANSPORT_CLASSID_UDPv6                (2)
+#define NDDS_TRANSPORT_CLASSID_INTRA                (3)
+#define NDDS_TRANSPORT_CLASSID_DTLS                 (6)
+#define NDDS_TRANSPORT_CLASSID_WAN                  (7)
+#define NDDS_TRANSPORT_CLASSID_TCPV4_LAN            (8)
+#define NDDS_TRANSPORT_CLASSID_TCPV4_WAN            (9)
+#define NDDS_TRANSPORT_CLASSID_TLSV4_LAN            (10)
+#define NDDS_TRANSPORT_CLASSID_TLSV4_WAN            (11)
+#define NDDS_TRANSPORT_CLASSID_PCIE                 (12)
+#define NDDS_TRANSPORT_CLASSID_ITP                  (13)
+#define NDDS_TRANSPORT_CLASSID_SHMEM                (0x01000000)
 
-
+#define TOPIC_INFO_ADD_GUID                      (1)
+#define TOPIC_INFO_ADD_TYPE_NAME                 (2)
+#define TOPIC_INFO_ADD_TOPIC_NAME                (4)
+#define TOPIC_INFO_ALL_SET                       (TOPIC_INFO_ADD_GUID | \
+                                                  TOPIC_INFO_ADD_TYPE_NAME | \
+                                                  TOPIC_INFO_ADD_TOPIC_NAME)
 /* Utilities to add elements to the protocol tree for packet-rtps.h and packet-rtps2.h */
 extern guint16 rtps_util_add_protocol_version(proto_tree *tree, tvbuff_t* tvb, gint offset);
 extern guint16 rtps_util_add_vendor_id(proto_tree *tree, tvbuff_t * tvb, gint offset);

@@ -88,7 +88,7 @@ static int hf_egd_resv = -1;
 static gint ett_egd = -1;
 static gint ett_status_item = -1;
 
-static void dissect_egd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_egd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   /* replace UDP with EGD in display */
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "EGD");
@@ -153,6 +153,7 @@ static void dissect_egd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       call_dissector(data_handle, next_tvb, pinfo, egd_tree);
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void proto_register_egd(void)

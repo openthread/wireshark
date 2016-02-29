@@ -117,7 +117,7 @@ pref_unstash(pref_t *pref, gpointer changed_p)
   case PREF_DIRNAME:
     if (strcmp(*pref->varp.string, pref->stashed_val.string) != 0) {
       *pref_changed_p = TRUE;
-      g_free((void *)*pref->varp.string);
+      g_free(*pref->varp.string);
       *pref->varp.string = g_strdup(pref->stashed_val.string);
     }
     break;
@@ -241,7 +241,7 @@ prefs_to_capture_opts(void)
   /* the same applies to other preferences settings as well. */
     global_capture_opts.default_options.promisc_mode = prefs.capture_prom_mode;
     global_capture_opts.use_pcapng                   = prefs.capture_pcap_ng;
-    global_capture_opts.show_info                    = prefs.capture_show_info;
+    global_capture_opts.show_info                    = prefs.capture_show_info; /* GTK+ only */
     global_capture_opts.real_time_mode               = prefs.capture_real_time;
     auto_scroll_live                                 = prefs.capture_auto_scroll;
 #endif /* HAVE_LIBPCAP */
@@ -273,8 +273,8 @@ prefs_main_write(void)
   }
 }
 
-gboolean
-prefs_store_ext(const char * module_name, const char *pref_name, const char *pref_value)
+static gboolean
+prefs_store_ext_helper(const char * module_name, const char *pref_name, const char *pref_value)
 {
   module_t * module = NULL;
   pref_t * pref = NULL;
@@ -300,9 +300,52 @@ prefs_store_ext(const char * module_name, const char *pref_name, const char *pre
     if (strcmp(*pref->varp.string, pref->stashed_val.string) != 0)
     {
       pref_changed = TRUE;
-      g_free((void *)*pref->varp.string);
+      g_free(*pref->varp.string);
       *pref->varp.string = g_strdup(pref->stashed_val.string);
     }
+  }
+
+  return pref_changed;
+}
+
+gboolean
+prefs_store_ext(const char * module_name, const char *pref_name, const char *pref_value)
+{
+  if ( prefs_store_ext_helper(module_name, pref_name, pref_value) )
+  {
+    prefs_main_write();
+    prefs_apply_all();
+    prefs_to_capture_opts();
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+gboolean
+prefs_store_ext_multiple(const char * module, GHashTable * pref_values)
+{
+  gboolean pref_changed = FALSE;
+  GList * keys = NULL;
+
+  if ( ! prefs_is_registered_protocol(module))
+    return pref_changed;
+
+  keys = g_hash_table_get_keys(pref_values);
+  if ( ! keys )
+    return pref_changed;
+
+  while ( keys != NULL )
+  {
+    gchar * pref_name = (gchar *)keys->data;
+    gchar * pref_value = (gchar *) g_hash_table_lookup(pref_values, keys->data);
+
+    if ( pref_name && pref_value )
+    {
+      if ( prefs_store_ext_helper(module, pref_name, pref_value) )
+        pref_changed = TRUE;
+    }
+    keys = g_list_next(keys);
   }
 
   if ( pref_changed )
@@ -316,7 +359,7 @@ prefs_store_ext(const char * module_name, const char *pref_name, const char *pre
 }
 
 gint
-column_prefs_add_custom(gint fmt, const gchar *title, const gchar *custom_field, gint custom_occurrence)
+column_prefs_add_custom(gint fmt, const gchar *title, const gchar *custom_fields, gint custom_occurrence)
 {
     GList *clp;
     fmt_data *cfmt, *last_cfmt;
@@ -330,13 +373,13 @@ column_prefs_add_custom(gint fmt, const gchar *title, const gchar *custom_field,
      */
     cfmt->title = g_strdup(title);
     cfmt->fmt = fmt;
-    cfmt->custom_field = g_strdup(custom_field);
+    cfmt->custom_fields = g_strdup(custom_fields);
     cfmt->custom_occurrence = custom_occurrence;
     cfmt->resolved = TRUE;
 
     colnr = g_list_length(prefs.col_list);
 
-    if (custom_field) {
+    if (custom_fields) {
         cfmt->visible = TRUE;
         clp = g_list_last(prefs.col_list);
         last_cfmt = (fmt_data *) clp->data;
@@ -365,7 +408,7 @@ column_prefs_remove_link(GList *col_link)
     cfmt = (fmt_data *) col_link->data;
 
     g_free(cfmt->title);
-    g_free(cfmt->custom_field);
+    g_free(cfmt->custom_fields);
     g_free(cfmt);
     prefs.col_list = g_list_remove_link(prefs.col_list, col_link);
 }

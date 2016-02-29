@@ -432,8 +432,8 @@ dissect_quake3_GamePacket(tvbuff_t *tvb, packet_info *pinfo,
 }
 
 
-static void
-dissect_quake3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_quake3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*quake3_tree = NULL;
 	proto_item	*dir_item = NULL;
@@ -483,6 +483,7 @@ dissect_quake3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	col_append_str(pinfo->cinfo, COL_INFO, val_to_str(direction,
 			names_direction, "%u"));
+	return tvb_captured_length(tvb);
 }
 
 

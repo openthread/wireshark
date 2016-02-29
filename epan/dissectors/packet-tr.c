@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/expert.h>
 #include <epan/exceptions.h>
 #include <epan/conversation_table.h>
@@ -151,7 +152,7 @@ tr_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, c
 	conv_hash_t *hash = (conv_hash_t*) pct;
 	const tr_hdr *trhdr=(const tr_hdr *)vip;
 
-	add_conversation_table_data(hash, &trhdr->src, &trhdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &tr_ct_dissector_info, PT_NONE);
+	add_conversation_table_data(hash, &trhdr->src, &trhdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &tr_ct_dissector_info, PT_NONE);
 
 	return 1;
 }
@@ -190,7 +191,7 @@ tr_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const
  * so the frame the sniffer gets is fine (just has extra sr routing).
  * In the first instance (driver hacking frame in situ) the sniffer gets a garbled
  * frame.
- * This function trys to detect this and returns the offset of where
+ * This function tries to detect this and returns the offset of where
  * the frame really starts.
  * This only detects frames that we have sent ourselves so if we are packet sniffing
  * on the machine we are watching this is useful.
@@ -245,8 +246,8 @@ int check_for_old_linux(const guchar * pd)
 static void
 add_ring_bridge_pairs(int rcf_len, tvbuff_t*, proto_tree *tree);
 
-void
-capture_tr(const guchar *pd, int offset, int len, packet_counts *ld) {
+gboolean
+capture_tr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_) {
 
 	int			source_routed = 0;
 	int			frame_type;
@@ -259,10 +260,8 @@ capture_tr(const guchar *pd, int offset, int len, packet_counts *ld) {
 	guint8			trn_fc;		/* field control field */
 	const guint8		*trn_shost;	/* source host */
 
-	if (!BYTES_ARE_IN_FRAME(offset, len, TR_MIN_HEADER_LEN)) {
-		ld->other++;
-		return;
-	}
+	if (!BYTES_ARE_IN_FRAME(offset, len, TR_MIN_HEADER_LEN))
+		return FALSE;
 
 	if ((x = check_for_old_linux(pd)))
 	{
@@ -358,25 +357,18 @@ capture_tr(const guchar *pd, int offset, int len, packet_counts *ld) {
 
 	offset += actual_rif_bytes + TR_MIN_HEADER_LEN;
 
-	/* The package is either MAC or LLC */
+	/* The package is either MAC (0) or LLC (1)*/
 	switch (frame_type) {
-		/* MAC */
-		case 0:
-			ld->other++;
-			break;
 		case 1:
-			capture_llc(pd, offset, len, ld);
-			break;
-		default:
-			/* non-MAC, non-LLC, i.e., "Reserved" */
-			ld->other++;
-			break;
+			return capture_llc(pd, offset, len, cpinfo, pseudo_header);
 	}
+
+	return FALSE;
 }
 
 
-static void
-dissect_tr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*tr_tree;
 	proto_item	*ti, *hidden_item;
@@ -428,8 +420,8 @@ dissect_tr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Get the data */
 	trh->fc		= tvb_get_guint8(tr_tvb, 1);
-	TVB_SET_ADDRESS(&trh->src, AT_ETHER, tr_tvb, 8, 6);
-	TVB_SET_ADDRESS(&trh->dst, AT_ETHER, tr_tvb, 2, 6);
+	set_address_tvb(&trh->src, AT_ETHER, 6, tr_tvb, 8);
+	set_address_tvb(&trh->dst, AT_ETHER, 6, tr_tvb, 2);
 
 	/* if the high bit on the first byte of src hwaddr is 1, then
 		this packet is source-routed */
@@ -540,10 +532,10 @@ dissect_tr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		ENDTRY;
 	}
 
-	SET_ADDRESS(&pinfo->dl_src,	AT_ETHER, 6, trn_shost_nonsr);
-	COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-	SET_ADDRESS(&pinfo->dl_dst,	AT_ETHER, 6, trh->dst.data);
-	COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
+	set_address(&pinfo->dl_src,	AT_ETHER, 6, trn_shost_nonsr);
+	copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+	set_address(&pinfo->dl_dst,	AT_ETHER, 6, trh->dst.data);
+	copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 
 	/* protocol analysis tree */
 	if (tree) {
@@ -637,6 +629,7 @@ dissect_tr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	}
 
 	tap_queue_packet(tr_tap, pinfo, trh);
+	return tvb_captured_length(tvb);
 }
 
 /* this routine is taken from the Linux net/802/tr.c code, which shows
@@ -819,6 +812,10 @@ proto_reg_handoff_tr(void)
 	tr_handle = find_dissector("tr");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_TOKEN_RING, tr_handle);
 	dissector_add_uint("sflow_245.header_protocol", SFLOW_245_HEADER_TOKENRING, tr_handle);
+
+	register_capture_dissector("wtap_encap", WTAP_ENCAP_TOKEN_RING, capture_tr, proto_tr);
+	register_capture_dissector("atm_lane", TRAF_ST_LANE_802_5, capture_tr, proto_tr);
+	register_capture_dissector("atm_lane", TRAF_ST_LANE_802_5_MC, capture_tr, proto_tr);
 }
 
 /*

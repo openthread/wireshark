@@ -53,8 +53,8 @@ static gint ett_daytime = -1;
 /* This dissector works for TCP and UDP daytime packets */
 #define DAYTIME_PORT 13
 
-static void
-dissect_daytime(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_daytime(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree    *daytime_tree;
   proto_item    *ti;
@@ -74,6 +74,7 @@ dissect_daytime(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       proto_tree_add_item(daytime_tree, &hfi_daytime_string, tvb, 0, -1, ENC_ASCII|ENC_NA);
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void

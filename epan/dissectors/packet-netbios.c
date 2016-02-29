@@ -27,10 +27,12 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/llcsaps.h>
 #include <epan/reassemble.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/capture_dissectors.h>
 #include "packet-netbios.h"
 
 void proto_register_netbios(void);
@@ -165,7 +167,7 @@ static const value_string nb_name_type_vals[] = {
 	{0x01,	"Browser"},
 	{0x02,	"Workstation/Redirector"},
 		/* not sure what 0x02 is, I'm seeing a lot of them however */
-		/* i'm seeing them with workstation/redirection host
+		/* I'm seeing them with workstation/redirection host
 			announcements */
 	{0x03,	"Messenger service/Main name"},
 	{0x05,	"Forwarded name"},
@@ -284,10 +286,11 @@ static const value_string max_frame_size_vals[] = {
 };
 
 
-void
-capture_netbios(packet_counts *ld)
+static gboolean
+capture_netbios(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
-	ld->netbios++;
+	capture_dissector_increment_count(cpinfo, proto_netbios);
+	return TRUE;
 }
 
 
@@ -1076,8 +1079,8 @@ dissect_netbios_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		call_dissector(data_handle,tvb, pinfo, tree);
 }
 
-static void
-dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree    *netb_tree = NULL;
 	proto_item    *ti;
@@ -1107,7 +1110,7 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			/* print bad packet */
 			col_set_str( pinfo->cinfo, COL_INFO, "Bad packet, no 0xEFFF marker");
 
-			return;		/* this is an unknown packet, no marker */
+			return 3;		/* this is an unknown packet, no marker */
 		}
 	}
 
@@ -1237,6 +1240,7 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 		pinfo->fragmented = save_fragmented;
 	}
+	return tvb_captured_length(tvb);
 }
 
 static void
@@ -1486,6 +1490,7 @@ proto_reg_handoff_netbios(void)
 	netbios_handle = create_dissector_handle(dissect_netbios,
 	    proto_netbios);
 	dissector_add_uint("llc.dsap", SAP_NETBIOS, netbios_handle);
+	register_capture_dissector("llc.dsap", SAP_NETBIOS, capture_netbios, proto_netbios);
 	data_handle = find_dissector("data");
 }
 

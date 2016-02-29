@@ -44,6 +44,9 @@ Argument type for UI filtering for raw, or UI type for selector:
     selector (display selector table, all values as strings)
     boolean (display checkbox)
     radio (display group of radio buttons with provided values, all values as strings)
+    fileselect (display a dialog to select a file from the filesystem, value as string)
+    multicheck (display a textbox for selecting multiple options, values as strings)
+    password (display a textbox with masked text)
 
 =item value (options)
 
@@ -54,11 +57,11 @@ Argument type for UI filtering for raw, or UI type for selector:
 
 =head1 EXAMPLES
 
-Exampl 1:
+Example 1:
 
-    arg {number=0}{call=channel}{display=Wi-Fi Channel}{type=integer}
-    arg {number=1}{call=chanflags}{display=Channel Flags}{type=radio}
-    arg {number=2}{call=interface}{display=Interface}{type=selector}
+    arg {number=0}{call=--channel}{display=Wi-Fi Channel}{type=integer}{required=true}
+    arg {number=1}{call=--chanflags}{display=Channel Flags}{type=radio}
+    arg {number=2}{call=--interface}{display=Interface}{type=selector}
     value {arg=0}{range=1,11}
     value {arg=1}{value=ht40p}{display=HT40+}
     value {arg=1}{value=ht40m}{display=HT40-}
@@ -67,14 +70,19 @@ Exampl 1:
 
 Example 2:
 
-    arg {number=0}{call=usbdevice}{USB Device}{type=selector}
+    arg {number=0}{call=--usbdevice}{USB Device}{type=selector}
     value {arg=0}{call=/dev/sysfs/usb/foo/123}{display=Ubertooth One sn 1234}
     value {arg=0}{call=/dev/sysfs/usb/foo/456}{display=Ubertooth One sn 8901}
 
 Example 3:
 
-    arg {number=0}{call=usbdevice}{USB Device}{type=selector}
+    arg {number=0}{call=--usbdevice}{USB Device}{type=selector}
+    arg {number=1}{call=--server}{display=IP address for log server}{type=string}{validation=(?:\d{1,3}\.){3}\d{1,3}}
     flag {failure=Permission denied opening Ubertooth device}
+
+Example 4:
+    arg {number=0}{call=--username}{display=Username}{type=string}
+    arg {number=1}{call=--password}{display=Password}{type=password}
 
 =head1 Security awareness
 
@@ -88,13 +96,13 @@ Example 3:
 
 =item - If an attacker can write to a system binary directory, we're game over anyhow
 
-=item - Don't let wireshark be told to look for capture binaries somewhere else?
+=item - Reference the folders tab in the wireshark->about information, to see from which directory extcap is being run
 
 =back
 
 =head1 SEE ALSO
 
-wireshark(1), tshark(1), dumpcap(1), androiddump(1)
+wireshark(1), tshark(1), dumpcap(1), androiddump(1), sshdump(1), randpktdump(1)
 
 =head1 NOTES
 

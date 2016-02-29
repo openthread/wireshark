@@ -31,10 +31,7 @@
 #include "packet-ieee802154.h"
 #include <epan/prefs.h>
 #include <epan/strutil.h>
-
-#ifdef HAVE_LIBGCRYPT
 #include <wsutil/wsgcrypt.h>
-#endif
 
 /*LwMesh lengths*/
 #define LWM_HEADER_BASE_LEN            7
@@ -426,6 +423,7 @@ static int dissect_lwm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 
             ieee_packet = (ieee802154_packet *)data;
 
+            memset(&nwkSecurityVector, 0, sizeof(nwkSecurityVector));
             nwkSecurityVector[0] = lwm_seq;
             nwkSecurityVector[1] = ((guint32)lwm_dst_addr<< 16) | lwm_dst_endp;
             nwkSecurityVector[2]= ((guint32) lwm_src_addr<< 16) | lwm_src_endp;
@@ -911,7 +909,7 @@ void proto_register_lwm(void)
             "128-bit decryption key in hexadecimal format", (const char **)&lwmes_key_str);
 
     /*  Register dissector with Wireshark. */
-    new_register_dissector("lwm", dissect_lwm, proto_lwm);
+    register_dissector("lwm", dissect_lwm, proto_lwm);
 
 } /* proto_register_lwm */
 

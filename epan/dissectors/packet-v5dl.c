@@ -127,11 +127,8 @@ static const xdlc_cf_items v5dl_cf_items_ext = {
 
 #define MAX_V5DL_PACKET_LEN 1024
 
-static void
-dissect_v5dl(tvbuff_t*, packet_info*, proto_tree*);
-
-static void
-dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*v5dl_tree, *addr_tree;
 	proto_item	*v5dl_ti, *addr_ti;
@@ -236,7 +233,7 @@ dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	 * checksum overlaps the header.
 	 */
 	if (reported_length < v5dl_header_len + 2)
-		THROW(ReportedBoundsError);
+		return;
 
 	if (length == reported_length) {
 		/*
@@ -307,6 +304,7 @@ dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		/* call V5.2 dissector */
 	        call_dissector(v52_handle, next_tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

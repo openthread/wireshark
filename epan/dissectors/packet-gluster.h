@@ -303,6 +303,9 @@ enum gf_cbk_procnum {
 	GF_CBK_NULL = 0,
 	GF_CBK_FETCHSPEC,
 	GF_CBK_INO_FLUSH,
+	GF_CBK_EVENT_NOTIFY,
+	GF_CBK_GET_SNAPS,
+	GF_CBK_CACHE_INVALIDATION,
 	GF_CBK_MAXVALUE
 };
 
@@ -364,6 +367,8 @@ enum gf_fop_procnum {
 	GFS3_OP_FALLOCATE,
 	GFS3_OP_DISCARD,
 	GFS3_OP_ZEROFILL,
+	GFS3_OP_IPC,
+	GFS3_OP_SEEK,
 	GFS3_OP_MAXVALUE
 };
 
@@ -408,6 +413,11 @@ enum gluster_lk_whence {
 	GF_LK_SEEK_END
 };
 
+enum gluster_seek_whence {
+	GF_SEEK_DATA = 0,
+	GF_SEEK_HOLE
+};
+
 /* based on enum glusterd_op_ from xlators/mgmt/glusterd/src/glusterd.h */
 enum glusterd_ops {
 	GD_OP_NONE = 0,
@@ -442,6 +452,12 @@ enum glusterd_ops {
 	GD_OP_MAX
 };
 
+/* based on enum gf_upcall_event_ from libglusterfs/src/upcall-utils.h */
+enum gf_upcall_event {
+	GF_UPCALL_EVENT_NULL,
+	GF_UPCALL_CACHE_INVALIDATION,
+};
+
 extern int
 gluster_rpc_dissect_dict(proto_tree *tree, tvbuff_t *tvb, int hfindex,
 								int offset);
@@ -453,4 +469,7 @@ extern int
 glusterfs_gfs3_3_op_common_reply(tvbuff_t *tvb,
 				packet_info *pinfo, proto_tree *tree, void* data _U_);
 
+extern int
+glusterfs_rpc_dissect_gf_iatt(proto_tree *tree, tvbuff_t *tvb, int hfindex,
+								int offset);
 #endif /* __PACKET_GLUSTER_H__ */

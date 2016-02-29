@@ -60,8 +60,8 @@ static const value_string cmdvals[] = {
     { 0, NULL },
 };
 
-static void
-dissect_ripng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_ripng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
     int offset = 0;
     proto_tree *ripng_tree = NULL, *rte_tree = NULL;
     proto_item *ti, *rte_ti;
@@ -113,6 +113,7 @@ dissect_ripng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
             offset += 1;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 void

@@ -189,7 +189,7 @@ dissect_fcct (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 
         proto_tree_add_item (fcct_tree, hf_fcct_revision, tvb, offset++,
                              sizeof (guint8), ENC_BIG_ENDIAN);
-        SET_ADDRESS(&addr, AT_FC, 3, &in_id);
+        set_address(&addr, AT_FC, 3, &in_id);
         proto_tree_add_string (fcct_tree, hf_fcct_inid, tvb, offset, 3,
                                address_to_str(wmem_packet_scope(), &addr));
         offset += 3; /* sizeof FC address */
@@ -276,7 +276,7 @@ proto_register_fcct(void)
 
     fcct_gserver_table = register_dissector_table ("fcct.server",
                                                    "FCCT Server",
-                                                   FT_UINT8, BASE_HEX);
+                                                   FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
@@ -284,7 +284,7 @@ proto_reg_handoff_fcct (void)
 {
     dissector_handle_t fcct_handle;
 
-    fcct_handle = new_create_dissector_handle (dissect_fcct, proto_fcct);
+    fcct_handle = create_dissector_handle (dissect_fcct, proto_fcct);
     dissector_add_uint("fc.ftype", FC_FTYPE_FCCT, fcct_handle);
 
     data_handle = find_dissector ("data");

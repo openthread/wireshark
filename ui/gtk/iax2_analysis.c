@@ -38,14 +38,6 @@
 #include <string.h>
 #include <locale.h>
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
 #include <gtk/gtk.h>
 
 #include <wsutil/file_util.h>
@@ -458,9 +450,9 @@ iax2_packet(void *user_data_arg, packet_info *pinfo, epan_dissect_t *edt _U_, co
 		return FALSE;
 
 	/* is it the forward direction?  */
-	else if ((CMP_ADDRESS(&(user_data->ip_src_fwd), &(pinfo->net_src)) == 0)
+	else if ((cmp_address(&(user_data->ip_src_fwd), &(pinfo->net_src)) == 0)
 		 && (user_data->port_src_fwd == pinfo->srcport)
-		 && (CMP_ADDRESS(&(user_data->ip_dst_fwd), &(pinfo->net_dst)) == 0)
+		 && (cmp_address(&(user_data->ip_dst_fwd), &(pinfo->net_dst)) == 0)
 		 && (user_data->port_dst_fwd == pinfo->destport))  {
 		iax2_packet_analyse(&(user_data->forward.statinfo), pinfo, iax2info);
 		iax2_packet_add_graph(&(user_data->dlg.dialog_graph.graph[GRAPH_FWD_JITTER]),
@@ -477,9 +469,9 @@ iax2_packet(void *user_data_arg, packet_info *pinfo, epan_dissect_t *edt _U_, co
 					 &(user_data->forward.statinfo), pinfo, iax2info);
 	}
 	/* is it the reversed direction? */
-	else if (CMP_ADDRESS(&(user_data->ip_src_rev), &(pinfo->net_src)) == 0
+	else if (cmp_address(&(user_data->ip_src_rev), &(pinfo->net_src)) == 0
 		 && user_data->port_src_rev == pinfo->srcport
-		 && CMP_ADDRESS(&(user_data->ip_dst_rev), &(pinfo->net_dst)) == 0
+		 && cmp_address(&(user_data->ip_dst_rev), &(pinfo->net_dst)) == 0
 		 && user_data->port_dst_rev == pinfo->destport)  {
 		iax2_packet_analyse(&(user_data->reversed.statinfo), pinfo, iax2info);
 		iax2_packet_add_graph(&(user_data->dlg.dialog_graph.graph[GRAPH_REV_JITTER]),
@@ -521,8 +513,8 @@ static int iax2_packet_add_info(GtkWidget *list, user_data_t * user_data,
 	gchar status[40];
 	/* GdkColor color = COLOR_DEFAULT; */
 	gchar color_str[14];
-	then = pinfo->fd->abs_ts.secs;
-	msecs = (guint16)(pinfo->fd->abs_ts.nsecs/1000000);
+	then = pinfo->abs_ts.secs;
+	msecs = (guint16)(pinfo->abs_ts.nsecs/1000000);
 	tm_tmp = localtime(&then);
 	g_snprintf(timeStr,sizeof(timeStr),"%02d/%02d/%04d %02d:%02d:%02d.%03d",
 		tm_tmp->tm_mon + 1,
@@ -570,7 +562,7 @@ static int iax2_packet_add_info(GtkWidget *list, user_data_t * user_data,
 	/*  is this the first packet we got in this direction? */
 	if (statinfo->flags & STAT_FLAG_FIRST) {
 		add_to_list(list, user_data,
-			pinfo->fd->num,
+			pinfo->num,
 			0,
 			0,
 			statinfo->bandwidth,
@@ -581,7 +573,7 @@ static int iax2_packet_add_info(GtkWidget *list, user_data_t * user_data,
 	}
 	else {
 		add_to_list(list, user_data,
-			pinfo->fd->num,
+			pinfo->num,
 			statinfo->delta*1000,
 			statinfo->jitter*1000,
 			statinfo->bandwidth,
@@ -736,10 +728,10 @@ dialog_graph_set_title(user_data_t* user_data)
 		return;
 	}
 
-	src_fwd_addr = (char*)address_to_display(NULL, &(user_data->ip_src_fwd));
-	dst_fwd_addr = (char*)address_to_display(NULL, &(user_data->ip_dst_fwd));
-	src_rev_addr = (char*)address_to_display(NULL, &(user_data->ip_src_rev));
-	dst_rev_addr = (char*)address_to_display(NULL, &(user_data->ip_dst_rev));
+	src_fwd_addr = address_to_display(NULL, &(user_data->ip_src_fwd));
+	dst_fwd_addr = address_to_display(NULL, &(user_data->ip_dst_fwd));
+	src_rev_addr = address_to_display(NULL, &(user_data->ip_src_rev));
+	dst_rev_addr = address_to_display(NULL, &(user_data->ip_dst_rev));
 	title = g_strdup_printf("IAX2 Graph Analysis Forward: %s:%u to %s:%u   Reverse: %s:%u to %s:%u",
 				src_fwd_addr,
 				user_data->port_src_fwd,
@@ -784,8 +776,8 @@ dialog_graph_reset(user_data_t* user_data)
 	for (i = 0; i < MAX_GRAPHS; i++) {
 		/* it is forward */
 		if (i < 2) {
-			src_addr = (char*)address_to_display(NULL, &(user_data->ip_src_fwd));
-			dst_addr = (char*)address_to_display(NULL, &(user_data->ip_dst_fwd));
+			src_addr = address_to_display(NULL, &(user_data->ip_src_fwd));
+			dst_addr = address_to_display(NULL, &(user_data->ip_dst_fwd));
 			g_snprintf(user_data->dlg.dialog_graph.graph[i].title,
 				   sizeof (user_data->dlg.dialog_graph.graph[0].title),
 				   "%s: %s:%u to %s:%u",
@@ -796,8 +788,8 @@ dialog_graph_reset(user_data_t* user_data)
 			user_data->port_dst_fwd);
 		/* it is reverse */
 		} else {
-			src_addr = (char*)address_to_display(NULL, &(user_data->ip_src_rev));
-			dst_addr = (char*)address_to_display(NULL, &(user_data->ip_dst_rev));
+			src_addr = address_to_display(NULL, &(user_data->ip_src_rev));
+			dst_addr = address_to_display(NULL, &(user_data->ip_dst_rev));
 			g_snprintf(user_data->dlg.dialog_graph.graph[i].title,
 				   sizeof(user_data->dlg.dialog_graph.graph[0].title),
 				   "%s: %s:%u to %s:%u",
@@ -2372,7 +2364,7 @@ static gboolean copy_file(gchar *dest, gint channels, gint format, user_data_t *
 			case SAVE_FORWARD_DIRECTION_MASK: {
 				progbar_count = user_data->forward.saveinfo.count;
 				progbar_quantum = user_data->forward.saveinfo.count/100;
-				while ((fread_cnt = read(forw_fd, f_pd, 1)) > 0) {
+				while ((fread_cnt = ws_read(forw_fd, f_pd, 1)) > 0) {
 					if (stop_flag)
 						break;
 					if ((count > progbar_nextstep) && (count <= progbar_count)) {
@@ -2413,7 +2405,7 @@ static gboolean copy_file(gchar *dest, gint channels, gint format, user_data_t *
 			case SAVE_REVERSE_DIRECTION_MASK: {
 				progbar_count   = user_data->reversed.saveinfo.count;
 				progbar_quantum = user_data->reversed.saveinfo.count/100;
-				while ((rread = read(rev_fd, r_pd, 1)) > 0) {
+				while ((rread = ws_read(rev_fd, r_pd, 1)) > 0) {
 					if (stop_flag)
 						break;
 					if ((count > progbar_nextstep) && (count <= progbar_count)) {
@@ -2476,7 +2468,7 @@ static gboolean copy_file(gchar *dest, gint channels, gint format, user_data_t *
 					}
 					count++;
 					if (f_write_silence > 0) {
-						rread = read(rev_fd, r_pd, 1);
+						rread = ws_read(rev_fd, r_pd, 1);
 						switch (user_data->forward.statinfo.reg_pt) {
 						case AST_FORMAT_ULAW:
 							*f_pd = SILENCE_PCMU;
@@ -2489,7 +2481,7 @@ static gboolean copy_file(gchar *dest, gint channels, gint format, user_data_t *
 						f_write_silence--;
 					}
 					else if (r_write_silence > 0) {
-						fread_cnt = read(forw_fd, f_pd, 1);
+						fread_cnt = ws_read(forw_fd, f_pd, 1);
 						switch (user_data->reversed.statinfo.reg_pt) {
 						case AST_FORMAT_ULAW:
 							*r_pd = SILENCE_PCMU;
@@ -2502,8 +2494,8 @@ static gboolean copy_file(gchar *dest, gint channels, gint format, user_data_t *
 						r_write_silence--;
 					}
 					else {
-						fread_cnt = read(forw_fd, f_pd, 1);
-						rread = read(rev_fd, r_pd, 1);
+						fread_cnt = ws_read(forw_fd, f_pd, 1);
+						rread = ws_read(rev_fd, r_pd, 1);
 					}
 					if ((rread == 0) && (fread_cnt == 0))
 						break;
@@ -2569,7 +2561,7 @@ static gboolean copy_file(gchar *dest, gint channels, gint format, user_data_t *
 
 
 		/* XXX how do you just copy the file? */
-		while ((rread = read(fd, pd, 1)) > 0) {
+		while ((rread = ws_read(fd, pd, 1)) > 0) {
 			if (stop_flag)
 				break;
 			if ((count > progbar_nextstep) && (count <= progbar_count)) {
@@ -3255,16 +3247,16 @@ create_iax2_dialog(user_data_t* user_data)
 	gtk_widget_show(main_vb);
 
 	/* Notebooks... */
-	src_addr = (char*)address_to_display(NULL, &(user_data->ip_src_fwd));
-	dst_addr = (char*)address_to_display(NULL, &(user_data->ip_dst_fwd));
+	src_addr = address_to_display(NULL, &(user_data->ip_src_fwd));
+	dst_addr = address_to_display(NULL, &(user_data->ip_dst_fwd));
 	g_snprintf(label_forward, sizeof(label_forward),
 		"Analysing stream from  %s port %u  to  %s port %u  ",
 		src_addr, user_data->port_src_fwd, dst_addr, user_data->port_dst_fwd);
 	wmem_free(NULL, src_addr);
 	wmem_free(NULL, dst_addr);
 
-	src_addr = (char*)address_to_display(NULL, &(user_data->ip_src_rev));
-	dst_addr = (char*)address_to_display(NULL, &(user_data->ip_dst_rev));
+	src_addr = address_to_display(NULL, &(user_data->ip_src_rev));
+	dst_addr = address_to_display(NULL, &(user_data->ip_dst_rev));
 	g_snprintf(label_reverse, sizeof(label_reverse),
 		"Analysing stream from  %s port %u  to  %s port %u  ",
 		src_addr, user_data->port_src_rev, dst_addr, user_data->port_dst_rev);
@@ -3406,81 +3398,6 @@ create_iax2_dialog(user_data_t* user_data)
 	gtk_widget_grab_focus(list_fwd);
 }
 
-#if 0
-/****************************************************************************/
-static gboolean
-process_node(proto_node *ptree_node, header_field_info *hfinformation,
-							const gchar* proto_field, guint32* p_result)
-{
-	field_info        *finfo;
-	proto_node        *proto_sibling_node;
-	header_field_info *hfssrc;
-	ipv4_addr         *ipv4;
-
-	finfo = PNODE_FINFO(ptree_node);
-
-	if (hfinformation == (finfo->hfinfo)) {
-		hfssrc = proto_registrar_get_byname(proto_field);
-		if (hfssrc == NULL) {
-			simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-				      "Bad field name.");
-			return FALSE;
-			}
-		for (ptree_node = ptree_node->first_child;
-		     ptree_node != NULL;
-		     ptree_node = ptree_node->next) {
-			finfo = PNODE_FINFO(ptree_node);
-			if (hfssrc == finfo->hfinfo) {
-				if (hfinformation->type == FT_IPv4) {
-					ipv4      = fvalue_get(&finfo->value);
-					*p_result = ipv4_get_net_order_addr(ipv4);
-				}
-				else {
-					*p_result = fvalue_get_uinteger(&finfo->value);
-				}
-				return TRUE;
-			}
-		}
-		if (!ptree_node)
-			return FALSE;
-	}
-
-	proto_sibling_node = ptree_node->next;
-
-	if (proto_sibling_node) {
-		return process_node(proto_sibling_node, hfinformation, proto_field, p_result);
-	}
-	else
-	return FALSE;
-}
-
-/****************************************************************************/
-static gboolean
-get_int_value_from_proto_tree(proto_tree *protocol_tree,
-						 const gchar* proto_name,
-						 const gchar* proto_field,
-						 guint32* p_result)
-{
-	proto_node      *ptree_node;
-	header_field_info     *hfinformation;
-
-	hfinformation = proto_registrar_get_byname(proto_name);
-	if (hfinformation == NULL) {
-		simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-			      "Bad proto.");
-		return FALSE;
-		}
-
-	ptree_node = ((proto_node *)protocol_tree)->first_child;
-	if (!ptree_node) {
-		simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-			      "No info.");
-		return FALSE;
-		}
-	return process_node(ptree_node, hfinformation, proto_field, p_result);
-}
-#endif
-
 /****************************************************************************/
 static void
 iax2_analysis(
@@ -3515,13 +3432,13 @@ iax2_analysis(
 	/* init */
 	user_data = (user_data_t *)g_malloc(sizeof(user_data_t));
 
-	COPY_ADDRESS(&(user_data->ip_src_fwd), ip_src_fwd);
+	copy_address(&(user_data->ip_src_fwd), ip_src_fwd);
 	user_data->port_src_fwd = port_src_fwd;
-	COPY_ADDRESS(&(user_data->ip_dst_fwd), ip_dst_fwd);
+	copy_address(&(user_data->ip_dst_fwd), ip_dst_fwd);
 	user_data->port_dst_fwd = port_dst_fwd;
-	COPY_ADDRESS(&(user_data->ip_src_rev), ip_src_rev);
+	copy_address(&(user_data->ip_src_rev), ip_src_rev);
 	user_data->port_src_rev = port_src_rev;
-	COPY_ADDRESS(&(user_data->ip_dst_rev), ip_dst_rev);
+	copy_address(&(user_data->ip_dst_rev), ip_dst_rev);
 	user_data->port_dst_rev = port_dst_rev;
 
 
@@ -3608,7 +3525,12 @@ void iax2_analysis_cb(GtkAction *action _U_, gpointer user_data _U_)
 	guint16 port_dst_rev;
 	/* unsigned int ptype; */
 
-	const gchar  *filter_text = "iax2 && (ip || ipv6)";
+#if 0
+	/* Only accept Voice or MiniPacket packets */
+	const gchar  filter_text[] = "iax2.call && (ip || ipv6)";
+#else
+	const gchar  filter_text[] = "iax2 && (ip || ipv6)";
+#endif
 	dfilter_t    *sfcode;
 	gchar        *err_msg;
 	capture_file *cf;
@@ -3648,24 +3570,16 @@ void iax2_analysis_cb(GtkAction *action _U_, gpointer user_data _U_)
 		    "Please select an IAX2 packet.");
 		return;
 	}
-#if 0
-	/* check if it is Voice or MiniPacket */
-	if (!get_int_value_from_proto_tree(edt->tree, "iax2", "iax2.call", &ptype)) {
-		simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
-		    "Please select a Voice packet.");
-		return;
-	}
-#endif
 
 	/* ok, it is a IAX2 frame, so let's get the ip and port values */
-	COPY_ADDRESS(&(ip_src_fwd), &(edt.pi.src));
-	COPY_ADDRESS(&(ip_dst_fwd), &(edt.pi.dst));
+	copy_address(&(ip_src_fwd), &(edt.pi.src));
+	copy_address(&(ip_dst_fwd), &(edt.pi.dst));
 	port_src_fwd = edt.pi.srcport;
 	port_dst_fwd = edt.pi.destport;
 
 	/* assume the inverse ip/port combination for the reverse direction */
-	COPY_ADDRESS(&(ip_src_rev), &(edt.pi.dst));
-	COPY_ADDRESS(&(ip_dst_rev), &(edt.pi.src));
+	copy_address(&(ip_src_rev), &(edt.pi.dst));
+	copy_address(&(ip_dst_rev), &(edt.pi.src));
 	port_src_rev = edt.pi.destport;
 	port_dst_rev = edt.pi.srcport;
 
@@ -3677,17 +3591,17 @@ void iax2_analysis_cb(GtkAction *action _U_, gpointer user_data _U_)
 	while (strinfo_list)
 	{
 		strinfo = (rtp_stream_info_t*)(strinfo_list->data);
-		if (ADDRESSES_EQUAL(&(strinfo->src_addr),&(ip_src_fwd))
+		if (addresses_equal(&(strinfo->src_addr),&(ip_src_fwd))
 			&& strinfo->src_port == port_src_fwd
-			&& ADDRESSES_EQUAL(&(strinfo->dest_addr),&(ip_dst_fwd))
+			&& addresses_equal(&(strinfo->dest_addr),&(ip_dst_fwd))
 			&& strinfo->dest_port == port_dst_fwd)
 		{
 			filtered_list = g_list_prepend(filtered_list, strinfo);
 		}
 
-		if (ADDRESSES_EQUAL(&(strinfo->src_addr),&(ip_src_rev))
+		if (addresses_equal(&(strinfo->src_addr),&(ip_src_rev))
 			&& strinfo->src_port == port_src_rev
-			&& ADDRESSES_EQUAL(&(strinfo->dest_addr),&(ip_dst_rev))
+			&& addresses_equal(&(strinfo->dest_addr),&(ip_dst_rev))
 			&& strinfo->dest_port == port_dst_rev)
 		{
 			++nfound;

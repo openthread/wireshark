@@ -52,8 +52,8 @@ static const value_string function_vals[] = {
   { 0, NULL }
 };
 
-static void
-dissect_loop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_loop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree  *loop_tree = NULL;
   proto_item  *ti;
@@ -118,6 +118,7 @@ dissect_loop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     next_tvb = tvb_new_subset_remaining(tvb, offset);
     call_dissector(data_handle, next_tvb, pinfo, tree);
   }
+  return tvb_captured_length(tvb);
 }
 
 void

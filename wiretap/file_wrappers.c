@@ -41,21 +41,15 @@
 
 #include "config.h"
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif /* HAVE_UNISTD_H */
-
 #include <errno.h>
-#include <stdio.h>
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif /* HAVE_FCNTL_H */
 #include <string.h>
 #include "wtap-int.h"
 #include "file_wrappers.h"
+#include <wsutil/ws_diag_control.h>
 #include <wsutil/file_util.h>
 
 #ifdef HAVE_LIBZ
+#define ZLIB_CONST
 #include <zlib.h>
 #endif /* HAVE_LIBZ */
 
@@ -75,30 +69,12 @@
  * might be expanded to include routines to handle the various
  * compression types.
  */
-static const char *compressed_file_extensions[] = {
+const char *compressed_file_extension_table[] = {
 #ifdef HAVE_LIBZ
     "gz",
 #endif
     NULL
 };
-
-/*
- * Return a GSList of all the compressed file extensions.
- * The data pointers all point to items in compressed_file_extensions[],
- * so the GSList can just be freed with g_slist_free().
- */
-GSList *
-wtap_get_compressed_file_extensions(void)
-{
-    const char **extension;
-    GSList *extensions;
-
-    extensions = NULL;
-    for (extension = &compressed_file_extensions[0]; *extension != NULL;
-         extension++)
-        extensions = g_slist_append(extensions, (gpointer)(*extension));
-    return extensions;
-}
 
 /* #define GZBUFSIZE 8192 */
 #define GZBUFSIZE 4096
@@ -154,7 +130,7 @@ raw_read(FILE_T state, unsigned char *buf, unsigned int count, guint *have)
 
     *have = 0;
     do {
-        ret = read(state->fd, buf + *have, count - *have);
+        ret = ws_read(state->fd, buf + *have, count - *have);
         if (ret <= 0)
             break;
         *have += (unsigned)ret;
@@ -481,7 +457,13 @@ zlib_read(FILE_T state, unsigned char *buf, unsigned int count)
         ret = inflate(strm, Z_NO_FLUSH);
 #endif
         state->avail_in = strm->avail_in;
+#ifdef z_const
+DIAG_OFF(cast-qual)
+        state->next_in = (unsigned char *)strm->next_in;
+DIAG_ON(cast-qual)
+#else
         state->next_in = strm->next_in;
+#endif
         if (ret == Z_STREAM_ERROR) {
             state->err = WTAP_ERR_DECOMPRESS;
             state->err_info = strm->msg;
@@ -1506,7 +1488,7 @@ gzwfile_open(const char *path)
     state = gzwfile_fdopen(fd);
     if (state == NULL) {
         save_errno = errno;
-        close(fd);
+        ws_close(fd);
         errno = save_errno;
     }
     return state;
@@ -1611,7 +1593,7 @@ gz_comp(GZWFILE_T state, int flush)
                                      (flush != Z_FINISH || ret == Z_STREAM_END))) {
             have = strm->next_out - state->next;
             if (have) {
-                got = write(state->fd, state->next, (unsigned int)have);
+                got = ws_write(state->fd, state->next, (unsigned int)have);
                 if (got < 0) {
                     state->err = errno;
                     return -1;
@@ -1680,7 +1662,13 @@ gzwfile_write(GZWFILE_T state, const void *buf, guint len)
             n = state->size - strm->avail_in;
             if (n > len)
                 n = len;
+#ifdef z_const
+DIAG_OFF(cast-qual)
+            memcpy((Bytef *)strm->next_in + strm->avail_in, buf, n);
+DIAG_ON(cast-qual)
+#else
             memcpy(strm->next_in + strm->avail_in, buf, n);
+#endif
             strm->avail_in += n;
             state->pos += n;
             buf = (const char *)buf + n;
@@ -1696,10 +1684,12 @@ gzwfile_write(GZWFILE_T state, const void *buf, guint len)
 
         /* directly compress user buffer to file */
         strm->avail_in = len;
-#if ZLIB_CONST
+#ifdef z_const
         strm->next_in = (z_const Bytef *)buf;
 #else
+DIAG_OFF(cast-qual)
         strm->next_in = (Bytef *)buf;
+DIAG_ON(cast-qual)
 #endif
         state->pos += len;
         if (gz_comp(state, Z_NO_FLUSH) == -1)
@@ -1727,9 +1717,15 @@ gzwfile_flush(GZWFILE_T state)
 }
 
 /* Flush out all data written, and close the file.  Returns a Wiretap
-   error on failure; returns 0 on success. */
+   error on failure; returns 0 on success.
+
+   If is_stdout is true, do all of that except for closing the file
+   descriptor, as we don't want to close the standard output file
+   descriptor out from under the program (even though, if the program
+   is writing a capture file to the standard output, it shouldn't be
+   doing anything *else* on the standard output). */
 int
-gzwfile_close(GZWFILE_T state)
+gzwfile_close(GZWFILE_T state, gboolean is_stdout)
 {
     int ret = 0;
 
@@ -1740,8 +1736,10 @@ gzwfile_close(GZWFILE_T state)
     g_free(state->out);
     g_free(state->in);
     state->err = Z_OK;
-    if (close(state->fd) == -1 && ret == 0)
-        ret = errno;
+    if (!is_stdout) {
+        if (ws_close(state->fd) == -1 && ret == 0)
+            ret = errno;
+    }
     g_free(state);
     return ret;
 }

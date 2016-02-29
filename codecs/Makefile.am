@@ -1,5 +1,5 @@
 # Makefile.am
-# Automake file for the libcodec library for Wireshark
+# Automake file for the libwscodec library for Wireshark
 #
 # Wireshark - Network traffic analyzer
 # By Gerald Combs <gerald@wireshark.org>
@@ -20,37 +20,43 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 include Makefile.common
-include ../Makefile.am.inc
+include $(top_srcdir)/Makefile.am.inc
 
-if HAVE_WARNINGS_AS_ERRORS
-AM_CFLAGS = -Werror
+AM_CPPFLAGS = -DWS_BUILD_DLL $(INCLUDEDIRS) $(WS_CPPFLAGS) \
+	$(GLIB_CFLAGS) $(SBC_CFLAGS)
+
+lib_LTLIBRARIES = libwscodecs.la
+
+if HAVE_SBC
+LIBWSCODECS_SRC += sbc/sbc.c
 endif
 
-noinst_LIBRARIES = libcodec.a
+# All sources that should be put in the source distribution tarball
+libwscodecs_la_SOURCES = \
+	$(LIBWSCODECS_SRC) \
+	$(noinst_HEADERS)
+
+# http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
+libwscodecs_la_LDFLAGS = -version-info 0:0:0 @LDFLAGS_SHAREDLIB@
+
+libwscodecs_la_LIBADD = $(top_builddir)/wsutil/libwsutil.la $(GLIB_LIBS) $(SBC_LIBS)
+
+libwscodecs_la_DEPENDENCIES = $(top_builddir)/wsutil/libwsutil.la
+
+EXTRA_DIST = \
+	CMakeLists.txt			\
+	Makefile.common			\
+	Makefile.nmake			\
+	speex/README.txt
 
 CLEANFILES = \
-	libcodec.a	\
+	libwscodec.la	\
 	*~
 
 MAINTAINERCLEANFILES =	\
 	Makefile.in
 
-# All sources that should be put in the source distribution tarball
-libcodec_a_SOURCES = \
-	$(LIBCODEC_SRC) \
-	$(noinst_HEADERS)
-
-libcodec_a_DEPENDENCIES = 
-
-# Common headers
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/wiretap
-
 checkapi:
 	$(PERL) $(top_srcdir)/tools/checkAPIs.pl -g abort -g termoutput -build \
 	-sourcedir=$(srcdir) \
-	$(LIBCODEC_SRC)
-
-EXTRA_DIST = \
-	CMakeLists.txt			\
-	Makefile.common			\
-	Makefile.nmake
+	$(LIBWSCODECS_SRC)

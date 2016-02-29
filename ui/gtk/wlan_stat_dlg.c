@@ -146,7 +146,7 @@ dealloc_wlan_details_ep (wlan_details_ep_t *details)
     while (details) {
         tmp = details;
         details = details->next;
-        g_free ((void*)tmp->addr.data);
+        free_address(&tmp->addr);
         g_free (tmp);
     }
 }
@@ -206,7 +206,7 @@ wlanstat_reset (void *phs)
         tmp  = list;
         dealloc_wlan_details_ep(tmp->details);
         list = tmp->next;
-        g_free((void*)tmp->bssid.data);
+        free_address(&tmp->bssid);
         g_free(tmp);
     }
 
@@ -240,7 +240,7 @@ alloc_wlan_ep (const struct _wlan_hdr *si, const packet_info *pinfo _U_)
 
     ep = (wlan_ep_t *)g_malloc (sizeof(wlan_ep_t));
 
-    COPY_ADDRESS (&ep->bssid, &si->bssid);
+    copy_address (&ep->bssid, &si->bssid);
     ep->stats.channel      = si->stats.channel;
     memcpy (ep->stats.ssid, si->stats.ssid, MAX_SSID_LEN);
     ep->stats.ssid_len     = si->stats.ssid_len;
@@ -267,7 +267,7 @@ alloc_wlan_details_ep (const address *addr)
     if (!(d_ep = (wlan_details_ep_t *)g_malloc (sizeof(wlan_details_ep_t))))
         return NULL;
 
-    COPY_ADDRESS (&d_ep->addr, addr);
+    copy_address (&d_ep->addr, addr);
     d_ep->probe_req         = 0;
     d_ep->probe_rsp         = 0;
     d_ep->auth              = 0;
@@ -292,7 +292,7 @@ get_details_ep (wlan_ep_t *te, const address *addr)
         d_te = te->details;
     } else {
         for (tmp = te->details; tmp; tmp = tmp->next) {
-            if (!CMP_ADDRESS (&tmp->addr, addr)) {
+            if (!cmp_address (&tmp->addr, addr)) {
                 d_te = tmp;
                 break;
             }
@@ -369,7 +369,7 @@ is_broadcast(const address *addr)
 
     /* doesn't work if MAC resolution is disable */
     return cmp_addr;
-    return ADDRESSES_EQUAL(&broadcast, addr);
+    return addresses_equal(&broadcast, addr);
 }
 #endif
 
@@ -408,7 +408,7 @@ wlanstat_packet (void *phs, packet_info *pinfo, epan_dissect_t *edt _U_, const v
                       || ((si->stats.ssid_len != 0) && (ssid_equal(&tmp->stats, &si->stats)))
                       )))
                 ||
-                ((si->type != MGT_PROBE_REQ) && !CMP_ADDRESS(&tmp->bssid, &si->bssid))) {
+                ((si->type != MGT_PROBE_REQ) && !cmp_address(&tmp->bssid, &si->bssid))) {
                 te = tmp;
                 break;
             }
@@ -462,7 +462,7 @@ wlanstat_packet (void *phs, packet_info *pinfo, epan_dissect_t *edt _U_, const v
                     if (tmp->iter_valid) {
                         gtk_list_store_remove(store, &tmp->iter);
                     }
-                    g_free((void*)tmp->bssid.data);
+                    free_address(&tmp->bssid);
                     g_free(tmp);
                     break;
                 }
@@ -516,7 +516,7 @@ wlanstat_draw_details(wlanstat_t *hs, wlan_ep_t *wlan_ep, gboolean clear)
             f = 0.0f;
         }
 
-        addr_str = (char*)get_conversation_address(NULL, &tmp->addr, hs->resolve_names);
+        addr_str = get_conversation_address(NULL, &tmp->addr, hs->resolve_names);
 
         if (basestation_flag) {
             g_strlcpy (comment, "Base station", sizeof(comment));
@@ -581,7 +581,7 @@ wlanstat_draw(void *phs)
           tmp->type[MGT_PROBE_RESP] - tmp->type[MGT_AUTHENTICATION] - tmp->type[MGT_DEAUTHENTICATION];
         f = (float)(((float)tmp->number_of_packets * 100.0) / hs->number_of_packets);
 
-        bssid = (char*)get_conversation_address(NULL, &tmp->bssid, hs->resolve_names);
+        bssid = get_conversation_address(NULL, &tmp->bssid, hs->resolve_names);
         if (tmp->stats.channel) {
             g_snprintf (channel, sizeof(channel), "%u", tmp->stats.channel);
         } else {

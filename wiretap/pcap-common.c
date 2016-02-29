@@ -306,10 +306,9 @@ static const struct {
 
 	{ 169,		WTAP_ENCAP_GPRS_LLC },
 
-	/*
-	 * 170 and 171 are reserved for ITU-T G.7041/Y.1303 Generic
-	 * Framing Procedure.
-	 */
+	/* ITU-T G.7041/Y.1303 Generic Framing Procedure. */
+	{ 170,		WTAP_ENCAP_GFP_T },
+	{ 171,		WTAP_ENCAP_GFP_F },
 
 	/* Registered by Gcom, Inc. */
 	{ 172,		WTAP_ENCAP_GCOM_TIE1 },
@@ -327,8 +326,8 @@ static const struct {
 	{ 181,		WTAP_ENCAP_JUNIPER_CHDLC },
 	/* VOIP Frames prepended with meta-information */
 	{ 183,		WTAP_ENCAP_JUNIPER_VP },
-	/* raw USB packets */
-	{ 186,		WTAP_ENCAP_USB },
+	/* USB packets from FreeBSD's USB BPF tap */
+	{ 186,		WTAP_ENCAP_USB_FREEBSD },
 	/* Bluetooth HCI UART transport (part H:4) frames, like hcidump */
 	{ 187,		WTAP_ENCAP_BLUETOOTH_H4 },
 	/* IEEE 802.16 MAC Common Part Sublayer */
@@ -432,6 +431,9 @@ static const struct {
 
 	/* IPMI Trace Data Collection */
 	{ 260,		WTAP_ENCAP_IPMI_TRACE },
+
+	/* ISO14443 contactless smartcard standards */
+	{ 264,		WTAP_ENCAP_ISO14443 },
 
 	/*
 	 * To repeat:
@@ -690,19 +692,21 @@ wtap_wtap_encap_to_pcap_encap(int encap)
 }
 
 gboolean
-wtap_encap_requires_phdr(int encap) {
-	if (
-		(encap == WTAP_ENCAP_ATM_PDUS) ||
-		(encap == WTAP_ENCAP_IRDA) ||
-		(encap == WTAP_ENCAP_MTP2_WITH_PHDR) ||
-		(encap == WTAP_ENCAP_LINUX_LAPD) ||
-		(encap == WTAP_ENCAP_SITA) ||
-		(encap == WTAP_ENCAP_ERF) ||
-		(encap == WTAP_ENCAP_I2C) ||
-		(encap == WTAP_ENCAP_BLUETOOTH_H4_WITH_PHDR) ||
-		(encap == WTAP_ENCAP_BLUETOOTH_LINUX_MONITOR) ||
-		(encap == WTAP_ENCAP_PPP_WITH_PHDR)
-	) {
+wtap_encap_requires_phdr(int wtap_encap)
+{
+	switch (wtap_encap) {
+
+	case WTAP_ENCAP_ATM_PDUS:
+	case WTAP_ENCAP_IRDA:
+	case WTAP_ENCAP_MTP2_WITH_PHDR:
+	case WTAP_ENCAP_LINUX_LAPD:
+	case WTAP_ENCAP_SITA:
+	case WTAP_ENCAP_BLUETOOTH_H4_WITH_PHDR:
+	case WTAP_ENCAP_BLUETOOTH_LINUX_MONITOR:
+	case WTAP_ENCAP_NFC_LLCP:
+	case WTAP_ENCAP_PPP_WITH_PHDR:
+	case WTAP_ENCAP_ERF:
+	case WTAP_ENCAP_I2C:
 		return TRUE;
 	}
 	return FALSE;
@@ -1483,7 +1487,6 @@ pcap_read_erf_subheader(FILE_T fh, union wtap_pseudo_header *pseudo_header,
 	case ERF_TYPE_MC_ATM:
 	case ERF_TYPE_MC_RAW_CHANNEL:
 	case ERF_TYPE_MC_AAL5:
-	case ERF_TYPE_MC_AAL2:
 	case ERF_TYPE_COLOR_MC_HDLC_POS:
 		/* Extract the Multi Channel header to include it in the pseudo header part */
 		if (!wtap_read_bytes(fh, erf_subhdr, sizeof(erf_mc_header_t), err, err_info))
@@ -1491,13 +1494,20 @@ pcap_read_erf_subheader(FILE_T fh, union wtap_pseudo_header *pseudo_header,
 		pseudo_header->erf.subhdr.mc_hdr = pntoh32(&erf_subhdr[0]);
 		*psize = sizeof(erf_mc_header_t);
 		break;
+	case ERF_TYPE_MC_AAL2:
+		/* Extract the AAL2 header to include it in the pseudo header part */
+		if (!wtap_read_bytes(fh, erf_subhdr, sizeof(erf_aal2_header_t), err, err_info))
+			return FALSE;
+		pseudo_header->erf.subhdr.aal2_hdr = pntoh32(&erf_subhdr[0]);
+		*psize = sizeof(erf_aal2_header_t);
+		break;
 	case ERF_TYPE_ETH:
 	case ERF_TYPE_COLOR_ETH:
 	case ERF_TYPE_DSM_COLOR_ETH:
 		/* Extract the Ethernet additional header to include it in the pseudo header part */
 		if (!wtap_read_bytes(fh, erf_subhdr, sizeof(erf_eth_header_t), err, err_info))
 			return FALSE;
-		pseudo_header->erf.subhdr.eth_hdr = pntoh16(&erf_subhdr[0]);
+		memcpy(&pseudo_header->erf.subhdr.eth_hdr, erf_subhdr, sizeof pseudo_header->erf.subhdr.eth_hdr);
 		*psize = sizeof(erf_eth_header_t);
 		break;
 	default:
@@ -1529,8 +1539,6 @@ pcap_process_pseudo_header(FILE_T fh, int file_type, int wtap_encap,
 {
 	int phdr_len = 0;
 	guint size;
-
-	phdr->pkt_encap = wtap_encap;
 
 	switch (wtap_encap) {
 
@@ -1604,10 +1612,10 @@ pcap_process_pseudo_header(FILE_T fh, int file_type, int wtap_encap,
 		 * XXX - in pcap-ng, there *could* be a packet option
 		 * indicating the FCS length.
 		 */
+		memset(&phdr->pseudo_header.ieee_802_11, 0, sizeof(phdr->pseudo_header.ieee_802_11));
 		phdr->pseudo_header.ieee_802_11.fcs_len = -1;
 		phdr->pseudo_header.ieee_802_11.decrypted = FALSE;
 		phdr->pseudo_header.ieee_802_11.datapad = FALSE;
-		phdr->pseudo_header.ieee_802_11.presence_flags = 0; /* absent or supplied in the packet data */
 		break;
 
 	case WTAP_ENCAP_IRDA:
@@ -2114,15 +2122,18 @@ pcap_write_phdr(wtap_dumper *wdh, int encap, const union wtap_pseudo_header *pse
 		case ERF_TYPE_MC_ATM:
 		case ERF_TYPE_MC_RAW_CHANNEL:
 		case ERF_TYPE_MC_AAL5:
-		case ERF_TYPE_MC_AAL2:
 		case ERF_TYPE_COLOR_MC_HDLC_POS:
 			phtonl(&erf_hdr[16], pseudo_header->erf.subhdr.mc_hdr);
 			size += (int)sizeof(struct erf_mc_hdr);
 			break;
+		case ERF_TYPE_MC_AAL2:
+			phtonl(&erf_hdr[16], pseudo_header->erf.subhdr.aal2_hdr);
+			size += (int)sizeof(struct erf_aal2_hdr);
+			break;
 		case ERF_TYPE_ETH:
 		case ERF_TYPE_COLOR_ETH:
 		case ERF_TYPE_DSM_COLOR_ETH:
-			phtons(&erf_hdr[16], pseudo_header->erf.subhdr.eth_hdr);
+			memcpy(&erf_hdr[16], &pseudo_header->erf.subhdr.eth_hdr, sizeof pseudo_header->erf.subhdr.eth_hdr);
 			size += (int)sizeof(struct erf_eth_hdr);
 			break;
 		default:

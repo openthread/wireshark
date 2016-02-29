@@ -34,11 +34,14 @@ class ExtcapArgumentFileSelection : public ExtcapArgument
     Q_OBJECT
 
 public:
-    ExtcapArgumentFileSelection    (extcap_arg * argument);
+    ExtcapArgumentFileSelection(extcap_arg * argument);
+    virtual ~ExtcapArgumentFileSelection();
 
     virtual QWidget * createEditor(QWidget * parent);
 
     virtual QString value();
+
+    virtual bool isValid();
 
 protected:
     QLineEdit * textBox;

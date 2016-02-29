@@ -26,6 +26,7 @@
 #include <stdlib.h>
 
 #include <epan/packet.h>
+#include <epan/proto_data.h>
 #include "packet-tcp.h"
 
 void proto_register_ajp13(void);
@@ -78,7 +79,7 @@ void proto_reg_handoff_ajp13(void);
  * looking at raw network packets, aren't we? The stuff on the
  * wire. Wireshark has been getting better and better at helping
  * dissectors with this. I'm a little fuzzy on the details, but my
- * uderstanding is that wireshark now contains a fairly substantial
+ * understanding is that wireshark now contains a fairly substantial
  * user-space TCP/IP stack so it can re-assemble the data. But I might
  * be wrong. Since AJP13 is going to be used either on the loopback
  * interface or on a LAN, it isn't likely to be a big issues anyway.
@@ -89,7 +90,7 @@ void proto_reg_handoff_ajp13(void);
  * PDU can stretch across multiple TCP segments. Assembling them is
  * obviously possible, but a royal pain. During the "phase one"
  * in-order pass you have to keep track of a bunch of offsets and
- * store which PDU goes with which TCP segment. Luckly, recent
+ * store which PDU goes with which TCP segment. Luckily, recent
  * (0.9.4+) versions of wireshark provide the "tcp_dissect_pdus()"
  * function that takes care of much of the work. See the comments in
  * packet-tcp.c, the example code in packet-dns.c, or check the
@@ -1116,7 +1117,7 @@ void
 proto_reg_handoff_ajp13(void)
 {
   dissector_handle_t ajp13_handle;
-  ajp13_handle = new_create_dissector_handle(dissect_ajp13, proto_ajp13);
+  ajp13_handle = create_dissector_handle(dissect_ajp13, proto_ajp13);
   dissector_add_uint("tcp.port", 8009, ajp13_handle);
 }
 

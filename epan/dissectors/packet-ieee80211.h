@@ -31,14 +31,12 @@
 extern "C" {
 #endif /* __cplusplus */
 
-WS_DLL_PUBLIC
-void capture_ieee80211 (const guchar *, int, int, packet_counts *);
-void capture_ieee80211_datapad (const guchar *, int, int, packet_counts *);
+extern
+gboolean capture_ieee80211 (const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
+gboolean capture_ieee80211_datapad (const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
 
-WS_DLL_PUBLIC
-void capture_prism(const guchar *, int, int, packet_counts *);
-WS_DLL_PUBLIC
-void capture_wlancap(const guchar *, int, int, packet_counts *);
+extern
+gboolean capture_wlancap(const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
 
 void dissect_wifi_p2p_ie(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
                          int offset, gint size);
@@ -63,7 +61,8 @@ int add_tagged_field(packet_info *pinfo, proto_tree *tree,
  */
 #define MAX_MCS_INDEX 76
 
-WS_DLL_PUBLIC const float ieee80211_float_htrates[MAX_MCS_INDEX+1][2][2];
+WS_DLL_PUBLIC const guint16 ieee80211_ht_Dbps[MAX_MCS_INDEX+1];
+float ieee80211_htrate(int mcs_index, gboolean bandwidth, gboolean short_gi);
 
 WS_DLL_PUBLIC value_string_ext ieee80211_supported_rates_vals_ext;
 

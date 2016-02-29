@@ -175,7 +175,7 @@ win32 {
 #tap_register.CONFIG += no_link
 QMAKE_EXTRA_COMPILERS += tap_register
 
-INCLUDEPATH += ../.. ../../wiretap
+INCLUDEPATH += ../..
 win32:INCLUDEPATH += \
     $${WIRESHARK_LIB_DIR}/gtk2/include/glib-2.0 $${WIRESHARK_LIB_DIR}/gtk2/lib/glib-2.0/include \
     $${WIRESHARK_LIB_DIR}/gtk3/include/glib-2.0 $${WIRESHARK_LIB_DIR}/gtk3/lib/glib-2.0/include \
@@ -191,11 +191,11 @@ SOURCES_WS_C = \
     ../../capture_info.c  \
     ../../capture_opts.c \
     ../../cfile.c \
-    ../../color_filters.c \
     ../../extcap.c \
     ../../extcap_parser.c \
     ../../file.c  \
     ../../fileset.c \
+    ../../filter_files.c \
     ../../frame_tvbuff.c \
     ../../summary.c \
     ../../sync_pipe_write.c
@@ -231,6 +231,7 @@ FORMS += \
     extcap_options_dialog.ui \
     file_set_dialog.ui \
     filter_dialog.ui \
+    filter_expression_frame.ui \
     filter_expressions_preferences_frame.ui \
     follow_stream_dialog.ui \
     font_color_preferences_frame.ui \
@@ -245,6 +246,7 @@ FORMS += \
     lbm_lbtru_transport_dialog.ui \
     lbm_stream_dialog.ui \
     lbm_uimflow_dialog.ui \
+    lte_rlc_graph_dialog.ui \
     main_welcome.ui \
     main_window.ui \
     main_window_preferences_frame.ui \
@@ -275,6 +277,7 @@ FORMS += \
     sctp_graph_byte_dialog.ui  \
     search_frame.ui \
     sequence_dialog.ui \
+    show_packet_bytes_dialog.ui \
     splash_overlay.ui \
     supported_protocols_dialog.ui \
     tap_parameter_dialog.ui \
@@ -313,9 +316,12 @@ HEADERS += $$HEADERS_WS_C \
     export_pdu_dialog.h \
     extcap_argument.h \
     extcap_argument_file.h \
+    extcap_argument_multiselect.h \
     extcap_options_dialog.h \
     filter_action.h \
+    filter_expression_frame.h \
     filter_expressions_preferences_frame.h \
+    find_line_edit.h \
     follow_stream_dialog.h \
     follow_stream_text.h \
     font_color_preferences_frame.h \
@@ -329,6 +335,7 @@ HEADERS += $$HEADERS_WS_C \
     lbm_stream_dialog.h \
     lbm_uimflow_dialog.h \
     lte_mac_statistics_dialog.h \
+    lte_rlc_graph_dialog.h \
     lte_rlc_statistics_dialog.h \
     main_window_preferences_frame.h \
     manage_interfaces_dialog.h \
@@ -363,6 +370,7 @@ HEADERS += $$HEADERS_WS_C \
     search_frame.h \
     service_response_time_dialog.h \
     simple_statistics_dialog.h \
+    show_packet_bytes_dialog.h \
     splash_overlay.h \
     stats_tree_dialog.h \
     tango_colors.h \
@@ -384,7 +392,7 @@ win32 {
     SOURCES += $$SOURCES_WS_C
 }
 
-DEFINES += INET6 REENTRANT
+DEFINES += REENTRANT
 unix:DEFINES += _U_=\"__attribute__((unused))\"
 
 macx:QMAKE_LFLAGS += \
@@ -478,7 +486,7 @@ win32 {
         -L../../epan -llibwireshark -L../../wsutil -llibwsutil \
         -L../../wiretap -lwiretap-$${WTAP_VERSION} \
         -L../../capchild -llibcapchild -L../../caputils -llibcaputils \
-        -L.. -llibui -L../../codecs -lcodecs \
+        -L.. -llibui -L../../codecs -llibwscodecs \
         -L$${GLIB_DIR}/lib -lglib-2.0 -lgmodule-2.0 \
         -L$${ZLIB_DIR}/lib -lzdll \
         -L$${WINSPARKLE_DIR} -lWinSparkle
@@ -520,7 +528,8 @@ win32 {
 
     EXTRA_BINFILES += \
         ../../dumpcap.exe \
-        ../../epan/libwireshark.dll ../../wiretap/wiretap-$${WTAP_VERSION}.dll ../../wsutil/libwsutil.dll \
+        ../../epan/libwireshark.dll ../../wiretap/wiretap-$${WTAP_VERSION}.dll \
+        ../../wsutil/libwsutil.dll ../../codecs/libwscodecs.dll \
         $${GLIB_DIR}/bin/libglib-2.0-0.dll $${GLIB_DIR}/bin/libgmodule-2.0-0.dll \
         $${GLIB_DIR}/bin/$${INTL_DLL} \
         $${GLIB_DIR}/bin/gspawn-$${WIRESHARK_TARGET_PLATFORM}-helper.exe \
@@ -561,7 +570,7 @@ win32 {
     # Currently the QT bin dir has to be on the path for windeployqt to work
     isEqual(QT_MAJOR_VERSION, 5):greaterThan(QT_MINOR_VERSION, 2) {
       QMAKE_POST_LINK +=$$quote(set PATH=%PATH%;$${QT5_BASE_DIR}\\bin$$escape_expand(\\n\\t))
-      QMAKE_POST_LINK +=$$quote(windeployqt --release --no-compiler-runtime $(DESTDIR)wireshark.exe)$$escape_expand(\\n\\t))
+      QMAKE_POST_LINK +=$$quote(windeployqt --release --no-compiler-runtime --verbose 10 $(DESTDIR)wireshark.exe)$$escape_expand(\\n\\t))
     }
 }
 
@@ -569,7 +578,6 @@ RESOURCES += \
     ../../image/about.qrc \
     ../../image/languages/languages.qrc \
     ../../image/layout.qrc \
-    ../../image/status.qrc \
     ../../image/toolbar.qrc \
     ../../image/wsicon.qrc \
     i18n.qrc \
@@ -627,6 +635,7 @@ HEADERS += \
     display_filter_edit.h \
     file_set_dialog.h \
     filter_dialog.h \
+    geometry_state_dialog.h \
     iax2_analysis_dialog.h \
     import_text_dialog.h \
     interface_tree.h \
@@ -699,17 +708,21 @@ SOURCES += \
     export_pdu_dialog.cpp \
     extcap_argument.cpp \
     extcap_argument_file.cpp \
+    extcap_argument_multiselect.cpp \
     extcap_options_dialog.cpp \
     file_set_dialog.cpp \
     filter_action.cpp \
     filter_dialog.cpp \
+    filter_expression_frame.cpp \
     filter_expressions_preferences_frame.cpp \
+    find_line_edit.cpp \
     follow_stream_dialog.cpp \
     follow_stream_text.cpp \
     font_color_preferences_frame.cpp \
     funnel_string_dialog.cpp \
     funnel_text_dialog.cpp \
     funnel_statistics.cpp \
+    geometry_state_dialog.cpp \
     gsm_map_summary_dialog.cpp \
     iax2_analysis_dialog.cpp \
     import_text_dialog.cpp \
@@ -722,6 +735,7 @@ SOURCES += \
     lbm_stream_dialog.cpp \
     lbm_uimflow_dialog.cpp \
     lte_mac_statistics_dialog.cpp \
+    lte_rlc_graph_dialog.cpp \
     lte_rlc_statistics_dialog.cpp \
     main_status_bar.cpp \
     main_welcome.cpp \
@@ -774,6 +788,7 @@ SOURCES += \
     service_response_time_dialog.cpp \
     simple_dialog.cpp \
     simple_statistics_dialog.cpp \
+    show_packet_bytes_dialog.cpp \
     sparkline_delegate.cpp \
     splash_overlay.cpp \
     stats_tree_dialog.cpp \

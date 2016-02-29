@@ -123,8 +123,8 @@ version_base_custom(gchar *result, guint32 version)
   g_snprintf(result, ITEM_LABEL_LENGTH, "%d.%d", (version  >> 8) & 0xFF, (version & 0xFF));
 }
 
-static void
-dissect_msnlb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_msnlb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item  *ti;
   proto_tree  *msnlb_tree = NULL, *msnlb_subtree;
@@ -333,6 +333,7 @@ dissect_msnlb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     break;
   }
 
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -532,13 +533,13 @@ proto_register_msnlb(void)
         NULL, HFILL }
     },
     { &hf_msnlb_reserved2,
-      { "Reserved", "msnlb.reserved",
+      { "Reserved", "msnlb.reserved2",
         FT_NONE, BASE_NONE,
         NULL, 0,
         NULL, HFILL }
     },
     { &hf_msnlb_reserved2_data,
-      { "Reserved Data", "msnlb.reserved.data",
+      { "Reserved Data", "msnlb.reserved2.data",
         FT_UINT32, BASE_DEC_HEX,
         NULL, 0,
         NULL, HFILL }

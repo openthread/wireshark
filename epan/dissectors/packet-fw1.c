@@ -121,12 +121,12 @@ fw1_init(void)
   interface_anzahl = 0;
 }
 
-static void
-dissect_fw1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_fw1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   /* Set up structures needed to add the protocol subtree and manage it */
   proto_item    *ti;
-  proto_tree    *volatile fh_tree = NULL;
+  proto_tree    *fh_tree = NULL;
   char          direction;
   char  chain;
   char          *interface_name;
@@ -219,6 +219,7 @@ dissect_fw1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   ethertype_data.fcs_len = 0;
 
   call_dissector_with_data(ethertype_handle, tvb, pinfo, tree, &ethertype_data);
+  return tvb_captured_length(tvb);
 }
 
 void

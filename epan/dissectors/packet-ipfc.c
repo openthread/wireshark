@@ -27,10 +27,10 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wiretap/wtap.h>
 #include <epan/to_str.h>
 
-#include "packet-ipfc.h"
 #include "packet-llc.h"
 
 void proto_register_ipfc(void);
@@ -45,19 +45,17 @@ static int hf_ipfc_network_sa = -1;
 static gint ett_ipfc = -1;
 static dissector_handle_t llc_handle;
 
-void
-capture_ipfc (const guchar *pd, int len, packet_counts *ld)
+static gboolean
+capture_ipfc (const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
-  if (!BYTES_ARE_IN_FRAME(0, len, 16)) {
-    ld->other++;
-    return;
-  }
+  if (!BYTES_ARE_IN_FRAME(0, len, 16))
+    return FALSE;
 
-  capture_llc(pd, 16, len, ld);
+  return capture_llc(pd, 16, len, cpinfo, pseudo_header);
 }
 
-static void
-dissect_ipfc (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ipfc (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
 /* Set up structures needed to add the protocol subtree and manage it */
@@ -80,6 +78,7 @@ dissect_ipfc (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     next_tvb = tvb_new_subset_remaining (tvb, 16);
     call_dissector(llc_handle, next_tvb, pinfo, tree);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -128,6 +127,8 @@ proto_reg_handoff_ipfc (void)
     dissector_add_uint("wtap_encap", WTAP_ENCAP_IP_OVER_FC, ipfc_handle);
 
     llc_handle = find_dissector ("llc");
+
+    register_capture_dissector("wtap_encap", WTAP_ENCAP_IP_OVER_FC, capture_ipfc, proto_ipfc);
 }
 
 /*

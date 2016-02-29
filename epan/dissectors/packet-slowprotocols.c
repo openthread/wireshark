@@ -75,8 +75,8 @@ static dissector_handle_t dh_data;
  * Return Values:
  *    None
  */
-static void
-dissect_slow_protocols(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_slow_protocols(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8      subtype;
     proto_tree *pdu_tree;
@@ -100,6 +100,8 @@ dissect_slow_protocols(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (!dissector_try_uint_new(slow_protocols_dissector_table, subtype,
                                 next_tvb, pinfo, tree, TRUE, NULL))
         call_dissector(dh_data, next_tvb, pinfo, tree);
+
+    return tvb_captured_length(tvb);
 }
 
 
@@ -135,7 +137,7 @@ proto_register_slow_protocols(void)
     /* subdissector code */
     slow_protocols_dissector_table = register_dissector_table("slow.subtype",
                                                               "Slow protocol subtype",
-                                                               FT_UINT8, BASE_DEC);
+                                                               FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void

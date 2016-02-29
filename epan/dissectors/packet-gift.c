@@ -44,8 +44,8 @@ static int hf_gift_request_arg = -1;
 static gint ett_gift = -1;
 static gint ett_gift_cmd = -1;
 
-static void
-dissect_gift(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_gift(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item	*ti, *hidden_item;
 	proto_tree	*gift_tree, *cmd_tree;
@@ -113,6 +113,7 @@ dissect_gift(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

@@ -44,8 +44,7 @@
 #include "ui/gtk/help_dlg.h"
 #include "ui/gtk/main.h"
 #include "ui/gtk/stock_icons.h"
-#include "ui/gtk/follow_tcp.h"
-#include "ui/gtk/follow_udp.h"
+#include "ui/gtk/follow_stream.h"
 #include "ui/gtk/keys.h"
 
 
@@ -168,9 +167,9 @@ ct_sort_func(GtkTreeModel *model,
 
     switch(data_column){
     case CONV_COLUMN_SRC_ADDR: /* Source address */
-        return(CMP_ADDRESS(&conv1->src_address, &conv2->src_address));
+        return(cmp_address(&conv1->src_address, &conv2->src_address));
     case CONV_COLUMN_DST_ADDR: /* Destination address */
-        return(CMP_ADDRESS(&conv1->dst_address, &conv2->dst_address));
+        return(cmp_address(&conv1->dst_address, &conv2->dst_address));
     case CONV_COLUMN_SRC_PORT: /* Source port */
         CMP_NUM(conv1->src_port, conv2->src_port);
     case CONV_COLUMN_DST_PORT: /* Destination port */
@@ -1598,10 +1597,10 @@ draw_ct_table_addresses(conversations_table *ct)
 
         gtk_tree_model_get(GTK_TREE_MODEL(store), &iter, CONV_INDEX_COLUMN, &idx, -1);
         conv_item = &g_array_index(ct->hash.conv_array, conv_item_t, idx);
-        src_addr = (char*)get_conversation_address(NULL, &conv_item->src_address, ct->resolve_names);
-        dst_addr = (char*)get_conversation_address(NULL, &conv_item->dst_address, ct->resolve_names);
-        src_port = (char*)get_conversation_port(NULL, conv_item->src_port, conv_item->ptype, ct->resolve_names);
-        dst_port = (char*)get_conversation_port(NULL, conv_item->dst_port, conv_item->ptype, ct->resolve_names);
+        src_addr = get_conversation_address(NULL, &conv_item->src_address, ct->resolve_names);
+        dst_addr = get_conversation_address(NULL, &conv_item->dst_address, ct->resolve_names);
+        src_port = get_conversation_port(NULL, conv_item->src_port, conv_item->ptype, ct->resolve_names);
+        dst_port = get_conversation_port(NULL, conv_item->dst_port, conv_item->ptype, ct->resolve_names);
         gtk_list_store_set (store, &iter,
                   CONV_COLUMN_SRC_ADDR, src_addr,
                   CONV_COLUMN_SRC_PORT, src_port,
@@ -1719,10 +1718,10 @@ draw_ct_table_data(conversations_table *ct)
         } else {
             char *src_addr, *dst_addr, *src_port, *dst_port;
 
-            src_addr = (char*)get_conversation_address(NULL, &conv_item->src_address, ct->resolve_names);
-            dst_addr = (char*)get_conversation_address(NULL, &conv_item->dst_address, ct->resolve_names);
-            src_port = (char*)get_conversation_port(NULL, conv_item->src_port, conv_item->ptype, ct->resolve_names);
-            dst_port = (char*)get_conversation_port(NULL, conv_item->dst_port, conv_item->ptype, ct->resolve_names);
+            src_addr = get_conversation_address(NULL, &conv_item->src_address, ct->resolve_names);
+            dst_addr = get_conversation_address(NULL, &conv_item->dst_address, ct->resolve_names);
+            src_port = get_conversation_port(NULL, conv_item->src_port, conv_item->ptype, ct->resolve_names);
+            dst_port = get_conversation_port(NULL, conv_item->dst_port, conv_item->ptype, ct->resolve_names);
             /* New row. All entries, including fixed ones */
             gtk_list_store_insert_with_values(store, &iter, G_MAXINT,
                     CONV_COLUMN_SRC_ADDR, src_addr,

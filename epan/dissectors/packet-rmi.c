@@ -103,8 +103,8 @@ static const value_string rmi_input_message_str[] = {
     {0, NULL}
 };
 
-static void
-dissect_rmi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rmi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *rmi_tree;
@@ -229,6 +229,7 @@ dissect_rmi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             break;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 static void

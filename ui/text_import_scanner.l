@@ -6,9 +6,14 @@
 %option nounput noinput
 
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
+
+/*
+ * We want to stop processing when we get to the end of the input.
+ */
+%option noyywrap
 
 /*
  * Prefix scanner routines with "text_import" rather than "yy", so this scanner
@@ -68,8 +73,8 @@
 %}
 
 hexdigit [0-9A-Fa-f]
-directive #TEXT2PCAP.*
-comment #[^W].*
+directive ^#TEXT2PCAP.*\r?\n
+comment ^[\t ]*#.*\r?\n
 byte [0-9A-Fa-f][0-9A-Fa-f][ \t]
 byte_eol [0-9A-Fa-f][0-9A-Fa-f]\r?\n
 offset [0-9A-Fa-f]+[: \t]
@@ -87,14 +92,8 @@ eol \r?\n\r?
 {mailfwd}{offset} { parse_token(T_OFFSET, yytext+1); }
 {eol}             { parse_token(T_EOL, NULL); }
 [ \t]             ; /* ignore whitespace */
-{directive}       { parse_token(T_DIRECTIVE, yytext); }
-{comment}         ; /* ignore comments */
+{directive}       { parse_token(T_DIRECTIVE, yytext); parse_token(T_EOL, NULL); }
+{comment}         { parse_token(T_EOL, NULL); }
 {text}            { parse_token(T_TEXT, yytext); }
 
 <<EOF>>           { write_current_packet(); yyterminate(); }
-
-%%
-int yywrap(void)
-{
-    return 1;
-}

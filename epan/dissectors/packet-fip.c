@@ -339,8 +339,8 @@ fip_desc_fc4f(tvbuff_t *tvb, proto_tree *tree, proto_item *item)
     }
 }
 
-static void
-dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint       op;
     guint       sub;
@@ -361,10 +361,9 @@ dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     if (!tvb_bytes_exist(tvb, 0, FIP_HEADER_LEN)) {
         col_set_str(pinfo->cinfo, COL_INFO, "[packet too short]");
-        if (tree)
-            proto_tree_add_protocol_format(tree, proto_fip, tvb, 0,
+        proto_tree_add_protocol_format(tree, proto_fip, tvb, 0,
                                             -1, "FIP [packet too short]");
-        return;
+        return tvb_captured_length(tvb);
     }
 
     op  = tvb_get_ntohs(tvb, 2);
@@ -544,6 +543,7 @@ dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             break;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 void

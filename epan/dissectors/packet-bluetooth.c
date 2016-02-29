@@ -24,10 +24,12 @@
 
 #include "config.h"
 
+#include <string.h>
 #include <epan/packet.h>
 #include <epan/to_str.h>
 #include <epan/conversation_table.h>
 #include <epan/decode_as.h>
+#include <epan/proto_data.h>
 #include <wiretap/wtap.h>
 
 #include "packet-bluetooth.h"
@@ -44,6 +46,7 @@ static int hf_bluetooth_str_addr = -1;
 static gint ett_bluetooth = -1;
 
 static dissector_handle_t btle_handle;
+static dissector_handle_t hci_usb_handle;
 static dissector_handle_t data_handle;
 
 static dissector_table_t bluetooth_table;
@@ -58,6 +61,8 @@ static wmem_tree_t *bdaddr_to_role          = NULL;
 static wmem_tree_t *localhost_name          = NULL;
 static wmem_tree_t *localhost_bdaddr        = NULL;
 static wmem_tree_t *hci_vendors             = NULL;
+
+wmem_tree_t *bluetooth_uuids = NULL;
 
 static int bluetooth_tap = -1;
 int bluetooth_device_tap = -1;
@@ -205,6 +210,9 @@ const value_string bluetooth_uuid_vals[] = {
     { 0x1820,   "Internet Protocol Support" },
     { 0x1821,   "Indoor Positioning" },
     { 0x1822,   "Pulse Oximeter" },
+    { 0x1823,   "HTTP Proxy" },
+    { 0x1824,   "Transport Discovery" },
+    { 0x1825,   "Object Transfer" },
     /* Units - https://developer.bluetooth.org/gatt/units/Pages/default.aspx */
     { 0x2700,   "unitless" },
     { 0x2701,   "length (metre)" },
@@ -497,93 +505,164 @@ const value_string bluetooth_uuid_vals[] = {
     { 0x2AB3,   "Altitude" },
     { 0x2AB4,   "Uncertainty" },
     { 0x2AB5,   "Location Name" },
+    { 0x2AB6,   "URI" },
+    { 0x2AB7,   "HTTP Headers" },
+    { 0x2AB8,   "HTTP Status Code" },
+    { 0x2AB9,   "HTTP Entity Body" },
+    { 0x2ABA,   "HTTP Control Point" },
+    { 0x2ABB,   "HTTPS Security" },
+    { 0x2ABC,   "TDS Control Point" },
+    { 0x2ABD,   "OTS Feature" },
+    { 0x2ABE,   "Object Name" },
+    { 0x2ABF,   "Object Type" },
+    { 0x2AC0,   "Object Size" },
+    { 0x2AC1,   "Object First-Created" },
+    { 0x2AC2,   "Object Last-Modified" },
+    { 0x2AC3,   "Object ID" },
+    { 0x2AC4,   "Object Properties" },
+    { 0x2AC5,   "Object Action Control Point" },
+    { 0x2AC6,   "Object List Control Point" },
+    { 0x2AC7,   "Object List Filter" },
+    { 0x2AC8,   "Object Changed" },
     /*  16-bit UUID for Members - https://www.bluetooth.org/en-us/Pages/LoginRestrictedAll/16-bit-UUIDs-member.aspx */
-    { 0XFEB6, "Vencer Co, Ltd" },
-    { 0XFEB7, "Facebook, Inc." },
-    { 0XFEB8, "Facebook, Inc." },
-    { 0XFEB9, "LG Electronics" },
-    { 0XFEBA, "Tencent Holdings Limited" },
-    { 0XFEBB, "adafruit industries" },
-    { 0XFEBC, "Dexcom, Inc." },
-    { 0XFEBD, "Clover Network, Inc." },
-    { 0XFEBE, "Bose Corporation" },
-    { 0XFEBF, "Nod, Inc." },
-    { 0XFEC0, "KDDI Corporation" },
-    { 0XFEC1, "KDDI Corporation" },
-    { 0XFEC2, "Blue Spark Technologies, Inc." },
-    { 0XFEC3, "360fly, Inc." },
-    { 0XFEC4, "PLUS Location Systems" },
-    { 0XFEC5, "Realtek Semiconductor Corp." },
-    { 0XFEC6, "Kocomojo, LLC" },
-    { 0XFEC7, "Apple, Inc." },
-    { 0XFEC8, "Apple, Inc." },
-    { 0XFEC9, "Apple, Inc." },
-    { 0XFECA, "Apple, Inc." },
-    { 0XFECB, "Apple, Inc." },
-    { 0XFECC, "Apple, Inc." },
-    { 0XFECD, "Apple, Inc." },
-    { 0XFECE, "Apple, Inc." },
-    { 0XFECF, "Apple, Inc." },
-    { 0XFED0, "Apple, Inc." },
-    { 0XFED1, "Apple, Inc." },
-    { 0XFED2, "Apple, Inc." },
-    { 0XFED3, "Apple, Inc." },
-    { 0XFED4, "Apple, Inc." },
-    { 0XFED5, "Plantronics Inc." },
-    { 0XFED6, "Broadcom Corporation" },
-    { 0XFED7, "Broadcom Corporation" },
-    { 0xFED8, "Google" },
-    { 0xFED9, "Pebble Technology Corporation" },
-    { 0xFEDA, "ISSC Technologies Corporation" },
-    { 0xFEDB, "Perka, Inc." },
-    { 0XFEDC, "Jawbone" },
-    { 0XFEDD, "Jawbone" },
-    { 0XFEDE, "Coin, Inc." },
-    { 0XFEDF, "Design SHIFT" },
-    { 0XFEE0, "Anhui Huami Information Technology Co." },
-    { 0XFEE1, "Anhui Huami Information Technology Co." },
-    { 0XFEE2, "Anki, Inc." },
-    { 0XFEE3, "Anki, Inc." },
-    { 0XFEE4, "Nordic Semiconductor ASA" },
-    { 0XFEE5, "Nordic Semiconductor ASA" },
-    { 0XFEE6, "Seed Labs, Inc." },
-    { 0XFEE7, "Tencent Holdings Limited" },
-    { 0XFEE8, "Quintic Corp." },
-    { 0XFEE9, "Quintic Corp." },
-    { 0xFEEA, "Swirl Networks, Inc." },
-    { 0xFEEB, "Swirl Networks, Inc." },
-    { 0xFEEC, "Tile, Inc." },
-    { 0xFEED, "Tile, Inc." },
-    { 0xFEEE, "Polar Electro Oy" },
-    { 0xFEEF, "Polar Electro Oy" },
-    { 0xFEF0, "Intel" },
-    { 0xFEF1, "CSR" },
-    { 0xFEF2, "CSR" },
-    { 0xFEF3, "Google" },
-    { 0xFEF4, "Google" },
-    { 0xFEF5, "Dialog Semiconductor GmbH" },
-    { 0xFEF6, "Wicentric, Inc." },
-    { 0xFEF7, "Aplix Corporation" },
-    { 0xFEF8, "Aplix Corporation" },
-    { 0xFEF9, "PayPal, Inc." },
-    { 0xFEFA, "PayPal, Inc." },
-    { 0xFEFB, "Stollmann E+V GmbH" },
-    { 0xFEFC, "Gimbal, Inc." },
-    { 0xFEFD, "Gimbal, Inc." },
-    { 0xFEFE, "GN ReSound A/S" },
-    { 0xFEFF, "GN Netcom" },
+    { 0xFE7D,   "Aterica Health Inc." },
+    { 0xFE7E,   "Awear Solutions Ltd" },
+    { 0xFE7F,   "Doppler Lab" },
+    { 0xFE80,   "Doppler Lab" },
+    { 0xFE81,   "Medtronic Inc." },
+    { 0xFE82,   "Medtronic Inc." },
+    { 0xFE83,   "Blue Bite" },
+    { 0xFE84,   "RF Digital Corp" },
+    { 0xFE85,   "RF Digital Corp" },
+    { 0xFE86,   "HUAWEI Technologies Co., Ltd." },
+    { 0xFE87,   "Qingdao Yeelink Information Technology Co., Ltd." },
+    { 0xFE88,   "SALTO SYSTEMS S.L." },
+    { 0xFE89,   "B&O Play A/S" },
+    { 0xFE8A,   "Apple, Inc." },
+    { 0xFE8B,   "Apple, Inc." },
+    { 0xFE8C,   "TRON Forum" },
+    { 0xFE8D,   "Interaxon Inc." },
+    { 0xFE8E,   "ARM Ltd" },
+    { 0xFE8F,   "CSR" },
+    { 0xFE90,   "JUMA" },
+    { 0xFE91,   "Shanghai Imilab Technology Co.,Ltd" },
+    { 0xFE92,   "Jarden Safety & Security" },
+    { 0xFE93,   "OttoQ Inc." },
+    { 0xFE94,   "OttoQ Inc." },
+    { 0xFE95,   " Xiaomi Inc." },
+    { 0xFE96,   "Tesla Motor Inc." },
+    { 0xFE97,   "Tesla Motor Inc." },
+    { 0xFE98,   "Currant, Inc." },
+    { 0xFE99,   "Currant, Inc." },
+    { 0xFE9A,   " Estimote" },
+    { 0xFE9B,   "Samsara Networks, Inc" },
+    { 0xFE9C,   "GSI Laboratories, Inc." },
+    { 0xFE9D,   "Mobiquity Networks Inc" },
+    { 0xFE9E,   "Dialog Semiconductor B.V." },
+    { 0xFE9F,   "Google" },
+    { 0xFEA0,   "Google" },
+    { 0xFEA1,   "Intrepid Control Systems, Inc." },
+    { 0xFEA2,   "Intrepid Control Systems, Inc." },
+    { 0xFEA3,   "ITT Industries" },
+    { 0xFEA4,   "Paxton Access Ltd" },
+    { 0xFEA5,   "GoPro, Inc." },
+    { 0xFEA6,   "GoPro, Inc." },
+    { 0xFEA7,   "UTC Fire and Security" },
+    { 0xFEA8,   "Savant Systems LLC" },
+    { 0xFEA9,   "Savant Systems LLC" },
+    { 0xFEAA,   "Google" },
+    { 0xFEAB,   "Nokia Corporation" },
+    { 0xFEAC,   "Nokia Corporation" },
+    { 0xFEAD,   "Nokia Corporation" },
+    { 0xFEAE,   "Nokia Corporation" },
+    { 0xFEAF,   "Nest Labs Inc." },
+    { 0xFEB0,   "Nest Labs Inc." },
+    { 0xFEB1,   "Electronics Tomorrow Limited" },
+    { 0xFEB2,   "Microsoft Corporation" },
+    { 0xFEB3,   "Taobao" },
+    { 0xFEB4,   "WiSilica Inc." },
+    { 0xFEB5,   "WiSilica Inc." },
+    { 0xFEB6,   "Vencer Co, Ltd" },
+    { 0xFEB7,   "Facebook, Inc." },
+    { 0xFEB8,   "Facebook, Inc." },
+    { 0xFEB9,   "LG Electronics" },
+    { 0xFEBA,   "Tencent Holdings Limited" },
+    { 0xFEBB,   "adafruit industries" },
+    { 0xFEBC,   "Dexcom, Inc." },
+    { 0xFEBD,   "Clover Network, Inc." },
+    { 0xFEBE,   "Bose Corporation" },
+    { 0xFEBF,   "Nod, Inc." },
+    { 0xFEC0,   "KDDI Corporation" },
+    { 0xFEC1,   "KDDI Corporation" },
+    { 0xFEC2,   "Blue Spark Technologies, Inc." },
+    { 0xFEC3,   "360fly, Inc." },
+    { 0xFEC4,   "PLUS Location Systems" },
+    { 0xFEC5,   "Realtek Semiconductor Corp." },
+    { 0xFEC6,   "Kocomojo, LLC" },
+    { 0xFEC7,   "Apple, Inc." },
+    { 0xFEC8,   "Apple, Inc." },
+    { 0xFEC9,   "Apple, Inc." },
+    { 0xFECA,   "Apple, Inc." },
+    { 0xFECB,   "Apple, Inc." },
+    { 0xFECC,   "Apple, Inc." },
+    { 0xFECD,   "Apple, Inc." },
+    { 0xFECE,   "Apple, Inc." },
+    { 0xFECF,   "Apple, Inc." },
+    { 0xFED0,   "Apple, Inc." },
+    { 0xFED1,   "Apple, Inc." },
+    { 0xFED2,   "Apple, Inc." },
+    { 0xFED3,   "Apple, Inc." },
+    { 0xFED4,   "Apple, Inc." },
+    { 0xFED5,   "Plantronics Inc." },
+    { 0xFED6,   "Broadcom Corporation" },
+    { 0xFED7,   "Broadcom Corporation" },
+    { 0xFED8,   "Google" },
+    { 0xFED9,   "Pebble Technology Corporation" },
+    { 0xFEDA,   "ISSC Technologies Corporation" },
+    { 0xFEDB,   "Perka, Inc." },
+    { 0xFEDC,   "Jawbone" },
+    { 0xFEDD,   "Jawbone" },
+    { 0xFEDE,   "Coin, Inc." },
+    { 0xFEDF,   "Design SHIFT" },
+    { 0xFEE0,   "Anhui Huami Information Technology Co." },
+    { 0xFEE1,   "Anhui Huami Information Technology Co." },
+    { 0xFEE2,   "Anki, Inc." },
+    { 0xFEE3,   "Anki, Inc." },
+    { 0xFEE4,   "Nordic Semiconductor ASA" },
+    { 0xFEE5,   "Nordic Semiconductor ASA" },
+    { 0xFEE6,   "Seed Labs, Inc." },
+    { 0xFEE7,   "Tencent Holdings Limited" },
+    { 0xFEE8,   "Quintic Corp." },
+    { 0xFEE9,   "Quintic Corp." },
+    { 0xFEEA,   "Swirl Networks, Inc." },
+    { 0xFEEB,   "Swirl Networks, Inc." },
+    { 0xFEEC,   "Tile, Inc." },
+    { 0xFEED,   "Tile, Inc." },
+    { 0xFEEE,   "Polar Electro Oy" },
+    { 0xFEEF,   "Polar Electro Oy" },
+    { 0xFEF0,   "Intel" },
+    { 0xFEF1,   "CSR" },
+    { 0xFEF2,   "CSR" },
+    { 0xFEF3,   "Google" },
+    { 0xFEF4,   "Google" },
+    { 0xFEF5,   "Dialog Semiconductor GmbH" },
+    { 0xFEF6,   "Wicentric, Inc." },
+    { 0xFEF7,   "Aplix Corporation" },
+    { 0xFEF8,   "Aplix Corporation" },
+    { 0xFEF9,   "PayPal, Inc." },
+    { 0xFEFA,   "PayPal, Inc." },
+    { 0xFEFB,   "Stollmann E+V GmbH" },
+    { 0xFEFC,   "Gimbal, Inc." },
+    { 0xFEFD,   "Gimbal, Inc." },
+    { 0xFEFE,   "GN ReSound A/S" },
+    { 0xFEFF,   "GN Netcom" },
+
     /* SDO Uuids - https://www.bluetooth.org/en-us/specification/assigned-numbers/sdo-16-bit-uuids */
-    { 0xFFFE,   "Alliance for Wireless Power" },
+    { 0xFFFD,   "Fast IDentity Online Alliance - Universal Second Factor Authenticator Service" },
+    { 0xFFFE,   "Alliance for Wireless Power - Wireless Power Transfer Service" },
     { 0, NULL }
 };
 value_string_ext bluetooth_uuid_vals_ext = VALUE_STRING_EXT_INIT(bluetooth_uuid_vals);
-
-const bluetooth_uuid_custom_t bluetooth_uuid_custom[] = {
-    { {0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x02, 0xEE, 0x00, 0x00, 0x02}, 16, "SyncML Server" },
-    { {0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x02, 0xEE, 0x00, 0x00, 0x02}, 16, "SyncML Client" },
-    { {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0, NULL},
-};
-
 
 /* Taken from https://www.bluetooth.org/technical/assignednumbers/identifiers.htm */
 static const value_string bluetooth_company_id_vals[] = {
@@ -861,7 +940,7 @@ static const value_string bluetooth_company_id_vals[] = {
     {0x010F, "HiSilicon Technologies Co., Ltd."},
     {0x0110, "Nippon Seiki Co., Ltd."},
     {0x0111, "Steelseries ApS"},
-    {0x0112, "vyzybl Inc."},
+    {0x0112, "Visybl Inc."},
     {0x0113, "Openbrain Technologies, Co., Ltd."},
     {0x0114, "Xensr"},
     {0x0115, "e.solutions"},
@@ -996,7 +1075,7 @@ static const value_string bluetooth_company_id_vals[] = {
     {0x0197, "WiSilica Inc"},
     {0x0198, "Vengit Limited"},
     {0x0199, "SALTO SYSTEMS S.L."},
-    {0x019A, "T-Engine Forum"},
+    {0x019A, "TRON Forum (formerly T-Engine Forum)"},
     {0x019B, "CUBETECH s.r.o."},
     {0x019C, "Cokiya Incorporated"},
     {0x019D, "CVS Health"},
@@ -1026,6 +1105,289 @@ static const value_string bluetooth_company_id_vals[] = {
     {0x01B5, "Nest Labs Inc."},
     {0x01B6, "LM Technologies Ltd"},
     {0x01B7, "General Electric Company"},
+    {0x01B8, "iD3 S.L."},
+    {0x01B9, "HANA Micron"},
+    {0x01BA, "Stages Cycling LLC"},
+    {0x01BB, "Cochlear Bone Anchored Solutions AB"},
+    {0x01BC, "SenionLab AB"},
+    {0x01BD, "Syszone Co., Ltd"},
+    {0x01BE, "Pulsate Mobile Ltd."},
+    {0x01BF, "Hong Kong HunterSun Electronic Limited"},
+    {0x01C0, "pironex GmbH"},
+    {0x01C1, "BRADATECH Corp."},
+    {0x01C2, "Transenergooil AG"},
+    {0x01C3, "Bunch"},
+    {0x01C4, "DME Microelectronics"},
+    {0x01C5, "Bitcraze AB"},
+    {0x01C6, "HASWARE Inc."},
+    {0x01C7, "Abiogenix Inc."},
+    {0x01C8, "Poly-Control ApS"},
+    {0x01C9, "Avi-on"},
+    {0x01CA, "Laerdal Medical AS"},
+    {0x01CB, "Fetch My Pet"},
+    {0x01CC, "Sam Labs Ltd."},
+    {0x01CD, "Chengdu Synwing Technology Ltd"},
+    {0x01CE, "HOUWA SYSTEM DESIGN, k.k."},
+    {0x01CF, "BSH"},
+    {0x01D0, "Primus Inter Pares Ltd"},
+    {0x01D1, "August"},
+    {0x01D2, "Gill Electronics"},
+    {0x01D3, "Sky Wave Design"},
+    {0x01D4, "Newlab S.r.l."},
+    {0x01D5, "ELAD srl"},
+    {0x01D6, "G-wearables inc."},
+    {0x01D7, "Squadrone Systems Inc."},
+    {0x01D8, "Code Corporation"},
+    {0x01D9, "Savant Systems LLC"},
+    {0x01DA, "Logitech International SA"},
+    {0x01DB, "Innblue Consulting"},
+    {0x01DC, "iParking Ltd."},
+    {0x01DD, "Koninklijke Philips Electronics N.V."},
+    {0x01DE, "Minelab Electronics Pty Limited"},
+    {0x01DF, "Bison Group Ltd."},
+    {0x01E0, "Widex A/S"},
+    {0x01E1, "Jolla Ltd"},
+    {0x01E2, "Lectronix, Inc."},
+    {0x01E3, "Caterpillar Inc"},
+    {0x01E4, "Freedom Innovations"},
+    {0x01E5, "Dynamic Devices Ltd"},
+    {0x01E6, "Technology Solutions (UK) Ltd"},
+    {0x01E7, "IPS Group Inc."},
+    {0x01E8, "STIR"},
+    {0x01E9, "Sano, Inc"},
+    {0x01EA, "Advanced Application Design, Inc."},
+    {0x01EB, "AutoMap LLC"},
+    {0x01EC, "Spreadtrum Communications Shanghai Ltd"},
+    {0x01ED, "CuteCircuit LTD"},
+    {0x01EE, "Valeo Service"},
+    {0x01EF, "Fullpower Technologies, Inc."},
+    {0x01F0, "KloudNation"},
+    {0x01F1, "Zebra Technologies Corporation"},
+    {0x01F2, "Itron, Inc."},
+    {0x01F3, "The University of Tokyo"},
+    {0x01F4, "UTC Fire and Security"},
+    {0x01F5, "Cool Webthings Limited"},
+    {0x01F6, "DJO Global"},
+    {0x01F7, "Gelliner Limited"},
+    {0x01F8, "Anyka (Guangzhou) Microelectronics Technology Co, LTD"},
+    {0x01F9, "Medtronic, Inc."},
+    {0x01FA, "Gozio, Inc."},
+    {0x01FB, "Form Lifting, LLC"},
+    {0x01FC, "Wahoo Fitness, LLC"},
+    {0x01FD, "Kontakt Micro-Location Sp. z o.o."},
+    {0x01FE, "Radio System Corporation"},
+    {0x01FF, "Freescale Semiconductor, Inc."},
+    {0x0200, "Verifone Systems PTe Ltd. Taiwan Branch"},
+    {0x0201, "AR Timing"},
+    {0x0202, "Rigado LLC"},
+    {0x0203, "Kemppi Oy"},
+    {0x0204, "Tapcentive Inc."},
+    {0x0205, "Smartbotics Inc."},
+    {0x0206, "Otter Products, LLC"},
+    {0x0207, "STEMP Inc."},
+    {0x0208, "LumiGeek LLC"},
+    {0x0209, "InvisionHeart Inc."},
+    {0x020A, "Macnica Inc. "},
+    {0x020B, "Jaguar Land Rover Limited"},
+    {0x020C, "CoroWare Technologies, Inc"},
+    {0x020D, "Simplo Technology Co., LTD"},
+    {0x020E, "Omron Healthcare Co., LTD"},
+    {0x020F, "Comodule GMBH"},
+    {0x0210, "ikeGPS"},
+    {0x0211, "Telink Semiconductor Co. Ltd"},
+    {0x0212, "Interplan Co., Ltd"},
+    {0x0213, "Wyler AG"},
+    {0x0214, "IK Multimedia Production srl"},
+    {0x0215, "Lukoton Experience Oy"},
+    {0x0216, "MTI Ltd"},
+    {0x0217, "Tech4home, Lda"},
+    {0x0218, "Hiotech AB"},
+    {0x0219, "DOTT Limited"},
+    {0x021A, "Blue Speck Labs, LLC"},
+    {0x021B, "Cisco Systems Inc"},
+    {0x021C, "Mobicomm Inc"},
+    {0x021D, "Edamic"},
+    {0x021E, "Goodnet Ltd"},
+    {0x021F, "Luster Leaf Products Inc"},
+    {0x0220, "Manus Machina BV"},
+    {0x0221, "Mobiquity Networks Inc"},
+    {0x0222, "Praxis Dynamics"},
+    {0x0223, "Philip Morris Products S.A."},
+    {0x0224, "Comarch SA"},
+    {0x0225, "Nestl Nespresso S.A."},
+    {0x0226, "Merlinia A/S"},
+    {0x0227, "LifeBEAM Technologies"},
+    {0x0228, "Twocanoes Labs, LLC"},
+    {0x0229, "Muoverti Limited"},
+    {0X022A, "Stamer Musikanlagen GMBH"},
+    {0x022B, "Tesla Motors"},
+    {0x022C, "Pharynks Corporation"},
+    {0x022D, "Lupine"},
+    {0x022E, "Siemens AG"},
+    {0x022F, "Huami (Shanghai) Culture Communication CO., LTD"},
+    {0x0230, "Foster Electric Company, Ltd"},
+    {0x0231, "ETA SA"},
+    {0x0232, "x-Senso Solutions Kft"},
+    {0x0233, "Shenzhen SuLong Communication Ltd"},
+    {0x0234, "FengFan (BeiJing) Technology Co, Ltd"},
+    {0x0235, "Qrio Inc"},
+    {0x0236, "Pitpatpet Ltd"},
+    {0x0237, "MSHeli s.r.l."},
+    {0x0238, "Trakm8 Ltd"},
+    {0x0239, "JIN CO, Ltd"},
+    {0x023A, "Alatech Technology"},
+    {0x023B, "Beijing CarePulse Electronic Technology Co, Ltd"},
+    {0x023C, "Awarepoint"},
+    {0x023D, "ViCentra B.V."},
+    {0x023E, "Raven Industries"},
+    {0x023F, "WaveWare Technologies"},
+    {0x0240, "Argenox Technologies"},
+    {0x0241, "Bragi GmbH"},
+    {0x0242, "16Lab Inc"},
+    {0x0243, "Masimo Corp"},
+    {0x0244, "Iotera Inc."},
+    {0x0245, "EndressHauser"},
+    {0x0246, "ACKme Networks, Inc."},
+    {0x0247, "FiftyThree Inc."},
+    {0x0248, "Parker Hannifin Corp"},
+    {0x0249, "Transcranial Ltd"},
+    {0x024A, "Uwatec AG"},
+    {0x024B, "Orlan LLC"},
+    {0x024C, "Blue Clover Devices"},
+    {0x024D, "M-Way Solutions GmbH"},
+    {0x024E, "Microtronics Engineering GmbH"},
+    {0x024F, "Schneider Schreibgerte GmbH"},
+    {0x0250, "Sapphire Circuits LLC"},
+    {0x0251, "Lumo Bodytech Inc."},
+    {0x0252, "UKC Technosolution"},
+    {0x0253, "Xicato Inc."},
+    {0x0254, "Playbrush"},
+    {0x0255, "Dai Nippon Printing Co., Ltd."},
+    {0x0256, "G24 Power Limited"},
+    {0x0257, "AdBabble Local Commerce Inc."},
+    {0x0258, "Devialet SA"},
+    {0x0259, "ALTYOR"},
+    {0x025A, "University of Applied Sciences Valais/Haute Ecole Valaisanne"},
+    {0x025B, "Five Interactive, LLC dba Zendo"},
+    {0x025C, "NetEase (Hangzhou) Network co.Ltd."},
+    {0x025D, "Lexmark International Inc."},
+    {0x025E, "Fluke Corporation"},
+    {0x025F, "Yardarm Technologies"},
+    {0x0260, "SensaRx"},
+    {0x0261, "SECVRE GmbH"},
+    {0x0262, "Glacial Ridge Technologies"},
+    {0x0263, "Identiv, Inc."},
+    {0x0264, "DDS, Inc."},
+    {0x0265, "SMK Corporation"},
+    {0x0266, "Schawbel Technologies LLC"},
+    {0x0267, "XMI Systems SA"},
+    {0x0268, "Cerevo"},
+    {0x0269, "Torrox GmbH & Co KG"},
+    {0x026A, "Gemalto"},
+    {0x026B, "DEKA Research & Development Corp."},
+    {0x026C, "Domster Tadeusz Szydlowski"},
+    {0x026D, "Technogym SPA"},
+    {0x026E, "FLEURBAEY BVBA"},
+    {0x026F, "Aptcode Solutions"},
+    {0x0270, "LSI ADL Technology"},
+    {0x0271, "Animas Corp"},
+    {0x0272, "Alps Electric Co., Ltd."},
+    {0x0273, "OCEASOFT"},
+    {0x0274, "Motsai Research"},
+    {0x0275, "Geotab"},
+    {0x0276, "E.G.O. Elektro-Gertebau GmbH"},
+    {0x0277, "bewhere inc"},
+    {0x0278, "Johnson Outdoors Inc"},
+    {0x0279, "steute Schaltgerate GmbH & Co. KG"},
+    {0x027A, "Ekomini inc."},
+    {0x027B, "DEFA AS"},
+    {0x027C, "Aseptika Ltd"},
+    {0x027D, "HUAWEI Technologies Co., Ltd."},
+    {0x027E, "HabitAware, LLC"},
+    {0x027F, "ruwido austria gmbh"},
+    {0x0280, "ITEC corporation"},
+    {0x0281, "StoneL"},
+    {0x0282, "Sonova AG"},
+    {0x0283, "Maven Machines, Inc."},
+    {0x0284, "Synapse Electronics"},
+    {0x0285, "Standard Innovation Inc."},
+    {0x0286, "RF Code, Inc."},
+    {0x0287, "Wally Ventures S.L."},
+    {0x0288, "Willowbank Electronics Ltd"},
+    {0x0289, "SK Telecom"},
+    {0x028A, "Jetro AS"},
+    {0x028B, "Code Gears LTD"},
+    {0x028C, "NANOLINK APS"},
+    {0x028D, "IF, LLC"},
+    {0x028E, "RF Digital Corp"},
+    {0x028F, "Church & Dwight Co., Inc"},
+    {0x0290, "Multibit Oy"},
+    {0x0291, "CliniCloud Inc"},
+    {0x0292, "SwiftSensors"},
+    {0x0293, "Blue Bite"},
+    {0x0294, "ELIAS GmbH"},
+    {0x0295, "Sivantos GmbH"},
+    {0x0296, "Petzl"},
+    {0x0297, "storm power ltd"},
+    {0x0298, "EISST Ltd"},
+    {0x0299, "Inexess Technology Simma KG"},
+    {0x029A, "Currant, Inc."},
+    {0x029B, "C2 Development, Inc."},
+    {0x029C, "Blue Sky Scientific, LLC"},
+    {0x029D, "ALOTTAZS LABS, LLC"},
+    {0x029E, "Kupson spol. s r.o."},
+    {0x029F, "Areus Engineering GmbH"},
+    {0x02A0, "Impossible Camera GmbH"},
+    {0x02A1, "InventureTrack Systems"},
+    {0x02A2, "LockedUp"},
+    {0x02A3, "Itude"},
+    {0x02A4, "Pacific Lock Company"},
+    {0x02A5, "Tendyron Corporation"},
+    {0x02A6, "Robert Bosch GmbH"},
+    {0x02A7, "Illuxtron international B.V."},
+    {0x02A8, "miSport Ltd."},
+    {0x02A9, "Chargelib"},
+    {0x02AA, "Doppler Lab"},
+    {0x02AB, "BBPOS Limited"},
+    {0x02AC, "RTB Elektronik GmbH & Co. KG"},
+    {0x02AD, "Rx Networks, Inc."},
+    {0x02AE, "WeatherFlow, Inc."},
+    {0x02AF, "Technicolor USA Inc."},
+    {0x02B0, "Bestechnic(Shanghai),Ltd"},
+    {0x02B1, "Raden Inc"},
+    {0x02B2, "JouZen Oy"},
+    {0x02B3, "CLABER S.P.A."},
+    {0x02B4, "Hyginex, Inc."},
+    {0x02B5, "HANSHIN ELECTRIC RAILWAY CO.,LTD."},
+    {0x02B6, "Schneider Electric"},
+    {0x02B7, "Oort Technologies LLC"},
+    {0x02B8, "Chrono Therapeutics"},
+    {0x02B9, "Rinnai Corporation"},
+    {0x02BA, "Swissprime Technologies AG"},
+    {0x02BB, "Koha.,Co.Ltd"},
+    {0x02BC, "Genevac Ltd"},
+    {0x02BD, "Chemtronics"},
+    {0x02BE, "Seguro Technology Sp. z o.o."},
+    {0x02BF, "Redbird Flight Simulations"},
+    {0x02C0, "Dash Robotics"},
+    {0x02C1, "LINE Corporation"},
+    {0x02C2, "Guillemot Corporation"},
+    {0x02C3, "Techtronic Power Tools Technology Limited"},
+    {0x02C4, "Wilson Sporting Goods"},
+    {0x02C5, "Lenovo (Singapore) Pte Ltd."},
+    {0x02C6, "Ayatan Sensors"},
+    {0x02C7, "Electronics Tomorrow Limited"},
+    {0x02C8, "VASCO Data Security International, Inc."},
+    {0x02C9, "PayRange Inc."},
+    {0x02CA, "ABOV Semiconductor"},
+    {0x02CB, "AINA-Wireless Inc."},
+    {0x02CC, "Eijkelkamp Soil & Water"},
+    {0x02CD, "BMA ergonomics b.v."},
+    {0x02CE, "Teva Branded Pharmaceutical Products R&D, Inc."},
+    {0x02CF, "Anima"},
+    {0x02D0, "3M"},
+    {0x02D1, "Empatica Srl"},
+    {0x02D2, "Afero, Inc."},
     {0xFFFF, "For use in internal and interoperability tests."},
     {0, NULL }
 };
@@ -1129,7 +1491,7 @@ save_local_device_name_from_eir_ad(tvbuff_t *tvb, gint offset, packet_info *pinf
 
             k_interface_id = bluetooth_data->interface_id;
             k_adapter_id = bluetooth_data->adapter_id;
-            k_frame_number = pinfo->fd->num;
+            k_frame_number = pinfo->num;
 
             key[0].length = 1;
             key[0].key    = &k_interface_id;
@@ -1189,7 +1551,7 @@ bluetooth_conversation_packet(void *pct, packet_info *pinfo,
 {
     conv_hash_t *hash = (conv_hash_t*) pct;
     add_conversation_table_data(hash, &pinfo->dl_src, &pinfo->dl_dst, 0, 0, 1,
-            pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts,
+            pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts,
             &bluetooth_ct_dissector_info, PT_NONE);
 
     return 1;
@@ -1215,7 +1577,7 @@ get_conversation(packet_info *pinfo,
 {
     conversation_t *conversation;
 
-    conversation = find_conversation(pinfo->fd->num,
+    conversation = find_conversation(pinfo->num,
                                src_addr, dst_addr,
                                pinfo->ptype,
                                src_endpoint, dst_endpoint, 0);
@@ -1223,7 +1585,7 @@ get_conversation(packet_info *pinfo,
         return conversation;
     }
 
-    conversation = conversation_new(pinfo->fd->num,
+    conversation = conversation_new(pinfo->num,
                            src_addr, dst_addr,
                            pinfo->ptype,
                            src_endpoint, dst_endpoint, 0);
@@ -1235,19 +1597,37 @@ get_uuid(tvbuff_t *tvb, gint offset, gint size)
 {
     bluetooth_uuid_t  uuid;
 
-    uuid.bt_uuid = 0;
+    memset(&uuid, 0, sizeof(uuid));
 
     if (size != 2 && size != 16) {
-        uuid.size = 0;
-        uuid.data[0] = 0;
         return uuid;
     }
 
     uuid.size = size;
-    tvb_memcpy(tvb, uuid.data, offset, size);
+    if (size == 2) {
+        uuid.data[0] = tvb_get_guint8(tvb, offset + 1);
+        uuid.data[1] = tvb_get_guint8(tvb, offset);
+    } else if (size == 16) {
+        uuid.data[0] = tvb_get_guint8(tvb, offset + 15);
+        uuid.data[1] = tvb_get_guint8(tvb, offset + 14);
+        uuid.data[2] = tvb_get_guint8(tvb, offset + 13);
+        uuid.data[3] = tvb_get_guint8(tvb, offset + 12);
+        uuid.data[4] = tvb_get_guint8(tvb, offset + 11);
+        uuid.data[5] = tvb_get_guint8(tvb, offset + 10);
+        uuid.data[6] = tvb_get_guint8(tvb, offset + 9);
+        uuid.data[7] = tvb_get_guint8(tvb, offset + 8);
+        uuid.data[8] = tvb_get_guint8(tvb, offset + 7);
+        uuid.data[9] = tvb_get_guint8(tvb, offset + 6);
+        uuid.data[10] = tvb_get_guint8(tvb, offset + 5);
+        uuid.data[11] = tvb_get_guint8(tvb, offset + 4);
+        uuid.data[12] = tvb_get_guint8(tvb, offset + 3);
+        uuid.data[13] = tvb_get_guint8(tvb, offset + 2);
+        uuid.data[14] = tvb_get_guint8(tvb, offset + 1);
+        uuid.data[15] = tvb_get_guint8(tvb, offset);
+    }
 
     if (size == 2) {
-        uuid.bt_uuid = uuid.data[0] | uuid.data[1] << 8;
+        uuid.bt_uuid = uuid.data[1] | uuid.data[0] << 8;
     } else {
         if (uuid.data[0] == 0x00 && uuid.data[1] == 0x00 &&
                 uuid.data[4]  == 0x00 && uuid.data[5]  == 0x00 && uuid.data[6]  == 0x10 &&
@@ -1260,41 +1640,70 @@ get_uuid(tvbuff_t *tvb, gint offset, gint size)
     return uuid;
 }
 
-gchar *
-print_uuid(bluetooth_uuid_t *uuid)
-{
-    if (uuid->bt_uuid) {
-        return wmem_strdup(wmem_packet_scope(), val_to_str_ext_const(uuid->bt_uuid, &bluetooth_uuid_vals_ext, "Unknown"));
-    } else {
-        guint i_uuid;
-
-        i_uuid = 0;
-        while (bluetooth_uuid_custom[i_uuid].name) {
-            if (bluetooth_uuid_custom[i_uuid].size != uuid->size) {
-                i_uuid += 1;
-                continue;
-            }
-
-            if (memcmp(uuid->data, bluetooth_uuid_custom[i_uuid].uuid, uuid->size) == 0) {
-                return wmem_strdup(wmem_packet_scope(), bluetooth_uuid_custom[i_uuid].name);
-            }
-
-            i_uuid += 1;
-        }
-
-        return bytes_to_str(wmem_packet_scope(), uuid->data, uuid->size);
-    }
-}
-
-gchar *
+const gchar *
 print_numeric_uuid(bluetooth_uuid_t *uuid)
 {
-    if (uuid && uuid->size > 0)
+    if (!(uuid && uuid->size > 0))
+        return NULL;
+
+    if (uuid->size != 16) {
         return bytes_to_str(wmem_packet_scope(), uuid->data, uuid->size);
+    } else {
+        gchar *text;
+
+        text = (gchar *) wmem_alloc(wmem_packet_scope(), 38);
+        bytes_to_hexstr(&text[0], uuid->data, 4);
+        text[8] = '-';
+        bytes_to_hexstr(&text[9], uuid->data + 4, 2);
+        text[13] = '-';
+        bytes_to_hexstr(&text[14], uuid->data + 4 + 2 * 1, 2);
+        text[18] = '-';
+        bytes_to_hexstr(&text[19], uuid->data + 4 + 2 * 2, 2);
+        text[23] = '-';
+        bytes_to_hexstr(&text[24], uuid->data + 4 + 2 * 3, 6);
+        text[36] = '\0';
+
+        return text;
+    }
 
     return NULL;
 }
 
+const gchar *
+print_uuid(bluetooth_uuid_t *uuid)
+{
+    const gchar *description;
+
+    if (uuid->bt_uuid) {
+        const gchar *name;
+
+        /*
+         * Known UUID?
+         */
+        name = try_val_to_str_ext(uuid->bt_uuid, &bluetooth_uuid_vals_ext);
+        if (name != NULL) {
+            /*
+             * Yes.  This string is part of the value_string_ext table,
+             * so we don't have to make a copy.
+             */
+            return name;
+        }
+
+        /*
+         * No - fall through to try looking it up.
+         */
+    }
+
+    description = print_numeric_uuid(uuid);
+
+    if (description) {
+        description = (const gchar *) wmem_tree_lookup_string(bluetooth_uuids, description, 0);
+        if (description)
+            return description;
+    }
+
+    return "Unknown";
+}
 
 static bluetooth_data_t *
 dissect_bluetooth_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
@@ -1390,6 +1799,13 @@ dissect_bluetooth_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 /*
  * Register this in the wtap_encap dissector table.
+ * It's called for WTAP_ENCAP_BLUETOOTH_H4, WTAP_ENCAP_BLUETOOTH_H4_WITH_PHDR,
+ * WTAP_ENCAP_PACKETLOGGER. WTAP_ENCAP_BLUETOOTH_LE_LL,
+ * WTAP_ENCAP_BLUETOOTH_LE_LL_WITH_PHDR, and WTAP_ENCAP_BLUETOOTH_BREDR_BB.
+ *
+ * It does work common to all Bluetooth encapsulations, and then calls
+ * the dissector registered in the bluetooth.encap table to handle the
+ * metadata header in the packet.
  */
 static gint
 dissect_bluetooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -1414,6 +1830,11 @@ dissect_bluetooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
 /*
  * Register this in the wtap_encap dissector table.
+ * It's called for WTAP_ENCAP_BLUETOOTH_HCI.
+ *
+ * It does work common to all Bluetooth encapsulations, and then calls
+ * the dissector registered in the bluetooth.encap table to handle the
+ * metadata header in the packet.
  */
 static gint
 dissect_bluetooth_bthci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -1437,6 +1858,11 @@ dissect_bluetooth_bthci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
 /*
  * Register this in the wtap_encap dissector table.
+ * It's called for WTAP_ENCAP_BLUETOOTH_LINUX_MONITOR.
+ *
+ * It does work common to all Bluetooth encapsulations, and then calls
+ * the dissector registered in the bluetooth.encap table to handle the
+ * metadata header in the packet.
  */
 static gint
 dissect_bluetooth_btmon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -1474,11 +1900,7 @@ dissect_bluetooth_usb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
     bluetooth_data->previous_protocol_data_type = BT_PD_USB_CONV_INFO;
     bluetooth_data->previous_protocol_data.usb_conv_info = (usb_conv_info_t *)data;
 
-    if (!dissector_try_uint_new(bluetooth_table, pinfo->phdr->pkt_encap, tvb, pinfo, tree, TRUE, bluetooth_data)) {
-        call_dissector(data_handle, tvb, pinfo, tree);
-    }
-
-    return tvb_captured_length(tvb);
+    return call_dissector_with_data(hci_usb_handle, tvb, pinfo, tree, bluetooth_data);
 }
 
 /*
@@ -1552,13 +1974,13 @@ proto_register_bluetooth(void)
     proto_bluetooth = proto_register_protocol("Bluetooth",
             "Bluetooth", "bluetooth");
 
-    new_register_dissector("bluetooth_ubertooth", dissect_bluetooth_ubertooth, proto_bluetooth);
+    register_dissector("bluetooth_ubertooth", dissect_bluetooth_ubertooth, proto_bluetooth);
 
     proto_register_field_array(proto_bluetooth, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
     bluetooth_table = register_dissector_table("bluetooth.encap",
-            "Bluetooth Encapsulation", FT_UINT32, BASE_HEX);
+            "Bluetooth Encapsulation", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     chandle_sessions         = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
     chandle_to_bdaddr        = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
@@ -1569,13 +1991,14 @@ proto_register_bluetooth(void)
     localhost_name           = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
     hci_vendors              = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    hci_vendor_table = register_dissector_table("bluetooth.vendor", "HCI Vendor", FT_UINT16, BASE_HEX);
+    hci_vendor_table = register_dissector_table("bluetooth.vendor", "HCI Vendor", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    bluetooth_uuids          = wmem_tree_new(wmem_epan_scope());
 
     bluetooth_tap = register_tap("bluetooth");
     bluetooth_device_tap = register_tap("bluetooth.device");
     bluetooth_hci_summary_tap = register_tap("bluetooth.hci_summary");
 
-    bluetooth_uuid_table = register_dissector_table("bluetooth.uuid", "BT Service UUID", FT_STRING, BASE_NONE);
+    bluetooth_uuid_table = register_dissector_table("bluetooth.uuid", "BT Service UUID", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     register_conversation_table(proto_bluetooth, TRUE, bluetooth_conversation_packet, bluetooth_hostlist_packet);
 
@@ -1585,13 +2008,14 @@ proto_register_bluetooth(void)
 void
 proto_reg_handoff_bluetooth(void)
 {
-    dissector_handle_t bluetooth_handle = new_create_dissector_handle(dissect_bluetooth, proto_bluetooth);
-    dissector_handle_t bluetooth_bthci_handle = new_create_dissector_handle(dissect_bluetooth_bthci, proto_bluetooth);
-    dissector_handle_t bluetooth_btmon_handle = new_create_dissector_handle(dissect_bluetooth_btmon, proto_bluetooth);
-    dissector_handle_t bluetooth_usb_handle = new_create_dissector_handle(dissect_bluetooth_usb, proto_bluetooth);
+    dissector_handle_t bluetooth_handle = create_dissector_handle(dissect_bluetooth, proto_bluetooth);
+    dissector_handle_t bluetooth_bthci_handle = create_dissector_handle(dissect_bluetooth_bthci, proto_bluetooth);
+    dissector_handle_t bluetooth_btmon_handle = create_dissector_handle(dissect_bluetooth_btmon, proto_bluetooth);
+    dissector_handle_t bluetooth_usb_handle = create_dissector_handle(dissect_bluetooth_usb, proto_bluetooth);
 
     btle_handle = find_dissector("btle");
     data_handle = find_dissector("data");
+    hci_usb_handle = find_dissector("hci_usb");
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_BLUETOOTH_HCI,           bluetooth_bthci_handle);
     dissector_add_uint("wtap_encap", WTAP_ENCAP_BLUETOOTH_H4,            bluetooth_handle);
@@ -1615,6 +2039,10 @@ proto_reg_handoff_bluetooth(void)
     dissector_add_uint("usb.protocol", 0xE00104, bluetooth_usb_handle);
 
     dissector_add_for_decode_as("usb.device", bluetooth_usb_handle);
+
+    wmem_tree_insert_string(bluetooth_uuids, "00000001-0000-1000-8000-0002EE000002", "SyncML Server", 0);
+    wmem_tree_insert_string(bluetooth_uuids, "00000002-0000-1000-8000-0002EE000002", "SyncML Client", 0);
+/* TODO: Add UUID128 verion of UUID16; UUID32? UUID16? */
 }
 
 /*

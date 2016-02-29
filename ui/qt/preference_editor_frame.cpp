@@ -32,8 +32,11 @@
 #include <ui_preference_editor_frame.h>
 
 #include "qt_ui_utils.h"
+#include <wsutil/utf8_entities.h>
 
 #include "wireshark_application.h"
+
+#include <QPushButton>
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
 // Qt::escape
@@ -48,9 +51,17 @@ PreferenceEditorFrame::PreferenceEditorFrame(QWidget *parent) :
     ui(new Ui::PreferenceEditorFrame),
     module_(NULL),
     pref_(NULL),
+    new_uint_(0),
+    new_str_(""),
     new_range_(NULL)
 {
     ui->setupUi(this);
+
+#ifdef Q_OS_MAC
+    foreach (QWidget *w, findChildren<QWidget *>()) {
+        w->setAttribute(Qt::WA_MacSmallSize, true);
+    }
+#endif
 }
 
 PreferenceEditorFrame::~PreferenceEditorFrame()
@@ -68,10 +79,10 @@ void PreferenceEditorFrame::editPreference(preference *pref, pref_module *module
         return;
     }
 
-    ui->modulePreferencesToolButton->setText(tr("Open %1 preferences").arg(module_->title));
+    ui->modulePreferencesToolButton->setText(tr("Open %1 preferences" UTF8_HORIZONTAL_ELLIPSIS).arg(module_->title));
 
     pref_stash(pref_, NULL);
-    ui->preferenceTitleLabel->setText(pref->title);
+    ui->preferenceTitleLabel->setText(QString("%1:").arg(pref->title));
 
     // Convert the pref description from plain text to rich text.
     QString description;
@@ -126,7 +137,7 @@ void PreferenceEditorFrame::uintLineEditTextEdited(const QString &new_str)
     if (new_str.isEmpty()) {
         new_uint_ = pref_->stashed_val.uint;
         ui->preferenceLineEdit->setSyntaxState(SyntaxLineEdit::Empty);
-        ui->okButton->setEnabled(true);
+        ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
         return;
     }
 
@@ -139,7 +150,7 @@ void PreferenceEditorFrame::uintLineEditTextEdited(const QString &new_str)
         new_uint_ = pref_->stashed_val.uint;
         ui->preferenceLineEdit->setSyntaxState(SyntaxLineEdit::Invalid);
     }
-    ui->okButton->setEnabled(ok);
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ok);
 }
 
 void PreferenceEditorFrame::stringLineEditTextEdited(const QString &new_str)
@@ -168,21 +179,21 @@ void PreferenceEditorFrame::rangeLineEditTextEdited(const QString &new_str)
 
 void PreferenceEditorFrame::on_modulePreferencesToolButton_clicked()
 {
-    on_cancelButton_clicked();
     if (module_) {
         QString module_name = module_->name;
         emit showProtocolPreferences(module_name);
     }
+    on_buttonBox_rejected();
 }
 
 void PreferenceEditorFrame::on_preferenceLineEdit_returnPressed()
 {
-    if (ui->okButton->isEnabled()) {
-        on_okButton_clicked();
+    if (ui->buttonBox->button(QDialogButtonBox::Ok)->isEnabled()) {
+        on_buttonBox_accepted();
     }
 }
 
-void PreferenceEditorFrame::on_okButton_clicked()
+void PreferenceEditorFrame::on_buttonBox_accepted()
 {
     bool apply = false;
     switch(pref_->type) {
@@ -217,7 +228,7 @@ void PreferenceEditorFrame::on_okButton_clicked()
             prefs_main_write();
         }
     }
-    on_cancelButton_clicked();
+    on_buttonBox_rejected();
     // Emit signals once UI is hidden
     if (apply) {
         wsApp->emitAppSignal(WiresharkApplication::PacketDissectionChanged);
@@ -225,7 +236,7 @@ void PreferenceEditorFrame::on_okButton_clicked()
     }
 }
 
-void PreferenceEditorFrame::on_cancelButton_clicked()
+void PreferenceEditorFrame::on_buttonBox_rejected()
 {
     pref_ = NULL;
     module_ = NULL;

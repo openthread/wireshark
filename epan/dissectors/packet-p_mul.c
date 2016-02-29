@@ -42,6 +42,9 @@
 #include <epan/expert.h>
 #include <epan/asn1.h>
 #include <epan/in_cksum.h>
+#include <epan/proto_data.h>
+
+#include <wsutil/str_util.h>
 
 #include "packet-cdt.h"
 #include "packet-ber.h"
@@ -133,6 +136,8 @@ static int hf_analysis_retrans_time = -1;
 static int hf_analysis_total_retrans_time = -1;
 static int hf_analysis_last_pdu_num = -1;
 static int hf_analysis_addr_pdu_num = -1;
+static int hf_analysis_acks_addr_pdu_num = -1;
+static int hf_analysis_acks_acked_addr_pdu_num = -1;
 static int hf_analysis_addr_pdu_time = -1;
 static int hf_analysis_prev_pdu_num = -1;
 static int hf_analysis_prev_pdu_time = -1;
@@ -320,7 +325,7 @@ static gint p_mul_id_hash_equal (gconstpointer k1, gconstpointer k2)
   if (p_mul1->seq != p_mul2->seq)
     return 0;
 
-  return (ADDRESSES_EQUAL (&p_mul1->addr, &p_mul2->addr));
+  return (addresses_equal (&p_mul1->addr, &p_mul2->addr));
 }
 
 static p_mul_seq_val *lookup_seq_val (guint32 message_id, guint16 seq_no,
@@ -331,7 +336,7 @@ static p_mul_seq_val *lookup_seq_val (guint32 message_id, guint16 seq_no,
 
   p_mul_key->id = message_id;
   p_mul_key->seq = seq_no;
-  WMEM_COPY_ADDRESS(wmem_file_scope(), &p_mul_key->addr, addr);
+  copy_address_wmem(wmem_file_scope(), &p_mul_key->addr, addr);
 
   pkg_data = (p_mul_seq_val *) g_hash_table_lookup (p_mul_id_hash_table, p_mul_key);
 
@@ -391,7 +396,7 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
     /* Try to match corresponding address PDU */
     p_mul_key->id = message_id;
     p_mul_key->seq = 0;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &p_mul_key->addr, addr);
+    copy_address_wmem(wmem_file_scope(), &p_mul_key->addr, addr);
     need_set_address = TRUE;
 
     p_mul_data = (p_mul_seq_val *) g_hash_table_lookup (p_mul_id_hash_table, p_mul_key);
@@ -404,8 +409,8 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
       addr_time = p_mul_data->pdu_time;
 
       /* Save data for last found PDU */
-      p_mul_data->prev_pdu_id = pinfo->fd->num;
-      p_mul_data->prev_pdu_time = pinfo->fd->abs_ts;
+      p_mul_data->prev_pdu_id = pinfo->num;
+      p_mul_data->prev_pdu_time = pinfo->abs_ts;
 
       if (pdu_type == Data_PDU && p_mul_data->msg_resend_count == 0 && last_found_pdu != seq_no - 1) {
         /* Data_PDU and missing previous PDU */
@@ -428,8 +433,8 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
         prev_time = p_mul_data->pdu_time;
       }
     } else if (pdu_type == Address_PDU) {
-      addr_id = pinfo->fd->num;
-      addr_time = pinfo->fd->abs_ts;
+      addr_id = pinfo->num;
+      addr_time = pinfo->abs_ts;
     }
   }
 
@@ -445,7 +450,7 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
     p_mul_key->id = message_id;
     p_mul_key->seq = seq_no;
     if (!need_set_address) {
-      WMEM_COPY_ADDRESS(wmem_file_scope(), &p_mul_key->addr, addr);
+      copy_address_wmem(wmem_file_scope(), &p_mul_key->addr, addr);
     }
     p_mul_data = (p_mul_seq_val *) g_hash_table_lookup (p_mul_id_hash_table, p_mul_key);
 
@@ -457,7 +462,7 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
           if (!ack_data) {
             /* Only save reference to first ACK */
             ack_data = wmem_new0(wmem_file_scope(), p_mul_ack_data);
-            ack_data->ack_id = pinfo->fd->num;
+            ack_data->ack_id = pinfo->num;
             g_hash_table_insert (p_mul_data->ack_data, GUINT_TO_POINTER(dstIP), ack_data);
           } else {
             /* Only count when resending */
@@ -467,9 +472,9 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
       } else {
         /* Message resent */
         p_mul_data->msg_resend_count++;
-        p_mul_data->prev_msg_id = pinfo->fd->num;
+        p_mul_data->prev_msg_id = pinfo->num;
         p_mul_data->prev_msg_time = p_mul_data->pdu_time;
-        p_mul_data->pdu_time = pinfo->fd->abs_ts;
+        p_mul_data->pdu_time = pinfo->abs_ts;
 
         if (pdu_type == Data_PDU) {
           p_mul_data->prev_pdu_id = prev_id;
@@ -491,14 +496,14 @@ static p_mul_seq_val *register_p_mul_id (packet_info *pinfo, address *addr, guin
       if (pdu_type == Ack_PDU) {
         /* No matching message for this ack */
         ack_data = wmem_new0(wmem_file_scope(), p_mul_ack_data);
-        ack_data->ack_id = pinfo->fd->num;
+        ack_data->ack_id = pinfo->num;
         g_hash_table_insert (p_mul_data->ack_data, GUINT_TO_POINTER(dstIP), ack_data);
       } else {
-        p_mul_data->pdu_id = pinfo->fd->num;
-        p_mul_data->pdu_time = pinfo->fd->abs_ts;
+        p_mul_data->pdu_id = pinfo->num;
+        p_mul_data->pdu_time = pinfo->abs_ts;
         p_mul_data->addr_id = addr_id;
         p_mul_data->addr_time = addr_time;
-        p_mul_data->first_msg_time = pinfo->fd->abs_ts;
+        p_mul_data->first_msg_time = pinfo->abs_ts;
 
         if (pdu_type == Data_PDU && !missing_pdu) {
           p_mul_data->prev_pdu_id = prev_id;
@@ -558,11 +563,11 @@ static void add_ack_analysis (tvbuff_t *tvb, packet_info *pinfo, proto_tree *p_m
     if (dst == NULL) {
       /* Ack-Ack */
       if (pkg_data->addr_id) {
-        en = proto_tree_add_uint (analysis_tree, hf_analysis_addr_pdu_num, tvb,
+        en = proto_tree_add_uint (analysis_tree, hf_analysis_acks_acked_addr_pdu_num, tvb,
                                   0, 0, pkg_data->addr_id);
         PROTO_ITEM_SET_GENERATED (en);
 
-        nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->addr_time);
+        nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->addr_time);
         en = proto_tree_add_time (analysis_tree, hf_analysis_total_time,
                                   tvb, 0, 0, &ns);
         PROTO_ITEM_SET_GENERATED (en);
@@ -615,12 +620,12 @@ static void add_ack_analysis (tvbuff_t *tvb, packet_info *pinfo, proto_tree *p_m
 
     /* Add reference to Address_PDU */
     if (pkg_data->msg_type != Ack_PDU) {
-      en = proto_tree_add_uint (analysis_tree, hf_analysis_addr_pdu_num, tvb,
+      en = proto_tree_add_uint (analysis_tree, hf_analysis_acks_addr_pdu_num, tvb,
                                 0, 0, pkg_data->pdu_id);
       PROTO_ITEM_SET_GENERATED (en);
 
       if (no_missing == 0) {
-        nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->first_msg_time);
+        nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->first_msg_time);
         en = proto_tree_add_time (analysis_tree, hf_analysis_trans_time,
                                   tvb, 0, 0, &ns);
         PROTO_ITEM_SET_GENERATED (en);
@@ -635,7 +640,7 @@ static void add_ack_analysis (tvbuff_t *tvb, packet_info *pinfo, proto_tree *p_m
                                 tvb, 0, 0, pkg_data->prev_pdu_id);
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->prev_pdu_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->prev_pdu_time);
       en = proto_tree_add_time (analysis_tree, hf_analysis_ack_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (en);
@@ -689,7 +694,7 @@ static p_mul_seq_val *add_seq_analysis (tvbuff_t *tvb, packet_info *pinfo,
                                 0, 0, pkg_data->addr_id);
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->addr_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->addr_time);
       en = proto_tree_add_time (analysis_tree, hf_analysis_addr_pdu_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (en);
@@ -714,7 +719,7 @@ static p_mul_seq_val *add_seq_analysis (tvbuff_t *tvb, packet_info *pinfo,
                                 0, 0, pkg_data->prev_pdu_id);
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->prev_pdu_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->prev_pdu_time);
       en = proto_tree_add_time (analysis_tree, hf_analysis_prev_pdu_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (en);
@@ -739,12 +744,12 @@ static p_mul_seq_val *add_seq_analysis (tvbuff_t *tvb, packet_info *pinfo,
 
       expert_add_info_format(pinfo, en, &ei_analysis_retrans_no, "Retransmission #%d", pkg_data->msg_resend_count);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->prev_msg_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->prev_msg_time);
       en = proto_tree_add_time (analysis_tree, hf_analysis_retrans_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (en);
 
-      nstime_delta (&ns, &pinfo->fd->abs_ts, &pkg_data->first_msg_time);
+      nstime_delta (&ns, &pinfo->abs_ts, &pkg_data->first_msg_time);
       eh = proto_tree_add_time (analysis_tree, hf_analysis_total_retrans_time,
                                 tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED (eh);
@@ -949,7 +954,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 
   if (pdu_type == Ack_PDU) {
     /* Source ID of Ack Sender */
-    TVB_SET_ADDRESS (&dst, AT_IPv4, tvb, offset, 4);
+    set_address_tvb (&dst, AT_IPv4, 4, tvb, offset);
     proto_tree_add_item (p_mul_tree, hf_source_id_ack, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
@@ -959,7 +964,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
     offset += 2;
   } else {
     /* Source Id */
-    TVB_SET_ADDRESS (&src, AT_IPv4, tvb, offset, 4);
+    set_address_tvb (&src, AT_IPv4, 4, tvb, offset);
     proto_tree_add_item (p_mul_tree, hf_source_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
@@ -1034,7 +1039,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
       field_tree = proto_item_add_subtree (en, ett_dest_entry);
 
       /* Destination Id */
-      TVB_SET_ADDRESS (&dst, AT_IPv4, tvb, offset, 4);
+      set_address_tvb (&dst, AT_IPv4, 4, tvb, offset);
       proto_tree_add_item (field_tree, hf_dest_id, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
 
@@ -1095,7 +1100,7 @@ static int dissect_p_mul (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
       }
 
       /* Source Id */
-      TVB_SET_ADDRESS (&src, AT_IPv4, tvb, offset, 4);
+      set_address_tvb (&src, AT_IPv4, 4, tvb, offset);
       proto_tree_add_item (field_tree, hf_source_id, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
 
@@ -1512,6 +1517,12 @@ void proto_register_p_mul (void)
     { &hf_analysis_addr_pdu_num,
       { "Address PDU in", "p_mul.analysis.addr_pdu_in", FT_FRAMENUM, BASE_NONE,
         NULL, 0x0, "The Address PDU is found in this frame", HFILL } },
+    { &hf_analysis_acks_addr_pdu_num,
+      { "This is an Ack to the Address PDU in", "p_mul.analysis.acks_addr_pdu_in", FT_FRAMENUM, BASE_NONE,
+        FRAMENUM_TYPE(FT_FRAMENUM_ACK), 0x0, "The Address PDU is found in this frame", HFILL } },
+    { &hf_analysis_acks_acked_addr_pdu_num,
+      { "This is an Ack-Ack to the Address PDU in", "p_mul.analysis.acks_acked_addr_pdu_in", FT_FRAMENUM, BASE_NONE,
+        FRAMENUM_TYPE(FT_FRAMENUM_DUP_ACK), 0x0, "The Address PDU is found in this frame", HFILL } },
     { &hf_analysis_prev_pdu_num,
       { "Previous PDU in", "p_mul.analysis.prev_pdu_in", FT_FRAMENUM, BASE_NONE,
         NULL, 0x0, "The previous PDU is found in this frame", HFILL } },
@@ -1574,7 +1585,7 @@ void proto_register_p_mul (void)
 
   proto_p_mul = proto_register_protocol (PNAME, PSNAME, PFNAME);
 
-  p_mul_handle = new_register_dissector(PFNAME, dissect_p_mul, proto_p_mul);
+  p_mul_handle = register_dissector(PFNAME, dissect_p_mul, proto_p_mul);
 
   proto_register_field_array (proto_p_mul, hf, array_length (hf));
   proto_register_subtree_array (ett, array_length (ett));

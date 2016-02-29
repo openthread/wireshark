@@ -46,8 +46,8 @@ static const value_string encaps_vals[] = {
 static dissector_handle_t eth_withoutfcs_handle;
 static dissector_handle_t ppp_hdlc_handle;
 
-static void
-dissect_ascend(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ascend(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree                    *fh_tree;
   proto_item                    *ti, *hidden_item;
@@ -109,6 +109,7 @@ dissect_ascend(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     default:
       break;
   }
+  return tvb_captured_length(tvb);
 }
 
 void

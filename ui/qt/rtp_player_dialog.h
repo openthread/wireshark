@@ -39,6 +39,7 @@ class RtpPlayerDialog;
 struct _rtp_stream_info;
 
 class QCPItemStraightLine;
+class QDialogButtonBox;
 class QMenu;
 class RtpAudioStream;
 
@@ -49,13 +50,26 @@ class RtpPlayerDialog : public WiresharkDialog
 public:
     explicit RtpPlayerDialog(QWidget &parent, CaptureFile &cf);
 
+    /**
+     * @brief Common routine to add a "Play call" button to a QDialogButtonBox.
+     * @param button_box Caller's QDialogButtonBox.
+     * @return The new "Play call" button.
+     */
+    // XXX We might want to move this to qt_ui_utils.
+    static QPushButton *addPlayerButton(QDialogButtonBox *button_box);
+
 #ifdef QT_MULTIMEDIA_LIB
     ~RtpPlayerDialog();
 
+    void accept();
+    void reject();
+
     /** Add an RTP stream to play.
      * MUST be called before exec().
+     * Requires src_addr, src_port, dest_addr, dest_port, ssrc, packet_count,
+     * setup_frame_number, and start_rel_time.
      *
-     * @param rtp_stream
+     * @param rtp_stream struct with rtp_stream info
      */
     void addRtpStream(struct _rtp_stream_info *rtp_stream);
 
@@ -70,9 +84,12 @@ protected:
 
 private slots:
     /** Retap the capture file, adding RTP packets that match the
-     * streams added using ::addRtpStream and display the dialog.
+     * streams added using ::addRtpStream.
      */
-    void retapPackets(bool rescale_axes = true);
+    void retapPackets();
+    /** Clear, decode, and redraw each stream.
+     */
+    void rescanPackets(bool rescale_axes = false);
     void updateWidgets();
     void graphClicked(QMouseEvent *event);
     void mouseMoved(QMouseEvent *);
@@ -90,6 +107,8 @@ private slots:
     void on_actionMoveRight1_triggered();
     void on_actionGoToPacket_triggered();
     void on_streamTreeWidget_itemSelectionChanged();
+    void on_jitterSpinBox_valueChanged(double);
+    void on_timingComboBox_currentIndexChanged(int);
     void on_todCheckBox_toggled(bool checked);
     void on_buttonBox_helpRequested();
 

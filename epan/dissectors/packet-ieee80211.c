@@ -81,8 +81,10 @@
 #include <math.h>
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/exceptions.h>
 #include <wsutil/pint.h>
+#include <wsutil/str_util.h>
 #include <epan/addr_resolv.h>
 #include <epan/address_types.h>
 #include <epan/strutil.h>
@@ -99,7 +101,8 @@
 #include <epan/conversation_table.h>
 #include <epan/uat.h>
 #include <epan/eapol_keydes_types.h>
-#include <epan/to_str-int.h>
+#include <epan/to_str.h>
+#include <epan/proto_data.h>
 
 #include "packet-wps.h"
 #include "packet-e212.h"
@@ -193,7 +196,7 @@ uat_wep_key_record_update_cb(void* r, char** err)
 
   if (dk != NULL) {
     dk_type = dk->type;
-    g_free(dk);
+    free_key_string(dk);
     switch (dk_type) {
       case AIRPDCAP_KEY_TYPE_WEP:
       case AIRPDCAP_KEY_TYPE_WEP_40:
@@ -2991,6 +2994,7 @@ static const value_string ff_vht_mimo_cntrl_feedback_vals[] = {
 
 
 static int proto_wlan = -1;
+static int proto_centrino = -1;
 static int proto_aggregate = -1;
 static gboolean ieee80211_tvb_invalid = FALSE;
 
@@ -4208,6 +4212,16 @@ static int hf_ieee80211_tag_mmie_keyid = -1;
 static int hf_ieee80211_tag_mmie_ipn = -1;
 static int hf_ieee80211_tag_mmie_mic = -1;
 
+/* IEEE Std 802.11-2012: 8.4.2.61 */
+static int hf_ieee80211_tag_obss_spd = -1;
+static int hf_ieee80211_tag_obss_sad = -1;
+static int hf_ieee80211_tag_obss_cwtsi = -1;
+static int hf_ieee80211_tag_obss_sptpc = -1;
+static int hf_ieee80211_tag_obss_satpc = -1;
+static int hf_ieee80211_tag_obss_wctdf = -1;
+static int hf_ieee80211_tag_obss_sat = -1;
+
+
 /*WAPI-Specification 7.3.2.25 : WAPI Parameter Set*/
 static int hf_ieee80211_tag_wapi_param_set_version = -1;
 
@@ -4613,6 +4627,9 @@ static int hf_ieee80211_anqp_wfa_subtype = -1;
 
 /* Hotspot 2.0 */
 static int hf_hs20_indication_dgaf_disabled = -1;
+static int hf_hs20_indication_pps_mo_id_present = -1;
+static int hf_hs20_indication_anqp_domain_id_present = -1;
+static int hf_hs20_indication_release_number = -1;
 
 static int hf_hs20_anqp_subtype = -1;
 static int hf_hs20_anqp_reserved = -1;
@@ -5277,7 +5294,7 @@ wlan_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_,
   conv_hash_t *hash = (conv_hash_t*) pct;
   const wlan_hdr_t *whdr=(const wlan_hdr_t *)vip;
 
-  add_conversation_table_data(hash, &whdr->src, &whdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &wlan_ct_dissector_info, PT_NONE);
+  add_conversation_table_data(hash, &whdr->src, &whdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &wlan_ct_dissector_info, PT_NONE);
 
   return 1;
 }
@@ -5614,23 +5631,19 @@ add_mimo_compressed_beamforming_feedback_report (proto_tree *tree, tvbuff_t *tvb
 /* ************************************************************************* */
 /*          This is the capture function used to update packet counts        */
 /* ************************************************************************* */
-static void
+static gboolean
 capture_ieee80211_common (const guchar * pd, int offset, int len,
-                          packet_counts * ld, gboolean datapad)
+                          capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_, gboolean datapad)
 {
   guint16 fcf, hdr_length;
 
-  if (!BYTES_ARE_IN_FRAME(offset, len, 2)) {
-    ld->other += 1;
-    return;
-  }
+  if (!BYTES_ARE_IN_FRAME(offset, len, 2))
+    return FALSE;
 
   fcf = pletoh16 (&pd[offset]);
 
-  if (IS_PROTECTED(FCF_FLAGS(fcf)) && (wlan_ignore_wep == WLAN_IGNORE_WEP_NO)) {
-    ld->other += 1;
-    return;
-  }
+  if (IS_PROTECTED(FCF_FLAGS(fcf)) && (wlan_ignore_wep == WLAN_IGNORE_WEP_NO))
+    return FALSE;
 
   switch (COMPOSE_FRAME_TYPE (fcf)) {
 
@@ -5664,10 +5677,9 @@ capture_ieee80211_common (const guchar * pd, int offset, int len,
          * Look at the Mesh Control subfield of the QoS field and at the
          * purported mesh flag fields.
          */
-        if (!BYTES_ARE_IN_FRAME(offset, hdr_length, 1)) {
-          ld->other += 1;
-          return;
-        }
+        if (!BYTES_ARE_IN_FRAME(offset, hdr_length, 1))
+          return FALSE;
+
         mesh_flags = pd[hdr_length];
         if (has_mesh_control(fcf, pletoh16(&pd[qosoff]), mesh_flags)) {
           /* Yes, add the length of that in as well. */
@@ -5717,10 +5729,9 @@ capture_ieee80211_common (const guchar * pd, int offset, int len,
            as an encapsulated IPX frame, and then check whether the
            packet starts with 0x00 0x00 and, if so, treat it as an OLPC
            frame. */
-      if (!BYTES_ARE_IN_FRAME(offset+hdr_length, len, 2)) {
-        ld->other += 1;
-        return;
-      }
+      if (!BYTES_ARE_IN_FRAME(offset+hdr_length, len, 2))
+        return FALSE;
+
       if ((pd[offset+hdr_length] != 0xaa) && (pd[offset+hdr_length+1] != 0xaa)) {
 #if 0
         /* XXX - this requires us to parse the header to find the source
@@ -5729,45 +5740,42 @@ capture_ieee80211_common (const guchar * pd, int offset, int len,
           /* We have two MAC addresses after the header. */
           if ((memcmp(&pd[offset+hdr_length+6], pinfo->dl_src.data, 6) == 0) ||
               (memcmp(&pd[offset+hdr_length+6], pinfo->dl_dst.data, 6) == 0)) {
-            capture_eth (pd, offset + hdr_length, len, ld);
-            return;
+            return capture_eth (pd, offset + hdr_length, len, cpinfo, pseudo_header);
           }
         }
 #endif
         if ((pd[offset+hdr_length] == 0xff) && (pd[offset+hdr_length+1] == 0xff))
-          capture_ipx (ld);
+          return capture_ipx (pd, offset+hdr_length, len, cpinfo, pseudo_header);
         else if ((pd[offset+hdr_length] == 0x00) && (pd[offset+hdr_length+1] == 0x00))
-          capture_llc (pd, offset + hdr_length + 2, len, ld);
+          return capture_llc (pd, offset + hdr_length + 2, len, cpinfo, pseudo_header);
       }
       else {
-        capture_llc (pd, offset + hdr_length, len, ld);
+        return capture_llc (pd, offset + hdr_length, len, cpinfo, pseudo_header);
       }
       break;
     }
-
-    default:
-      ld->other += 1;
-      break;
   }
+
+  return FALSE;
 }
 
 /*
  * Handle 802.11 with a variable-length link-layer header.
  */
-void
-capture_ieee80211 (const guchar * pd, int offset, int len, packet_counts * ld)
+gboolean
+capture_ieee80211 (const guchar * pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
-  capture_ieee80211_common (pd, offset, len, ld, FALSE);
+  return capture_ieee80211_common (pd, offset, len, cpinfo, pseudo_header, FALSE);
 }
 
 /*
  * Handle 802.11 with a variable-length link-layer header and data padding.
  */
-void
+gboolean
 capture_ieee80211_datapad (const guchar * pd, int offset, int len,
-                           packet_counts * ld)
+                           capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
-  capture_ieee80211_common (pd, offset, len, ld, TRUE);
+  return capture_ieee80211_common (pd, offset, len, cpinfo, pseudo_header, TRUE);
 }
 
 
@@ -9119,6 +9127,14 @@ add_ff_vht_compressed_beamforming_report(proto_tree *tree, tvbuff_t *tvb, packet
     offset += 1;
   }
 
+  /* Table 8-53c Subfields of the VHT MIMO Control field (802.11ac-2013)
+   * reserves value 3 of the Grouping subfield. */
+  if (grouping == 3) {
+    expert_add_info_format(pinfo, vht_beam_item, &ei_ieee80211_inv_val,
+                           "Grouping subfield value 3 is reserved");
+    return offset;
+  }
+
   subtree = proto_tree_add_subtree(vht_beam_tree, tvb, offset, -1,
                         ett_ff_vhtmimo_beamforming_report_feedback_matrices, NULL, "Beamforming Feedback Matrics");
   if (feedback_type) {
@@ -10172,10 +10188,22 @@ dissect_vendor_ie_wpawme(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, in
   return offset;
 }
 
+static const value_string hs20_indication_release_number_vals[] = {
+  { 0, "Release 1" },
+  { 1, "Release 2" },
+  { 0, NULL }
+};
+
 static void dissect_hs20_indication(proto_tree *tree, tvbuff_t *tvb,
                                     int offset)
 {
   proto_tree_add_item(tree, hf_hs20_indication_dgaf_disabled, tvb, offset, 1,
+                      ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(tree, hf_hs20_indication_pps_mo_id_present, tvb, offset, 1,
+                      ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(tree, hf_hs20_indication_anqp_domain_id_present, tvb, offset, 1,
+                      ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(tree, hf_hs20_indication_release_number, tvb, offset, 1,
                       ENC_LITTLE_ENDIAN);
 }
 
@@ -11352,7 +11380,7 @@ dissect_ssid_list(proto_tree *tree, tvbuff_t *tvb, int offset, guint32 tag_len)
     if (offset + 2 + len > end)
       break;
 
-    str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, len, ENC_ASCII);
+    str = format_text(tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, len, ENC_ASCII), len);
     proto_item_append_text(tree, "%c %s", (first ? ':' : ','), str);
     first = FALSE;
     entry = proto_tree_add_subtree_format(tree, tvb, offset, 2 + len, ett_ssid_list, NULL, "SSID: %s", str);
@@ -11556,6 +11584,41 @@ dissect_ric_data(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset
 }
 
 static int
+dissect_overlap_bss_scan_par(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset,
+                         guint32 tag_len, proto_item *ti _U_, proto_item *ti_len)
+{
+
+  if (tag_len !=  14)  {
+    expert_add_info_format(pinfo, ti_len, &ei_ieee80211_tag_length,
+                           "OBSS Length must be 14 bytes");
+    return 0;
+  }
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_spd, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_sad, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_cwtsi, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_sptpc, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_satpc, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_wctdf, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_ieee80211_tag_obss_sat, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+  offset += 2;
+
+  return offset;
+}
+
+static int
 dissect_ric_descriptor(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset,
                          guint32 tag_len, proto_item *ti, proto_item *ti_len)
 {
@@ -11591,6 +11654,7 @@ dissect_ric_descriptor(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int 
     /* 0,2-255 are reserved*/
     proto_item_append_text(ti, " :Reserved (type != 1)");
   }
+
   return offset;
 }
 
@@ -13256,7 +13320,6 @@ ieee80211_tag_ssid(packet_info *pinfo, proto_tree *tree,
 {
   /* 7.3.2.1 SSID element (0) */
   gchar *ssid; /* The SSID may consist of arbitrary bytes */
-  const gchar *ssid_end;
   gint ssid_len = tag_len;
 
   if (beacon_padding != 0) /* padding bug */
@@ -13269,28 +13332,69 @@ ieee80211_tag_ssid(packet_info *pinfo, proto_tree *tree,
     ssid_len = MAX_SSID_LEN;
   }
 
+  /*
+   * XXX - the 802.11 specs aren't particularly clear on how the SSID
+   * is to be interpreted.
+   *
+   * IEEE Std 802.11-1999, section 7.3.2.2 "Service Set Identity (SSID)
+   * element" says just
+   *
+   *    The length of the SSID information field is between 0 and 32
+   *    octets. A 0 length information field indicates the broadcast SSID.
+   *
+   * with no indication that those octets encode a string.
+   *
+   * IEEE Std 802.11-2012, section 8.4.2.2 "SSID element", says that *but*
+   * says after it
+   *
+   *    When the UTF-8 SSID subfield of the Extended Capabilities element
+   *    is equal to 1 in the frame that includes the SSID element, the
+   *    SSID is interpreted using UTF-8 encoding.
+   *
+   *    NOTE -- This is true for Beacon and Probe Response frames when the
+   *    MLME-START.request primitive was issued with the SSIDEncoding
+   *    parameter equal to UTF8.
+   *
+   * and the SSIDEncoding parameter can either be UNSPECIFIED or UTF8.
+   *
+   * So I *guess* that means that, if the UTF-8 SSID subfield isn't
+   * equal to 1, the SSID is, in theory, just a bunch of octets, but
+   * in practice, *probably* ASCII as that's the typical convention,
+   * and, if it is equal to 1, it's a UTF-8 string.  (Of course, a
+   * host can put anything there it wants to, so we shouldn't just
+   * assume that it's *valid* ASCII or *valid* UTF-8.)
+   *
+   * So we really should extract it as an array of ssid_len bytes,
+   * pass those bytes to AirPDcapSetLastSSID(), and:
+   *
+   *    If the UTF-8 SSID subfield isn't set to 1, put the SSID in
+   *    as an ENC_ASCII string;
+   *
+   *    If the UTF-8 SSID subfield is set to 1, put it in as an
+   *    ENC_UTF_8 string;
+   *
+   * and rely on the libwireshark core code to somehow deal with
+   * non-ASCII characters or invalid UTF-8 sequences or valid-but-
+   * not-all-printable ASCII or UTF-8 strings in the protocol tree
+   * display.  I'm not sure we can currently rely on it to handle
+   * invalid UTF-8 or non-printable characters in UTF-8 strings,
+   * however, so we just treat it as ASCII for now.
+   *
+   * We also need a better way of getting the display format of a
+   * string value, so we can do something other than run it through
+   * format_text(), which won't handle UTF-8.
+   */
   ssid = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, ssid_len, ENC_ASCII);
   if (ssid_len == (gint)tag_len) {
     AirPDcapSetLastSSID(&airpdcap_ctx, (CHAR *) ssid, ssid_len);
   }
-  g_utf8_validate(ssid, ssid_len, &ssid_end);
-  ssid[ssid_end - ssid] = '\0';
-  if ((gint)(ssid_end - ssid) == ssid_len) {
-    proto_tree_add_item(tree, hf_ieee80211_tag_ssid, tvb, offset + 2, tag_len,
-                        ENC_ASCII|ENC_NA);
-  } else {
-    wmem_strbuf_t *ssid_sb = wmem_strbuf_new(wmem_packet_scope(), ssid);
-    ssid_len = (gint)(ssid_end - ssid);
-    wmem_strbuf_append(ssid_sb, " [truncated]");
-    proto_tree_add_string_format_value(tree, hf_ieee80211_tag_ssid, tvb, offset + 2, tag_len,
-                        ssid, "%s", wmem_strbuf_get_str(ssid_sb));
-    ssid = (gchar*)wmem_strbuf_get_str(ssid_sb);
-  }
+  proto_tree_add_item(tree, hf_ieee80211_tag_ssid, tvb, offset + 2, tag_len,
+                      ENC_ASCII|ENC_NA);
 
   if (ssid_len > 0) {
-    proto_item_append_text(ti, ": %s", ssid);
+    proto_item_append_text(ti, ": %s", format_text(ssid, ssid_len));
 
-    col_append_fstr(pinfo->cinfo, COL_INFO, ", SSID=%s", ssid);
+    col_append_fstr(pinfo->cinfo, COL_INFO, ", SSID=%s", format_text(ssid, ssid_len));
 
     /* Wlan Stats */
     memcpy(wlan_stats.ssid, ssid, MIN(ssid_len, MAX_SSID_LEN));
@@ -13316,7 +13420,7 @@ dissect_neighbor_report(tvbuff_t *tvb, packet_info *pinfo,
   guint32 sub_tag_length;
   proto_item *parent_item;
   proto_tree *bssid_info_subtree, *bssid_info_cap_subtree, *sub_tag_tree;
-  tvbuff_t *volatile sub_tag_tvb = NULL;
+  tvbuff_t *sub_tag_tvb = NULL;
 
   if (tag_len < 13) {
     expert_add_info_format(pinfo, ti_len, &ei_ieee80211_tag_length,
@@ -15199,6 +15303,10 @@ add_tagged_field(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset
       dissect_rm_enabled_capabilities_ie(pinfo, tree, ti, ti_len, tag_len, tvb, offset+2, tag_end);
       break;
 
+    case TAG_OVERLAP_BSS_SCAN_PAR: /* Overlapping BSS Scan Parameters (74) */
+      dissect_overlap_bss_scan_par(pinfo, tree, tvb, offset + 2, tag_len, ti, ti_len);
+      break;
+
     case TAG_RIC_DESCRIPTOR: /* RIC Descriptor (75) */
       dissect_ric_descriptor(pinfo, tree, tvb, offset + 2, tag_len, ti, ti_len);
       break;
@@ -15275,8 +15383,8 @@ add_tagged_field(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offset
 
         proto_tree_add_item(tree, hf_ieee80211_mesh_id, tvb, offset, tag_len, ENC_ASCII|ENC_NA);
         if (tag_len > 0) {
-            col_append_fstr(pinfo->cinfo, COL_INFO, ", MESHID=%s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tag_len, ENC_ASCII));
-            proto_item_append_text(ti, ": %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tag_len, ENC_ASCII));
+            col_append_fstr(pinfo->cinfo, COL_INFO, ", MESHID=%s", format_text(tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tag_len, ENC_ASCII), tag_len));
+            proto_item_append_text(ti, ": %s", format_text(tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tag_len, ENC_ASCII), tag_len));
         }
 
       break;
@@ -16371,7 +16479,7 @@ set_src_addr_cols(packet_info *pinfo, tvbuff_t *tvb, int offset, const char *typ
 {
   address      ether_addr;
 
-  TVB_SET_ADDRESS(&ether_addr, AT_ETHER, tvb, offset, 6);
+  set_address_tvb(&ether_addr, AT_ETHER, 6, tvb, offset);
 
   col_add_fstr(pinfo->cinfo, COL_RES_DL_SRC, "%s (%s)",
         address_with_resolution_to_str(wmem_packet_scope(), &ether_addr), type);
@@ -16382,7 +16490,7 @@ set_dst_addr_cols(packet_info *pinfo, tvbuff_t *tvb, int offset, const char *typ
 {
   address      ether_addr;
 
-  TVB_SET_ADDRESS(&ether_addr, AT_ETHER, tvb, offset, 6);
+  set_address_tvb(&ether_addr, AT_ETHER, 6, tvb, offset);
 
   col_add_fstr(pinfo->cinfo, COL_RES_DL_DST, "%s (%s)",
         address_with_resolution_to_str(wmem_packet_scope(), &ether_addr), type);
@@ -16445,7 +16553,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
   gboolean         has_fcs, fcs_good, fcs_bad;
   gint             len, reported_len, ivlen;
   gint             sta_addr_offset = 0;
-  gchar           *station_name;
+  const gchar     *station_name;
   gboolean         is_amsdu    = 0;
   gboolean         save_fragmented;
   guint32          addr_type;
@@ -16466,14 +16574,14 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
   guint16          meshoff     = 0;
   static wlan_hdr_t whdrs[4];
   gboolean         retransmitted;
-  gboolean         isDMG = (phdr->presence_flags & PHDR_802_11_HAS_FREQUENCY ?
+  gboolean         isDMG = (phdr->has_frequency ?
                                 IS_80211AD(phdr->frequency) :
                                 FALSE);
 
-  volatile encap_t encap_type;
-  proto_tree *volatile hdr_tree = NULL;
-  tvbuff_t   *volatile next_tvb = NULL;
-  wlan_hdr_t   *volatile whdr;
+  encap_t     encap_type;
+  proto_tree *hdr_tree = NULL;
+  tvbuff_t   *next_tvb = NULL;
+  wlan_hdr_t *whdr;
 
   AIRPDCAP_KEY_ITEM  used_key;
 
@@ -16696,15 +16804,15 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
       /*
        * All management frame types have the same header.
        */
-      TVB_SET_ADDRESS(&pinfo->dl_src, wlan_address_type, tvb, 10, 6);
-      COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-      TVB_SET_ADDRESS(&pinfo->dl_dst, wlan_address_type, tvb, 4, 6);
-      COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
+      set_address_tvb(&pinfo->dl_src, wlan_address_type, 6, tvb, 10);
+      copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+      set_address_tvb(&pinfo->dl_dst, wlan_address_type, 6, tvb, 4);
+      copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 
       /* for tap */
-      TVB_SET_ADDRESS(&whdr->bssid, wlan_bssid_address_type, tvb, 16, 6);
-      COPY_ADDRESS_SHALLOW(&whdr->src, &pinfo->dl_src);
-      COPY_ADDRESS_SHALLOW(&whdr->dst, &pinfo->dl_dst);
+      set_address_tvb(&whdr->bssid, wlan_bssid_address_type, 6, tvb, 16);
+      copy_address_shallow(&whdr->src, &pinfo->dl_src);
+      copy_address_shallow(&whdr->dst, &pinfo->dl_dst);
 
       seq_control = tvb_get_letohs(tvb, 22);
       frag_number = SEQCTL_FRAGMENT_NUMBER(seq_control);
@@ -16718,7 +16826,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
 
       if (tree)
       {
-        gchar *ra_da_name, *ta_sa_name, *bssid_name;
+        const gchar *ra_da_name, *ta_sa_name, *bssid_name;
 
         proto_tree_add_item (hdr_tree, hf_ieee80211_addr_ra, tvb, 4, 6, ENC_NA);
         ra_da_name = tvb_get_ether_name(tvb, 4);
@@ -16739,18 +16847,18 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
         hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_bssid_resolved, tvb, 16, 6, bssid_name);
         PROTO_ITEM_SET_HIDDEN(hidden_item);
 
-	/* FIXME: With mgmt frames FROM_TO_DS is always 0, perhaps compare address to bssid instead? */
-	if ((flags & FROM_TO_DS) == FLAG_FROM_DS) { /* Receiver address */
-	  sta_addr_offset = 4;
-	} else if ((flags & FROM_TO_DS) == FLAG_TO_DS) { /* Transmitter address */
-	  sta_addr_offset = 10;
-	}
-	if (sta_addr_offset > 0) {
+        /* FIXME: With mgmt frames FROM_TO_DS is always 0, perhaps compare address to bssid instead? */
+        if ((flags & FROM_TO_DS) == FLAG_FROM_DS) { /* Receiver address */
+          sta_addr_offset = 4;
+        } else if ((flags & FROM_TO_DS) == FLAG_TO_DS) { /* Transmitter address */
+          sta_addr_offset = 10;
+        }
+        if (sta_addr_offset > 0) {
           proto_tree_add_item (hdr_tree, hf_ieee80211_addr_staa, tvb, sta_addr_offset, 6, ENC_NA);
           station_name = tvb_get_ether_name(tvb, sta_addr_offset);
           hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_staa_resolved, tvb, sta_addr_offset, 6, station_name);
           PROTO_ITEM_SET_HIDDEN(hidden_item);
-	}
+        }
         /* add items for wlan.addr filter */
         hidden_item = proto_tree_add_item (hdr_tree, hf_ieee80211_addr, tvb, 4, 6, ENC_NA);
         PROTO_ITEM_SET_HIDDEN(hidden_item);
@@ -16839,7 +16947,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
       /* Add address 1 */
       set_dst_addr_cols(pinfo, tvb, 4, addr1_str);
       if (tree) {
-        gchar* ether_name = tvb_get_ether_name(tvb, 4);
+        const gchar *ether_name = tvb_get_ether_name(tvb, 4);
         proto_tree_add_item(hdr_tree, addr1_hf, tvb, 4, 6, ENC_NA);
         hidden_item = proto_tree_add_string (hdr_tree, addr1_hf_resolved, tvb, 4, 6, ether_name);
         PROTO_ITEM_SET_HIDDEN(hidden_item);
@@ -16887,7 +16995,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
         {
           set_src_addr_cols(pinfo, tvb, offset, "BSSID");
           if (tree) {
-            gchar* ether_name = tvb_get_ether_name(tvb, offset);
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
             PROTO_ITEM_SET_HIDDEN(hidden_item);
@@ -16904,7 +17012,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
         {
           set_src_addr_cols(pinfo, tvb, offset, "TA");
           if (tree) {
-            gchar *ether_name = tvb_get_ether_name(tvb, offset);
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
 
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
@@ -16930,7 +17038,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
             proto_item *dialog_token_item;
             proto_tree *sta_info_tree;
             proto_item *sta_info_item;
-            gchar* ether_name = tvb_get_ether_name(tvb, offset);
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
 
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
@@ -16990,7 +17098,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
         {
           set_src_addr_cols(pinfo, tvb, offset, "TA");
           if (tree) {
-            gchar* ether_name = tvb_get_ether_name(tvb, offset);
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
             PROTO_ITEM_SET_HIDDEN(hidden_item);
@@ -17019,7 +17127,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
             guint8 block_ack_type;
             proto_item *bar_parent_item;
             proto_tree *bar_sub_tree;
-            gchar* ether_name = tvb_get_ether_name(tvb, offset);
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
 
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
@@ -17129,7 +17237,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
             guint8 block_ack_type;
             proto_item *ba_parent_item;
             proto_tree *ba_sub_tree;
-            gchar* ether_name = tvb_get_ether_name(tvb, offset);
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
 
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
@@ -17364,16 +17472,16 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
 
 
 
-      TVB_SET_ADDRESS(&pinfo->dl_src, wlan_address_type, tvb, sa_offset, 6);
-      COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-      TVB_SET_ADDRESS(&pinfo->dl_dst, wlan_address_type, tvb, da_offset, 6);
-      COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
+      set_address_tvb(&pinfo->dl_src, wlan_address_type, 6, tvb, sa_offset);
+      copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+      set_address_tvb(&pinfo->dl_dst, wlan_address_type, 6, tvb, da_offset);
+      copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 
       /* for tap */
-      TVB_SET_ADDRESS(&whdr->bssid, wlan_bssid_address_type, tvb, bssid_offset, 6);
+      set_address_tvb(&whdr->bssid, wlan_bssid_address_type, 6, tvb, bssid_offset);
 
-      COPY_ADDRESS_SHALLOW(&whdr->src, &pinfo->dl_src);
-      COPY_ADDRESS_SHALLOW(&whdr->dst, &pinfo->dl_dst);
+      copy_address_shallow(&whdr->src, &pinfo->dl_src);
+      copy_address_shallow(&whdr->dst, &pinfo->dl_dst);
 
       seq_control = tvb_get_letohs(tvb, 22);
       frag_number = SEQCTL_FRAGMENT_NUMBER(seq_control);
@@ -17385,7 +17493,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
       /* Now if we have a tree we start adding stuff */
       if (tree)
       {
-        gchar *ra_name, *ta_name, *sa_name, *da_name, *bssid_name = NULL;
+        const gchar *ra_name, *ta_name, *sa_name, *da_name, *bssid_name = NULL;
 
         switch (addr_type)
         {
@@ -17707,7 +17815,8 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
       /* and WPA2 decryption                                  */
       if (enable_decryption && !pinfo->fd->flags.visited) {
         const guint8 *enc_data = tvb_get_ptr(tvb, 0, hdr_len+reported_len);
-        AirPDcapPacketProcess(&airpdcap_ctx, enc_data, hdr_len, hdr_len+reported_len, NULL, 0, NULL, TRUE, FALSE);
+        AirPDcapPacketProcess(&airpdcap_ctx, enc_data, hdr_len, hdr_len+reported_len, NULL, 0, NULL, TRUE);
+
       }
       /* Davide Schiera --------------------------------------------------------  */
 
@@ -17735,7 +17844,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
           if (result && (result->seq_control == seq_control)) {
             /* keep a pointer to the first seen frame, could be done with proto data? */
             fnum = result->fnum;
-            g_hash_table_insert(fc_first_frame_table, GINT_TO_POINTER(pinfo->fd->num),
+            g_hash_table_insert(fc_first_frame_table, GINT_TO_POINTER(pinfo->num),
                                 GINT_TO_POINTER(fnum));
             retransmitted = TRUE;
           } else {
@@ -17746,10 +17855,10 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
               g_hash_table_insert(fc_analyse_retransmit_table, result, result);
             }
             result->seq_control = seq_control;
-            result->fnum =  pinfo->fd->num;
+            result->fnum =  pinfo->num;
           }
         }
-        else if ((fnum = GPOINTER_TO_UINT(g_hash_table_lookup(fc_first_frame_table, GINT_TO_POINTER(pinfo->fd->num))))) {
+        else if ((fnum = GPOINTER_TO_UINT(g_hash_table_lookup(fc_first_frame_table, GINT_TO_POINTER(pinfo->num))))) {
           retransmitted = TRUE;
         }
 
@@ -18307,11 +18416,11 @@ dissect_ieee80211 (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
      * Fake a pseudo-header.
      * XXX - what are we supposed to do if the FCS length is unknown?
      */
+    memset(&ourphdr, 0, sizeof(ourphdr));
     ourphdr.fcs_len = -1;
     ourphdr.decrypted = FALSE;
     ourphdr.datapad = FALSE;
     ourphdr.phy = PHDR_802_11_PHY_UNKNOWN;
-    ourphdr.presence_flags = 0;
     phdr = &ourphdr;
   }
   return dissect_ieee80211_common (tvb, pinfo, tree, FALSE, FALSE, phdr);
@@ -18321,53 +18430,82 @@ dissect_ieee80211 (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
  * Dissect 802.11 with a variable-length link-layer header and with an
  * FCS, but no pseudo-header.
  */
-static void
-dissect_ieee80211_withfcs (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ieee80211_withfcs (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   struct ieee_802_11_phdr phdr;
 
   /* Construct a pseudo-header to hand to the common code. */
+  memset(&phdr, 0, sizeof(phdr));
   phdr.fcs_len = 4;
   phdr.decrypted = FALSE;
   phdr.datapad = FALSE;
   phdr.phy = PHDR_802_11_PHY_UNKNOWN;
-  phdr.presence_flags = 0;
   dissect_ieee80211_common (tvb, pinfo, tree, FALSE, FALSE, &phdr);
+  return tvb_captured_length(tvb);
 }
 
 /*
  * Dissect 802.11 with a variable-length link-layer header and without an
  * FCS, but no pseudo-header.
  */
-static void
-dissect_ieee80211_withoutfcs (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ieee80211_withoutfcs (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   struct ieee_802_11_phdr phdr;
 
   /* Construct a pseudo-header to hand to the common code. */
-  phdr.fcs_len = 0;
+  memset(&phdr, 0, sizeof(phdr));
   phdr.decrypted = FALSE;
   phdr.datapad = FALSE;
   phdr.phy = PHDR_802_11_PHY_UNKNOWN;
-  phdr.presence_flags = 0;
   dissect_ieee80211_common (tvb, pinfo, tree, FALSE, FALSE, &phdr);
+  return tvb_captured_length(tvb);
 }
 
 /*
- * Dissect 802.11 with a variable-length link-layer header.
+ * Dissect 802.11 from an Intel 2200BG adapter in a Centrino laptop
+ * running Windows XP.
+ *
+ * From
+ *
+ *   https://www.wireshark.org/lists/ethereal-dev/200407/msg00184.html
+ *
+ * and
+ *
+ *   https://www.wireshark.org/lists/ethereal-dev/200407/msg00393.html:
+ *
+ *  I tried capturing from a Centrino laptop with the Intel 2200BG 802.11g
+ *  chipset. I saw a lot of "Ethernet II" frames with 0x2452 as ethertype.
+ *
+ *    ...
+ *
+ *  This behaviour has been observed on Windows XP. In my opinion it is
+ *  a "proprietary" behaviour of either the Centrino driver or the Centrino
+ *  hardware. Currently I have no Linux distro installed on the machine to
+ *  verify whether it is also the case.
+ *
+ *  These packets are seen only in a promiscuous capture:
+ *    - Packets normally received by the Centrino computer have the normal
+ *      structure (no 802.11/LLC header but directly IP header).
+ *    - Packets that are supposed to be received by another computer have
+ *      the 802.11/LLC headers. ... Also I noticed that when WEP is enabled,
+ *      the 802.11 header has the flag "WEP" set to true, but the packet
+ *      is already decrypted. I added a test in the code to accomodate this.
+ *      For TKIP it seems to stay encrypted.
  */
-static void
-dissect_ieee80211_centrino(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ieee80211_centrino(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   struct ieee_802_11_phdr phdr;
 
   /* Construct a pseudo-header to hand to the common code. */
-  phdr.fcs_len = 0;
+  memset(&phdr, 0, sizeof(phdr));
   phdr.decrypted = FALSE;
   phdr.datapad = FALSE;
   phdr.phy = PHDR_802_11_PHY_UNKNOWN;
-  phdr.presence_flags = 0;
   dissect_ieee80211_common (tvb, pinfo, tree, FALSE, TRUE, &phdr);
+  return tvb_captured_length(tvb);
 }
 
 /*
@@ -18375,18 +18513,18 @@ dissect_ieee80211_centrino(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
  * control field and with no FCS (some hardware sends out LWAPP-encapsulated
  * 802.11 packets with the control field byte swapped).
  */
-static void
-dissect_ieee80211_bsfc (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ieee80211_bsfc (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   struct ieee_802_11_phdr phdr;
 
   /* Construct a pseudo-header to hand to the common code. */
-  phdr.fcs_len = 0;
+  memset(&phdr, 0, sizeof(phdr));
   phdr.decrypted = FALSE;
   phdr.datapad = FALSE;
   phdr.phy = PHDR_802_11_PHY_UNKNOWN;
-  phdr.presence_flags = 0;
   dissect_ieee80211_common (tvb, pinfo, tree, TRUE, FALSE, &phdr);
+  return tvb_captured_length(tvb);
 }
 
 static void
@@ -18502,7 +18640,7 @@ static gint ett_wlan_rsna_eapol_keydes_data = -1;
 static const true_false_string keyinfo_key_type_tfs = { "Pairwise Key", "Group Key" };
 
 static int
-dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean is_rsn)
+dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
   int         offset = 0;
   guint16     keyinfo;
@@ -18511,11 +18649,11 @@ dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_
   proto_tree *keyinfo_tree = NULL;
   proto_tree *keydes_tree;
   proto_tree *ti = NULL;
-  guint32     start_nonce;
 
   /*
    * RSNA key descriptors.
    */
+  eapol_data_len = tvb_get_ntohs(tvb, offset+92);
   keyinfo = tvb_get_ntohs(tvb, offset);
   if (keyinfo & KEY_INFO_REQUEST_MASK) {
     col_set_str(pinfo->cinfo, COL_INFO, "Key (Request)");
@@ -18523,54 +18661,31 @@ dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_
       col_set_str(pinfo->cinfo, COL_INFO, "Key (Request, Error)");
   } else if (keyinfo & KEY_INFO_KEY_TYPE_MASK) {
     guint16 masked;
+    /* Windows is setting the Secure Bit on message 2 when rekeying, so we'll ignore it */
     masked = keyinfo &
-      (KEY_INFO_INSTALL_MASK | KEY_INFO_KEY_ACK_MASK |
-       KEY_INFO_KEY_MIC_MASK | KEY_INFO_SECURE_MASK);
+      (KEY_INFO_INSTALL_MASK | KEY_INFO_KEY_ACK_MASK | KEY_INFO_KEY_MIC_MASK);
 
-    if (!is_rsn) {
-      /* WPA */
-      switch (masked) {
-      case KEY_INFO_KEY_ACK_MASK:
-        col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 1 of 4)");
-        break;
+    switch (masked) {
+    case KEY_INFO_KEY_ACK_MASK:
+      col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 1 of 4)");
+      break;
 
-      case KEY_INFO_KEY_MIC_MASK:
-        /* Check start of nonce for check if it is message 2 or 4
-        According to the IEEE specification, sections 11.6.6.3 and 11.6.6.5
-        define the value for the WPA Key Nonce as following:
-        Message #2, Key Nonce = SNonce (Supplicant Nonce)
-        Message #4, Key Nonce = 0 */
-        start_nonce = tvb_get_ntohl(tvb, offset+12);
-        if (start_nonce)
-          col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 2 of 4)");
-        else
-          col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 4 of 4)");
-        break;
-
-      case (KEY_INFO_INSTALL_MASK | KEY_INFO_KEY_ACK_MASK | KEY_INFO_KEY_MIC_MASK):
-        col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 3 of 4)");
-        break;
-      }
-    } else {
-      /* RSN */
-      switch (masked) {
-
-      case KEY_INFO_KEY_ACK_MASK:
-        col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 1 of 4)");
-        break;
-
-      case KEY_INFO_KEY_MIC_MASK:
+    case KEY_INFO_KEY_MIC_MASK:
+      /* We check the key length to differentiate between message 2 and 4 and just hope that
+      there are no strange implementations with key data and non-zero key length in message 4.
+      According to the IEEE specification, sections 11.6.6.3 and 11.6.6.5 we should
+      use the Secure Bit and/or the Nonce, but there are implementations ignoring the spec.
+      The Secure Bit is incorrectly set on rekeys for Windows clients for Message 2 and the Nonce is non-zero
+      in Message 4 in Bug 11994 (Apple?) */
+      if (eapol_data_len)
         col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 2 of 4)");
-        break;
-
-      case (KEY_INFO_INSTALL_MASK | KEY_INFO_KEY_ACK_MASK | KEY_INFO_KEY_MIC_MASK | KEY_INFO_SECURE_MASK):
-        col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 3 of 4)");
-        break;
-
-      case (KEY_INFO_KEY_MIC_MASK | KEY_INFO_SECURE_MASK):
+      else
         col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 4 of 4)");
-        break;
-      }
+      break;
+
+    case (KEY_INFO_INSTALL_MASK | KEY_INFO_KEY_ACK_MASK | KEY_INFO_KEY_MIC_MASK):
+      col_set_str(pinfo->cinfo, COL_INFO, "Key (Message 3 of 4)");
+      break;
     }
   } else {
     if (keyinfo & KEY_INFO_KEY_ACK_MASK)
@@ -18617,7 +18732,6 @@ dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_
   proto_tree_add_item(tree, hf_wlan_rsna_eapol_wpa_keydes_mic, tvb, offset,
                       16, ENC_NA);
   offset += 16;
-  eapol_data_len = tvb_get_ntohs(tvb, offset);
   proto_tree_add_item(tree, hf_wlan_rsna_eapol_wpa_keydes_data_len, tvb,
                       offset, 2, ENC_BIG_ENDIAN);
   offset += 2;
@@ -18641,18 +18755,6 @@ dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_
   return tvb_captured_length(tvb);
 }
 
-static int
-dissect_wlan_rsna_eapol_wpa_key(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
-{
-  return dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvb, pinfo, tree, FALSE);
-}
-
-static int
-dissect_wlan_rsna_eapol_rsn_key(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
-{
-  return dissect_wlan_rsna_eapol_wpa_or_rsn_key(tvb, pinfo, tree, TRUE);
-}
-
 /* Davide Schiera (2006-11-26): this function will try to decrypt with WEP or  */
 /* WPA and return a tvb to the caller to add a new tab. It returns the    */
 /* algorithm used for decryption (WEP, TKIP, CCMP) and the header and    */
@@ -18673,7 +18775,7 @@ try_decrypt(tvbuff_t *tvb, guint offset, guint len, guint8 *algorithm, guint32 *
 
   /*  process packet with AirPDcap                              */
   if (AirPDcapPacketProcess(&airpdcap_ctx, enc_data, offset, offset+len, dec_data, &dec_caplen,
-                            used_key, FALSE, TRUE)==AIRPDCAP_RET_SUCCESS)
+                            used_key, FALSE)==AIRPDCAP_RET_SUCCESS)
   {
     guint8 *tmp;
     *algorithm=used_key->KeyType;
@@ -18781,14 +18883,16 @@ set_airpdcap_keys(void)
           keys.nKeys += 1;
         }
       }
-      g_free(dk);
+      free_key_string(dk);
+      if (bytes) {
+        g_byte_array_free(bytes, TRUE);
+        bytes = NULL;
+      }
     }
   }
 
   /* Now set the keys */
   AirPDcapSetKeys(&airpdcap_ctx, keys.Keys, keys.nKeys);
-  if (bytes)
-    g_byte_array_free(bytes, TRUE);
 
 }
 
@@ -18863,8 +18967,8 @@ wlan_retransmit_init(void)
 
 }
 
-static void
-dissect_data_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_data_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   int         offset = 0;
   guint8      type;
@@ -18893,6 +18997,7 @@ dissect_data_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
     break;
   }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -21327,7 +21432,7 @@ proto_register_ieee80211 (void)
       NULL, HFILL }},
 
     {&hf_ieee80211_ff_psmp_sta_info_reserved_large,
-     {"Reserved", "wlan_mgt.fixed.psmp.stainfo.reserved",
+     {"Reserved", "wlan_mgt.fixed.psmp.stainfo.reserved64",
       FT_UINT64, BASE_HEX, 0, 0,
       NULL, HFILL }},
 
@@ -22291,6 +22396,18 @@ proto_register_ieee80211 (void)
     {&hf_hs20_indication_dgaf_disabled,
      {"DGAF Disabled", "wlan_mgt.hs20.indication.dgaf_disabled",
       FT_UINT8, BASE_DEC, NULL, 0x01, NULL, HFILL }},
+
+    {&hf_hs20_indication_pps_mo_id_present,
+     {"PPS MO ID Present", "wlan_mgt.hs20.indication.pps_mo_id_present",
+      FT_UINT8, BASE_DEC, NULL, 0x02, NULL, HFILL }},
+
+    {&hf_hs20_indication_anqp_domain_id_present,
+     {"ANQP Domain ID Present", "wlan_mgt.hs20.indication.anqp_domain_id_present",
+      FT_UINT8, BASE_DEC, NULL, 0x04, NULL, HFILL }},
+
+    {&hf_hs20_indication_release_number,
+     {"Release Number", "wlan_mgt.hs20.indication.release_number",
+      FT_UINT8, BASE_DEC, VALS(hs20_indication_release_number_vals), 0xF0, NULL, HFILL }},
 
     {&hf_hs20_anqp_subtype,
      {"Subtype", "wlan_mgt.hs20.anqp.subtype",
@@ -26262,6 +26379,35 @@ proto_register_ieee80211 (void)
       FT_UINT16, BASE_HEX|BASE_EXT_STRING, &ieee80211_status_code_ext, 0,
       "Status of requested Resource", HFILL }},
 
+    /* OBSS IE: 802.11-2012: 8.4.2.61 */
+    {&hf_ieee80211_tag_obss_spd,
+     {"Scan Passive Dwell", "wlan_mgt.obss.spd",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
+    {&hf_ieee80211_tag_obss_sad,
+     {"Scan Active Dwell", "wlan_mgt.obss.sad",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
+    {&hf_ieee80211_tag_obss_cwtsi,
+     {"Channel Width Trigger Scan Interval", "wlan_mgt.obss.cwtsi",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
+    {&hf_ieee80211_tag_obss_sptpc,
+     {"Scan Passive Total Per Channel", "wlan_mgt.obss.sptpc",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
+    {&hf_ieee80211_tag_obss_satpc,
+     {"Scan Active Total Per Channel", "wlan_mgt.obss.satpc",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
+    {&hf_ieee80211_tag_obss_wctdf,
+     {"Width Channel Transition Delay Factor", "wlan_mgt.obss.wctdf",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
+    {&hf_ieee80211_tag_obss_sat,
+     {"Scan Activity Threshold", "wlan_mgt.obss.sat",
+      FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+
     /* RIC Descriptor IE: 802.11-2012: 8.4.2.53 */
     {&hf_ieee80211_tag_ric_desc_rsrc_type,
      {"Resource Type", "wlan_mgt.ric_desc.rsrc_type",
@@ -26980,8 +27126,9 @@ proto_register_ieee80211 (void)
       "IEEE 802.11 Aggregate Data", "wlan_aggregate");
   proto_register_field_array(proto_aggregate, aggregate_fields, array_length(aggregate_fields));
 
-  proto_wlan = proto_register_protocol("IEEE 802.11 wireless LAN",
-      "IEEE 802.11", "wlan");
+  proto_wlan = proto_register_protocol("IEEE 802.11 wireless LAN", "IEEE 802.11", "wlan");
+  /* Created to remove Decode As confusion */
+  proto_centrino = proto_register_protocol("IEEE 802.11 wireless LAN (Centrino)", "IEEE 802.11 (Centrino)", "wlan_centrino");
   proto_register_field_array(proto_wlan, hf, array_length (hf));
 
   proto_wlan_mgt = proto_register_protocol("IEEE 802.11 wireless LAN management frame",
@@ -26996,7 +27143,7 @@ proto_register_ieee80211 (void)
   expert_ieee80211 = expert_register_protocol(proto_wlan);
   expert_register_field_array(expert_ieee80211, ei, array_length(ei));
 
-  new_register_dissector("wlan",                dissect_ieee80211,                    proto_wlan);
+  register_dissector("wlan",                dissect_ieee80211,                    proto_wlan);
   register_dissector("wlan_withfcs",            dissect_ieee80211_withfcs,            proto_wlan);
   register_dissector("wlan_withoutfcs",         dissect_ieee80211_withoutfcs,         proto_wlan);
   register_dissector("wlan_bsfc",               dissect_ieee80211_bsfc,               proto_wlan);
@@ -27225,8 +27372,12 @@ proto_reg_handoff_ieee80211(void)
   ieee80211_handle = find_dissector("wlan");
   dissector_add_uint("wtap_encap", WTAP_ENCAP_IEEE_802_11, ieee80211_handle);
 
-  centrino_handle = create_dissector_handle( dissect_ieee80211_centrino, proto_wlan );
+  centrino_handle = create_dissector_handle( dissect_ieee80211_centrino, proto_centrino );
   dissector_add_uint("ethertype", ETHERTYPE_CENTRINO_PROMISC, centrino_handle);
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_IEEE_802_11, capture_ieee80211, proto_wlan);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_IEEE_802_11_WITH_RADIO, capture_ieee80211, proto_wlan);
+  register_capture_dissector("ppi", 105 /* DLT_DLT_IEEE802_11 */, capture_ieee80211, proto_wlan);
 
   /* Register handoff to Aruba GRE */
   dissector_add_uint("gre.proto", GRE_ARUBA_8200, ieee80211_handle);
@@ -27261,10 +27412,10 @@ proto_reg_handoff_ieee80211(void)
   /*
    * EAPOL key descriptor types.
    */
-  wlan_rsna_eapol_wpa_key_handle = new_create_dissector_handle(dissect_wlan_rsna_eapol_wpa_key,
+  wlan_rsna_eapol_wpa_key_handle = create_dissector_handle(dissect_wlan_rsna_eapol_wpa_or_rsn_key,
                                                                proto_wlan_rsna_eapol);
   dissector_add_uint("eapol.keydes.type", EAPOL_WPA_KEY, wlan_rsna_eapol_wpa_key_handle);
-  wlan_rsna_eapol_rsn_key_handle = new_create_dissector_handle(dissect_wlan_rsna_eapol_rsn_key,
+  wlan_rsna_eapol_rsn_key_handle = create_dissector_handle(dissect_wlan_rsna_eapol_wpa_or_rsn_key,
                                                                proto_wlan_rsna_eapol);
   dissector_add_uint("eapol.keydes.type", EAPOL_RSN_KEY, wlan_rsna_eapol_rsn_key_handle);
 

@@ -1990,7 +1990,7 @@ typedef struct _h460_feature_t {
   guint32 opt;
   const gchar *id;
   const gchar *name;
-  new_dissector_t content_pdu;
+  dissector_t content_pdu;
   /*---*/
   const gchar *key_gd;
   const gchar *key_fd;
@@ -2985,7 +2985,7 @@ void proto_register_h460(void) {
     if (ftr->opt & FD) ftr->key_fd = g_strdup_printf("FeatureDescriptor/%s", ftr->id);
     if (ftr->opt & GM) ftr->key_gm = g_strdup_printf("GenericMessage/%s", ftr->id);
     if (ftr->opt & GI) ftr->key_gi = g_strdup_printf("GenericInformation/%s", ftr->id);
-    if (ftr->content_pdu) ftr->content_hnd = new_create_dissector_handle(ftr->content_pdu, proto_h460);
+    if (ftr->content_pdu) ftr->content_hnd = create_dissector_handle(ftr->content_pdu, proto_h460);
   }
 }
 
@@ -2998,7 +2998,7 @@ void proto_reg_handoff_h460(void)
   q931_ie_handle = find_dissector("q931.ie");
   h225_ras_handle = find_dissector("h225.ras");
 
-  h460_name_handle = new_create_dissector_handle(dissect_h460_name, proto_h460);
+  h460_name_handle = create_dissector_handle(dissect_h460_name, proto_h460);
   for (ftr=h460_feature_tab; ftr->id; ftr++) {
     if (ftr->key_gd) dissector_add_string("h225.gef.name", ftr->key_gd, h460_name_handle);
     if (ftr->key_fd) dissector_add_string("h225.gef.name", ftr->key_fd, h460_name_handle);

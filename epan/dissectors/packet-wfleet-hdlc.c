@@ -42,8 +42,8 @@ static const value_string wfleet_hdlc_cmd_vals[] = {
   { 0,    NULL}
 };
 
-static void
-dissect_wfleet_hdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wfleet_hdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
   proto_tree *fh_tree = NULL;
@@ -76,7 +76,7 @@ dissect_wfleet_hdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   next_tvb = tvb_new_subset_remaining(tvb, 2);
 
   call_dissector(eth_withoutfcs_handle, next_tvb, pinfo, tree);
-
+  return tvb_captured_length(tvb);
 }
 
 void

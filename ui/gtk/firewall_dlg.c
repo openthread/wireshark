@@ -36,21 +36,12 @@
 
 #include <string.h>
 
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <gtk/gtk.h>
 
 #include <epan/packet.h>
 #include <epan/addr_resolv.h>
 #include <epan/epan_dissect.h>
 #include <wsutil/filesystem.h>
-#include <epan/dissectors/packet-ipv6.h>
 
 #include <ui/alert_box.h>
 #include <ui/last_open_dir.h>
@@ -194,10 +185,10 @@ firewall_rule_cb(GtkWidget *w _U_, gpointer data _U_)
     guint i;
 
     rule_info = g_new0(rule_info_t, 1);
-    COPY_ADDRESS(&(rule_info->dl_src), &(pinfo->dl_src));
-    COPY_ADDRESS(&(rule_info->dl_dst), &(pinfo->dl_dst));
-    COPY_ADDRESS(&(rule_info->net_src), &(pinfo->net_src));
-    COPY_ADDRESS(&(rule_info->net_dst), &(pinfo->net_dst));
+    copy_address(&(rule_info->dl_src), &(pinfo->dl_src));
+    copy_address(&(rule_info->dl_dst), &(pinfo->dl_dst));
+    copy_address(&(rule_info->net_src), &(pinfo->net_src));
+    copy_address(&(rule_info->net_dst), &(pinfo->net_dst));
     rule_info->ptype = pinfo->ptype;
     rule_info->srcport = pinfo->srcport;
     rule_info->destport = pinfo->destport;

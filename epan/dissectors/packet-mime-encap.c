@@ -33,8 +33,8 @@ static int proto_mime_encap = -1;
 static heur_dissector_list_t heur_subdissector_list;
 static dissector_handle_t data_handle;
 
-static void
-dissect_mime_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mime_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item* item;
 	heur_dtbl_entry_t *hdtbl_entry;
@@ -48,6 +48,7 @@ dissect_mime_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		proto_item_append_text(item, " (Unhandled)");
 		call_dissector(data_handle, tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

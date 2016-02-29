@@ -45,8 +45,8 @@ static gint hf_cert = -1;
 static gint ett_cert = -1;
 
 
-static void
-dissect_cert(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+static int
+dissect_cert(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
         proto_tree *subtree = NULL;
         proto_item *ti;
@@ -61,7 +61,7 @@ dissect_cert(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
         }
 
         dissect_x509af_Certificate(FALSE, tvb, 0, &asn1_ctx, subtree, hf_cert);
-        return;
+        return tvb_captured_length(tvb);
 }
 
 

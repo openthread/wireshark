@@ -232,13 +232,14 @@ dissect_tfp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 }
 
 /* dissector function for dissecting TCP payloads */
-static void
-dissect_tfp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tfp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "TFP over TCP");
 	col_clear(pinfo->cinfo, COL_INFO);
 
 	dissect_tfp_common(tvb, pinfo, tree);
+	return tvb_captured_length(tvb);
 }
 
 /* dissector function for dissecting USB payloads */

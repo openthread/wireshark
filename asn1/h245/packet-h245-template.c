@@ -335,7 +335,7 @@ static void update_unicast_addr(unicast_addr_t *req_addr, unicast_addr_t *ack_ad
 {
   if (ack_addr->addr.type!=AT_NONE && ack_addr->port!=0) {
     memcpy(req_addr->addr_buf, ack_addr->addr_buf, sizeof(req_addr->addr_buf));
-    SET_ADDRESS(&req_addr->addr, ack_addr->addr.type, ack_addr->addr.len, req_addr->addr_buf);
+    set_address(&req_addr->addr, ack_addr->addr.type, ack_addr->addr.len, req_addr->addr_buf);
     req_addr->port = ack_addr->port;
   }
 }
@@ -352,7 +352,7 @@ static void h245_setup_channels(packet_info *pinfo, channel_info_t *upcoming_cha
 		if (upcoming_channel_lcl->media_addr.addr.type!=AT_NONE && upcoming_channel_lcl->media_addr.port!=0) {
 			t38_add_address(pinfo, &upcoming_channel_lcl->media_addr.addr,
 							upcoming_channel_lcl->media_addr.port, 0,
-							"H245", pinfo->fd->num);
+							"H245", pinfo->num);
 		}
 		return;
 	}
@@ -372,12 +372,12 @@ static void h245_setup_channels(packet_info *pinfo, channel_info_t *upcoming_cha
 	if (upcoming_channel_lcl->media_addr.addr.type!=AT_NONE && upcoming_channel_lcl->media_addr.port!=0) {
 		srtp_add_address(pinfo, &upcoming_channel_lcl->media_addr.addr,
 						upcoming_channel_lcl->media_addr.port, 0,
-						"H245", pinfo->fd->num, upcoming_channel_lcl->is_video , rtp_dyn_payload, dummy_srtp_info);
+						"H245", pinfo->num, upcoming_channel_lcl->is_video , rtp_dyn_payload, dummy_srtp_info);
 	}
 	if (upcoming_channel_lcl->media_control_addr.addr.type!=AT_NONE && upcoming_channel_lcl->media_control_addr.port!=0 && rtcp_handle) {
 		srtcp_add_address(pinfo, &upcoming_channel_lcl->media_control_addr.addr,
 						upcoming_channel_lcl->media_control_addr.port, 0,
-						"H245", pinfo->fd->num, dummy_srtp_info);
+						"H245", pinfo->num, dummy_srtp_info);
 	}
 }
 
@@ -419,19 +419,20 @@ static void reset_h245_pi(void *dummy _U_)
 
 #include "packet-h245-fn.c"
 
-static void
-dissect_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	/*
 	 * MultimediaSystemControlMessage_handle is the handle for
 	 * dissect_h245_h245, so we don't want to do any h245_pi or tap stuff here.
 	 */
 	dissect_tpkt_encap(tvb, pinfo, parent_tree, h245_reassembly, MultimediaSystemControlMessage_handle);
+	return tvb_captured_length(tvb);
 }
 
 
-static void
-dissect_h245_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_h245_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	proto_item *it;
 	proto_tree *tr;
@@ -460,6 +461,7 @@ dissect_h245_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 		offset = (offset+0x07) & 0xfffffff8;
 		CLEANUP_CALL_AND_POP;
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -539,10 +541,10 @@ void proto_register_h245(void) {
   register_dissector("h245dg", dissect_h245_h245, proto_h245);
   register_dissector("h245", dissect_h245, proto_h245);
 
-  nsp_object_dissector_table = register_dissector_table("h245.nsp.object", "H.245 NonStandardParameter (object)", FT_STRING, BASE_NONE);
-  nsp_h221_dissector_table = register_dissector_table("h245.nsp.h221", "H.245 NonStandardParameter (h221)", FT_UINT32, BASE_HEX);
-  gef_name_dissector_table = register_dissector_table("h245.gef.name", "H.245 Generic Extensible Framework (names)", FT_STRING, BASE_NONE);
-  gef_content_dissector_table = register_dissector_table("h245.gef.content", "H.245 Generic Extensible Framework", FT_STRING, BASE_NONE);
+  nsp_object_dissector_table = register_dissector_table("h245.nsp.object", "H.245 NonStandardParameter (object)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  nsp_h221_dissector_table = register_dissector_table("h245.nsp.h221", "H.245 NonStandardParameter (h221)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  gef_name_dissector_table = register_dissector_table("h245.gef.name", "H.245 Generic Extensible Framework (names)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  gef_content_dissector_table = register_dissector_table("h245.gef.content", "H.245 Generic Extensible Framework", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   h245_tap = register_tap("h245");
   h245dg_tap = register_tap("h245dg");

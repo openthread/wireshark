@@ -1479,17 +1479,17 @@ dissect_uma_IE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 		{
 			break;
 		}
-		SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+		clear_address(&null_addr);
 
-		SET_ADDRESS(&dst_addr, AT_IPv4, 4, &GPRS_user_data_ipv4_address);
+		set_address(&dst_addr, AT_IPv4, 4, &GPRS_user_data_ipv4_address);
 
-		conversation = find_conversation(pinfo->fd->num,&dst_addr,
+		conversation = find_conversation(pinfo->num,&dst_addr,
 			&null_addr, PT_UDP, GPRS_user_data_transport_UDP_port,
 			0, NO_ADDR_B|NO_PORT_B);
 
 		if (conversation == NULL) {
 			/* It's not part of any conversation - create a new one. */
-			conversation = conversation_new(pinfo->fd->num, &dst_addr,
+			conversation = conversation_new(pinfo->num, &dst_addr,
 			    &null_addr, PT_UDP,GPRS_user_data_transport_UDP_port ,
 			    0, NO_ADDR2|NO_PORT2);
 
@@ -1511,17 +1511,17 @@ dissect_uma_IE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 		{
 			break;
 		}
-		SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+		clear_address(&null_addr);
 
-		SET_ADDRESS(&dst_addr, AT_IPv4, 4, &unc_ipv4_address);
+		set_address(&dst_addr, AT_IPv4, 4, &unc_ipv4_address);
 
-		conversation = find_conversation(pinfo->fd->num,&dst_addr,
+		conversation = find_conversation(pinfo->num,&dst_addr,
 			&null_addr, PT_TCP, UNC_tcp_port,
 			0, NO_ADDR_B|NO_PORT_B);
 
 		if (conversation == NULL) {
 			/* It's not part of any conversation - create a new one. */
-			conversation = conversation_new(pinfo->fd->num, &dst_addr,
+			conversation = conversation_new(pinfo->num, &dst_addr,
 			    &null_addr, PT_TCP,UNC_tcp_port ,
 			    0, NO_ADDR2|NO_PORT2);
 			/* Set dissector */
@@ -1538,17 +1538,17 @@ dissect_uma_IE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 			rtp_ipv4_address,RTP_UDP_port);
 			*/
 		if(unc_ipv4_address!=0){
-			SET_ADDRESS(&src_addr, AT_IPv4, 4, &unc_ipv4_address);
+			set_address(&src_addr, AT_IPv4, 4, &unc_ipv4_address);
 		}else{
 			/* Set Source IP = own IP */
-			src_addr = pinfo->src;
+			copy_address_shallow(&src_addr, &pinfo->src);
 		}
 		if((!pinfo->fd->flags.visited) && RTP_UDP_port!=0){
 
-			rtp_add_address(pinfo, &src_addr, RTP_UDP_port, 0, "UMA", pinfo->fd->num, FALSE, 0);
+			rtp_add_address(pinfo, &src_addr, RTP_UDP_port, 0, "UMA", pinfo->num, FALSE, 0);
 			if ((RTP_UDP_port & 0x1) == 0){ /* Even number RTP port RTCP should follow on odd number */
 				RTCP_UDP_port = RTP_UDP_port + 1;
-				rtcp_add_address(pinfo, &src_addr, RTCP_UDP_port, 0, "UMA", pinfo->fd->num);
+				rtcp_add_address(pinfo, &src_addr, RTCP_UDP_port, 0, "UMA", pinfo->num);
 			}
 		}
 		break;
@@ -1557,9 +1557,9 @@ dissect_uma_IE(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 		proto_tree_add_item(urr_ie_tree, hf_uma_urr_RTCP_port, tvb, ie_offset, 2, ENC_BIG_ENDIAN);
 		/* TODO find out exactly which element contains IP addr */
 		if((!pinfo->fd->flags.visited) && rtcp_ipv4_address!=0 && RTCP_UDP_port!=0 && rtcp_handle){
-			SET_ADDRESS(&src_addr, AT_IPv4, 4, &rtcp_ipv4_address);
+			set_address(&src_addr, AT_IPv4, 4, &rtcp_ipv4_address);
 
-			rtcp_add_address(pinfo, &src_addr, RTCP_UDP_port, 0, "UMA", pinfo->fd->num);
+			rtcp_add_address(pinfo, &src_addr, RTCP_UDP_port, 0, "UMA", pinfo->num);
 		}
 		break;
 	case 106:
@@ -2305,8 +2305,8 @@ proto_register_uma(void)
 /* Register the protocol name and description */
 	proto_uma = proto_register_protocol("Unlicensed Mobile Access","UMA", "uma");
 	/* subdissector code */
-	new_register_dissector("umatcp", dissect_uma_tcp, proto_uma);
-	new_register_dissector("umaudp", dissect_uma_urlc_udp, proto_uma);
+	register_dissector("umatcp", dissect_uma_tcp, proto_uma);
+	register_dissector("umaudp", dissect_uma_urlc_udp, proto_uma);
 
 /* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_uma, hf, array_length(hf));

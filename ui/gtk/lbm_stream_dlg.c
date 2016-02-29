@@ -601,13 +601,13 @@ static gboolean lbmc_stream_dlg_tap_packet(void * tap_data, packet_info * pinfo,
             -1);
     }
     stream_iter = stream->iter;
-    if (stream->first_frame > pinfo->fd->num)
+    if (stream->first_frame > pinfo->num)
     {
-        stream->first_frame = pinfo->fd->num;
+        stream->first_frame = pinfo->num;
     }
-    if (stream->last_frame < pinfo->fd->num)
+    if (stream->last_frame < pinfo->num)
     {
-        stream->last_frame = pinfo->fd->num;
+        stream->last_frame = pinfo->num;
     }
     stream->bytes += tapinfo->bytes;
     stream->messages++;
@@ -701,13 +701,13 @@ static gboolean lbmc_stream_dlg_tap_packet(void * tap_data, packet_info * pinfo,
             -1);
     }
     substream_iter = substream->iter;
-    if (substream->first_frame > pinfo->fd->num)
+    if (substream->first_frame > pinfo->num)
     {
-        substream->first_frame = pinfo->fd->num;
+        substream->first_frame = pinfo->num;
     }
-    if (substream->last_frame < pinfo->fd->num)
+    if (substream->last_frame < pinfo->num)
     {
-        substream->last_frame = pinfo->fd->num;
+        substream->last_frame = pinfo->num;
     }
     substream->bytes += tapinfo->bytes;
     substream->messages++;
@@ -766,10 +766,10 @@ void lbmc_stream_dlg_stream_menu_cb(gpointer arg _U_)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

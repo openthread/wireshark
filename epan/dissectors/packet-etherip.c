@@ -54,8 +54,8 @@ static dissector_handle_t eth_withoutfcs_handle;
 #define ETHERIP_RESERVE_MASK 0x0FFF
 
 
-static void
-dissect_etherip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_etherip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   tvbuff_t *next_tvb;
   proto_tree *etherip_tree;
@@ -92,6 +92,7 @@ dissect_etherip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   next_tvb = tvb_new_subset_remaining(tvb, 2);
 
   call_dissector(eth_withoutfcs_handle, next_tvb, pinfo, tree);
+  return tvb_captured_length(tvb);
 }
 
 void

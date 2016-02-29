@@ -47,6 +47,8 @@
 #include <epan/expert.h>
 #include <epan/conversation.h>
 
+#include <wsutil/str_util.h>
+
 #include "packet-wap.h"
 #include "packet-wsp.h"
 
@@ -3991,10 +3993,10 @@ dissect_redirect(tvbuff_t *tvb, int offset, packet_info *pinfo,
             redir_address.len = 4;
             redir_address.data = (const guint8 *)&address_ipv4;
             /* Find a conversation based on redir_address and pinfo->dst */
-            conv = find_conversation(pinfo->fd->num, &redir_address, &pinfo->dst,
+            conv = find_conversation(pinfo->num, &redir_address, &pinfo->dst,
                 PT_UDP, port_num, 0, NO_PORT_B);
             if (conv == NULL) { /* This conversation does not exist yet */
-                conv = conversation_new(pinfo->fd->num, &redir_address,
+                conv = conversation_new(pinfo->num, &redir_address,
                     &pinfo->dst, PT_UDP, port_num, 0, NO_PORT2);
             }
             /* Apply WSP dissection to the conversation */
@@ -4015,7 +4017,7 @@ dissect_redirect(tvbuff_t *tvb, int offset, packet_info *pinfo,
             if (tree) {
                 proto_tree_add_ipv6 (addr_tree,
                     hf_address_ipv6_addr,
-                    tvb, offset, 16, (guint8 *)&address_ipv6);
+                    tvb, offset, 16, &address_ipv6);
             }
 
             /*
@@ -4027,10 +4029,10 @@ dissect_redirect(tvbuff_t *tvb, int offset, packet_info *pinfo,
             redir_address.len = 16;
             redir_address.data = (const guint8 *)&address_ipv6;
             /* Find a conversation based on redir_address and pinfo->dst */
-            conv = find_conversation(pinfo->fd->num, &redir_address, &pinfo->dst,
+            conv = find_conversation(pinfo->num, &redir_address, &pinfo->dst,
                 PT_UDP, port_num, 0, NO_PORT_B);
             if (conv == NULL) { /* This conversation does not exist yet */
-                conv = conversation_new(pinfo->fd->num, &redir_address,
+                conv = conversation_new(pinfo->num, &redir_address,
                     &pinfo->dst, PT_UDP, port_num, 0, NO_PORT2);
             }
             /* Apply WSP dissection to the conversation */
@@ -4151,7 +4153,7 @@ add_addresses(proto_tree *tree, tvbuff_t *tvb, int hf)
                  */
                 goto unknown_address_type;
             }
-            proto_tree_add_ipv4 (addr_tree, hf_address_ipv4_addr,
+            proto_tree_add_item (addr_tree, hf_address_ipv4_addr,
                     tvb, offset, 4, ENC_NA);
             break;
 
@@ -4165,7 +4167,7 @@ add_addresses(proto_tree *tree, tvbuff_t *tvb, int hf)
                  */
                 goto unknown_address_type;
             }
-            proto_tree_add_ipv6 (addr_tree, hf_address_ipv6_addr,
+            proto_tree_add_item (addr_tree, hf_address_ipv6_addr,
                     tvb, offset, 16, ENC_NA);
             break;
 
@@ -4481,8 +4483,8 @@ static const value_string vals_sir_protocol_options[] = {
  * Arguably this should be a separate dissector, but SIR does not make sense
  * outside of WSP anyway.
  */
-static void
-dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8      version;
     guint32     val_len;
@@ -4527,7 +4529,7 @@ dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* End of version 0 SIR content */
     if (version == 0)
-        return;
+        return offset;
 
     offset += val_len;
 
@@ -4583,6 +4585,7 @@ dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                             tvb, offset, 4, ENC_NA);
         offset += 4;
     }
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -5023,13 +5026,14 @@ dissect_wsp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
  * Called directly from UDP.
  * Put "WSP" into the "Protocol" column.
  */
-static void
-dissect_wsp_fromudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wsp_fromudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "WSP");
     col_clear(pinfo->cinfo, COL_INFO);
 
     dissect_wsp_common(tvb, pinfo, tree, wsp_fromudp_handle, TRUE);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -5038,13 +5042,14 @@ dissect_wsp_fromudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
  * Leave the "Protocol" column alone - the dissector calling us should
  * have set it.
  */
-static void
-dissect_wsp_fromwap_co(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wsp_fromwap_co(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /*
      * XXX - what about WTLS->WTP->WSP?
      */
     dissect_wsp_common(tvb, pinfo, tree, wtp_fromudp_handle, FALSE);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -5053,14 +5058,15 @@ dissect_wsp_fromwap_co(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
  * Leave the "Protocol" column alone - the dissector calling us should
  * have set it.
  */
-static void
-dissect_wsp_fromwap_cl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wsp_fromwap_cl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /*
      * XXX - what about WTLS->WSP?
      */
     col_clear(pinfo->cinfo, COL_INFO);
     dissect_wsp_common(tvb, pinfo, tree, wtp_fromudp_handle, TRUE);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -5555,12 +5561,12 @@ static stat_tap_table_item wsp_stat_fields[] = {
 static int unknown_pt_idx;
 static int unknown_sc_idx;
 
-static void wsp_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void wsp_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
 	int num_fields = sizeof(wsp_stat_fields)/sizeof(stat_tap_table_item);
-	new_stat_tap_table* pt_table = new_stat_tap_init_table("PDU Types", num_fields, 0, NULL, gui_callback, gui_data);
+	stat_tap_table* pt_table = new_stat_tap_init_table("PDU Types", num_fields, 0, NULL, gui_callback, gui_data);
 	stat_tap_table_item_type pt_items[sizeof(wsp_stat_fields)/sizeof(stat_tap_table_item)];
-	new_stat_tap_table* sc_table = new_stat_tap_init_table("Status Codes", num_fields, 0, NULL, gui_callback, gui_data);
+	stat_tap_table* sc_table = new_stat_tap_init_table("Status Codes", num_fields, 0, NULL, gui_callback, gui_data);
 	stat_tap_table_item_type sc_items[sizeof(wsp_stat_fields)/sizeof(stat_tap_table_item)];
 	int table_idx;
 
@@ -5608,13 +5614,13 @@ wsp_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, 
 {
 	new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
 	const wsp_info_value_t *value = (const wsp_info_value_t *)wiv_ptr;
-	new_stat_tap_table *pt_table, *sc_table;
+	stat_tap_table *pt_table, *sc_table;
 	guint element;
 	stat_tap_table_item_type* item_data;
 	gboolean found;
 
-	pt_table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, 0);
-	sc_table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, 1);
+	pt_table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, 0);
+	sc_table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, 1);
 
 	found = FALSE;
 	for (element = 0; element < pt_table->num_elements; element++) {
@@ -5652,7 +5658,7 @@ wsp_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, 
 }
 
 static void
-wsp_stat_reset(new_stat_tap_table* table)
+wsp_stat_reset(stat_tap_table* table)
 {
 	guint element;
 	stat_tap_table_item_type* item_data;
@@ -5666,7 +5672,7 @@ wsp_stat_reset(new_stat_tap_table* table)
 }
 
 static void
-wsp_stat_free_table_item(new_stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
+wsp_stat_free_table_item(stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
 {
 	if (column != MESSAGE_TYPE_COLUMN) return;
 	g_free((char*)field_data->value.string_value);
@@ -7311,7 +7317,7 @@ proto_register_sir(void)
         { PARAM_FILTER, "filter", "Filter", NULL, TRUE }
     };
 
-    static new_stat_tap_ui wsp_stat_table = {
+    static stat_tap_table_ui wsp_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY,
         "WAP-WSP Packet Counter",
         "wsp",
@@ -7341,7 +7347,7 @@ proto_register_sir(void)
     proto_register_field_array(proto_sir, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    register_new_stat_tap_ui(&wsp_stat_table);
+    register_stat_tap_table_ui(&wsp_stat_table);
 
 }
 

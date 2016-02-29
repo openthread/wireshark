@@ -763,12 +763,12 @@ dissect_xtp_ecntl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 	if (len != spans_len) {
 		expert_add_info_format(pinfo, top_ti, &ei_xtp_spans_bad, "Number of spans (%u) incorrect. Should be %u.", ecntl->nspan, len);
-		THROW(ReportedBoundsError);
+		return;
 	}
 
 	if (ecntl->nspan > XTP_MAX_NSPANS) {
 		expert_add_info_format(pinfo, top_ti, &ei_xtp_spans_bad, "Too many spans: %u", ecntl->nspan);
-		THROW(ReportedBoundsError);
+		return;
 	}
 
 	/** add summary **/
@@ -1410,7 +1410,7 @@ proto_reg_handoff_xtp(void)
 {
 	dissector_handle_t xtp_handle;
 
-	xtp_handle = new_create_dissector_handle(dissect_xtp, proto_xtp);
+	xtp_handle = create_dissector_handle(dissect_xtp, proto_xtp);
 	dissector_add_uint("ip.proto", IP_PROTO_XTP, xtp_handle);
 }
 

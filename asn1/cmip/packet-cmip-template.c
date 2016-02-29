@@ -187,7 +187,7 @@ void proto_register_cmip(void) {
 
   /* Register protocol */
   proto_cmip = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  new_register_dissector("cmip", dissect_cmip, proto_cmip);
+  register_dissector("cmip", dissect_cmip, proto_cmip);
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_cmip, hf, array_length(hf));
@@ -198,7 +198,7 @@ void proto_register_cmip(void) {
 #include "packet-cmip-dis-tab.c"
     oid_add_from_string("discriminatorId(1)","2.9.3.2.7.1");
 
-  attribute_id_dissector_table = register_dissector_table("cmip.attribute_id", "CMIP Attribute Id", FT_UINT32, BASE_DEC);
+  attribute_id_dissector_table = register_dissector_table("cmip.attribute_id", "CMIP Attribute Id", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 }
 

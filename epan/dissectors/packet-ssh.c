@@ -319,11 +319,10 @@ static void ssh_set_mac_length(struct ssh_peer_data *peer_data);
 static void ssh_set_kex_specific_dissector(struct ssh_flow_data *global_data);
 
 
-static void
-dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
-    proto_tree  *ssh_tree = NULL;
+    proto_tree  *ssh_tree;
     proto_item  *ti;
     conversation_t *conversation;
     int     last_offset, offset = 0;
@@ -350,10 +349,8 @@ dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     peer_data = &global_data->peer_data[is_response];
 
-    if (tree) {
-          ti = proto_tree_add_item(tree, proto_ssh, tvb, offset, -1, ENC_NA);
-          ssh_tree = proto_item_add_subtree(ti, ett_ssh);
-    }
+    ti = proto_tree_add_item(tree, proto_ssh, tvb, offset, -1, ENC_NA);
+    ssh_tree = proto_item_add_subtree(ti, ett_ssh);
 
     version = global_data->version;
 
@@ -374,9 +371,9 @@ dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     while(tvb_reported_length_remaining(tvb, offset)> 0) {
         gboolean after_version_start = (peer_data->frame_version_start == 0 ||
-            pinfo->fd->num >= peer_data->frame_version_start);
+            pinfo->num >= peer_data->frame_version_start);
         gboolean before_version_end = (peer_data->frame_version_end == 0 ||
-            pinfo->fd->num <= peer_data->frame_version_end);
+            pinfo->num <= peer_data->frame_version_end);
 
         need_desegmentation = FALSE;
         last_offset = offset;
@@ -386,7 +383,7 @@ dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if (after_version_start && before_version_end &&
               (tvb_strncaseeql(tvb, offset, "SSH-", 4) == 0)) {
             if (peer_data->frame_version_start == 0)
-                peer_data->frame_version_start = pinfo->fd->num;
+                peer_data->frame_version_start = pinfo->num;
 
             offset = ssh_dissect_protocol(tvb, pinfo,
                     global_data,
@@ -394,7 +391,7 @@ dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     &version, &need_desegmentation);
 
             if (!need_desegmentation) {
-                peer_data->frame_version_end = pinfo->fd->num;
+                peer_data->frame_version_end = pinfo->num;
                 global_data->version = version;
             }
         } else {
@@ -420,12 +417,16 @@ dissect_ssh(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
 
         if (need_desegmentation)
-            return;
-        if (offset <= last_offset)
-            THROW(ReportedBoundsError);
+            return tvb_captured_length(tvb);
+        if (offset <= last_offset) {
+            /* XXX - add an expert info in the function
+               that decrements offset */
+            break;
+        }
     }
 
     col_prepend_fstr(pinfo->cinfo, COL_INFO, "%s: ", is_response ? "Server" : "Client");
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -462,8 +463,8 @@ ssh_dissect_ssh2(tvbuff_t *tvb, packet_info *pinfo,
     }
 
     if ((peer_data->frame_key_start == 0) ||
-        ((peer_data->frame_key_start <= pinfo->fd->num) &&
-        ((peer_data->frame_key_end == 0) || (pinfo->fd->num <= peer_data->frame_key_end)))) {
+        ((peer_data->frame_key_start <= pinfo->num) &&
+        ((peer_data->frame_key_end == 0) || (pinfo->num <= peer_data->frame_key_end)))) {
         offset = ssh_dissect_key_exchange(tvb, pinfo, global_data,
             offset, ssh2_tree, is_response,
             need_desegmentation);
@@ -548,15 +549,13 @@ ssh_dissect_ssh1(tvbuff_t *tvb, packet_info *pinfo,
     offset+=4;
 /* padding length */
 
-    if (tree) {
-          proto_tree_add_uint(ssh1_tree, hf_ssh_padding_length, tvb,
+    proto_tree_add_uint(ssh1_tree, hf_ssh_padding_length, tvb,
             offset, padding_length, padding_length);
-    }
     offset += padding_length;
 
     /* msg_code */
     if ((peer_data->frame_key_start == 0) ||
-        ((peer_data->frame_key_start >= pinfo->fd->num) && (pinfo->fd->num <= peer_data->frame_key_end))) {
+        ((peer_data->frame_key_start >= pinfo->num) && (pinfo->num <= peer_data->frame_key_end))) {
         msg_code = tvb_get_guint8(tvb, offset);
 
         proto_tree_add_item(ssh1_tree, hf_ssh_msg_code, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -566,8 +565,8 @@ ssh_dissect_ssh1(tvbuff_t *tvb, packet_info *pinfo,
         len = plen -1;
         if (!pinfo->fd->flags.visited) {
             if (peer_data->frame_key_start == 0)
-                peer_data->frame_key_start = pinfo->fd->num;
-            peer_data->frame_key_end = pinfo->fd->num;
+                peer_data->frame_key_start = pinfo->num;
+            peer_data->frame_key_end = pinfo->num;
         }
     } else {
         len = plen;
@@ -588,15 +587,11 @@ ssh_tree_add_mpint(tvbuff_t *tvb, int offset, proto_tree *tree,
     int hf_ssh_mpint_selection)
 {
     guint len = tvb_get_ntohl(tvb, offset);
-    if (tree) {
-        proto_tree_add_uint(tree, hf_ssh_mpint_length, tvb,
+    proto_tree_add_uint(tree, hf_ssh_mpint_length, tvb,
             offset, 4, len);
-    }
     offset+=4;
-    if (tree) {
-        proto_tree_add_item(tree, hf_ssh_mpint_selection,
+    proto_tree_add_item(tree, hf_ssh_mpint_selection,
             tvb, offset, len, ENC_NA);
-    }
     return 4+len;
 }
 
@@ -605,15 +600,11 @@ ssh_tree_add_string(tvbuff_t *tvb, int offset, proto_tree *tree,
     int hf_ssh_string, int hf_ssh_string_length)
 {
     guint len = tvb_get_ntohl(tvb, offset);
-    if (tree) {
-        proto_tree_add_uint(tree, hf_ssh_string_length, tvb,
+    proto_tree_add_uint(tree, hf_ssh_string_length, tvb,
             offset, 4, len);
-    }
     offset+=4;
-    if (tree) {
-        proto_tree_add_item(tree, hf_ssh_string,
+    proto_tree_add_item(tree, hf_ssh_string,
             tvb, offset, len, ENC_NA);
-    }
     return 4+len;
 }
 
@@ -709,14 +700,14 @@ ssh_dissect_key_exchange(tvbuff_t *tvb, packet_info *pinfo,
         switch(msg_code)
         {
         case SSH_MSG_KEXINIT:
-            if ((peer_data->frame_key_start == 0) || (peer_data->frame_key_start == pinfo->fd->num)) {
+            if ((peer_data->frame_key_start == 0) || (peer_data->frame_key_start == pinfo->num)) {
                 offset = ssh_dissect_key_init(tvb, offset, key_ex_tree, is_response, global_data);
-                peer_data->frame_key_start = pinfo->fd->num;
+                peer_data->frame_key_start = pinfo->num;
             }
             break;
         case SSH_MSG_NEWKEYS:
             if (peer_data->frame_key_end == 0) {
-                peer_data->frame_key_end = pinfo->fd->num;
+                peer_data->frame_key_end = pinfo->num;
                 ssh_choose_algo(global_data->peer_data[CLIENT_PEER_DATA].enc_proposals[is_response],
                                 global_data->peer_data[SERVER_PEER_DATA].enc_proposals[is_response],
                                 &peer_data->enc);

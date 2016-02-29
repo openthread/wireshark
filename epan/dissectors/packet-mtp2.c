@@ -350,28 +350,32 @@ dissect_mtp2_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 }
 
 /* Dissect MTP2 frame without CRC16 and with a pseudo-header */
-static void
-dissect_mtp2_with_phdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mtp2_with_phdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   if (pinfo->pseudo_header->mtp2.annex_a_used == MTP2_ANNEX_A_USED_UNKNOWN)
     dissect_mtp2_common(tvb, pinfo, tree, FALSE, use_extended_sequence_numbers_default);
   else
     dissect_mtp2_common(tvb, pinfo, tree, FALSE,
                         (pinfo->pseudo_header->mtp2.annex_a_used == MTP2_ANNEX_A_USED));
+
+  return tvb_captured_length(tvb);
 }
 
 /* Dissect MTP2 frame with CRC16 included at end of payload */
-static void
-dissect_mtp2_with_crc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mtp2_with_crc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_mtp2_common(tvb, pinfo, tree, TRUE, use_extended_sequence_numbers_default);
+  return tvb_captured_length(tvb);
 }
 
 /* Dissect MTP2 frame without CRC16 included at end of payload */
-static void
-dissect_mtp2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mtp2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   dissect_mtp2_common(tvb, pinfo, tree, FALSE, use_extended_sequence_numbers_default);
+  return tvb_captured_length(tvb);
 }
 
 void

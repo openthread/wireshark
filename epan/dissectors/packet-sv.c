@@ -441,8 +441,8 @@ dissect_sv_SampledValues(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offse
 /*
 * Dissect SV PDUs inside a PPDU.
 */
-static void
-dissect_sv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_sv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	int offset = 0;
 	int old_offset;
@@ -480,8 +480,8 @@ dissect_sv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 		}
 	}
 
-	if(tree)
-		tap_queue_packet(sv_tap, pinfo, &sv_data);
+	tap_queue_packet(sv_tap, pinfo, &sv_data);
+	return tvb_captured_length(tvb);
 }
 
 

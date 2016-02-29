@@ -27,77 +27,30 @@
 #include <glib.h>
 
 #include <epan/packet.h>
-/* XXX - try to remove this later */
-#include <epan/prefs.h>
-/* XXX - try to remove this later */
-
 #include <wiretap/wtap.h>
 
 #include "capture_info.h"
 
-#include <epan/dissectors/packet-ap1394.h>
-#include <epan/dissectors/packet-atalk.h>
-#include <epan/dissectors/packet-atm.h>
-#include <epan/dissectors/packet-ax25.h>
-#include <epan/dissectors/packet-clip.h>
-#include <epan/dissectors/packet-eth.h>
-#include <epan/dissectors/packet-fddi.h>
-#include <epan/dissectors/packet-fr.h>
-#include <epan/dissectors/packet-null.h>
-#include <epan/dissectors/packet-ppi.h>
-#include <epan/dissectors/packet-ppp.h>
-#include <epan/dissectors/packet-raw.h>
-#include <epan/dissectors/packet-sll.h>
-#include <epan/dissectors/packet-tr.h>
-#include <epan/dissectors/packet-ieee80211.h>
-#include <epan/dissectors/packet-ieee80211-radiotap.h>
-#include <epan/dissectors/packet-chdlc.h>
-#include <epan/dissectors/packet-ipfc.h>
-#include <epan/dissectors/packet-arcnet.h>
-#include <epan/dissectors/packet-enc.h>
-#include <epan/dissectors/packet-i2c.h>
-#include <epan/dissectors/packet-ax25-kiss.h>
-#include <epan/dissectors/packet-pktap.h>
+#include <epan/capture_dissectors.h>
 
 #include <wsutil/filesystem.h>
 
-static void capture_info_packet(
-packet_counts *counts, gint wtap_linktype, const guchar *pd, guint32 caplen, union wtap_pseudo_header *pseudo_header);
-
-
-
-typedef struct _info_data {
-    packet_counts     counts;     /* several packet type counters */
-    struct wtap*      wtap;       /* current wtap file */
-    capture_info      ui;         /* user interface data */
-} info_data_t;
-
-
-static info_data_t info_data;
-
-
 /* open the info */
-void capture_info_open(capture_session *cap_session)
+void capture_info_open(capture_session *cap_session, info_data_t* cap_info)
 {
-    info_data.counts.total      = 0;
-    info_data.counts.sctp       = 0;
-    info_data.counts.tcp        = 0;
-    info_data.counts.udp        = 0;
-    info_data.counts.icmp       = 0;
-    info_data.counts.ospf       = 0;
-    info_data.counts.gre        = 0;
-    info_data.counts.ipx        = 0;
-    info_data.counts.netbios    = 0;
-    info_data.counts.vines      = 0;
-    info_data.counts.other      = 0;
-    info_data.counts.arp        = 0;
-    info_data.counts.i2c_event  = 0;
-    info_data.counts.i2c_data   = 0;
+    if (cap_info->counts.counts_hash != NULL)
+    {
+        /* Clean up any previous lists of packet counts */
+        g_hash_table_destroy(cap_info->counts.counts_hash);
+    }
+    cap_info->counts.counts_hash = g_hash_table_new_full( g_direct_hash, g_direct_equal, NULL, g_free );
+    cap_info->counts.other = 0;
+    cap_info->counts.total = 0;
 
-    info_data.wtap = NULL;
-    info_data.ui.counts = &info_data.counts;
+    cap_info->wtap = NULL;
+    cap_info->ui.counts = &cap_info->counts;
 
-    capture_info_ui_create(&info_data.ui, cap_session);
+    capture_info_ui_create(&cap_info->ui, cap_session);
 }
 
 
@@ -202,19 +155,19 @@ cf_open_error_message(int err, gchar *err_info, gboolean for_writing,
 }
 
 /* new file arrived */
-gboolean capture_info_new_file(const char *new_filename)
+gboolean capture_info_new_file(const char *new_filename, info_data_t* cap_info)
 {
     int err;
     gchar *err_info;
     gchar *err_msg;
 
 
-    if(info_data.wtap != NULL) {
-        wtap_close(info_data.wtap);
+    if(cap_info->wtap != NULL) {
+        wtap_close(cap_info->wtap);
     }
 
-    info_data.wtap = wtap_open_offline(new_filename, WTAP_TYPE_AUTO, &err, &err_info, FALSE);
-    if (!info_data.wtap) {
+    cap_info->wtap = wtap_open_offline(new_filename, WTAP_TYPE_AUTO, &err, &err_info, FALSE);
+    if (!cap_info->wtap) {
         err_msg = g_strdup_printf(cf_open_error_message(err, err_info, FALSE, WTAP_FILE_TYPE_SUBTYPE_UNKNOWN),
                                   new_filename);
         g_warning("capture_info_new_file: %d (%s)", err, err_msg);
@@ -224,9 +177,21 @@ gboolean capture_info_new_file(const char *new_filename)
         return TRUE;
 }
 
+static void
+capture_info_packet(info_data_t* cap_info, gint wtap_linktype, const guchar *pd, guint32 caplen, union wtap_pseudo_header *pseudo_header)
+{
+    capture_packet_info_t cpinfo;
+
+    /* Setup the capture packet structure */
+    cpinfo.counts = cap_info->counts.counts_hash;
+
+    cap_info->counts.total++;
+    if (!try_capture_dissector("wtap_encap", wtap_linktype, pd, 0, caplen, &cpinfo, pseudo_header))
+        cap_info->counts.other++;
+}
 
 /* new packets arrived */
-void capture_info_new_packets(int to_read)
+void capture_info_new_packets(int to_read, info_data_t* cap_info)
 {
     int err;
     gchar *err_info;
@@ -237,138 +202,36 @@ void capture_info_new_packets(int to_read)
     const guchar *buf;
 
 
-    info_data.ui.new_packets = to_read;
+    cap_info->ui.new_packets = to_read;
 
     /*g_warning("new packets: %u", to_read);*/
 
     while (to_read > 0) {
-        wtap_cleareof(info_data.wtap);
-        if (wtap_read(info_data.wtap, &err, &err_info, &data_offset)) {
-            phdr = wtap_phdr(info_data.wtap);
+        wtap_cleareof(cap_info->wtap);
+        if (wtap_read(cap_info->wtap, &err, &err_info, &data_offset)) {
+            phdr = wtap_phdr(cap_info->wtap);
             pseudo_header = &phdr->pseudo_header;
             wtap_linktype = phdr->pkt_encap;
-            buf = wtap_buf_ptr(info_data.wtap);
+            buf = wtap_buf_ptr(cap_info->wtap);
 
-            capture_info_packet(&info_data.counts, wtap_linktype, buf, phdr->caplen, pseudo_header);
+            capture_info_packet(cap_info, wtap_linktype, buf, phdr->caplen, pseudo_header);
 
             /*g_warning("new packet");*/
             to_read--;
         }
     }
 
-    capture_info_ui_update(&info_data.ui);
+    capture_info_ui_update(&cap_info->ui);
 }
 
 
 /* close the info */
-void capture_info_close(void)
+void capture_info_close(info_data_t* cap_info)
 {
-    capture_info_ui_destroy(&info_data.ui);
-    if(info_data.wtap)
-        wtap_close(info_data.wtap);
+    capture_info_ui_destroy(&cap_info->ui);
+    if(cap_info->wtap)
+        wtap_close(cap_info->wtap);
 }
-
-
-static void
-capture_info_packet(packet_counts *counts, gint wtap_linktype, const guchar *pd, guint32 caplen, union wtap_pseudo_header *pseudo_header)
-{
-    counts->total++;
-    switch (wtap_linktype) {
-    case WTAP_ENCAP_ETHERNET:
-        capture_eth(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_FDDI:
-    case WTAP_ENCAP_FDDI_BITSWAPPED:
-        capture_fddi(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_IEEE_802_11_PRISM:
-        capture_prism(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_TOKEN_RING:
-        capture_tr(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_NULL:
-        capture_null(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_LOOP:
-        capture_loop(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_PPP:
-        capture_ppp_hdlc(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_RAW_IP:
-        capture_raw(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_SLL:
-        capture_sll(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_LINUX_ATM_CLIP:
-        capture_clip(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_IEEE_802_11:
-    case WTAP_ENCAP_IEEE_802_11_WITH_RADIO:
-        capture_ieee80211(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_IEEE_802_11_RADIOTAP:
-        capture_radiotap(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_IEEE_802_11_AVS:
-        capture_wlancap(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_CHDLC:
-        capture_chdlc(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_LOCALTALK:
-        capture_llap(counts);
-        break;
-    case WTAP_ENCAP_ATM_PDUS:
-        capture_atm(pseudo_header, pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_IP_OVER_FC:
-        capture_ipfc(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_ARCNET:
-        capture_arcnet(pd, caplen, counts, FALSE, TRUE);
-        break;
-    case WTAP_ENCAP_ARCNET_LINUX:
-        capture_arcnet(pd, caplen, counts, TRUE, FALSE);
-        break;
-    case WTAP_ENCAP_APPLE_IP_OVER_IEEE1394:
-        capture_ap1394(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_FRELAY:
-    case WTAP_ENCAP_FRELAY_WITH_PHDR:
-        capture_fr(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_ENC:
-        capture_enc(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_PPI:
-        capture_ppi(pd, caplen, counts);
-        break;
-    case WTAP_ENCAP_I2C:
-        capture_i2c(pseudo_header, counts);
-        break;
-    case WTAP_ENCAP_AX25_KISS:
-        capture_ax25_kiss(pd, 0, caplen, counts);
-        break;
-    case WTAP_ENCAP_AX25:
-        capture_ax25(pd, 0, caplen, counts);
-        break;
-        /* XXX - some ATM drivers on FreeBSD might prepend a 4-byte ATM
-           pseudo-header to DLT_ATM_RFC1483, with LLC header following;
-           we might have to implement that at some point. */
-    case WTAP_ENCAP_PKTAP:
-    case WTAP_ENCAP_USER2:
-        /* XXX - WTAP_ENCAP_USER2 to handle Mavericks' botch wherein it
-           uses DLT_USER2 for PKTAP; if you are using DLT_USER2 for your
-           own purposes, feel free to call your own capture_ routine for
-           WTAP_ENCAP_USER2. */
-        capture_pktap(pd, caplen, counts);
-        break;
-    }
-}
-
 
 #endif /* HAVE_LIBPCAP */
 

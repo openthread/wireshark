@@ -26,7 +26,7 @@
 
 #include <epan/packet.h>
 #include <epan/address_types.h>
-#include <epan/to_str-int.h>
+#include <epan/to_str.h>
 
 void proto_register_j1939(void);
 void proto_reg_handoff_j1939(void);
@@ -219,7 +219,7 @@ static int dissect_j1939(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     /* Set source address */
     src_addr = (guint8*)wmem_alloc(pinfo->pool, 1);
     *src_addr = (guint8)(can_id.id & 0xFF);
-    SET_ADDRESS(&pinfo->src, j1939_address_type, 1, (const void*)src_addr);
+    set_address(&pinfo->src, j1939_address_type, 1, (const void*)src_addr);
 
     pgn = (can_id.id & 0x3FFFF00) >> 8;
 
@@ -240,7 +240,7 @@ static int dissect_j1939(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     /* Fill in "destination" address even if its "broadcast" */
     dest_addr = (guint8*)wmem_alloc(pinfo->pool, 1);
     *dest_addr = (guint8)((can_id.id & 0xFF00) >> 8);
-    SET_ADDRESS(&pinfo->dst, j1939_address_type, 1, (const void*)dest_addr);
+    set_address(&pinfo->dst, j1939_address_type, 1, (const void*)dest_addr);
 
     col_add_fstr(pinfo->cinfo, COL_INFO, "PGN: %d", pgn);
 
@@ -348,7 +348,7 @@ void proto_register_j1939(void)
     proto_register_field_array(proto_j1939, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    subdissector_pgn_table = register_dissector_table("j1939.pgn", "PGN Handle", FT_UINT32, BASE_DEC);
+    subdissector_pgn_table = register_dissector_table("j1939.pgn", "PGN Handle", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
     j1939_address_type = address_type_dissector_register("AT_J1939", "J1939 Address", J1939_addr_to_str, J1939_addr_str_len, J1939_col_filter_str, J1939_addr_len, NULL, NULL);
 }
@@ -358,7 +358,7 @@ proto_reg_handoff_j1939(void)
 {
     dissector_handle_t j1939_handle;
 
-    j1939_handle = new_create_dissector_handle( dissect_j1939, proto_j1939 );
+    j1939_handle = create_dissector_handle( dissect_j1939, proto_j1939 );
     dissector_add_for_decode_as("can.subdissector", j1939_handle );
 }
 

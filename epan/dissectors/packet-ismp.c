@@ -219,17 +219,20 @@ static const value_string edp_tuple_types[] =
 static gchar*
 ipx_addr_to_str(const guint32 net, const guint8 *ad)
 {
-	gchar   *buf;
-	char    *name;
+	gchar       *buf;
+	const gchar *name;
 
 	name = get_ether_name_if_known(ad);
 
 	if (name) {
-		buf = wmem_strdup_printf(wmem_packet_scope(), "%s.%s", get_ipxnet_name(wmem_packet_scope(), net), name);
+		buf = wmem_strdup_printf(wmem_packet_scope(), "%s.%s",
+				get_ipxnet_name(wmem_packet_scope(), net),
+				name);
 	}
 	else {
-		buf = wmem_strdup_printf(wmem_packet_scope(), "%s.%s", get_ipxnet_name(wmem_packet_scope(), net),
-								bytestring_to_str(wmem_packet_scope(), ad, 6, '\0'));
+		buf = wmem_strdup_printf(wmem_packet_scope(), "%s.%s",
+				get_ipxnet_name(wmem_packet_scope(), net),
+				bytestring_to_str(wmem_packet_scope(), ad, 6, '\0'));
 	}
 	return buf;
 }
@@ -261,7 +264,7 @@ dissect_ismp_edp(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *ismp
 
 	proto_tree *edp_tuples_leaf_tree;
 
-	/* add column iformation marking this as EDP (Enterasys Discover Protocol */
+	/* add column information marking this as EDP (Enterasys Discover Protocol */
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "ISMP.EDP");
 	col_clear(pinfo->cinfo, COL_INFO);
 
@@ -487,8 +490,8 @@ dissect_ismp_edp(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *ismp
 
 
 /* Code to actually dissect the packets */
-static void
-dissect_ismp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ismp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int offset = 0;
 	guint16 message_type = 0;
@@ -534,6 +537,8 @@ dissect_ismp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	/* if Enterasys Discover Protocol, dissect it */
 	if(message_type == ISMPTYPE_EDP)
 		dissect_ismp_edp(tvb, pinfo, offset, tree);
+
+	return tvb_captured_length(tvb);
 }
 
 

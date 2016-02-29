@@ -65,6 +65,7 @@
 @HAVE_REMOTE@
 @HAVE_PCAP_REMOTE@
 @HAVE_PCAP_OPEN@
+@HAVE_PCAP_CREATE@
 @HAVE_PCAP_OPEN_DEAD@
 @HAVE_BPF_IMAGE@
 @HAVE_PCAP_SETSAMPLING@
@@ -210,16 +211,11 @@
 /* Define to enable WinSparkle software updates */
 @HAVE_SOFTWARE_UPDATE@
 
-/* Define for IPv6 */
-@INET6@
-
 /* Define to have ntddndis.h */
 @HAVE_NTDDNDIS_H@
 
 /* Define if you have the strptime function. */
 /* #undef HAVE_STRPTIME 1 */
-
-#define NEED_INET_V6DEFS_H  1
 
 #ifndef WIN32
 #define WIN32			1

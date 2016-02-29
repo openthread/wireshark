@@ -30,7 +30,7 @@
 #include "packet-cip.h"
 
 void proto_register_cipmotion(void);
-/* The entry point to the actual disection is: dissect_cipmotion */
+/* The entry point to the actual dissection is: dissect_cipmotion */
 void proto_reg_handoff_cipmotion(void);
 
 /* Protocol handle for CIP Motion */
@@ -259,6 +259,8 @@ static gint ett_set_axis_attr_list  = -1;
 static gint ett_group_sync          = -1;
 static gint ett_axis_status_set     = -1;
 static gint ett_command_control     = -1;
+
+static dissector_handle_t cipmotion_handle;
 
 /* These are the BITMASKS for the Time Data Set header field */
 #define TIME_DATA_SET_TIME_STAMP                0x1
@@ -1776,8 +1778,8 @@ dissect_var_devce_conn_header(tvbuff_t* tvb, proto_tree* tree, guint32* inst_cou
  *
  * Returns: void
  */
-static void
-dissect_cipmotion(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree)
+static int
+dissect_cipmotion(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data _U_)
 {
    guint32     con_format;
 /*   guint32     seq_number; */
@@ -1878,6 +1880,8 @@ dissect_cipmotion(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree)
          } /* End of instance for( ) loop */
       }
    }
+
+   return tvb_captured_length(tvb);
 }
 
 /*
@@ -2919,16 +2923,12 @@ proto_register_cipmotion(void)
    /* Register the subtrees for the protocol dissection */
    proto_register_subtree_array(cip_subtree, array_length(cip_subtree));
 
-   register_dissector( "cipmotion", dissect_cipmotion, proto_cipmotion);
+   cipmotion_handle = register_dissector("cipmotion", dissect_cipmotion, proto_cipmotion);
 }
 
 void proto_reg_handoff_cipmotion(void)
 {
-   dissector_handle_t cipmotion_handle;
-
-   /* Create and register dissector for I/O data handling */
-   cipmotion_handle = create_dissector_handle( dissect_cipmotion, proto_cipmotion );
-   dissector_add_for_decode_as("enip.io", cipmotion_handle );
+   dissector_add_for_decode_as("enip.io", cipmotion_handle);
 }
 
 /*

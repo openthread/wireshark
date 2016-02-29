@@ -63,7 +63,11 @@ enum {
   PV_RESTRICT_ID_PORTS2X    = 34,
   PV_RESTRICT_ID_PORTS2Y    = 35,
   PV_RESTRICT_ID_PORTS2Z    = 36,
-  PV_RESTRICT_ID3           = 50
+  PV_RESTRICT_ID3           = 50,
+  PV_VIVALDI_OPTIONAL       = 51,
+  PV_PACKET_FLAGS           = 51,
+  PV_ALT_CONTACTS           = 52,
+  PV_PACKET_FLAGS2          = 53
 };
 
 /* Type Length */
@@ -73,6 +77,7 @@ enum {
   TL_SHORT =  2,
   TL_INT   =  4,
   TL_IPv4  =  4,
+  TL_FLOAT =  4,
   TL_LONG  =  8,
   TL_IPv6  = 16
 };
@@ -145,7 +150,9 @@ enum {
     FT_DOWNLOADING  = 0x01,
     FT_SEEDING      = 0x02,
     FT_MULTI_VALUE  = 0x04,
-    FT_STATS        = 0x08
+    FT_STATS        = 0x08,
+    FLAG_ANON       = 0x10,
+    FLAG_PRECIOUS   = 0x20
 };
 static const value_string vuze_dht_flag_type_vals[] = {
   { FT_SINGLE_VALUE, "Single value" },
@@ -153,7 +160,20 @@ static const value_string vuze_dht_flag_type_vals[] = {
   { FT_SEEDING,      "Seeding" },
   { FT_MULTI_VALUE,  "Multi value" },
   { FT_STATS,        "Stats" },
+  { FLAG_ANON,       "Anon" },
+  { FLAG_PRECIOUS,   "Precious" },
   { 0, NULL }
+};
+
+/* generic flag type */
+enum {
+  GF_NONE         = 0x00,
+  GF_DHT_SLEEPING = 0x01
+};
+static const value_string vuze_dht_generic_flag_type_vals[] = {
+  { GF_NONE, "None"},
+  { GF_DHT_SLEEPING, "DHT sleeping" },
+  {0, NULL}
 };
 
 /* error type */
@@ -164,6 +184,15 @@ enum {
 static const value_string vuze_dht_error_type_vals[] = {
   { ET_WRONG_ADDRESS, "Originator's address stored in the request is incorrect" },
   { ET_KEY_BLOCKED,   "The requested key has been blocked" },
+  { 0, NULL }
+};
+
+/* network coordinate type */
+enum {
+  NC_VIVALDI = 1
+};
+static const value_string vuze_dht_network_coordinate_type_vals[] = {
+  { NC_VIVALDI, "Vivaldi" },
   { 0, NULL }
 };
 
@@ -202,6 +231,8 @@ static int hf_vuze_dht_network_id = -1;
 static int hf_vuze_dht_local_proto_ver = -1;
 static int hf_vuze_dht_instance_id = -1;
 static int hf_vuze_dht_time = -1;
+static int hf_vuze_dht_generic_flags = -1;
+static int hf_vuze_dht_generic_flags2 = -1;
 
 /* firstly appear in reply ping */
 static int hf_vuze_dht_network_coordinates_count = -1;
@@ -210,6 +241,10 @@ static int hf_vuze_dht_network_coordinate = -1;
 static int hf_vuze_dht_network_coordinate_type = -1;
 static int hf_vuze_dht_network_coordinate_size = -1;
 static int hf_vuze_dht_network_coordinate_data = -1;
+static int hf_vuze_dht_network_coordinate_x = -1;
+static int hf_vuze_dht_network_coordinate_y = -1;
+static int hf_vuze_dht_network_coordinate_height = -1;
+static int hf_vuze_dht_network_coordinate_error = -1;
 
 /* firstly appear in request store */
 static int hf_vuze_dht_spoof_id = -1;
@@ -304,14 +339,14 @@ dissect_vuze_dht_address(tvbuff_t *tvb, packet_info _U_*pinfo, proto_tree *tree,
   {
   case TL_IPv4:
     proto_tree_add_item(sub_tree, hf_vuze_dht_address_v4, tvb, offset, ip_length, ENC_BIG_ENDIAN);
-    TVB_SET_ADDRESS( &addr, AT_IPv4, tvb, offset, ip_length);
+    set_address_tvb( &addr, AT_IPv4, ip_length, tvb, offset);
     break;
   case TL_IPv6:
     proto_tree_add_item(sub_tree, hf_vuze_dht_address_v6, tvb, offset, ip_length, ENC_NA);
-    TVB_SET_ADDRESS( &addr, AT_IPv6, tvb, offset, ip_length);
+    set_address_tvb( &addr, AT_IPv6, ip_length, tvb, offset);
     break;
   default:
-    addr.type = AT_NONE;
+    clear_address(&addr);
     break;
   }
   offset += ip_length;
@@ -546,21 +581,45 @@ dissect_vuze_dht_network_coordinate(tvbuff_t *tvb, packet_info _U_*pinfo, proto_
   proto_item *ti;
   proto_tree *sub_tree;
   guint coordinate_size;
+  guint coordinate_type;
 
+  coordinate_type = tvb_get_guint8( tvb, offset );
   coordinate_size = tvb_get_guint8( tvb, offset+1 );
 
   ti = proto_tree_add_item( tree, hf_vuze_dht_network_coordinate, tvb, offset, coordinate_size+2, ENC_NA );
   sub_tree = proto_item_add_subtree(ti, ett_vuze_dht_network_coordinate);
 
-  proto_item_append_text( ti, ": type %d, length %d ( %s )",
-    tvb_get_guint8(tvb,offset), tvb_get_guint8(tvb,offset+TL_BYTE), tvb_bytes_to_str(wmem_packet_scope(), tvb, offset+TL_BYTE+TL_BYTE, coordinate_size ) );
+  proto_item_append_text( ti, ": type %d, length %d", tvb_get_guint8(tvb,offset), tvb_get_guint8(tvb,offset+TL_BYTE) );
+
+  if (coordinate_type == NC_VIVALDI) {
+    proto_item_append_text( ti, " ( %.2f, %.2f, %.2f, %.2f )",
+        tvb_get_ntohieee_float(tvb, offset+TL_BYTE+TL_BYTE),
+        tvb_get_ntohieee_float(tvb, offset+TL_BYTE+TL_BYTE+TL_FLOAT),
+        tvb_get_ntohieee_float(tvb, offset+TL_BYTE+TL_BYTE+TL_FLOAT+TL_FLOAT),
+        tvb_get_ntohieee_float(tvb, offset+TL_BYTE+TL_BYTE+TL_FLOAT+TL_FLOAT+TL_FLOAT) );
+  } else {
+    proto_item_append_text( ti, " ( %s )",
+        tvb_bytes_to_str(wmem_packet_scope(), tvb, offset+TL_BYTE+TL_BYTE, coordinate_size ) );
+  }
 
   proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_type, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN );
   offset += TL_BYTE;
   proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_size, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN );
   offset += TL_BYTE;
-  proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_data, tvb, offset, coordinate_size, ENC_NA );
-  offset += coordinate_size;
+
+  if (coordinate_type == NC_VIVALDI) {
+      proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_x, tvb, offset, TL_FLOAT, ENC_BIG_ENDIAN );
+      offset += TL_FLOAT;
+      proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_y, tvb, offset, TL_FLOAT, ENC_BIG_ENDIAN );
+      offset += TL_FLOAT;
+      proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_height, tvb, offset, TL_FLOAT, ENC_BIG_ENDIAN );
+      offset += TL_FLOAT;
+      proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_error, tvb, offset, TL_FLOAT, ENC_BIG_ENDIAN );
+      offset += TL_FLOAT;
+  } else {
+    proto_tree_add_item( sub_tree, hf_vuze_dht_network_coordinate_data, tvb, offset, coordinate_size, ENC_NA );
+    offset += coordinate_size;
+  }
 
   return offset;
 }
@@ -607,6 +666,8 @@ LOCAL_PROTOCOL_VERSION  byte    >=FIX_ORIGINATOR    maximum protocol version thi
 NODE_ADDRESS            address always             address of the local node
 INSTANCE_ID             int     always             application's helper number; randomly generated at the start
 TIME                    long    always             time of the local node; stored as number of milliseconds since Epoch
+FLAG                    byte    >=PACKET_FLAGS
+FLAG2                   byte    >=PACKET_FLAGS2
 
 */
 static int
@@ -633,12 +694,12 @@ dissect_vuze_dht_request_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     offset += TL_BYTE;
   }
 
-  if( *ver > PV_NETWORKS )
+  if( *ver >= PV_NETWORKS )
   {
     proto_tree_add_item(tree, hf_vuze_dht_network_id, tvb, offset, TL_INT, ENC_BIG_ENDIAN);
     offset += TL_INT;
   }
-  if( *ver > PV_FIX_ORIGINATOR )
+  if( *ver >= PV_FIX_ORIGINATOR )
   {
     proto_tree_add_item(tree, hf_vuze_dht_local_proto_ver, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN);
     offset += TL_BYTE;
@@ -649,6 +710,17 @@ dissect_vuze_dht_request_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
   offset += TL_INT;
   proto_tree_add_item(tree, hf_vuze_dht_time, tvb, offset, TL_LONG, ENC_BIG_ENDIAN);
   offset += TL_LONG;
+
+  if( *ver >= PV_PACKET_FLAGS )
+  {
+    proto_tree_add_item(tree, hf_vuze_dht_generic_flags, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN);
+    offset += TL_BYTE;
+  }
+  if( *ver >= PV_PACKET_FLAGS2 )
+  {
+    proto_tree_add_item(tree, hf_vuze_dht_generic_flags2, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN);
+    offset += TL_BYTE;
+  }
 
   return offset;
 }
@@ -663,6 +735,8 @@ PROTOCOL_VERSION byte   always             version of protocol used in this pack
 VENDOR_ID        byte   >=VENDOR_ID         same meaning as in the request
 NETWORK_ID       int    >=NETWORKS          same meaning as in the request
 INSTANCE_ID      int    always             instance id of the node that replies to the request
+FLAG             byte   >=PACKET_FLAGS
+FLAG2            byte   >=PACKET_FLAGS2
 
 */
 static int
@@ -689,7 +763,7 @@ dissect_vuze_dht_reply_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     offset += TL_BYTE;
   }
 
-  if( *ver > PV_NETWORKS )
+  if( *ver >= PV_NETWORKS )
   {
     proto_tree_add_item(tree, hf_vuze_dht_network_id, tvb, offset, TL_INT, ENC_BIG_ENDIAN);
     offset += TL_INT;
@@ -697,6 +771,17 @@ dissect_vuze_dht_reply_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
   proto_tree_add_item(tree, hf_vuze_dht_instance_id, tvb, offset, TL_INT, ENC_BIG_ENDIAN);
   offset += TL_INT;
+
+  if( *ver >= PV_PACKET_FLAGS )
+  {
+    proto_tree_add_item(tree, hf_vuze_dht_generic_flags, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN);
+    offset += TL_BYTE;
+  }
+  if( *ver >= PV_PACKET_FLAGS2 )
+  {
+    proto_tree_add_item(tree, hf_vuze_dht_generic_flags2, tvb, offset, TL_BYTE, ENC_BIG_ENDIAN);
+    offset += TL_BYTE;
+  }
 
   return offset;
 }
@@ -1227,7 +1312,7 @@ proto_register_vuze_dht(void)
     },
     { &hf_vuze_dht_network_coordinate_type,
       { "Network Coordinate Type", "vuze-dht.network_coordinate.type",
-      FT_UINT8, BASE_DEC,  NULL, 0x0,
+      FT_UINT8, BASE_DEC,  VALS(vuze_dht_network_coordinate_type_vals), 0x0,
       NULL, HFILL }
     },
     { &hf_vuze_dht_network_coordinate_size,
@@ -1238,6 +1323,26 @@ proto_register_vuze_dht(void)
     { &hf_vuze_dht_network_coordinate_data,
       { "Network Coordinate Data", "vuze-dht.network_coordinate.data",
       FT_BYTES, BASE_NONE,  NULL, 0x0,
+      NULL, HFILL }
+    },
+    { &hf_vuze_dht_network_coordinate_x,
+      { "Network Coordinate X", "vuze-dht.network_coordinate.x",
+      FT_FLOAT, BASE_NONE,  NULL, 0x0,
+      NULL, HFILL }
+    },
+    { &hf_vuze_dht_network_coordinate_y,
+      { "Network Coordinate Y", "vuze-dht.network_coordinate.y",
+      FT_FLOAT, BASE_NONE,  NULL, 0x0,
+      NULL, HFILL }
+    },
+    { &hf_vuze_dht_network_coordinate_height,
+      { "Network Coordinate Height", "vuze-dht.network_coordinate.height",
+      FT_FLOAT, BASE_NONE,  NULL, 0x0,
+      NULL, HFILL }
+    },
+    { &hf_vuze_dht_network_coordinate_error,
+      { "Network Coordinate Error", "vuze-dht.network_coordinate.error",
+      FT_FLOAT, BASE_NONE,  NULL, 0x0,
       NULL, HFILL }
     },
     { &hf_vuze_dht_spoof_id,
@@ -1399,6 +1504,16 @@ proto_register_vuze_dht(void)
       { "Signature", "vuze-dht.signature",
       FT_BYTES, BASE_NONE,  NULL, 0x0,
       NULL, HFILL }
+    },
+    { &hf_vuze_dht_generic_flags,
+      { "Generic Flags", "vuze-dht.generic_flags",
+      FT_UINT8, BASE_DEC,  VALS(vuze_dht_generic_flag_type_vals), 0x0,
+      NULL, HFILL }
+    },
+    { &hf_vuze_dht_generic_flags2,
+      { "Generic Flags 2", "vuze-dht.generic_flags2",
+      FT_UINT8, BASE_DEC,  VALS(vuze_dht_flag_type_vals), 0x0,
+      NULL, HFILL }
     }
   };
 
@@ -1429,7 +1544,7 @@ proto_register_vuze_dht(void)
   proto_register_field_array(proto_vuze_dht, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  vuze_dht_handle = new_register_dissector("vuze-dht", dissect_vuze_dht, proto_vuze_dht);
+  vuze_dht_handle = register_dissector("vuze-dht", dissect_vuze_dht, proto_vuze_dht);
 
   /* Register our configuration options */
   vuze_dht_module = prefs_register_protocol(proto_vuze_dht, proto_reg_handoff_vuze_dht);
@@ -1471,4 +1586,3 @@ proto_reg_handoff_vuze_dht(void)
  * ex: set shiftwidth=2 tabstop=8 expandtab:
  * :indentSize=2:tabSize=8:noTabs=true:
  */
-

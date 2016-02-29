@@ -86,10 +86,7 @@ static void graph_analysis_reset(graph_analysis_data_t *user_data)
 	user_data->graph_info->num_nodes = 0;
 	user_data->num_items = 0;
 	for (i=0; i<MAX_NUM_NODES; i++) {
-		user_data->graph_info->nodes[i].type = AT_NONE;
-		user_data->graph_info->nodes[i].len = 0;
-		g_free((void *)user_data->graph_info->nodes[i].data);
-		user_data->graph_info->nodes[i].data = NULL;
+		free_address(&user_data->graph_info->nodes[i]);
 	}
 
 	user_data->dlg.first_node = 0;
@@ -157,10 +154,7 @@ static void on_destroy(GtkWidget *win _U_, graph_analysis_data_t *user_data)
 	int i;
 
 	for (i=0; i<MAX_NUM_NODES; i++) {
-		user_data->graph_info->nodes[i].type = AT_NONE;
-		user_data->graph_info->nodes[i].len = 0;
-		g_free((void *)user_data->graph_info->nodes[i].data);
-		user_data->graph_info->nodes[i].data = NULL;
+		free_address(&user_data->graph_info->nodes[i]);
 	}
 	user_data->dlg.window = NULL;
 	g_free(user_data->dlg.title);
@@ -442,7 +436,7 @@ static void dialog_graph_draw(graph_analysis_data_t *user_data)
 		if (gai->display) {
 			if (current_item>=display_items) break;		/* the item is outside the display */
 			if (i>=first_item) {
-				user_data->dlg.items[current_item].fd = gai->fd;
+				user_data->dlg.items[current_item].frame_number = gai->frame_number;
 				user_data->dlg.items[current_item].port_src = gai->port_src;
 				user_data->dlg.items[current_item].port_dst = gai->port_dst;
 				user_data->dlg.items[current_item].frame_label = gai->frame_label;
@@ -622,7 +616,7 @@ static void dialog_graph_draw(graph_analysis_data_t *user_data)
 
 		/* print the node identifiers */
 		/* XXX we assign 5 pixels per character in the node identity */
-		addr_str = (char*)address_to_display(NULL, &(user_data->graph_info->nodes[i]));
+		addr_str = address_to_display(NULL, &(user_data->graph_info->nodes[i]));
 		g_strlcpy(label_string, addr_str, NODE_WIDTH/5);
 		wmem_free(NULL, addr_str);
 		pango_layout_set_text(layout, label_string, -1);
@@ -1000,7 +994,7 @@ static gboolean button_press_event(GtkWidget *widget _U_, GdkEventButton *event,
 	user_data->dlg.needs_redraw = TRUE;
 	dialog_graph_draw(user_data);
 
-	cf_goto_frame(&cfile, user_data->dlg.items[item].fd->num);
+	cf_goto_frame(&cfile, user_data->dlg.items[item].frame_number);
 
 	return TRUE;
 }
@@ -1035,7 +1029,7 @@ static gboolean key_press_event(GtkWidget *widget _U_, GdkEventKey *event, gpoin
 	user_data->dlg.needs_redraw = TRUE;
 	dialog_graph_draw(user_data);
 
-	cf_goto_frame(&cfile, user_data->dlg.items[user_data->dlg.selected_item-user_data->dlg.first_item].fd->num);
+	cf_goto_frame(&cfile, user_data->dlg.items[user_data->dlg.selected_item-user_data->dlg.first_item].frame_number);
 
 	return TRUE;
 }

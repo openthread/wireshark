@@ -78,8 +78,8 @@ static gint ett_dx		= -1;
 
 
 /* Code to actually dissect the packets */
-static void
-dissect_dx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_dx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *dx_tree;
@@ -104,6 +104,8 @@ dissect_dx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 
 		proto_tree_add_item( dx_tree, hf_dx_report, tvb, offset, data_len, ENC_ASCII|ENC_NA );
 	}
+
+	return tvb_captured_length(tvb);
 }
 
 static gboolean
@@ -145,8 +147,8 @@ isaprs( guint8 dti )
 	return b;
 }
 
-static void
-dissect_ax25_nol3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree )
+static int
+dissect_ax25_nol3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_ )
 {
 	proto_item *ti;
 	proto_tree *ax25_nol3_tree;
@@ -182,39 +184,37 @@ dissect_ax25_nol3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree )
 
 	/* Call sub-dissectors here */
 
-	if ( parent_tree )
+	/* create display subtree for the protocol */
+	ti = proto_tree_add_protocol_format( parent_tree,
+						proto_ax25_nol3,
+						tvb,
+						0,
+						-1,
+						"AX.25 No Layer 3 - (%s)", info_buffer );
+	ax25_nol3_tree = proto_item_add_subtree( ti, ett_ax25_nol3 );
+
+	next_tvb = tvb_new_subset_remaining(tvb, offset);
+	dissected = FALSE;
+	if ( gPREF_APRS )
 		{
-		/* create display subtree for the protocol */
-		ti = proto_tree_add_protocol_format( parent_tree,
-							proto_ax25_nol3,
-							tvb,
-							0,
-							-1,
-							"AX.25 No Layer 3 - (%s)", info_buffer );
-		ax25_nol3_tree = proto_item_add_subtree( ti, ett_ax25_nol3 );
-
-		next_tvb = tvb_new_subset_remaining(tvb, offset);
-		dissected = FALSE;
-		if ( gPREF_APRS )
+		if ( isaprs( dti ) )
 			{
-			if ( isaprs( dti ) )
-				{
-				dissected = TRUE;
-				call_dissector( aprs_handle , next_tvb, pinfo, ax25_nol3_tree );
-				}
+			dissected = TRUE;
+			call_dissector( aprs_handle , next_tvb, pinfo, ax25_nol3_tree );
 			}
-		if ( gPREF_DX )
-			{
-			if ( tvb_get_guint8( tvb, offset ) == 'D' && tvb_get_guint8( tvb, offset + 1 ) == 'X' )
-				{
-				dissected = TRUE;
-				dissect_dx( next_tvb, pinfo, ax25_nol3_tree );
-				}
-			}
-		if ( ! dissected )
-			call_dissector( default_handle , next_tvb, pinfo, ax25_nol3_tree );
-
 		}
+	if ( gPREF_DX )
+		{
+		if ( tvb_get_guint8( tvb, offset ) == 'D' && tvb_get_guint8( tvb, offset + 1 ) == 'X' )
+			{
+			dissected = TRUE;
+			dissect_dx( next_tvb, pinfo, ax25_nol3_tree, NULL );
+			}
+		}
+	if ( ! dissected )
+		call_dissector( default_handle , next_tvb, pinfo, ax25_nol3_tree );
+
+	return tvb_captured_length(tvb);
 }
 
 void

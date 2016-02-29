@@ -370,18 +370,18 @@ void dissect_pw_cesopsn( tvbuff_t * tvb_original
 
 
 static
-void dissect_pw_cesopsn_mpls( tvbuff_t * tvb_original, packet_info * pinfo, proto_tree * tree)
+int dissect_pw_cesopsn_mpls( tvbuff_t * tvb_original, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
 	dissect_pw_cesopsn(tvb_original,pinfo,tree,PWC_DEMUX_MPLS);
-	return;
+	return tvb_captured_length(tvb_original);
 }
 
 
 static
-void dissect_pw_cesopsn_udp( tvbuff_t * tvb_original, packet_info * pinfo, proto_tree * tree)
+int dissect_pw_cesopsn_udp( tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
-	dissect_pw_cesopsn(tvb_original,pinfo,tree,PWC_DEMUX_UDP);
-	return;
+	dissect_pw_cesopsn(tvb,pinfo,tree,PWC_DEMUX_UDP);
+	return tvb_captured_length(tvb);
 }
 
 
@@ -445,7 +445,6 @@ void proto_register_pw_cesopsn(void)
 	expert_pwcesopsn = expert_register_protocol(proto);
 	expert_register_field_array(expert_pwcesopsn, ei, array_length(ei));
 	register_dissector("pw_cesopsn_udp", dissect_pw_cesopsn_udp, proto);
-	return;
 }
 
 

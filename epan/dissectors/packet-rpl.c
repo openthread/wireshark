@@ -259,8 +259,8 @@ dissect_rpl_container(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			tvb_new_subset_remaining(tvb, offset), pinfo, tree);
 }
 
-static void
-dissect_rpl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rpl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint16 rpl_len, rpl_type;
 	proto_item *ti;
@@ -286,6 +286,8 @@ dissect_rpl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		call_dissector(data_handle,
 			tvb_new_subset_remaining(tvb, rpl_len), pinfo,
 				tree);
+
+	return tvb_captured_length(tvb);
 }
 
 void

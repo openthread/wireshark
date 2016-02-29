@@ -26,9 +26,6 @@
 
 #include "config.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/prefs.h>
@@ -771,7 +768,7 @@ void proto_reg_handoff_tpncp(void) {
         return;
 
     if (!tpncp_prefs_initialized) {
-        tpncp_tcp_handle = new_create_dissector_handle(dissect_tpncp_tcp, proto_tpncp);
+        tpncp_tcp_handle = create_dissector_handle(dissect_tpncp_tcp, proto_tpncp);
 
         tpncp_prefs_initialized = TRUE;
     }
@@ -837,7 +834,7 @@ void proto_register_tpncp(void) {
         proto_register_subtree_array(ett, array_length(ett));
     }
 
-    tpncp_handle = new_register_dissector("tpncp", dissect_tpncp, proto_tpncp);
+    tpncp_handle = register_dissector("tpncp", dissect_tpncp, proto_tpncp);
 
     tpncp_module = prefs_register_protocol(proto_tpncp, proto_reg_handoff_tpncp);
 

@@ -71,12 +71,6 @@
 /* PROTOTYPES/FORWARDS */
 typedef guint16 (*elem_fcn)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
 typedef void (*msg_fcn)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len);
-int my_dgt_tbcd_unpack(
-    char      *out,       /* ASCII pattern out */
-    guchar    *in,        /* packed pattern in */
-    int        num_octs,   /* Number of octets to unpack */
-    dgt_set_t *dgt    /* Digit definitions */
-    );
 
 /* globals needed as a result of spltting the packet-gsm_a.c into several files
  * until further restructuring can take place to make them more modular
@@ -406,6 +400,7 @@ WS_DLL_PUBLIC guint16 elem_v_short(tvbuff_t *tvb, proto_tree *tree, packet_info 
             "Missing Mandatory element (0x%02x) %s%s, rest of dissection is suspect", \
             EMT_iei, \
             get_gsm_a_msg_string(EMT_pdu_type, EMT_elem_idx), \
+            /* coverity[array_null] */ \
             (EMT_elem_name_addition == NULL) ? "" : EMT_elem_name_addition \
             ); \
     } \
@@ -431,6 +426,7 @@ WS_DLL_PUBLIC guint16 elem_v_short(tvbuff_t *tvb, proto_tree *tree, packet_info 
             "Missing Mandatory element (0x%02x) %s%s, rest of dissection is suspect", \
             EMT_iei, \
             get_gsm_a_msg_string(EMT_pdu_type, EMT_elem_idx), \
+            /* coverity[array_null] */ \
             (EMT_elem_name_addition == NULL) ? "" : EMT_elem_name_addition \
             ); \
     } \
@@ -451,6 +447,7 @@ WS_DLL_PUBLIC guint16 elem_v_short(tvbuff_t *tvb, proto_tree *tree, packet_info 
             "Missing Mandatory element (0x%02x) %s%s, rest of dissection is suspect", \
             EMT_iei, \
             get_gsm_a_msg_string(EMT_pdu_type, EMT_elem_idx), \
+            /* coverity[array_null] */ \
             (EMT_elem_name_addition == NULL) ? "" : EMT_elem_name_addition \
             ); \
     } \
@@ -500,6 +497,7 @@ WS_DLL_PUBLIC guint16 elem_v_short(tvbuff_t *tvb, proto_tree *tree, packet_info 
             "Missing Mandatory element (0x%02x) %s%s, rest of dissection is suspect", \
             EMT_iei, \
             get_gsm_a_msg_string(EMT_pdu_type, EMT_elem_idx), \
+            /* coverity[array_null] */ \
             (EMT_elem_name_addition == NULL) ? "" : EMT_elem_name_addition \
         ); \
     } \
@@ -1153,6 +1151,7 @@ typedef enum
     DE_PTMSI_TYPE,                  /* [10] 10.5.5.29 P-TMSI type */
     DE_LAI_2,                       /* [10] 10.5.5.30 Location Area Identification 2 */
     DE_NET_RES_ID_CONT,             /* [11] 10.5.5.31 Network resource identifier container */
+    DE_EXT_DRX_PARAMS,              /* 10.5.5.32 Extended DRX parameters */
     /* Session Management Information Elements [3] 10.5.6 */
     DE_ACC_POINT_NAME,              /* Access Point Name */
     DE_NET_SAPI,                    /* Network Service Access Point Identifier */
@@ -1175,6 +1174,7 @@ typedef enum
     DE_SM_NOTIF_IND,                /* Notification indicator */
     DE_SM_CONNECTIVITY_TYPE,        /* Connectivity type */
     DE_SM_WLAN_OFFLOAD_ACCEPT,      /* WLAN offload acceptability */
+    DE_NBIFOM_CONT,                 /* NBIFOM container */
     /* GPRS Common Information Elements [8] 10.5.7 */
     DE_PDP_CONTEXT_STAT,            /* [8] 10.5.7.1     PDP Context Status */
     DE_RAD_PRIO,                    /* [8] 10.5.7.2     Radio Priority */
@@ -1385,6 +1385,7 @@ typedef enum
     DE_EMM_GEN_MSG_CONT,        /* 9.9.3.43 Generic message container */
     DE_EMM_VOICE_DMN_PREF,      /* 9.9.3.44 Voice domain preference and UE's usage setting */
     DE_EMM_GUTI_TYPE,           /* 9.9.3.45 GUTI type */
+    DE_EMM_EXT_DRX_PARAMS,      /* 9.9.3.46 Extended DRX parameters */
     DE_EMM_NONE                 /* NONE */
 
 }

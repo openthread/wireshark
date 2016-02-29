@@ -59,8 +59,8 @@ static gint ett_msnms = -1;
 
 #define TCP_PORT_MSNMS    1863
 
-static void
-dissect_msnms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_msnms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree   *msnms_tree;
     proto_item   *ti;
@@ -113,6 +113,7 @@ dissect_msnms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             offset = next_offset;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 void

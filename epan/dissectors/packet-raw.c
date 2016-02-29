@@ -25,8 +25,8 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wiretap/wtap.h>
-#include "packet-raw.h"
 #include "packet-ip.h"
 #include "packet-ppp.h"
 
@@ -38,13 +38,14 @@ static gint ett_raw = -1;
 
 static const char zeroes[10] = {0,0,0,0,0,0,0,0,0,0};
 
+static dissector_handle_t raw_handle;
 static dissector_handle_t ip_handle;
 static dissector_handle_t ipv6_handle;
 static dissector_handle_t data_handle;
 static dissector_handle_t ppp_hdlc_handle;
 
-void
-capture_raw(const guchar *pd, int len, packet_counts *ld)
+static gboolean
+capture_raw(const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
   /* So far, the only time we get raw connection types are with Linux and
    * Irix PPP connections.  We can't tell what type of data is coming down
@@ -55,21 +56,21 @@ capture_raw(const guchar *pd, int len, packet_counts *ld)
    * sometimes.  This check should be removed when 2.2 is out.
    */
   if (BYTES_ARE_IN_FRAME(0,len,2) && pd[0] == 0xff && pd[1] == 0x03) {
-    capture_ppp_hdlc(pd, 0, len, ld);
+    return capture_ppp_hdlc(pd, 0, len, cpinfo, pseudo_header);
   }
   /* The Linux ISDN driver sends a fake MAC address before the PPP header
    * on its ippp interfaces... */
   else if (BYTES_ARE_IN_FRAME(0,len,8) && pd[6] == 0xff && pd[7] == 0x03) {
-    capture_ppp_hdlc(pd, 6, len, ld);
+    return capture_ppp_hdlc(pd, 6, len, cpinfo, pseudo_header);
   }
   /* ...except when it just puts out one byte before the PPP header... */
   else if (BYTES_ARE_IN_FRAME(0,len,3) && pd[1] == 0xff && pd[2] == 0x03) {
-    capture_ppp_hdlc(pd, 1, len, ld);
+    return capture_ppp_hdlc(pd, 1, len, cpinfo, pseudo_header);
   }
   /* ...and if the connection is currently down, it sends 10 bytes of zeroes
    * instead of a fake MAC address and PPP header. */
   else if (BYTES_ARE_IN_FRAME(0,len,10) && memcmp(pd, zeroes, 10) == 0) {
-    capture_ip(pd, 10, len, ld);
+    return capture_ip(pd, 10, len, cpinfo, pseudo_header);
   }
   else {
     /*
@@ -80,22 +81,22 @@ capture_raw(const guchar *pd, int len, packet_counts *ld)
 
       case 0x40:
         /* IPv4 */
-        capture_ip(pd, 0, len, ld);
-        break;
+        return capture_ip(pd, 0, len, cpinfo, pseudo_header);
 
 #if 0
       case 0x60:
         /* IPv6 */
-        capture_ipv6(pd, 0, len, ld);
-        break;
+        return capture_ipv6(pd, 0, len, cpinfo, pseudo_header);
 #endif
       }
     }
   }
+
+  return FALSE;
 }
 
-static void
-dissect_raw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_raw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   tvbuff_t      *next_tvb;
 
@@ -160,6 +161,7 @@ dissect_raw(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       break;
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -171,13 +173,13 @@ proto_register_raw(void)
 
   proto_raw = proto_register_protocol("Raw packet data", "Raw", "raw");
   proto_register_subtree_array(ett, array_length(ett));
+
+  raw_handle = register_dissector("raw_ip", dissect_raw, proto_raw);
 }
 
 void
 proto_reg_handoff_raw(void)
 {
-  dissector_handle_t raw_handle;
-
   /*
    * Get handles for the IP, IPv6, undissected-data, and
    * PPP-in-HDLC-like-framing dissectors.
@@ -186,8 +188,8 @@ proto_reg_handoff_raw(void)
   ipv6_handle = find_dissector("ipv6");
   data_handle = find_dissector("data");
   ppp_hdlc_handle = find_dissector("ppp_hdlc");
-  raw_handle = create_dissector_handle(dissect_raw, proto_raw);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_RAW_IP, raw_handle);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_RAW_IP, capture_raw, proto_raw);
 }
 
 /*

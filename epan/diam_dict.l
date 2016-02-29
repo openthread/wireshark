@@ -9,7 +9,7 @@
 %option nounput
 
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
 
@@ -22,6 +22,11 @@
  * We use start condition stacks.
  */
 %option stack
+
+/*
+ * We want to stop processing when we get to the end of the input.
+ */
+%option noyywrap
 
 /*
  * Prefix scanner routines with "DiamDict" rather than "yy", so this scanner
@@ -281,7 +286,7 @@ description_attr description=\042
 	for (e = ents.next; e; e = e->next) {
 		if (strcmp(e->name,yytext) == 0) {
 			yyin = ddict_open(sys_dir,e->file);
-			D(("entity: %s filename: %s yyin: %p\n",e->name,e->file,yyin));
+			D(("entity: %s filename: %s yyin: %p\n",e->name,e->file,(void*)yyin));
 			if (!yyin) {
 				if (errno)
 					fprintf(stderr, "Could not open file: '%s', error: %s\n", e->file, g_strerror(errno) );
@@ -308,7 +313,7 @@ description_attr description=\042
 	if (!yyin) yyterminate();
 
 	fclose(yyin);
-	D(("closing: %p %i\n",yyin,include_stack_ptr));
+	D(("closing: %p %i\n",(void*)yyin,include_stack_ptr));
 
 	if ( --include_stack_ptr < 0 ) {
 		D(("DONE READING\n"));
@@ -635,7 +640,7 @@ ddict_open(const char* system_directory, const char* filename)
 
 	fh = ws_fopen(fname,"r");
 
-	D(("fname: %s fh: %p\n",fname,fh));
+	D(("fname: %s fh: %p\n",fname,(void*)fh));
 
 	g_free(fname);
 
@@ -818,19 +823,6 @@ ddict_print(FILE* fh, ddict_t* d)
 					e->code);
 		}
 	}
-}
-
-/*
- * We want to stop processing when we get to the end of the input.
- * (%option noyywrap is not used because if used then
- * some flex versions (eg: 2.5.35) generate code which causes
- * warnings by the Windows VC compiler).
- */
-
-int
-yywrap(void)
-{
-    return 1;
 }
 
 #ifdef TEST_DIAM_DICT_STANDALONE

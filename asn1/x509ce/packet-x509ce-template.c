@@ -61,11 +61,11 @@ x509ce_enable_ciplus(void)
 {
 	dissector_handle_t dh25, dh26, dh27;
 
-	dh25 = new_create_dissector_handle(dissect_ScramblerCapabilities_PDU, proto_x509ce);
+	dh25 = create_dissector_handle(dissect_ScramblerCapabilities_PDU, proto_x509ce);
 	dissector_change_string("ber.oid", "1.3.6.1.5.5.7.1.25", dh25);
-	dh26 = new_create_dissector_handle(dissect_CiplusInfo_PDU, proto_x509ce);
+	dh26 = create_dissector_handle(dissect_CiplusInfo_PDU, proto_x509ce);
 	dissector_change_string("ber.oid", "1.3.6.1.5.5.7.1.26", dh26);
-	dh27 = new_create_dissector_handle(dissect_CicamBrandId_PDU, proto_x509ce);
+	dh27 = create_dissector_handle(dissect_CicamBrandId_PDU, proto_x509ce);
 	dissector_change_string("ber.oid", "1.3.6.1.5.5.7.1.27", dh27);
 }
 
@@ -78,21 +78,21 @@ x509ce_disable_ciplus(void)
 }
 
 
-static void
-dissect_x509ce_invalidityDate_callback(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_x509ce_invalidityDate_callback(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	asn1_ctx_t asn1_ctx;
 	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
-	dissect_x509ce_GeneralizedTime(FALSE, tvb, 0, &asn1_ctx, tree, hf_x509ce_id_ce_invalidityDate);
+	return dissect_x509ce_GeneralizedTime(FALSE, tvb, 0, &asn1_ctx, tree, hf_x509ce_id_ce_invalidityDate);
 }
 
-static void
-dissect_x509ce_baseUpdateTime_callback(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_x509ce_baseUpdateTime_callback(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	asn1_ctx_t asn1_ctx;
 	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
-	dissect_x509ce_GeneralizedTime(FALSE, tvb, 0, &asn1_ctx, tree, hf_x509ce_id_ce_baseUpdateTime);
+	return dissect_x509ce_GeneralizedTime(FALSE, tvb, 0, &asn1_ctx, tree, hf_x509ce_id_ce_baseUpdateTime);
 }
 
 /*--- proto_register_x509ce ----------------------------------------------*/

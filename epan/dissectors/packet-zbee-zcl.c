@@ -157,7 +157,6 @@ static const value_string zbee_zcl_frame_types[] = {
     { ZBEE_ZCL_FCF_CLUSTER_SPEC,    "Cluster-specific" },
     { 0, NULL }
 };
-
 /* ZCL Command Names */
 static const value_string zbee_zcl_cmd_names[] = {
     { ZBEE_ZCL_CMD_READ_ATTR,               "Read Attributes" },
@@ -179,9 +178,10 @@ static const value_string zbee_zcl_cmd_names[] = {
     { ZBEE_ZCL_CMD_WRITE_ATTR_STRUCT_RESP,  "Write Attributes Structured Response" },
     { ZBEE_ZCL_CMD_DISCOVER_CMDS_REC,       "Discover Commands Received" },
     { ZBEE_ZCL_CMD_DISCOVER_CMDS_REC_RESP,  "Discover Commands Received Response" },
-
     { 0, NULL }
 };
+
+
 static value_string_ext zbee_zcl_cmd_names_ext = VALUE_STRING_EXT_INIT(zbee_zcl_cmd_names);
 
 /* ZCL Cluster-Specific Command Names */
@@ -537,12 +537,10 @@ const value_string zbee_mfr_code_names[] = {
     { 0, NULL }
 };
 static value_string_ext zbee_mfr_code_names_ext = VALUE_STRING_EXT_INIT(zbee_mfr_code_names);
-
 /* ZCL Attribute Status Names */
-const value_string zbee_zcl_status_names[] = {
+ const value_string zbee_zcl_status_names[] = {
     { ZBEE_ZCL_STAT_SUCCESS,                        "Success"},
     { ZBEE_ZCL_STAT_FAILURE,                        "Failure"},
-
     { ZBEE_ZCL_STAT_NOT_AUTHORIZED,                 "Not Authorized"},
     { ZBEE_ZCL_STAT_RESERVED_FIELD_NOT_ZERO,        "Reserved Field Not Zero"},
     { ZBEE_ZCL_STAT_MALFORMED_CMD,                  "Malformed Command"},
@@ -563,6 +561,9 @@ const value_string zbee_zcl_status_names[] = {
     { ZBEE_ZCL_STAT_WRITE_ONLY,                     "Write Only"},
     { ZBEE_ZCL_STAT_INCONSISTENT_STARTUP_STATE,     "Inconsistent Startup State"},
     { ZBEE_ZCL_STAT_DEFINED_OUT_OF_BAND,            "Defined Out of Band"},
+    { ZBEE_ZCL_STAT_INCONSISTENT,                   "Inconsistent Value"},
+    { ZBEE_ZCL_STAT_ACTION_DENIED,                  "Action Denied"},
+    { ZBEE_ZCL_STAT_TIMEOUT,                        "Timeout"},
     { ZBEE_ZCL_STAT_OTA_ABORT,                      "Ota Abort"},
     { ZBEE_ZCL_STAT_OTA_INVALID_IMAGE,              "Ota Invalid Image"},
     { ZBEE_ZCL_STAT_OTA_WAIT_FOR_DATA,              "Ota Wait For Data"},
@@ -573,6 +574,7 @@ const value_string zbee_zcl_status_names[] = {
     { ZBEE_ZCL_STAT_CALIBRATION_ERROR,              "Calibration Error"},
     { 0, NULL }
 };
+
 static value_string_ext zbee_zcl_status_names_ext = VALUE_STRING_EXT_INIT(zbee_zcl_status_names);
 
 /* ZCL Attribute Data Names */
@@ -757,20 +759,14 @@ static const value_string zbee_zcl_dis_names[] = {
     { 0, NULL }
 };
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_zcl
- *  DESCRIPTION
- *      ZigBee Cluster Library dissector for wireshark.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      void *data          - raw packet private data.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee Cluster Library dissector for wireshark.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param data raw packet private data.
+*/
 static int dissect_zbee_zcl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     tvbuff_t *payload_tvb;
@@ -959,21 +955,15 @@ static int dissect_zbee_zcl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     return tvb_captured_length(tvb);
 } /* dissect_zbee_zcl */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_read_attr
- *  DESCRIPTION
- *      Helper dissector for ZCL Read Attributes and
- *      Write Attributes No Response commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Read Attributes and
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer from caller.
+ *@param cluster_id cluster id
+*/
 void dissect_zcl_read_attr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset, guint16 cluster_id)
 {
     guint tvb_len;
@@ -987,20 +977,15 @@ void dissect_zcl_read_attr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
     return;
 } /* dissect_zcl_read_attr */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_read_attr_resp
- *  DESCRIPTION
- *      Helper dissector for ZCL Read Attributes Response command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Read Attributes Response command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 void dissect_zcl_read_attr_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset, guint16 cluster_id)
 {
     proto_tree *sub_tree;
@@ -1030,20 +1015,15 @@ void dissect_zcl_read_attr_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
     }
 } /* dissect_zcl_read_attr_resp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_write_attr
- *  DESCRIPTION
- *      Helper dissector for ZCL Report Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Report Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 void dissect_zcl_write_attr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset, guint16 cluster_id)
 {
     proto_tree *sub_tree;
@@ -1068,20 +1048,15 @@ void dissect_zcl_write_attr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
     }
 } /* dissect_zcl_write_attr */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_write_attr_resp
- *  DESCRIPTION
- *      Helper dissector for ZCL Write Attribute Response command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Write Attribute Response command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 static void dissect_zcl_write_attr_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset, guint16 cluster_id)
 {
     proto_tree *sub_tree;
@@ -1107,18 +1082,14 @@ static void dissect_zcl_write_attr_resp(tvbuff_t *tvb, packet_info *pinfo _U_, p
 
 } /* dissect_zcl_write_attr_resp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_read_report_config_resp
- *  DESCRIPTION
- *      Helper dissector for ZCL Report Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Report Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+*/
 static void dissect_zcl_read_report_config_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                 guint *offset, guint16 cluster_id)
 {
@@ -1178,18 +1149,15 @@ static void dissect_zcl_read_report_config_resp(tvbuff_t *tvb, packet_info *pinf
 
 } /* dissect_zcl_read_report_config_resp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_config_report
- *  DESCRIPTION
- *      Helper dissector for ZCL Report Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Report Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 static void dissect_zcl_config_report(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset, guint16 cluster_id)
 {
     proto_tree *sub_tree;
@@ -1242,20 +1210,15 @@ static void dissect_zcl_config_report(tvbuff_t *tvb, packet_info *pinfo _U_, pro
 
 } /* dissect_zcl_config_report */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_config_report_resp
- *  DESCRIPTION
- *      Helper dissector for ZCL Report Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Report Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 static void dissect_zcl_config_report_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                 guint *offset, guint16 cluster_id)
 {
@@ -1283,20 +1246,15 @@ static void dissect_zcl_config_report_resp(tvbuff_t *tvb, packet_info *pinfo _U_
     }
 } /* dissect_zcl_config_report_resp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_read_report_config
- *  DESCRIPTION
- *      Helper dissector for ZCL Read Report Configuration command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      guint               - offset after command dissection.
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Read Report Configuration command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 static void dissect_zcl_read_report_config(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                 guint *offset, guint16 cluster_id)
 {
@@ -1321,29 +1279,24 @@ static void dissect_zcl_read_report_config(tvbuff_t *tvb, packet_info *pinfo _U_
 
 } /* dissect_zcl_read_report_config */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_default_resp
- *  DESCRIPTION
- *      Helper dissector for ZCL Default Response command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *      dir                 - direction
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Default Response command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller.
+ *@param cluster_id cluster id.
+ *@param dir direction.
+*/
 static void dissect_zcl_default_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                                      guint *offset, guint16 cluster_id, guint8 dir)
 {
     zbee_zcl_cluster_desc *desc;
     int hf_cmd_id = hf_zbee_zcl_cs_cmd_id;
 
-    /* Retreive the cluster-specific command ID definition, with the direction
-     * inverted, since this a response to the originating command. */
+    /* Retrieve the cluster-specific command ID definition, with the direction
+     * inverted, since this is a response to the originating command. */
     desc = zbee_zcl_get_cluster_desc(cluster_id);
     if (dir == ZBEE_ZCL_FCF_TO_SERVER) {
         if (desc && (desc->hf_cmd_tx_id >= 0)) hf_cmd_id = desc->hf_cmd_tx_id;
@@ -1357,20 +1310,14 @@ static void dissect_zcl_default_resp(tvbuff_t *tvb, packet_info *pinfo _U_, prot
     dissect_zcl_attr_uint8(tvb, tree, offset, &hf_zbee_zcl_attr_status);
 } /* dissect_zcl_default_resp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_discover_attr
- *  DESCRIPTION
- *      Helper dissector for ZCL Discover Attributes command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Discover Attributes command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+*/
 static void dissect_zcl_discover_attr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset)
 {
     /* Dissect the starting attribute identifier */
@@ -1384,20 +1331,15 @@ static void dissect_zcl_discover_attr(tvbuff_t *tvb, packet_info *pinfo _U_, pro
 } /* dissect_zcl_discover_attr */
 
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_discover_attr_resp
- *  DESCRIPTION
- *      Helper dissector for ZCL Discover Attributes command.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - pointer to offset from caller
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Discover Attributes command.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset pointer to offset from caller
+ *@param cluster_id cluster id
+*/
 static void dissect_zcl_discover_attr_resp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                 guint *offset, guint16 cluster_id)
 {
@@ -1426,21 +1368,13 @@ static void dissect_zcl_discover_attr_resp(tvbuff_t *tvb, packet_info *pinfo _U_
 } /* dissect_zcl_discover_attr_resp */
 
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_attr_id
- *  DESCRIPTION
- *      Dissects Attribute ID field. This could be done with the
- *      dissect_zcl_attr_uint16 function, but we leave it separate
- *      so we can dissect the attr_id with a hash in the future.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Dissects Attribute ID field. This could be done with the
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param  offset into the tvb to begin dissection.
+*/
 static void dissect_zcl_attr_id(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint16 cluster_id)
 {
     zbee_zcl_cluster_desc *desc;
@@ -1455,19 +1389,13 @@ static void dissect_zcl_attr_id(tvbuff_t *tvb, proto_tree *tree, guint *offset, 
     *offset += 2;
 } /* dissect_zcl_attr_id */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_attr_data_type_val
- *  DESCRIPTION
- *      Helper dissector for ZCL Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param  offset into the tvb to begin dissection.
+*/
 static void dissect_zcl_attr_data_type_val(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint16 attr_id, guint16 cluster_id)
 {
     zbee_zcl_cluster_desc *desc;
@@ -1485,21 +1413,16 @@ static void dissect_zcl_attr_data_type_val(tvbuff_t *tvb, proto_tree *tree, guin
 } /* dissect_zcl_attr_data_type_val */
 
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_attr_data_general
- *  DESCRIPTION
- *      Helper dissector for ZCL Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *      attr_id             - attribute identification
- *      data_type           - type of data
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset into the tvb to begin dissection.
+ *@param attr_id attribute identification
+ *@param data_type type of data
+ *@param cluster_id cluster id
+*/
 static void dissect_zcl_attr_data_general(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint16 attr_id, guint data_type, guint16 cluster_id)
 {
     zbee_zcl_cluster_desc *desc;
@@ -1514,21 +1437,13 @@ static void dissect_zcl_attr_data_general(tvbuff_t *tvb, proto_tree *tree, guint
 
 } /*dissect_zcl_attr_data_general*/
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_attr_data
- *  DESCRIPTION
- *      Dissects the various types of ZCL attribute data.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_info *pinfo  - pointer to packet information fields
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *      data_type           - the type of ZCL data in the packet buffer
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Dissects the various types of ZCL attribute data.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset into the tvb to begin dissection.
+*/
 void dissect_zcl_attr_data(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint data_type)
 {
     guint     attr_uint;
@@ -1686,7 +1601,7 @@ void dissect_zcl_attr_data(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint
             break;
 
         case ZBEE_ZCL_40_BIT_UINT:
-            proto_tree_add_item(tree, hf_zbee_zcl_attr_uint64, tvb, *offset, 5, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item(tree, hf_zbee_zcl_attr_uint40, tvb, *offset, 5, ENC_LITTLE_ENDIAN);
             proto_item_append_text(tree, ", Uint: %" G_GINT64_MODIFIER "u", tvb_get_letoh40(tvb, *offset));
             (*offset) += 5;
             break;
@@ -1941,20 +1856,15 @@ void dissect_zcl_attr_data(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint
 
 } /* dissect_zcl_attr_data */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_attr_uint8
- *  DESCRIPTION
- *      Helper dissector for ZCL Attribute commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *      hf_zbee_zcl         - pointer to header field index
- *  RETURNS
- *      guint               - dissected data
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL Attribute commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset into the tvb to begin dissection.
+ *@param hf_zbee_zcl pointer to header field index
+ *@return dissected data
+*/
 static guint dissect_zcl_attr_uint8(tvbuff_t *tvb, proto_tree *tree, guint *offset, int *hf_zbee_zcl)
 {
     guint attr_uint;
@@ -1966,21 +1876,15 @@ static guint dissect_zcl_attr_uint8(tvbuff_t *tvb, proto_tree *tree, guint *offs
     return attr_uint;
 } /* dissect_zcl_attr_uint8 */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_array_type
- *  DESCRIPTION
- *      Helper dissector for ZCL attribute array type.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *      elements_type       - element type
- *      elements_num        - elements number
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL attribute array type.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset into the tvb to begin dissection.
+ *@param elements_type element type
+ *@param elements_num elements number
+*/
 static void
 dissect_zcl_array_type(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint8 elements_type, guint16 elements_num)
 {
@@ -2007,21 +1911,15 @@ dissect_zcl_array_type(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint8 el
     }
 } /* dissect_zcl_array_type */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zcl_set_type
- *  DESCRIPTION
- *      Helper dissector for ZCL attribute set and bag types.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      proto_tree *tree    - pointer to data tree wireshark uses to display packet.
- *      offset              - offset into the tvb to begin dissection.
- *      elements_type       - element type
- *      elements_num        - elements number
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper dissector for ZCL attribute set and bag types.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param tree pointer to data tree wireshark uses to display packet.
+ *@param offset into the tvb to begin dissection.
+ *@param elements_type element type
+ *@param elements_num elements number
+*/
 static void
 dissect_zcl_set_type(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint8 elements_type, guint16 elements_num)
 {
@@ -2048,20 +1946,14 @@ dissect_zcl_set_type(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint8 elem
     }
 } /* dissect_zcl_set_type */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zcl_dump_data
- *  DESCRIPTION
- *      Helper functions dumps any remaining data into the data dissector.
- *  PARAMETERS
- *      tvbuff_t    *tvb    - pointer to buffer containing raw packet.
- *      guint       offset  - offset after parsing last item.
- *      packet_info *pinfo  - packet information structure.
- *      proto_tree  *tree   - pointer to data tree Wireshark uses to display packet.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Helper functions dumps any remaining data into the data dissector.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param offset offset after parsing last item.
+ *@param pinfo packet information structure.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+*/
 static void zcl_dump_data(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto_tree *tree)
 {
     proto_tree *root   = proto_tree_get_root(tree);
@@ -2076,56 +1968,33 @@ static void zcl_dump_data(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto
     return;
 } /* zcl_dump_data */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *    decode_zcl_time_in_seconds
- *  DESCRIPTION
- *    this function decodes second time type variable
- *  PARAMETERS
- *  RETURNS
- *    none
- *---------------------------------------------------------------
- */
+/**
+ *This function decodes second time type variable
+ *
+*/
 void decode_zcl_time_in_seconds(gchar *s, guint16 value)
 {
     g_snprintf(s, ITEM_LABEL_LENGTH, "%d seconds", value);
     return;
 } /* decode_zcl_time_in_seconds*/
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      decode_zcl_time_in_minutes
- *  DESCRIPTION
- *    this function decodes minute time type variable
- *  PARAMETERS
- *  RETURNS
- *      none
- *---------------------------------------------------------------
- */
+/**
+ *This function decodes minute time type variable
+ *
+*/
 void decode_zcl_time_in_minutes(gchar *s, guint16 value)
 {
     g_snprintf(s, ITEM_LABEL_LENGTH, "%d minutes", value);
     return;
 } /*decode_zcl_time_in_minutes*/
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_register_zbee_zcl
- *  DESCRIPTION
- *      ZigBee ZCL protocol registration routine.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee ZCL protocol registration routine.
+ *
+*/
 void proto_register_zbee_zcl(void)
 {
     guint i, j;
-    static const true_false_string tfs_client_server = {
-        "To Client",
-        "To Server"
-    };
 
     static hf_register_info hf[] = {
         { &hf_zbee_zcl_fcf_frame_type,
@@ -2332,7 +2201,7 @@ void proto_register_zbee_zcl(void)
                 NULL, HFILL }},
 
         { &hf_zbee_zcl_attr_maxnum,
-            { "Maxiumum Number", "zbee_zcl.attr.maxnum", FT_UINT8, BASE_DEC, NULL, 0x0,
+            { "Maximum Number", "zbee_zcl.attr.maxnum", FT_UINT8, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }},
 
         { &hf_zbee_zcl_attr_str_len,
@@ -2399,21 +2268,14 @@ void proto_register_zbee_zcl(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Register the ZCL dissector and subdissector list. */
-    zbee_zcl_dissector_table = register_dissector_table("zbee.zcl.cluster", "ZigBee ZCL Cluster ID", FT_UINT16, BASE_HEX);
-    new_register_dissector(ZBEE_PROTOABBREV_ZCL, dissect_zbee_zcl, proto_zbee_zcl);
+    zbee_zcl_dissector_table = register_dissector_table("zbee.zcl.cluster", "ZigBee ZCL Cluster ID", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    register_dissector(ZBEE_PROTOABBREV_ZCL, dissect_zbee_zcl, proto_zbee_zcl);
 } /* proto_register_zbee_zcl */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_reg_handoff_zbee_zcl
- *  DESCRIPTION
- *      Finds the dissectors used in this module.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Finds the dissectors used in this module.
+ *
+*/
 void proto_reg_handoff_zbee_zcl(void)
 {
     dissector_handle_t   zbee_zcl_handle;
@@ -2437,23 +2299,17 @@ void proto_reg_handoff_zbee_zcl(void)
 } /* proto_reg_handoff_zbee_zcl */
 
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_zcl_init_cluster
- *  DESCRIPTION
- *      Register the specific cluster.
- *  PARAMETERS
- *      proto            - dissector proto
- *      ett              - ett proto (not used at the moment)
- *      cluster_id       - cluster id
- *      hf_attr_id       - cluster-specific attribute ID field.
- *      hf_cmd_rx_id     - cluster-specific client-to-server command ID field, or -1.
- *      hf_cmd_tx_id     - cluster-specific server-to-client command ID field, or -1.
- *      fn_attr_data     - specific cluster attribute data decode function
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Register the specific cluster.
+ *
+ *@param  proto dissector
+ *@param  ett proto (not used at the moment)
+ *@param  cluster_id cluster identification
+ *@param  hf_attr_id cluster-specific attribute ID field.
+ *@param  hf_cmd_rx_id cluster-specific client-to-server command ID field, or -1.
+ *@param  hf_cmd_tx_id cluster-specific server-to-client command ID field, or -1.
+ *@param  fn_attr_data specific cluster attribute data decode function
+*/
 void
 zbee_zcl_init_cluster(int proto, gint ett, guint16 cluster_id, int hf_attr_id, int hf_cmd_rx_id, int hf_cmd_tx_id, zbee_zcl_fn_attr_data fn_attr_data)
 {
@@ -2475,17 +2331,12 @@ zbee_zcl_init_cluster(int proto, gint ett, guint16 cluster_id, int hf_attr_id, i
     return;
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_zcl_get_cluster_desc
- *  DESCRIPTION
- *      Retrieves the registered specific cluster descriptor.
- *  PARAMETERS
- *      cluster_id       - cluster id
- *  RETURNS
- *      zbee_zcl_cluster_desc    - cluster descriptor pointer
- *---------------------------------------------------------------
- */
+/**
+ *Retrieves the registered specific cluster descriptor.
+ *
+ *@param  cluster_id cluster identification
+ *@return cluster descriptor pointer
+*/
 zbee_zcl_cluster_desc
 *zbee_zcl_get_cluster_desc(guint16 cluster_id)
 {

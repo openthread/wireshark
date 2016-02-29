@@ -7,10 +7,18 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
+distrelease  := $(shell lsb_release -cs)
+ifeq ($(distrelease),n/a)
+  distrelease     := sid
+endif
+
 # This has to be exported to make some magic below work.
 export DH_OPTIONS
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+ifneq (,$(filter $(distrelease),wheezy))
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,-Bsymbolic
+endif
 
 DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
 VERSION := $(shell dpkg-parsechangelog | sed -n 's/^Version: \(.*\)-.*/\1/p')
@@ -27,8 +35,6 @@ override_dh_auto_build:
 	# some architectures may not support all hardening options but at least
 	# log the build's hardening results
 	-$(MAKE) hardening-check
-	# create menu icon
-	convert image/wsicon32.png image/wsicon32.xpm
 	# fix links in documentation
 	sed -i "s|$(CURDIR)/docbook|..|" obj-*/docbook/ws*g_html_chunked/*.html
 

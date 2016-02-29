@@ -150,7 +150,7 @@ static dissector_handle_t imf_handle;
 static expert_field ei_imf_unknown_param = EI_INIT;
 
 struct imf_field {
-  const char   *name;           /* field name - in lower case for matching purposes */
+  char         *name;           /* field name - in lower case for matching purposes */
   int          *hf_id;          /* wireshark field */
   void         (*subdissector)(tvbuff_t *tvb, int offset, int length, proto_item *item, packet_info *pinfo);
   gboolean     add_to_col_info; /* add field to column info */
@@ -639,13 +639,22 @@ imf_find_field_end(tvbuff_t *tvb, int offset, gint max_length, gboolean *last_fi
     offset = tvb_find_guint8(tvb, offset, max_length - offset, '\r');
 
     if(offset != -1) {
-      if(tvb_get_guint8(tvb, ++offset) == '\n') {
+      /* protect against buffer overrun and only then look for next char */
+        if (++offset < max_length && tvb_get_guint8(tvb, offset) == '\n') {
         /* OK - so we have found CRLF */
+          if (++offset >= max_length) {
+            /* end of buffer and also end of fields */
+            if (last_field) {
+              *last_field = TRUE;
+            }
+            /* caller expects that there is CRLF after returned offset, if last_field is set */
+            return offset - 2;
+          }
         /* peek the next character */
-        switch(tvb_get_guint8(tvb, ++offset)) {
+        switch(tvb_get_guint8(tvb, offset)) {
         case '\r':
           /* probably end of the fields */
-          if(tvb_get_guint8(tvb, offset + 1) == '\n') {
+          if ((offset + 1) < max_length && tvb_get_guint8(tvb, offset + 1) == '\n') {
             if(last_field) {
               *last_field = TRUE;
             }
@@ -662,7 +671,7 @@ imf_find_field_end(tvbuff_t *tvb, int offset, gint max_length, gboolean *last_fi
       }
     } else {
       /* couldn't find a CR - strange */
-      return offset;
+      break;
     }
 
   }
@@ -671,8 +680,8 @@ imf_find_field_end(tvbuff_t *tvb, int offset, gint max_length, gboolean *last_fi
 
 }
 
-static void
-dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item  *item;
   proto_tree  *unknown_tree, *text_tree;
@@ -814,8 +823,8 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     col_set_fence(pinfo->cinfo, COL_INFO);
 
     if(content_encoding_str && !g_ascii_strncasecmp(content_encoding_str, "base64", 6)) {
-      char *data = tvb_get_string_enc(wmem_packet_scope(), tvb, end_offset, tvb_reported_length(tvb) - end_offset, ENC_ASCII);
-      next_tvb = base64_to_tvb(tvb, data);
+      char *string_data = tvb_get_string_enc(wmem_packet_scope(), tvb, end_offset, tvb_reported_length(tvb) - end_offset, ENC_ASCII);
+      next_tvb = base64_to_tvb(tvb, string_data);
       add_new_data_source(pinfo, next_tvb, content_encoding_str);
     } else {
       next_tvb = tvb_new_subset_remaining(tvb, end_offset);
@@ -850,6 +859,7 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       start_offset = end_offset;
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 static void
@@ -857,7 +867,7 @@ free_imf_field (gpointer data)
 {
   struct imf_field *imffield = (struct imf_field *) data;
 
-  g_free ((char *) imffield->name);
+  g_free (imffield->name);
   g_free (imffield);
 }
 
@@ -903,7 +913,7 @@ header_fields_initialize_cb (void)
 
       imffield = (struct imf_field *)g_malloc (sizeof (struct imf_field));
       imffield->hf_id = hf_id;
-      imffield->name = ascii_strdown_inplace (g_strdup (header_name));
+      imffield->name = g_ascii_strdown(header_name, -1);
       switch (header_fields[i].header_format) {
       case FORMAT_UNSTRUCTURED:
         imffield->subdissector = NO_SUBDISSECTION;

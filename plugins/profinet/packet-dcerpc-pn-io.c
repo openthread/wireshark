@@ -51,6 +51,7 @@
 #include <epan/to_str.h>
 #include <epan/expert.h>
 #include <epan/dissector_filters.h>
+#include <epan/proto_data.h>
 #include <epan/dissectors/packet-dcerpc.h>
 
 #include "packet-pn.h"
@@ -59,6 +60,9 @@ void proto_register_pn_io(void);
 void proto_reg_handoff_pn_io(void);
 
 static int proto_pn_io = -1;
+static int proto_pn_io_controller = -1;
+static int proto_pn_io_supervisor = -1;
+static int proto_pn_io_parameterserver = -1;
 
 static int hf_pn_io_opnum = -1;
 static int hf_pn_io_reserved16 = -1;
@@ -89,6 +93,8 @@ static int hf_pn_io_ar_properties_device_access = -1;
 static int hf_pn_io_ar_properties_companion_ar = -1;
 static int hf_pn_io_ar_properties_achnowledge_companion_ar = -1;
 static int hf_pn_io_ar_properties_reserved = -1;
+static int hf_pn_io_ar_properties_combined_object_container_with_legacy_startupmode = -1;
+static int hf_pn_io_ar_properties_combined_object_container_with_advanced_startupmode = -1;
 static int hf_pn_io_ar_properties_pull_module_alarm_allowed = -1;
 
 static int hf_pn_RedundancyInfo = -1;
@@ -153,6 +159,7 @@ static int hf_pn_io_frame_data_properties_FastForwardingMulticastMACAdd = -1;
 static int hf_pn_io_frame_data_properties_FragmentMode = -1;
 static int hf_pn_io_frame_data_properties_reserved_1 = -1;
 static int hf_pn_io_frame_data_properties_reserved_2 = -1;
+static int hf_pn_io_watchdog_factor = -1;
 static int hf_pn_io_data_hold_factor = -1;
 static int hf_pn_io_iocr_tag_header = -1;
 static int hf_pn_io_iocr_multicast_mac_add = -1;
@@ -671,6 +678,10 @@ static gint ett_pn_io_profidrive_parameter_address = -1;
 static gint ett_pn_io_profidrive_parameter_value = -1;
 
 static gint ett_pn_io_GroupProperties = -1;
+
+#define PD_SUB_FRAME_BLOCK_FIOCR_PROPERTIES_LENGTH 4
+#define PD_SUB_FRAME_BLOCK_FRAME_ID_LENGTH 2
+#define PD_SUB_FRAME_BLOCK_SUB_FRAME_DATA_LENGTH 4
 
 static expert_field ei_pn_io_block_version = EI_INIT;
 static expert_field ei_pn_io_block_length = EI_INIT;
@@ -1555,6 +1566,20 @@ static const value_string pn_io_arproperties_data_rate[] = {
 static const value_string pn_io_arproperties_acknowldege_companion_ar[] = {
     { 0x00000000, "No companion AR or no acknowledge for the companion AR required" },
     { 0x00000001, "Companion AR with acknowledge" },
+    { 0, NULL }
+};
+
+/* bit 29 for legacy startup mode*/
+static const value_string pn_io_arproperties_combined_object_container_with_legacy_startupmode[] = {
+    { 0x00000000, "CombinedObjectContainer not used" },
+    { 0x00000001, "Reserved" },
+    { 0, NULL }
+};
+
+/* bit 29 for advanced statup mode*/
+static const value_string pn_io_arproperties_combined_object_container_with_advanced_startupmode[] = {
+    { 0x00000000, "CombinedObjectContainer not used" },
+    { 0x00000001, "Usage of CombinedObjectContainer required" },
     { 0, NULL }
 };
 
@@ -2675,8 +2700,8 @@ pnio_ar_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, pnio_ar_t *ar)
         proto_tree *sub_tree;
         address   controllermac_addr, devicemac_addr;
 
-        SET_ADDRESS(&controllermac_addr, AT_ETHER, 6, ar->controllermac);
-        SET_ADDRESS(&devicemac_addr, AT_ETHER, 6, ar->devicemac);
+        set_address(&controllermac_addr, AT_ETHER, 6, ar->controllermac);
+        set_address(&devicemac_addr, AT_ETHER, 6, ar->devicemac);
 
         sub_tree = proto_tree_add_subtree_format(tree, tvb, 0, 0, ett_pn_io_ar_info, &sub_item,
             "ARUUID:%s ContrMAC:%s ContrAlRef:0x%x DevMAC:%s DevAlRef:0x%x InCR:0x%x OutCR=0x%x",
@@ -6363,7 +6388,7 @@ dissect_ARProperties(tvbuff_t *tvb, int offset,
     proto_item *sub_item;
     proto_tree *sub_tree;
     guint32     u32ARProperties;
-
+    guint8      startupMode;
 
     sub_item = proto_tree_add_item(tree, hf_pn_io_ar_properties, tvb, offset, 4, ENC_BIG_ENDIAN);
     sub_tree = proto_item_add_subtree(sub_item, ett_pn_io_ar_properties);
@@ -6371,6 +6396,19 @@ dissect_ARProperties(tvbuff_t *tvb, int offset,
                         hf_pn_io_ar_properties_pull_module_alarm_allowed, &u32ARProperties);
     dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep,
                         hf_pn_io_arproperties_StartupMode, &u32ARProperties);
+    startupMode = (guint8)((u32ARProperties >> 30) & 0x01);
+    /* Advanced startup mode */
+    if (startupMode)
+    {
+        dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep,
+            hf_pn_io_ar_properties_combined_object_container_with_advanced_startupmode, &u32ARProperties);
+    }
+    /* Legacy startup mode */
+    else
+    {
+        dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep,
+            hf_pn_io_ar_properties_combined_object_container_with_legacy_startupmode, &u32ARProperties);
+    }
     dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep,
                         hf_pn_io_ar_properties_reserved, &u32ARProperties);
     dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep,
@@ -7176,7 +7214,7 @@ dissect_IOCRBlockReq_block(tvbuff_t *tvb, int offset,
     offset = dissect_dcerpc_uint32(tvb, offset, pinfo, tree, drep,
                         hf_pn_io_frame_send_offset, &u32FrameSendOffset);
     offset = dissect_dcerpc_uint16(tvb, offset, pinfo, tree, drep,
-                        hf_pn_io_data_hold_factor, &u16WatchdogFactor);
+                        hf_pn_io_watchdog_factor, &u16WatchdogFactor);
     offset = dissect_dcerpc_uint16(tvb, offset, pinfo, tree, drep,
                         hf_pn_io_data_hold_factor, &u16DataHoldFactor);
     offset = dissect_dcerpc_uint16(tvb, offset, pinfo, tree, drep,
@@ -7600,7 +7638,7 @@ dissect_PDSubFrameBlock_block(tvbuff_t *tvb, int offset,
     /* FrameID */
     offset = dissect_dcerpc_uint16(tvb, offset, pinfo, tree, drep, hf_pn_io_frame_id, &u16FrameID);
     /* SFIOCRProperties */
-    sub_item = proto_tree_add_item(tree, hf_pn_io_SFIOCRProperties, tvb, offset, 4, ENC_BIG_ENDIAN);
+    sub_item = proto_tree_add_item(tree, hf_pn_io_SFIOCRProperties, tvb, offset, PD_SUB_FRAME_BLOCK_FIOCR_PROPERTIES_LENGTH, ENC_BIG_ENDIAN);
     sub_tree = proto_item_add_subtree(sub_item, ett_pn_io_SFIOCRProperties);
 
     /*    dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep, hf_pn_io_SFIOCRProperties, &u32SFIOCRProperties); */
@@ -7626,10 +7664,9 @@ dissect_PDSubFrameBlock_block(tvbuff_t *tvb, int offset,
     /*  bit 0..7 SFIOCRProperties.DistributedWatchDogFactor */
     offset = /* it is the last one, so advance! */
         dissect_dcerpc_uint32(tvb, offset, pinfo, sub_tree, drep, hf_pn_io_DistributedWatchDogFactor, &u32SFIOCRProperties);
-
     /* SubframeData */
-    u16RemainingLength = u16BodyLength - 8;
-    while (u16RemainingLength >= 4)
+    u16RemainingLength = u16BodyLength - PD_SUB_FRAME_BLOCK_FIOCR_PROPERTIES_LENGTH - PD_SUB_FRAME_BLOCK_FRAME_ID_LENGTH;
+    while (u16RemainingLength >= PD_SUB_FRAME_BLOCK_SUB_FRAME_DATA_LENGTH)
     {
         guint8 Position,
                DataLength;
@@ -9670,34 +9707,32 @@ pn_io_ar_conv_valid(packet_info *pinfo)
     return ((profinet_type != NULL) && (GPOINTER_TO_UINT(profinet_type) == 10));
 }
 
-static const gchar *
+static gchar *
 pn_io_ar_conv_filter(packet_info *pinfo)
 {
     pnio_ar_t *ar = (pnio_ar_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_pn_io, 0);
     void* profinet_type = p_get_proto_data(pinfo->pool, pinfo, proto_pn_io, 0);
-    char      *buf, *guid_str;
+    char      *buf;
     address   controllermac_addr, devicemac_addr;
 
     if ((profinet_type == NULL) || (GPOINTER_TO_UINT(profinet_type) != 10) || (ar == NULL)) {
         return NULL;
     }
 
-    SET_ADDRESS(&controllermac_addr, AT_ETHER, 6, ar->controllermac);
-    SET_ADDRESS(&devicemac_addr, AT_ETHER, 6, ar->devicemac);
+    set_address(&controllermac_addr, AT_ETHER, 6, ar->controllermac);
+    set_address(&devicemac_addr, AT_ETHER, 6, ar->devicemac);
 
-    guid_str = guid_to_str(wmem_packet_scope(), (const e_guid_t*) &ar->aruuid);
     buf = g_strdup_printf(
         "pn_io.ar_uuid == %s || "                                   /* ARUUID */
         "(pn_io.alarm_src_endpoint == 0x%x && eth.src == %s) || "   /* Alarm CR (contr -> dev) */
         "(pn_io.alarm_src_endpoint == 0x%x && eth.src == %s)",      /* Alarm CR (dev -> contr) */
-        guid_str,
-        ar->controlleralarmref, address_to_str(wmem_packet_scope(), &controllermac_addr),
-        ar->devicealarmref, address_to_str(wmem_packet_scope(), &devicemac_addr));
-    wmem_free(NULL, guid_str);
+         guid_to_str(pinfo->pool, (const e_guid_t*) &ar->aruuid),
+        ar->controlleralarmref, address_to_str(pinfo->pool, &controllermac_addr),
+        ar->devicealarmref, address_to_str(pinfo->pool, &devicemac_addr));
     return buf;
 }
 
-static const gchar *
+static gchar *
 pn_io_ar_conv_data_filter(packet_info *pinfo)
 {
     pnio_ar_t *ar = (pnio_ar_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_pn_io, 0);
@@ -9709,12 +9744,12 @@ pn_io_ar_conv_data_filter(packet_info *pinfo)
         return NULL;
     }
 
-    SET_ADDRESS(&controllermac_addr, AT_ETHER, 6, ar->controllermac);
-    SET_ADDRESS(&devicemac_addr, AT_ETHER, 6, ar->devicemac);
+    set_address(&controllermac_addr, AT_ETHER, 6, ar->controllermac);
+    set_address(&devicemac_addr, AT_ETHER, 6, ar->devicemac);
 
-    controllermac_str = address_to_str(wmem_packet_scope(), &controllermac_addr);
-    devicemac_str = address_to_str(wmem_packet_scope(), &devicemac_addr);
-    guid_str = guid_to_str(wmem_packet_scope(), (const e_guid_t*) &ar->aruuid);
+    controllermac_str = address_to_str(pinfo->pool, &controllermac_addr);
+    devicemac_str = address_to_str(pinfo->pool, &devicemac_addr);
+    guid_str = guid_to_str(pinfo->pool, (const e_guid_t*) &ar->aruuid);
     if (ar->arType == 0x0010) /* IOCARSingle using RT_CLASS_3 */
     {
         buf = g_strdup_printf(
@@ -9874,14 +9909,24 @@ proto_register_pn_io (void)
         FT_UINT32, BASE_HEX, VALS(pn_io_arproperties_acknowldege_companion_ar), 0x00000800,
         NULL, HFILL }
     },
+    { &hf_pn_io_ar_properties_reserved,
+      { "Reserved", "pn_io.ar_properties.reserved",
+        FT_UINT32, BASE_HEX, NULL, 0x1FFFF000,
+        NULL, HFILL }
+    },
+    { &hf_pn_io_ar_properties_combined_object_container_with_legacy_startupmode,
+      { "CombinedObjectContainer", "pn_io.ar_properties.combined_object_container",
+        FT_UINT32, BASE_HEX, VALS(pn_io_arproperties_combined_object_container_with_legacy_startupmode), 0x20000000,
+        NULL, HFILL }
+    },
+    { &hf_pn_io_ar_properties_combined_object_container_with_advanced_startupmode,
+    { "CombinedObjectContainer", "pn_io.ar_properties.combined_object_container",
+       FT_UINT32, BASE_HEX, VALS(pn_io_arproperties_combined_object_container_with_advanced_startupmode), 0x20000000,
+       NULL, HFILL }
+    },
     { &hf_pn_io_arproperties_StartupMode,
       { "StartupMode", "pn_io.ar_properties.StartupMode",
         FT_UINT32, BASE_HEX, VALS(pn_io_arpropertiesStartupMode), 0x40000000,
-        NULL, HFILL }
-    },
-    { &hf_pn_io_ar_properties_reserved,
-      { "Reserved", "pn_io.ar_properties.reserved",
-        FT_UINT32, BASE_HEX, NULL, 0x3FFFF000,
         NULL, HFILL }
     },
     { &hf_pn_io_ar_properties_pull_module_alarm_allowed,
@@ -10183,6 +10228,11 @@ proto_register_pn_io (void)
     { &hf_pn_io_frame_data_properties_reserved_2,
       { "Reserved_2", "pn_io.frame_data.reserved_2",
         FT_UINT32, BASE_HEX, NULL, 0xFFFF0000,
+        NULL, HFILL }
+    },
+    { &hf_pn_io_watchdog_factor,
+      { "WatchdogFactor", "pn_io.watchdog_factor",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL, HFILL }
     },
     { &hf_pn_io_data_hold_factor,
@@ -12243,19 +12293,25 @@ proto_register_pn_io (void)
     expert_module_t* expert_pn_io;
 
     proto_pn_io = proto_register_protocol ("PROFINET IO", "PNIO", "pn_io");
+
+    /* Created to remove Decode As confusion */
+    proto_pn_io_controller = proto_register_protocol ("PROFINET IO (Controller)", "PNIO (Controller)", "pn_io_controller");
+    proto_pn_io_supervisor = proto_register_protocol ("PROFINET IO (Supervisor)", "PNIO (Supervisor)", "pn_io_supervisor");
+    proto_pn_io_parameterserver = proto_register_protocol ("PROFINET IO (Parameter Server)", "PNIO (Parameter Server)", "pn_io_parameterserver");
+
     proto_register_field_array (proto_pn_io, hf, array_length (hf));
     proto_register_subtree_array (ett, array_length (ett));
     expert_pn_io = expert_register_protocol(proto_pn_io);
     expert_register_field_array(expert_pn_io, ei, array_length(ei));
 
     /* subdissector code */
-    new_register_dissector("pn_io", dissect_PNIO_heur, proto_pn_io);
+    register_dissector("pn_io", dissect_PNIO_heur, proto_pn_io);
     heur_pn_subdissector_list = register_heur_dissector_list("pn_io");
 
     register_cleanup_routine(pnio_cleanup);
 
-    register_dissector_filter("PN-IO AR", pn_io_ar_conv_valid, pn_io_ar_conv_filter);
-    register_dissector_filter("PN-IO AR (with data)", pn_io_ar_conv_valid, pn_io_ar_conv_data_filter);
+    register_conversation_filter("pn_io", "PN-IO AR", pn_io_ar_conv_valid, pn_io_ar_conv_filter);
+    register_conversation_filter("pn_io", "PN-IO AR (with data)", pn_io_ar_conv_valid, pn_io_ar_conv_data_filter);
 }
 
 void
@@ -12263,9 +12319,9 @@ proto_reg_handoff_pn_io (void)
 {
     /* Register the protocols as dcerpc */
     dcerpc_init_uuid (proto_pn_io, ett_pn_io, &uuid_pn_io_device, ver_pn_io_device, pn_io_dissectors, hf_pn_io_opnum);
-    dcerpc_init_uuid (proto_pn_io, ett_pn_io, &uuid_pn_io_controller, ver_pn_io_controller, pn_io_dissectors, hf_pn_io_opnum);
-    dcerpc_init_uuid (proto_pn_io, ett_pn_io, &uuid_pn_io_supervisor, ver_pn_io_supervisor, pn_io_dissectors, hf_pn_io_opnum);
-    dcerpc_init_uuid (proto_pn_io, ett_pn_io, &uuid_pn_io_parameterserver, ver_pn_io_parameterserver, pn_io_dissectors, hf_pn_io_opnum);
+    dcerpc_init_uuid (proto_pn_io_controller, ett_pn_io, &uuid_pn_io_controller, ver_pn_io_controller, pn_io_dissectors, hf_pn_io_opnum);
+    dcerpc_init_uuid (proto_pn_io_supervisor, ett_pn_io, &uuid_pn_io_supervisor, ver_pn_io_supervisor, pn_io_dissectors, hf_pn_io_opnum);
+    dcerpc_init_uuid (proto_pn_io_parameterserver, ett_pn_io, &uuid_pn_io_parameterserver, ver_pn_io_parameterserver, pn_io_dissectors, hf_pn_io_opnum);
 
     heur_dissector_add("pn_rt", dissect_PNIO_heur, "PROFINET IO", "pn_io_pn_rt", proto_pn_io, HEURISTIC_ENABLE);
 }

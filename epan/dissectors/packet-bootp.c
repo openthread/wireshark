@@ -121,6 +121,7 @@
 #include <epan/expert.h>
 #include <epan/uat.h>
 #include <epan/oui.h>
+#include <wsutil/str_util.h>
 void proto_register_bootp(void);
 void proto_reg_handoff_bootp(void);
 
@@ -753,6 +754,14 @@ static const value_string duidtype_vals[] =
 };
 
 static gboolean novell_string = FALSE;
+
+static guint bootp_uuid_endian = ENC_LITTLE_ENDIAN;
+
+static const enum_val_t bootp_uuid_endian_vals[] = {
+	{ "Little Endian", "Little Endian",	ENC_LITTLE_ENDIAN},
+	{ "Big Endian",	 "Big Endian", ENC_BIG_ENDIAN },
+	{ NULL, NULL, 0 }
+};
 
 #define UDP_PORT_BOOTPS	 67
 #define UDP_PORT_BOOTPC	 68
@@ -1977,8 +1986,8 @@ bootp_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *bp_tree, proto_item 
 					tvb_arphrdaddr_to_str(tvb, optoff+1, 6, byte));
 		} else if (optlen == 17 && byte == 0) {
 			/* Identifier is a UUID */
-			proto_tree_add_item(v_tree, hf_bootp_client_identifier_uuid,
-					    tvb, optoff + 1, 16, ENC_LITTLE_ENDIAN);
+			proto_tree_add_item(v_tree, hf_bootp_client_identifier_uuid, tvb, optoff + 1, 16, bootp_uuid_endian);
+
 		/* From RFC 4361 paragraph 6.1 DHCPv4 Client Behavior:
 			To send an RFC 3315-style binding identifier in a DHCPv4 'client
 			identifier' option, the type of the 'client identifier' option is set
@@ -2106,8 +2115,7 @@ bootp_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *bp_tree, proto_item 
 					tvb_arphrdaddr_to_str(tvb, optoff+1, 6, byte));
 		} else if (optlen == 17 && byte == 0) {
 			/* Identifier is a UUID */
-			proto_tree_add_item(v_tree, hf_bootp_client_identifier_uuid,
-					    tvb, optoff + 1, 16, ENC_LITTLE_ENDIAN);
+			proto_tree_add_item(v_tree, hf_bootp_client_identifier_uuid, tvb, optoff + 1, 16, bootp_uuid_endian);
 		} else {
 			/* otherwise, it's opaque data */
 		}
@@ -5343,8 +5351,8 @@ static const value_string op_vals[] = {
 	{ 0,		NULL }
 };
 
-static void
-dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree   *bp_tree;
 	proto_item   *bp_ti, *ti;
@@ -5431,7 +5439,7 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		if (offset_delta <= 0) {
 			proto_tree_add_expert(bp_tree, pinfo, &ei_bootp_option_parse_err,
 					tvb, tmpvoff, eoff);
-			return;
+			return tmpvoff;
 		}
 		tmpvoff += offset_delta;
 	}
@@ -5572,7 +5580,7 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		if (offset_delta <= 0) {
 			proto_tree_add_expert(bp_tree, pinfo, &ei_bootp_option_parse_err,
 					tvb, voff, eoff);
-			return;
+			return voff;
 		}
 		voff += offset_delta;
 	}
@@ -5586,6 +5594,8 @@ dissect_bootp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		 */
 		proto_tree_add_item(bp_tree, hf_bootp_option_padding, tvb, voff, eoff - voff, ENC_NA);
 	}
+
+	return tvb_captured_length(tvb);
 }
 
 static void
@@ -5614,10 +5624,10 @@ typedef enum
 
 static stat_tap_table_item bootp_stat_fields[] = {{TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "DHCP Message Type", "%-25s"}, {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Packets", "%d"}};
 
-static void bootp_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void bootp_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
 	int num_fields = sizeof(bootp_stat_fields)/sizeof(stat_tap_table_item);
-	new_stat_tap_table* table = new_stat_tap_init_table("DHCP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+	stat_tap_table* table = new_stat_tap_init_table("DHCP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
 	int i = 0;
 	stat_tap_table_item_type items[sizeof(bootp_stat_fields)/sizeof(stat_tap_table_item)];
 
@@ -5641,7 +5651,7 @@ bootp_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_
 {
 	new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
 	const char* value = (const char*)data;
-	new_stat_tap_table* table;
+	stat_tap_table* table;
 	stat_tap_table_item_type* msg_data;
 	guint i = 0;
 	gint idx;
@@ -5650,7 +5660,7 @@ bootp_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_
 	if (idx < 0)
 		return FALSE;
 
-	table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+	table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
 	msg_data = new_stat_tap_get_field_data(table, idx, PACKET_COLUMN);
 	msg_data->value.uint_value++;
 	new_stat_tap_set_field_data(table, idx, PACKET_COLUMN, msg_data);
@@ -5659,7 +5669,7 @@ bootp_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_
 }
 
 static void
-bootp_stat_reset(new_stat_tap_table* table)
+bootp_stat_reset(stat_tap_table* table)
 {
 	guint element;
 	stat_tap_table_item_type* item_data;
@@ -6187,7 +6197,7 @@ proto_register_bootp(void)
 		    NULL, HFILL }},
 
 		{ &hf_bootp_client_identifier_enterprise_num,
-		  { "Enterprise-number", "bootp.client_id.iaid",
+		  { "Enterprise-number", "bootp.client_id.enterprise_num",
 		    FT_UINT32, BASE_DEC|BASE_EXT_STRING, &sminmpec_values_ext, 0x0,
 		    NULL, HFILL }},
 
@@ -7825,7 +7835,7 @@ proto_register_bootp(void)
 		{ PARAM_FILTER, "filter", "Filter", NULL, TRUE }
 	};
 
-	static new_stat_tap_ui bootp_stat_table = {
+	static stat_tap_table_ui bootp_stat_table = {
 		REGISTER_STAT_GROUP_UNSORTED,
 		"DHCP (BOOTP) Statistics",
 		"bootp",
@@ -7878,6 +7888,13 @@ proto_register_bootp(void)
 				       10,
 				       &pkt_ccc_option);
 
+	prefs_register_enum_preference(bootp_module, "uuid.endian",
+				       "Endianness of UUID",
+				       "Endianness applied to UUID fields",
+				       &bootp_uuid_endian,
+				       bootp_uuid_endian_vals,
+				       FALSE);
+
 	prefs_register_obsolete_preference(bootp_module, "displayasstring");
 
 	bootp_uat = uat_new("Custom BootP/DHCP Options (Excl. suboptions)",
@@ -7900,7 +7917,7 @@ proto_register_bootp(void)
 				      "Custom BootP/DHCP Options (Excl. suboptions)",
 				      bootp_uat);
 
-	register_new_stat_tap_ui(&bootp_stat_table);
+	register_stat_tap_table_ui(&bootp_stat_table);
 }
 
 void

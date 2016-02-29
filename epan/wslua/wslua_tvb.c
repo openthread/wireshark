@@ -182,8 +182,6 @@ WSLUA_METHOD Tvb_bytes(lua_State* L) {
         return 0;
     }
 
-    ba = g_byte_array_new();
-
     if (len < 0) {
         len = tvb_captured_length_remaining(tvb->ws_tvb,offset);
         if (len < 0) {
@@ -195,6 +193,7 @@ WSLUA_METHOD Tvb_bytes(lua_State* L) {
         return 0;
     }
 
+    ba = g_byte_array_new();
     g_byte_array_append(ba, tvb_get_ptr(tvb->ws_tvb, offset, len), len);
     pushByteArray(L,ba);
 
@@ -752,7 +751,6 @@ WSLUA_METHOD TvbRange_ipv4(lua_State* L) {
     /* Get an IPv4 Address from a `TvbRange`, as an `Address` object. */
     TvbRange tvbr = checkTvbRange(L,1);
     Address addr;
-    guint32* ip_addr;
 
     if ( !(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -765,12 +763,8 @@ WSLUA_METHOD TvbRange_ipv4(lua_State* L) {
         return 0;
     }
 
-    addr = (address *)g_malloc(sizeof(address));
-
-    ip_addr = (guint32 *)g_malloc(sizeof(guint32));
-    *ip_addr = tvb_get_ipv4(tvbr->tvb->ws_tvb,tvbr->offset);
-
-    SET_ADDRESS(addr, AT_IPv4, 4, ip_addr);
+    addr = g_new(address,1);
+    alloc_address_tvb(NULL,addr,AT_IPv4,sizeof(guint32),tvbr->tvb->ws_tvb,tvbr->offset);
     pushAddress(L,addr);
 
     WSLUA_RETURN(1); /* The IPv4 `Address` object. */
@@ -780,7 +774,7 @@ WSLUA_METHOD TvbRange_le_ipv4(lua_State* L) {
     /* Get an Little Endian IPv4 Address from a `TvbRange`, as an `Address` object. */
     TvbRange tvbr = checkTvbRange(L,1);
     Address addr;
-    guint32* ip_addr;
+    guint32 ip_addr;
 
     if ( !(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -793,13 +787,9 @@ WSLUA_METHOD TvbRange_le_ipv4(lua_State* L) {
         return 0;
     }
 
-    addr = (address *)g_malloc(sizeof(address));
-
-    ip_addr = (guint32 *)g_malloc(sizeof(guint32));
-    *ip_addr = tvb_get_ipv4(tvbr->tvb->ws_tvb,tvbr->offset);
-    *((guint32 *)ip_addr) = GUINT32_SWAP_LE_BE(*((guint32 *)ip_addr));
-
-    SET_ADDRESS(addr, AT_IPv4, 4, ip_addr);
+    addr = g_new(address,1);
+    ip_addr = GUINT32_SWAP_LE_BE(tvb_get_ipv4(tvbr->tvb->ws_tvb,tvbr->offset));
+    alloc_address_wmem(NULL, addr, AT_IPv4, sizeof(ip_addr), &ip_addr);
     pushAddress(L,addr);
 
     WSLUA_RETURN(1); /* The IPv4 `Address` object. */
@@ -809,7 +799,6 @@ WSLUA_METHOD TvbRange_ether(lua_State* L) {
     /* Get an Ethernet Address from a `TvbRange`, as an `Address` object. */
     TvbRange tvbr = checkTvbRange(L,1);
     Address addr;
-    guint8* buff;
 
     if ( !(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -823,10 +812,7 @@ WSLUA_METHOD TvbRange_ether(lua_State* L) {
     }
 
     addr = g_new(address,1);
-
-    buff = (guint8 *)tvb_memdup(NULL,tvbr->tvb->ws_tvb,tvbr->offset,tvbr->len);
-
-    SET_ADDRESS(addr, AT_ETHER, 6, buff);
+    alloc_address_tvb(NULL,addr,AT_ETHER,6,tvbr->tvb->ws_tvb,tvbr->offset);
     pushAddress(L,addr);
 
     WSLUA_RETURN(1); /* The Ethernet `Address` object. */
@@ -1117,9 +1103,8 @@ WSLUA_METHOD TvbRange_bytes(lua_State* L) {
         return 0;
     }
 
-    ba = g_byte_array_new();
-
     if (encoding == 0) {
+        ba = g_byte_array_new();
         g_byte_array_append(ba,(const guint8 *)tvb_memdup(wmem_packet_scope(),tvbr->tvb->ws_tvb,tvbr->offset,tvbr->len),tvbr->len);
         pushByteArray(L,ba);
         lua_pushinteger(L, tvbr->len);
@@ -1129,7 +1114,10 @@ WSLUA_METHOD TvbRange_bytes(lua_State* L) {
     }
     else {
         gint endoff = 0;
-        GByteArray* retval = tvb_get_string_bytes(tvbr->tvb->ws_tvb, tvbr->offset, tvbr->len,
+        GByteArray* retval;
+
+        ba = g_byte_array_new();
+        retval = tvb_get_string_bytes(tvbr->tvb->ws_tvb, tvbr->offset, tvbr->len,
                                                   encoding, ba, &endoff);
         if (!retval || endoff == 0) {
             g_byte_array_free(ba, TRUE);

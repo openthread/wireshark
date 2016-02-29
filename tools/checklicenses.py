@@ -177,6 +177,9 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'epan/dfilter/grammar.h': [
         'UNKNOWN',
     ],
+    'epan/dfilter/grammar.c': [
+        'UNKNOWN',
+    ],
     'plugins/mate/mate_grammar.h': [
         'UNKNOWN',
     ],
@@ -206,10 +209,13 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'tools/lemon': [
         'UNKNOWN',
     ],
-    'tools/fix_pragma_wdocumentation.sh': [
+    # Generated files for GTK pixbuf binary bundling
+    'ui/gtk/wireshark-gresources.h': [
         'UNKNOWN',
     ],
-
+    'ui/gtk/wireshark-gresources.c': [
+        'UNKNOWN',
+    ],
 }
 
 

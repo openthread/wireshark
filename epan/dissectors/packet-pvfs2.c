@@ -1131,9 +1131,7 @@ int dissect_pvfs_uint64(tvbuff_t *tvb, proto_tree *tree, int offset,
 {
 	guint64 val;
 
-	val = ((guint64) tvb_get_letohl(tvb, offset + 4)) << 32 |
-		tvb_get_letohl(tvb, offset);
-
+	val = tvb_get_letoh64(tvb, offset);
 	proto_tree_add_uint64(tree, hfindex, tvb, offset, 8, val);
 
 	if (pvalue)
@@ -2991,7 +2989,7 @@ dissect_pvfs_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
 	{
 		/* Add entry to tracking table for PVFS_SERV_IO request */
 		if ((server_op == PVFS_SERV_IO) && !pinfo->fd->flags.visited)
-			val = pvfs2_io_tracking_new_with_tag(tag, pinfo->fd->num);
+			val = pvfs2_io_tracking_new_with_tag(tag, pinfo->num);
 	}
 	else
 	{
@@ -3007,17 +3005,17 @@ dissect_pvfs_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
 		{
 			/* If response HAS NOT been seen, mark this frame as response */
 			if (val->response_frame_num == 0)
-				val->response_frame_num = pinfo->fd->num;
+				val->response_frame_num = pinfo->num;
 			else
 			{
 				/* If response HAS been seen, this frame is flow data */
 				if (val->flow_frame_num == 0)
-					val->flow_frame_num = pinfo->fd->num;
+					val->flow_frame_num = pinfo->num;
 			}
 		}
 	}
 
-	if (val && (val->flow_frame_num == pinfo->fd->num))
+	if (val && (val->flow_frame_num == pinfo->num))
 	{
 		/* This frame is marked as being flow data */
 		col_set_str(pinfo->cinfo, COL_INFO, "PVFS flow data");
@@ -3629,7 +3627,7 @@ proto_reg_handoff_pvfs(void)
 {
 	dissector_handle_t pvfs_handle;
 
-	pvfs_handle = new_create_dissector_handle(dissect_pvfs_heur, proto_pvfs);
+	pvfs_handle = create_dissector_handle(dissect_pvfs_heur, proto_pvfs);
 	dissector_add_uint("tcp.port", TCP_PORT_PVFS2, pvfs_handle);
 
 	heur_dissector_add("tcp", dissect_pvfs_heur, "PVFS over TCP", "pvfs_tcp", proto_pvfs, HEURISTIC_ENABLE);

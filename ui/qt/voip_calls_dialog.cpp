@@ -178,6 +178,8 @@ VoipCallsDialog::VoipCallsDialog(QWidget &parent, CaptureFile &cf, bool all_flow
     parent_(parent)
 {
     ui->setupUi(this);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 2 / 3);
+
     ui->callTreeWidget->sortByColumn(start_time_col_, Qt::AscendingOrder);
     setWindowSubtitle(all_flows ? tr("SIP Flows") : tr("VoIP Calls"));
 
@@ -185,11 +187,7 @@ VoipCallsDialog::VoipCallsDialog(QWidget &parent, CaptureFile &cf, bool all_flow
 
     prepare_button_ = ui->buttonBox->addButton(tr("Prepare Filter"), QDialogButtonBox::ApplyRole);
     sequence_button_ = ui->buttonBox->addButton(tr("Flow Sequence"), QDialogButtonBox::ApplyRole);
-    player_button_ = ui->buttonBox->addButton(tr("Play Call"), QDialogButtonBox::ApplyRole);
-    player_button_->setIcon(StockIcon("media-playback-start"));
-
-    // XXX Use recent settings instead
-    resize(parent.width() * 4 / 5, parent.height() * 2 / 3);
+    player_button_ = RtpPlayerDialog::addPlayerButton(ui->buttonBox);
 
     memset (&tapinfo_, 0, sizeof(tapinfo_));
     tapinfo_.tap_packet = tapPacket;
@@ -200,6 +198,7 @@ VoipCallsDialog::VoipCallsDialog(QWidget &parent, CaptureFile &cf, bool all_flow
     tapinfo_.fs_option = all_flows ? FLOW_ALL : FLOW_ONLY_INVITES; /* flow show option */
     tapinfo_.graph_analysis = sequence_analysis_info_new();
     tapinfo_.graph_analysis->type = SEQ_ANALYSIS_VOIP;
+    sequence_info_ = new SequenceInfo(tapinfo_.graph_analysis);
 
     voip_calls_init_all_taps(&tapinfo_);
 
@@ -215,8 +214,16 @@ VoipCallsDialog::~VoipCallsDialog()
 {
     delete ui;
 
+    voip_calls_reset_all_taps(&tapinfo_);
     voip_calls_remove_all_tap_listeners(&tapinfo_);
-    sequence_analysis_info_free(tapinfo_.graph_analysis);
+    sequence_info_->unref();
+    g_queue_free(tapinfo_.callsinfos);
+}
+
+void VoipCallsDialog::endRetapPackets()
+{
+    voip_calls_remove_all_tap_listeners(&tapinfo_);
+    WiresharkDialog::endRetapPackets();
 }
 
 void VoipCallsDialog::captureFileClosing()
@@ -276,9 +283,9 @@ void VoipCallsDialog::tapDraw(void *tapinfo_ptr)
             seq_analysis_item_t * sai = (seq_analysis_item_t *)graph_item->data;
             rtp_stream_info_t *rsi = (rtp_stream_info_t *)rsi_entry->data;
 
-            if (rsi->start_fd->num == sai->fd->num) {
+            if (rsi->start_fd->num == sai->frame_number) {
                 rsi->call_num = sai->conv_num;
-                // VOIP_CALLS_DEBUG("setting conv num %u for frame %u", sai->conv_num, sai->fd->num);
+                // VOIP_CALLS_DEBUG("setting conv num %u for frame %u", sai->conv_num, sai->frame_number);
             }
         }
     }
@@ -353,7 +360,11 @@ void VoipCallsDialog::prepareFilter()
     /* Build a new filter based on frame numbers */
     const char *or_prepend = "";
     foreach (QTreeWidgetItem *ti, ui->callTreeWidget->selectedItems()) {
-        voip_calls_info_t *call_info = ti->data(0, Qt::UserRole).value<voip_calls_info_t*>();
+        VoipCallsTreeWidgetItem *vc_ti = static_cast<VoipCallsTreeWidgetItem *>(ti);
+        voip_calls_info_t *call_info = vc_ti->callInfo();
+        if (!call_info) {
+            return;
+        }
         selected_calls << call_info->call_num;
     }
 
@@ -361,7 +372,7 @@ void VoipCallsDialog::prepareFilter()
     while (cur_ga_item && cur_ga_item->data) {
         seq_analysis_item_t *ga_item = (seq_analysis_item_t*) cur_ga_item->data;
         if (selected_calls.contains(ga_item->conv_num)) {
-            filter_str += QString("%1frame.number == %2").arg(or_prepend).arg(ga_item->fd->num);
+            filter_str += QString("%1frame.number == %2").arg(or_prepend).arg(ga_item->frame_number);
             or_prepend = " or ";
         }
         cur_ga_item = g_list_next(cur_ga_item);
@@ -464,7 +475,11 @@ void VoipCallsDialog::showSequence()
 
     QSet<guint16> selected_calls;
     foreach (QTreeWidgetItem *ti, ui->callTreeWidget->selectedItems()) {
-        voip_calls_info_t *call_info = ti->data(0, Qt::UserRole).value<voip_calls_info_t*>();
+        VoipCallsTreeWidgetItem *vc_ti = static_cast<VoipCallsTreeWidgetItem *>(ti);
+        voip_calls_info_t *call_info = vc_ti->callInfo();
+        if (!call_info) {
+            return;
+        }
         selected_calls << call_info->call_num;
     }
 
@@ -476,7 +491,7 @@ void VoipCallsDialog::showSequence()
         cur_ga_item = g_list_next(cur_ga_item);
     }
 
-    SequenceDialog *sequence_dialog = new SequenceDialog(parent_, cap_file_, tapinfo_.graph_analysis);
+    SequenceDialog *sequence_dialog = new SequenceDialog(parent_, cap_file_, sequence_info_);
     // XXX This goes away when we close the VoIP Calls dialog.
     connect(sequence_dialog, SIGNAL(goToPacket(int)),
             this, SIGNAL(goToPacket(int)));
@@ -506,15 +521,14 @@ void VoipCallsDialog::showPlayer()
 
     connect(&rtp_player_dialog, SIGNAL(goToPacket(int)), this, SIGNAL(goToPacket(int)));
 
-    // XXX This retaps the packet list. We still have our own tap listener
-    // registered at this point.
     rtp_player_dialog.exec();
 #endif // QT_MULTIMEDIA_LIB
 }
 
 void VoipCallsDialog::on_callTreeWidget_itemActivated(QTreeWidgetItem *item, int)
 {
-    voip_calls_info_t *call_info = item->data(0, Qt::UserRole).value<voip_calls_info_t*>();
+    VoipCallsTreeWidgetItem *vc_ti = static_cast<VoipCallsTreeWidgetItem *>(item);
+    voip_calls_info_t *call_info = vc_ti->callInfo();
     if (!call_info) {
         return;
     }

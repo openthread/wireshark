@@ -47,8 +47,8 @@ typedef union _EslFlagsUnion
         guint16    extended     : 1;
         guint16    port11       : 1;
         guint16    port10       : 1;
-        guint16    crcError     : 1;
         guint16    alignError   : 1;
+        guint16    crcError     : 1;
         guint16    timeStampEna : 1;
         guint16    port9        : 1;
         guint16    port8        : 1;
@@ -73,8 +73,8 @@ typedef union _EslFlagsUnion
 #define esl_extended_bitmask     0x0100
 #define esl_port11_bitmask       0x0200
 #define esl_port10_bitmask       0x0400
-#define esl_crcError_bitmask     0x0800
-#define esl_alignError_bitmask   0x1000
+#define esl_alignError_bitmask   0x0800
+#define esl_crcError_bitmask     0x1000
 #define esl_timeStampEna_bitmask 0x2000
 #define esl_port9_bitmask        0x4000
 #define esl_port8_bitmask        0x8000
@@ -171,8 +171,8 @@ static guint16 flags_to_port(guint16 flagsValue) {
 }
 
 /*esl*/
-static void
-dissect_esl_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree) {
+static int
+dissect_esl_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_) {
 
     proto_item *ti = NULL;
     proto_tree *esl_header_tree;
@@ -192,13 +192,15 @@ dissect_esl_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree) {
             flags =  tvb_get_letohs(tvb, offset);
             proto_tree_add_uint(esl_header_tree, hf_esl_port, tvb, offset, 2, flags_to_port(flags));
 
-            proto_tree_add_item(esl_header_tree, hf_esl_crcerror, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             proto_tree_add_item(esl_header_tree, hf_esl_alignerror, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item(esl_header_tree, hf_esl_crcerror, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+
             offset+=2;
 
             proto_tree_add_item(esl_header_tree, hf_esl_timestamp, tvb, offset, 8, ENC_LITTLE_ENDIAN);
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 typedef struct _ref_time_frame_info
@@ -227,8 +229,8 @@ static void modify_times(tvbuff_t *tvb, gint offset, packet_info *pinfo)
     {
         ref_time_frame.esl_ts = tvb_get_letoh64(tvb, offset+8);
         ref_time_frame.fd = pinfo->fd;
-        ref_time_frame.num = pinfo->fd->num;
-        ref_time_frame.abs_ts = pinfo->fd->abs_ts;
+        ref_time_frame.num = pinfo->num;
+        ref_time_frame.abs_ts = pinfo->abs_ts;
     }
     else if ( !pinfo->fd->flags.visited )
     {
@@ -245,9 +247,9 @@ static void modify_times(tvbuff_t *tvb, gint offset, packet_info *pinfo)
         }
 
         ts.secs = ref_time_frame.abs_ts.secs+(int)secs;
-        nstime_delta(&ts_delta, &ts, &pinfo->fd->abs_ts);
+        nstime_delta(&ts_delta, &ts, &pinfo->abs_ts);
 
-        pinfo->fd->abs_ts = ts;
+        pinfo->abs_ts = ts;
         nstime_add(&pinfo->rel_ts, &ts_delta);
     }
 }
@@ -266,7 +268,7 @@ dissect_esl_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     in_heur = TRUE;
     /*TRY */
     {
-        if ( ref_time_frame.fd != NULL && !pinfo->fd->flags.visited && pinfo->fd->num <= ref_time_frame.num )
+        if ( ref_time_frame.fd != NULL && !pinfo->fd->flags.visited && pinfo->num <= ref_time_frame.num )
             ref_time_frame.fd = NULL;
 
         /* Check that there's enough data */
@@ -277,7 +279,7 @@ dissect_esl_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
            First 6 bytes must be: 01 01 05 10 00 00 */
         if ( is_esl_header(tvb, 0) )
         {
-            dissect_esl_header(tvb, pinfo, tree);
+            dissect_esl_header(tvb, pinfo, tree, data);
             if ( eth_withoutfcs_handle != NULL )
             {
                 next_tvb = tvb_new_subset_remaining(tvb, SIZEOF_ESLHEADER);
@@ -294,7 +296,7 @@ dissect_esl_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
                 call_dissector(eth_withoutfcs_handle, next_tvb, pinfo, tree);
             }
             next_tvb = tvb_new_subset_length(tvb, esl_length-SIZEOF_ESLHEADER, SIZEOF_ESLHEADER);
-            dissect_esl_header(next_tvb, pinfo, tree);
+            dissect_esl_header(next_tvb, pinfo, tree, data);
             modify_times(tvb, esl_length-SIZEOF_ESLHEADER, pinfo);
 
             result = TRUE;

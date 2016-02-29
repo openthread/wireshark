@@ -298,12 +298,12 @@ h225ras_call_t * new_h225ras_call(h225ras_call_info_key *h225ras_call_key, packe
   new_h225ras_call_key->reqSeqNum = h225ras_call_key->reqSeqNum;
   new_h225ras_call_key->conversation = h225ras_call_key->conversation;
   h225ras_call = wmem_new(wmem_file_scope(), h225ras_call_t);
-  h225ras_call->req_num = pinfo->fd->num;
+  h225ras_call->req_num = pinfo->num;
   h225ras_call->rsp_num = 0;
   h225ras_call->requestSeqNum = h225ras_call_key->reqSeqNum;
   h225ras_call->responded = FALSE;
   h225ras_call->next_call = NULL;
-  h225ras_call->req_time=pinfo->fd->abs_ts;
+  h225ras_call->req_time=pinfo->abs_ts;
   h225ras_call->guid=*guid;
   /* store it */
   g_hash_table_insert(ras_calls[category], new_h225ras_call_key, h225ras_call);
@@ -321,12 +321,12 @@ h225ras_call_t * append_h225ras_call(h225ras_call_t *prev_call, packet_info *pin
      to mean "we don't yet know in which frame
      the reply for this call appears". */
   h225ras_call = wmem_new(wmem_file_scope(), h225ras_call_t);
-  h225ras_call->req_num = pinfo->fd->num;
+  h225ras_call->req_num = pinfo->num;
   h225ras_call->rsp_num = 0;
   h225ras_call->requestSeqNum = prev_call->requestSeqNum;
   h225ras_call->responded = FALSE;
   h225ras_call->next_call = NULL;
-  h225ras_call->req_time=pinfo->fd->abs_ts;
+  h225ras_call->req_time=pinfo->abs_ts;
   h225ras_call->guid=*guid;
 
   prev_call->next_call = h225ras_call;
@@ -482,10 +482,10 @@ static guint facility_reason_idx[FACILITY_REASONS];
 
 static guint other_idx;
 
-static void h225_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void h225_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
   int num_fields = sizeof(h225_stat_fields)/sizeof(stat_tap_table_item);
-  new_stat_tap_table* table = new_stat_tap_init_table("H.225 Messages and Message Reasons", num_fields, 0, NULL, gui_callback, gui_data);
+  stat_tap_table* table = new_stat_tap_init_table("H.225 Messages and Message Reasons", num_fields, 0, NULL, gui_callback, gui_data);
   int row_idx = 0, msg_idx;
   stat_tap_table_item_type items[sizeof(h225_stat_fields)/sizeof(stat_tap_table_item)];
 
@@ -789,7 +789,7 @@ h225_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
   }
 
   if (tag_idx >= 0) {
-    new_stat_tap_table*table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, 0);
+    stat_tap_table*table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, 0);
     stat_tap_table_item_type* msg_data = new_stat_tap_get_field_data(table, tag_idx, COUNT_COLUMN);;
     msg_data->value.uint_value++;
     new_stat_tap_set_field_data(table, tag_idx, COUNT_COLUMN, msg_data);
@@ -806,7 +806,7 @@ h225_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
 }
 
 static void
-h225_stat_reset(new_stat_tap_table* table)
+h225_stat_reset(stat_tap_table* table)
 {
   guint element;
   stat_tap_table_item_type* item_data;
@@ -861,7 +861,7 @@ void proto_register_h225(void) {
     { PARAM_FILTER, "filter", "Filter", NULL, TRUE }
   };
 
-  static new_stat_tap_ui h225_stat_table = {
+  static stat_tap_table_ui h225_stat_table = {
     REGISTER_STAT_GROUP_TELEPHONY,
     "H.225",
     PFNAME,
@@ -908,15 +908,15 @@ void proto_register_h225(void) {
     "ON - display tunnelled protocols inside H.225.0 tree, OFF - display tunnelled protocols in root tree after H.225.0",
     &h225_tp_in_tree);
 
-  new_register_dissector(PFNAME, dissect_h225_H323UserInformation, proto_h225);
-  new_register_dissector("h323ui",dissect_h225_H323UserInformation, proto_h225);
-  new_register_dissector("h225.ras", dissect_h225_h225_RasMessage, proto_h225);
+  register_dissector(PFNAME, dissect_h225_H323UserInformation, proto_h225);
+  register_dissector("h323ui",dissect_h225_H323UserInformation, proto_h225);
+  register_dissector("h225.ras", dissect_h225_h225_RasMessage, proto_h225);
 
-  nsp_object_dissector_table = register_dissector_table("h225.nsp.object", "H.225 NonStandardParameter (object)", FT_STRING, BASE_NONE);
-  nsp_h221_dissector_table = register_dissector_table("h225.nsp.h221", "H.225 NonStandardParameter (h221)", FT_UINT32, BASE_HEX);
-  tp_dissector_table = register_dissector_table("h225.tp", "H.225 TunnelledProtocol", FT_STRING, BASE_NONE);
-  gef_name_dissector_table = register_dissector_table("h225.gef.name", "H.225 Generic Extensible Framework (names)", FT_STRING, BASE_NONE);
-  gef_content_dissector_table = register_dissector_table("h225.gef.content", "H.225 Generic Extensible Framework", FT_STRING, BASE_NONE);
+  nsp_object_dissector_table = register_dissector_table("h225.nsp.object", "H.225 NonStandardParameter (object)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  nsp_h221_dissector_table = register_dissector_table("h225.nsp.h221", "H.225 NonStandardParameter (h221)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  tp_dissector_table = register_dissector_table("h225.tp", "H.225 TunnelledProtocol", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  gef_name_dissector_table = register_dissector_table("h225.gef.name", "H.225 Generic Extensible Framework (names)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  gef_content_dissector_table = register_dissector_table("h225.gef.content", "H.225 Generic Extensible Framework", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   register_init_routine(&h225_init_routine);
   register_cleanup_routine(&h225_cleanup_routine);
@@ -924,7 +924,7 @@ void proto_register_h225(void) {
 
   register_rtd_table(proto_h225_ras, PFNAME, NUM_RAS_STATS, 1, ras_message_category, h225rassrt_packet, NULL);
 
-  register_new_stat_tap_ui(&h225_stat_table);
+  register_stat_tap_table_ui(&h225_stat_table);
 
   oid_add_from_string("Version 1","0.0.8.2250.0.1");
   oid_add_from_string("Version 2","0.0.8.2250.0.2");
@@ -940,7 +940,7 @@ void
 proto_reg_handoff_h225(void)
 {
   static gboolean h225_prefs_initialized = FALSE;
-  static dissector_handle_t h225ras_handle;
+  static dissector_handle_t h225ras_handle, q931_tpkt_handle;
   static guint saved_h225_tls_port;
 
   if (!h225_prefs_initialized) {
@@ -953,12 +953,13 @@ proto_reg_handoff_h225(void)
     h4501_handle = find_dissector("h4501");
     data_handle = find_dissector("data");
     h225_prefs_initialized = TRUE;
+    q931_tpkt_handle = find_dissector("q931.tpkt");
   } else {
-    ssl_dissector_delete(saved_h225_tls_port, "q931.tpkt", TRUE);
+    ssl_dissector_delete(saved_h225_tls_port, q931_tpkt_handle);
   }
 
   saved_h225_tls_port = h225_tls_port;
-  ssl_dissector_add(saved_h225_tls_port, "q931.tpkt", TRUE);
+  ssl_dissector_add(saved_h225_tls_port, q931_tpkt_handle);
 }
 
 
@@ -1043,17 +1044,17 @@ static void ras_call_matching(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
            *this* request already? */
         /* Walk through list of ras requests with identical keys */
         do {
-          if (pinfo->fd->num == h225ras_call->req_num) {
+          if (pinfo->num == h225ras_call->req_num) {
             /* We have seen this request before -> do nothing */
             break;
           }
 
           /* if end of list is reached, exit loop and decide if request is duplicate or not. */
           if (h225ras_call->next_call == NULL) {
-            if ( (pinfo->fd->num > h225ras_call->rsp_num && h225ras_call->rsp_num != 0
-               && pinfo->fd->abs_ts.secs > (h225ras_call->req_time.secs + THRESHOLD_REPEATED_RESPONDED_CALL) )
-               ||(pinfo->fd->num > h225ras_call->req_num && h225ras_call->rsp_num == 0
-               && pinfo->fd->abs_ts.secs > (h225ras_call->req_time.secs + THRESHOLD_REPEATED_NOT_RESPONDED_CALL) ) )
+            if ( (pinfo->num > h225ras_call->rsp_num && h225ras_call->rsp_num != 0
+               && pinfo->abs_ts.secs > (h225ras_call->req_time.secs + THRESHOLD_REPEATED_RESPONDED_CALL) )
+               ||(pinfo->num > h225ras_call->req_num && h225ras_call->rsp_num == 0
+               && pinfo->abs_ts.secs > (h225ras_call->req_time.secs + THRESHOLD_REPEATED_NOT_RESPONDED_CALL) ) )
             {
               /* if last request has been responded
                  and this request appears after last response (has bigger frame number)
@@ -1092,7 +1093,7 @@ static void ras_call_matching(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     /* end of request message handling*/
     }
     else {          /* Confirm or Reject Message */
-      conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+      conversation = find_conversation(pinfo->num, &pinfo->src,
         &pinfo->dst, pinfo->ptype, pinfo->srcport,
         pinfo->destport, 0);
       if (conversation != NULL) {
@@ -1104,7 +1105,7 @@ static void ras_call_matching(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
         if(h225ras_call) {
           /* find matching ras_call in list of ras calls with identical keys */
           do {
-            if (pinfo->fd->num == h225ras_call->rsp_num) {
+            if (pinfo->num == h225ras_call->rsp_num) {
               /* We have seen this response before -> stop now with matching ras call */
               break;
             }
@@ -1131,12 +1132,12 @@ static void ras_call_matching(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
             /* We have not yet seen a response to that call, so
                this must be the first response; remember its
                frame number. */
-            h225ras_call->rsp_num = pinfo->fd->num;
+            h225ras_call->rsp_num = pinfo->num;
           }
           else {
             /* We have seen a response to this call - but was it
                *this* response? */
-            if (h225ras_call->rsp_num != pinfo->fd->num) {
+            if (h225ras_call->rsp_num != pinfo->num) {
               /* No, so it's a duplicate response.
                  Mark it as such. */
               pi->is_duplicate = TRUE;
@@ -1156,7 +1157,7 @@ static void ras_call_matching(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
             PROTO_ITEM_SET_GENERATED(ti);
 
             /* Calculate RAS Service Response Time */
-            nstime_delta(&delta, &pinfo->fd->abs_ts, &h225ras_call->req_time);
+            nstime_delta(&delta, &pinfo->abs_ts, &h225ras_call->req_time);
             pi->delta_time = delta; /* give it to tap */
 
             /* display Ras Service Response Time and make it filterable */

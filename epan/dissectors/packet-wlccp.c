@@ -689,8 +689,8 @@ static gint ett_framereport_elements_tree = -1;
 
 
 /* Code to actually dissect the packets */
-static void
-dissect_wlccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_wlccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	/* Set up structures needed to add the protocol subtree and manage it */
 	proto_item *ti;
@@ -708,11 +708,9 @@ dissect_wlccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	if(tvb_get_guint8(tvb, 0) == 0xC1)  /* Get the version number */
 	{
-
 		sap_id = tvb_get_guint8(tvb,1) & SAP_VALUE_MASK;
 		base_message_type=(tvb_get_guint8(tvb,6)) & MT_BASE_MSG_TYPE;
 		message_sub_type=(tvb_get_guint8(tvb, 6) &  MT_SUBTYPE ) >> 6;
-
 
 		switch (sap_id)
 		{
@@ -1033,6 +1031,7 @@ dissect_wlccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	} /* if tree */
 
+	return tvb_captured_length(tvb);
 } /* dissect_wlccp */
 
 

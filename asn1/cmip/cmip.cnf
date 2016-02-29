@@ -91,7 +91,7 @@ static const value_string cmip_error_code_vals[] = {
 
 # X.721
 
-#.REGISTER_NEW
+#.REGISTER
 BaseManagedObjectId				B "2.9.2.21.7.13"	"BaseManagedObjectId(13)"
 # X.721
 SimpleNameType					B "2.9.3.2.7.1"		"discriminatorId(1)"
@@ -145,7 +145,7 @@ PrioritisedObject				B "2.9.3.2.7.48"	"userObject(48)"
 ActiveDestination				B "2.9.3.2.7.49"	"activeDestination(49)"
 Allomorphs						B "2.9.3.2.7.50"	"allomorphs(50)"
 BackUpDestinationList			B "2.9.3.2.7.51"	"backUpDestinationList(51)"
-CapacityAlarmThreshold			B "2.9.3.2.7.52"	"capacityAlarmTreshold(52)"
+CapacityAlarmThreshold			B "2.9.3.2.7.52"	"capacityAlarmThreshold(52)"
 ConfirmedMode					B "2.9.3.2.7.53"	"confirmedMode(53)"
 CurrentLogSize					B "2.9.3.2.7.54"	"currentLogSize(54)"
 Destination						B "2.9.3.2.7.55"	"destination(55)"
@@ -216,7 +216,7 @@ Priority
 RejectProblem
 
 
-#.PDU_NEW
+#.PDU
 
 
 #.FN_HDR CMIPAbortInfo

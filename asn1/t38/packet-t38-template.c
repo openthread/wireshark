@@ -53,16 +53,13 @@
 #include <epan/prefs.h>
 #include <epan/ipproto.h>
 #include <epan/asn1.h>
+#include <epan/proto_data.h>
 
 #include "packet-t38.h"
 #include "packet-per.h"
 #include "packet-tpkt.h"
 
 void proto_register_t38(void);
-
-#define PORT_T38 6004
-static guint global_t38_tcp_port = PORT_T38;
-static guint global_t38_udp_port = PORT_T38;
 
 static int t38_tap = -1;
 
@@ -232,7 +229,7 @@ void t38_add_address(packet_info *pinfo,
                 return;
         }
 
-        SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+        clear_address(&null_addr);
 
         /*
          * Check if the ip address and port combination is not
@@ -273,25 +270,25 @@ void t38_add_address(packet_info *pinfo,
          */
         g_strlcpy(p_conversation_data->setup_method, setup_method, MAX_T38_SETUP_METHOD_SIZE);
         p_conversation_data->setup_frame_number = setup_frame_number;
-		p_conversation_data->src_t38_info.reass_ID = 0;
-		p_conversation_data->src_t38_info.reass_start_seqnum = -1;
-		p_conversation_data->src_t38_info.reass_data_type = 0;
-		p_conversation_data->src_t38_info.last_seqnum = -1;
-		p_conversation_data->src_t38_info.packet_lost = 0;
-		p_conversation_data->src_t38_info.burst_lost = 0;
-		p_conversation_data->src_t38_info.time_first_t4_data = 0;
-		p_conversation_data->src_t38_info.additional_hdlc_data_field_counter = 0;
-		p_conversation_data->src_t38_info.seqnum_prev_data_field = -1;
+        p_conversation_data->src_t38_info.reass_ID = 0;
+        p_conversation_data->src_t38_info.reass_start_seqnum = -1;
+        p_conversation_data->src_t38_info.reass_data_type = 0;
+        p_conversation_data->src_t38_info.last_seqnum = -1;
+        p_conversation_data->src_t38_info.packet_lost = 0;
+        p_conversation_data->src_t38_info.burst_lost = 0;
+        p_conversation_data->src_t38_info.time_first_t4_data = 0;
+        p_conversation_data->src_t38_info.additional_hdlc_data_field_counter = 0;
+        p_conversation_data->src_t38_info.seqnum_prev_data_field = -1;
 
-		p_conversation_data->dst_t38_info.reass_ID = 0;
-		p_conversation_data->dst_t38_info.reass_start_seqnum = -1;
-		p_conversation_data->dst_t38_info.reass_data_type = 0;
-		p_conversation_data->dst_t38_info.last_seqnum = -1;
-		p_conversation_data->dst_t38_info.packet_lost = 0;
-		p_conversation_data->dst_t38_info.burst_lost = 0;
-		p_conversation_data->dst_t38_info.time_first_t4_data = 0;
-		p_conversation_data->dst_t38_info.additional_hdlc_data_field_counter = 0;
-		p_conversation_data->dst_t38_info.seqnum_prev_data_field = -1;
+        p_conversation_data->dst_t38_info.reass_ID = 0;
+        p_conversation_data->dst_t38_info.reass_start_seqnum = -1;
+        p_conversation_data->dst_t38_info.reass_data_type = 0;
+        p_conversation_data->dst_t38_info.last_seqnum = -1;
+        p_conversation_data->dst_t38_info.packet_lost = 0;
+        p_conversation_data->dst_t38_info.burst_lost = 0;
+        p_conversation_data->dst_t38_info.time_first_t4_data = 0;
+        p_conversation_data->dst_t38_info.additional_hdlc_data_field_counter = 0;
+        p_conversation_data->dst_t38_info.seqnum_prev_data_field = -1;
 }
 
 
@@ -382,7 +379,7 @@ force_reassemble_seq(reassembly_table *table, packet_info *pinfo, guint32 id)
 
 	/* mark this packet as defragmented */
 	fd_head->flags |= FD_DEFRAGMENTED;
-	fd_head->reassembled_in=pinfo->fd->num;
+	fd_head->reassembled_in=pinfo->num;
 
 	col_append_fstr(pinfo->cinfo, COL_INFO, " (t4-data Reassembled: %d pack lost, %d pack burst lost)", packet_lost, burst_lost);
 
@@ -428,55 +425,55 @@ init_t38_info_conv(packet_info *pinfo)
 	p_t38_conv = NULL;
 
 	/* Use existing packet info if available */
-	 p_t38_packet_conv = (t38_conv *)p_get_proto_data(wmem_file_scope(), pinfo, proto_t38, 0);
+	p_t38_packet_conv = (t38_conv *)p_get_proto_data(wmem_file_scope(), pinfo, proto_t38, 0);
 
 
 	/* find the conversation used for Reassemble and Setup Info */
-	p_conv = find_conversation(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src,
+	p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
                                    pinfo->ptype,
                                    pinfo->destport, pinfo->srcport, NO_ADDR_B | NO_PORT_B);
 
 	/* create a conv if it doen't exist */
 	if (!p_conv) {
-		p_conv = conversation_new(pinfo->fd->num, &pinfo->net_src, &pinfo->net_dst,
+		p_conv = conversation_new(pinfo->num, &pinfo->net_src, &pinfo->net_dst,
 			      pinfo->ptype, pinfo->srcport, pinfo->destport, NO_ADDR_B | NO_PORT_B);
 
 		/* Set dissector */
 		conversation_set_dissector(p_conv, t38_udp_handle);
 	}
 
+	p_t38_conv = (t38_conv *)conversation_get_proto_data(p_conv, proto_t38);
+
+	/* create the conversation if it doesn't exist */
+	if (!p_t38_conv) {
+		p_t38_conv = wmem_new(wmem_file_scope(), t38_conv);
+		p_t38_conv->setup_method[0] = '\0';
+		p_t38_conv->setup_frame_number = 0;
+
+		p_t38_conv->src_t38_info.reass_ID = 0;
+		p_t38_conv->src_t38_info.reass_start_seqnum = -1;
+		p_t38_conv->src_t38_info.reass_data_type = 0;
+		p_t38_conv->src_t38_info.last_seqnum = -1;
+		p_t38_conv->src_t38_info.packet_lost = 0;
+		p_t38_conv->src_t38_info.burst_lost = 0;
+		p_t38_conv->src_t38_info.time_first_t4_data = 0;
+		p_t38_conv->src_t38_info.additional_hdlc_data_field_counter = 0;
+		p_t38_conv->src_t38_info.seqnum_prev_data_field = -1;
+
+		p_t38_conv->dst_t38_info.reass_ID = 0;
+		p_t38_conv->dst_t38_info.reass_start_seqnum = -1;
+		p_t38_conv->dst_t38_info.reass_data_type = 0;
+		p_t38_conv->dst_t38_info.last_seqnum = -1;
+		p_t38_conv->dst_t38_info.packet_lost = 0;
+		p_t38_conv->dst_t38_info.burst_lost = 0;
+		p_t38_conv->dst_t38_info.time_first_t4_data = 0;
+		p_t38_conv->dst_t38_info.additional_hdlc_data_field_counter = 0;
+		p_t38_conv->dst_t38_info.seqnum_prev_data_field = -1;
+
+		conversation_add_proto_data(p_conv, proto_t38, p_t38_conv);
+	}
+
 	if (!p_t38_packet_conv) {
-		p_t38_conv = (t38_conv *)conversation_get_proto_data(p_conv, proto_t38);
-
-		/* create the conversation if it doen't exist */
-		if (!p_t38_conv) {
-			p_t38_conv = wmem_new(wmem_file_scope(), t38_conv);
-			p_t38_conv->setup_method[0] = '\0';
-			p_t38_conv->setup_frame_number = 0;
-
-			p_t38_conv->src_t38_info.reass_ID = 0;
-			p_t38_conv->src_t38_info.reass_start_seqnum = -1;
-			p_t38_conv->src_t38_info.reass_data_type = 0;
-			p_t38_conv->src_t38_info.last_seqnum = -1;
-			p_t38_conv->src_t38_info.packet_lost = 0;
-			p_t38_conv->src_t38_info.burst_lost = 0;
-			p_t38_conv->src_t38_info.time_first_t4_data = 0;
-			p_t38_conv->src_t38_info.additional_hdlc_data_field_counter = 0;
-			p_t38_conv->src_t38_info.seqnum_prev_data_field = -1;
-
-			p_t38_conv->dst_t38_info.reass_ID = 0;
-			p_t38_conv->dst_t38_info.reass_start_seqnum = -1;
-			p_t38_conv->dst_t38_info.reass_data_type = 0;
-			p_t38_conv->dst_t38_info.last_seqnum = -1;
-			p_t38_conv->dst_t38_info.packet_lost = 0;
-			p_t38_conv->dst_t38_info.burst_lost = 0;
-			p_t38_conv->dst_t38_info.time_first_t4_data = 0;
-			p_t38_conv->dst_t38_info.additional_hdlc_data_field_counter = 0;
-			p_t38_conv->dst_t38_info.seqnum_prev_data_field = -1;
-
-			conversation_add_proto_data(p_conv, proto_t38, p_t38_conv);
-		}
-
 		/* copy the t38 conversation info to the packet t38 conversation */
 		p_t38_packet_conv = wmem_new(wmem_file_scope(), t38_conv);
 		g_strlcpy(p_t38_packet_conv->setup_method, p_t38_conv->setup_method, MAX_T38_SETUP_METHOD_SIZE);
@@ -488,7 +485,7 @@ init_t38_info_conv(packet_info *pinfo)
 		p_add_proto_data(wmem_file_scope(), pinfo, proto_t38, 0, p_t38_packet_conv);
 	}
 
-	if (ADDRESSES_EQUAL(&p_conv->key_ptr->addr1, &pinfo->net_src)) {
+	if (addresses_equal(&p_conv->key_ptr->addr1, &pinfo->net_src)) {
 		p_t38_conv_info = &(p_t38_conv->src_t38_info);
 		p_t38_packet_conv_info = &(p_t38_packet_conv->src_t38_info);
 	} else {
@@ -501,8 +498,8 @@ init_t38_info_conv(packet_info *pinfo)
 }
 
 /* Entry point for dissection */
-static void
-dissect_t38_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_t38_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint8 octet1;
 	proto_item *it;
@@ -515,8 +512,7 @@ dissect_t38_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (dissect_possible_rtpv2_packets_as_rtp){
 		octet1 = tvb_get_guint8(tvb, offset);
 		if (RTP_VERSION(octet1) == 2){
-			call_dissector(rtp_handle,tvb,pinfo,tree);
-			return;
+			return call_dissector(rtp_handle,tvb,pinfo,tree);
 		}
 	}
 
@@ -548,15 +544,16 @@ dissect_t38_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				"[MALFORMED PACKET or wrong preference settings]");
 		col_append_str(pinfo->cinfo, COL_INFO, " [Malformed?]");
 	}
+	return tvb_captured_length(tvb);
 }
 
-static void
-dissect_t38_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_t38_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *it;
 	proto_tree *tr;
 	guint32 offset=0;
-    tvbuff_t *next_tvb;
+        tvbuff_t *next_tvb;
 	guint16 ifp_packet_number=1;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "T.38");
@@ -598,10 +595,11 @@ dissect_t38_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 	}
 
+	return tvb_captured_length(tvb);
 }
 
-static void
-dissect_t38_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_t38_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	primary_part = TRUE;
 
@@ -609,11 +607,12 @@ dissect_t38_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dissect_tpkt_encap(tvb,pinfo,tree,t38_tpkt_reassembly,t38_tcp_pdu_handle);
 	}
 	else if((t38_tpkt_usage == T38_TPKT_NEVER) || (is_tpkt(tvb,1) == -1)){
-		dissect_t38_tcp_pdu(tvb, pinfo, tree);
+		dissect_t38_tcp_pdu(tvb, pinfo, tree, data);
 	}
 	else {
 		dissect_tpkt_encap(tvb,pinfo,tree,t38_tpkt_reassembly,t38_tcp_pdu_handle);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Look for conversation info and display any setup info found */
@@ -740,14 +739,8 @@ proto_register_t38(void)
 		"be dissected as RTP packet or T.38 packet. If enabled there is a risk that T.38 UDPTL "
 		"packets with sequence number higher than 32767 may be dissected as RTP.",
 	    &dissect_possible_rtpv2_packets_as_rtp);
-	prefs_register_uint_preference(t38_module, "tcp.port",
-		"T.38 TCP Port",
-		"Set the TCP port for T.38 messages",
-		10, &global_t38_tcp_port);
-	prefs_register_uint_preference(t38_module, "udp.port",
-		"T.38 UDP Port",
-		"Set the UDP port for T.38 messages",
-		10, &global_t38_udp_port);
+	prefs_register_obsolete_preference(t38_module, "tcp.port");
+	prefs_register_obsolete_preference(t38_module, "udp.port");
 	prefs_register_bool_preference(t38_module, "reassembly",
 		"Reassemble T.38 PDUs over TPKT over TCP",
 		"Whether the dissector should reassemble T.38 PDUs spanning multiple TCP segments "
@@ -772,8 +765,6 @@ void
 proto_reg_handoff_t38(void)
 {
 	static gboolean t38_prefs_initialized = FALSE;
-	static guint tcp_port;
-	static guint udp_port;
 
 	if (!t38_prefs_initialized) {
 		t38_udp_handle=create_dissector_handle(dissect_t38_udp, proto_t38);
@@ -784,15 +775,5 @@ proto_reg_handoff_t38(void)
 		data_handle = find_dissector("data");
 		t38_prefs_initialized = TRUE;
 	}
-	else {
-		dissector_delete_uint("tcp.port", tcp_port, t38_tcp_handle);
-		dissector_delete_uint("udp.port", udp_port, t38_udp_handle);
-	}
-	tcp_port = global_t38_tcp_port;
-	udp_port = global_t38_udp_port;
-
-	dissector_add_uint("tcp.port", tcp_port, t38_tcp_handle);
-	dissector_add_uint("udp.port", udp_port, t38_udp_handle);
-
 }
 

@@ -116,7 +116,7 @@ iostat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt, const void *du
     }
 
     if (mit->parent->start_time == 0) {
-        mit->parent->start_time = pinfo->fd->abs_ts.secs - pinfo->rel_ts.secs;
+        mit->parent->start_time = pinfo->abs_ts.secs - pinfo->rel_ts.secs;
     }
 
     /* The prev item is always the last interval in which we saw packets. */
@@ -842,7 +842,7 @@ iostat_draw(void *arg)
     printf("| Col");
     for (j=0; j<num_cols; j++) {
         printf((j == 0 ? "%2u: " : "|    %2u: "), j+1);
-        if (!iot->filters[j] || (iot->filters[j] == 0)) {
+        if (!iot->filters[j]) {
             /*
             * An empty (no filter) comma field was specified */
             spaces_s = &spaces[16 + 10];

@@ -121,8 +121,8 @@ static int hf_radius_id = -1;
 static int hf_radius_code = -1;
 static int hf_radius_length = -1;
 static int hf_radius_authenticator = -1;
-static int hf_radius_authenticator_valid = -1 ;
-static int hf_radius_authenticator_invalid = -1 ;
+static int hf_radius_authenticator_valid = -1;
+static int hf_radius_authenticator_invalid = -1;
 
 static int hf_radius_chap_password = -1;
 static int hf_radius_chap_ident = -1;
@@ -136,14 +136,45 @@ static int hf_radius_cosine_vpi = -1;
 static int hf_radius_cosine_vci = -1;
 
 static int hf_radius_ascend_data_filter = -1;
+static int hf_radius_ascend_data_filter_type = -1;
+static int hf_radius_ascend_data_filter_filteror = -1;
+static int hf_radius_ascend_data_filter_inout = -1;
+static int hf_radius_ascend_data_filter_spare = -1;
+static int hf_radius_ascend_data_filter_src_ipv4 = -1;
+static int hf_radius_ascend_data_filter_dst_ipv4 = -1;
+static int hf_radius_ascend_data_filter_src_ipv6 = -1;
+static int hf_radius_ascend_data_filter_dst_ipv6 = -1;
+static int hf_radius_ascend_data_filter_src_ip_prefix = -1;
+static int hf_radius_ascend_data_filter_dst_ip_prefix = -1;
+static int hf_radius_ascend_data_filter_protocol = -1;
+static int hf_radius_ascend_data_filter_established = -1;
+static int hf_radius_ascend_data_filter_src_port = -1;
+static int hf_radius_ascend_data_filter_dst_port = -1;
+static int hf_radius_ascend_data_filter_src_port_qualifier = -1;
+static int hf_radius_ascend_data_filter_dst_port_qualifier = -1;
+static int hf_radius_ascend_data_filter_reserved = -1;
+
 static int hf_radius_vsa_fragment = -1;
 static int hf_radius_eap_fragment = -1;
 static int hf_radius_avp = -1;
+static int hf_radius_avp_length = -1;
+static int hf_radius_avp_type = -1;
 static int hf_radius_3gpp_ms_tmime_zone = -1;
+
+static int hf_radius_egress_vlanid_tag = -1;
+static int hf_radius_egress_vlanid_pad = -1;
+static int hf_radius_egress_vlanid = -1;
+
+static int hf_radius_egress_vlan_name_tag = -1;
+static int hf_radius_egress_vlan_name = -1;
+
 
 static gint ett_radius = -1;
 static gint ett_radius_avp = -1;
-static gint ett_radius_authenticator = -1 ;
+
+static gint ett_radius_authenticator = -1;
+static gint ett_radius_ascend = -1;
+
 static gint ett_eap = -1;
 static gint ett_chap = -1;
 
@@ -258,7 +289,7 @@ radiusstat_packet(void *prs, packet_info *pinfo, epan_dissect_t *edt _U_, const 
 {
 	rtd_data_t* rtd_data = (rtd_data_t*)prs;
 	rtd_stat_table* rs = &rtd_data->stat_table;
-	const radius_info_t *ri=(radius_info_t *)pri;
+	const radius_info_t *ri = (const radius_info_t *)pri;
 	nstime_t delta;
 	radius_category radius_cat = RADIUS_CAT_OTHERS;
 	int ret = 0;
@@ -349,7 +380,7 @@ radiusstat_packet(void *prs, packet_info *pinfo, epan_dissect_t *edt _U_, const 
 			rs->time_stats[RADIUS_CAT_OVERALL].open_req_num--;
 			rs->time_stats[radius_cat].open_req_num--;
 			/* calculate time delta between request and response */
-			nstime_delta(&delta, &pinfo->fd->abs_ts, &ri->req_time);
+			nstime_delta(&delta, &pinfo->abs_ts, &ri->req_time);
 
 			time_stat_update(&(rs->time_stats[RADIUS_CAT_OVERALL].rtd[0]),&delta, pinfo);
 			time_stat_update(&(rs->time_stats[radius_cat].rtd[0]),&delta, pinfo);
@@ -509,8 +540,8 @@ static const gchar *dissect_framed_ip_address(proto_tree* tree, tvbuff_t* tvb, p
 	if (len != 4)
 		return "[wrong length for IP address]";
 
-	ip=tvb_get_ipv4(tvb,0);
-	ip_h=g_ntohl(ip);
+	ip = tvb_get_ipv4(tvb,0);
+	ip_h = g_ntohl(ip);
 
 	if (ip_h == 0xFFFFFFFF) {
 		str = "Negotiated";
@@ -539,8 +570,8 @@ static const gchar *dissect_login_ip_host(proto_tree* tree, tvbuff_t* tvb, packe
 	if (len != 4)
 		return "[wrong length for IP address]";
 
-	ip=tvb_get_ipv4(tvb,0);
-	ip_h=g_ntohl(ip);
+	ip = tvb_get_ipv4(tvb,0);
+	ip_h = g_ntohl(ip);
 
 	if (ip_h == 0xFFFFFFFF) {
 		str = "User-selected";
@@ -559,7 +590,7 @@ static const gchar *dissect_login_ip_host(proto_tree* tree, tvbuff_t* tvb, packe
 	return str;
 }
 
-static const value_string ascenddf_filtertype[] = { {0, "generic"}, {1, "ip"}, {0, NULL} };
+static const value_string ascenddf_filtertype[] = { {0, "generic"}, {1, "ipv4"}, {3, "ipv6"}, {0, NULL} };
 static const value_string ascenddf_filteror[]   = { {0, "drop"}, {1, "forward"}, {0, NULL} };
 static const value_string ascenddf_inout[]      = { {0, "out"}, {1, "in"}, {0, NULL} };
 static const value_string ascenddf_proto[]      = { {1, "icmp"}, {6, "tcp"}, {17, "udp"}, {0, NULL} };
@@ -567,52 +598,115 @@ static const value_string ascenddf_portq[]      = { {1, "lt"}, {2, "eq"}, {3, "g
 
 static const gchar *dissect_ascend_data_filter(proto_tree* tree, tvbuff_t* tvb, packet_info* pinfo _U_) {
 	wmem_strbuf_t *filterstr;
+	proto_item *ti;
+	proto_tree *ascend_tree;
 	int len;
-	guint8 proto, srclen, dstlen;
-	guint32 srcip, dstip;
+	guint8 type,proto, srclen, dstlen;
+	address srcip, dstip;
 	guint16 srcport, dstport;
 	guint8 srcportq, dstportq;
-
+	guint8 iplen = 4;
+	guint offset = 0;
 	len=tvb_reported_length(tvb);
 
-	if (len != 24) {
+	if (len != 24 && len != 48) {
 		return wmem_strdup_printf(wmem_packet_scope(), "Wrong attribute length %d", len);
 	}
 
-	filterstr=wmem_strbuf_sized_new(wmem_packet_scope(), 64, 64);
+	filterstr=wmem_strbuf_sized_new(wmem_packet_scope(), 128, 128);
 
-	proto_tree_add_item(tree, hf_radius_ascend_data_filter, tvb, 0, -1, ENC_NA);
+	ti = proto_tree_add_item(tree, hf_radius_ascend_data_filter, tvb, 0, -1, ENC_NA);
+	ascend_tree = proto_item_add_subtree(ti, ett_radius_ascend);
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+	type = tvb_get_guint8(tvb, 0);
+	offset += 1;
+	if (type == 3) { /* IPv6 */
+		iplen = 16;
+	}
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_filteror, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_inout, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_spare, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+
+	if(type == 3) { /* IPv6 */
+		proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_src_ipv6, tvb, offset, 16, ENC_NA);
+		offset += 16;
+		proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_dst_ipv6, tvb, offset, 16, ENC_NA);
+		offset += 16;
+	} else{ /* IPv4 */
+		proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_src_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
+		proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_dst_ipv4, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
+	}
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_src_ip_prefix, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_dst_ip_prefix, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_protocol, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_established, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_src_port, tvb, offset, 2, ENC_BIG_ENDIAN);
+	offset += 2;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_dst_port, tvb, offset, 2, ENC_BIG_ENDIAN);
+	offset += 2;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_src_port_qualifier, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_dst_port_qualifier, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset += 1;
+
+	proto_tree_add_item(ascend_tree, hf_radius_ascend_data_filter_reserved, tvb, offset, 2, ENC_BIG_ENDIAN);
 
 	wmem_strbuf_append_printf(filterstr, "%s %s %s",
-		val_to_str(tvb_get_guint8(tvb, 0), ascenddf_filtertype, "%u"),
+		val_to_str(type, ascenddf_filtertype, "%u"),
 		val_to_str(tvb_get_guint8(tvb, 2), ascenddf_inout, "%u"),
 		val_to_str(tvb_get_guint8(tvb, 1), ascenddf_filteror, "%u"));
 
-	proto=tvb_get_guint8(tvb, 14);
+
+	proto = tvb_get_guint8(tvb, 6+iplen*2);
 	if (proto) {
 		wmem_strbuf_append_printf(filterstr, " %s",
 				val_to_str(proto, ascenddf_proto, "%u"));
 	}
 
-	srcip=tvb_get_ipv4(tvb, 4);
-	srclen=tvb_get_guint8(tvb, 12);
-	srcport=tvb_get_ntohs(tvb, 16);
-	srcportq=tvb_get_guint8(tvb, 20);
+	if (type == 3) { /* IPv6 */
+		set_address_tvb(&srcip, AT_IPv6, 16, tvb, 4);
+	} else {
+		set_address_tvb(&srcip, AT_IPv4, 4, tvb, 4);
+	}
+	srclen = tvb_get_guint8(tvb, 4+iplen*2);
+	srcport = tvb_get_ntohs(tvb, 9+iplen*2);
+	srcportq = tvb_get_guint8(tvb, 12+iplen*2);
 
-	if (srcip || srclen || srcportq) {
-		wmem_strbuf_append_printf(filterstr, " srcip %s/%d", tvb_ip_to_str(tvb, 4), srclen);
+	if (srclen || srcportq) {
+		wmem_strbuf_append_printf(filterstr, " srcip %s/%d", address_to_display(wmem_packet_scope(), &srcip), srclen);
 		if (srcportq)
 			wmem_strbuf_append_printf(filterstr, " srcport %s %d",
 				val_to_str(srcportq, ascenddf_portq, "%u"), srcport);
 	}
 
-	dstip=tvb_get_ipv4(tvb, 8);
-	dstlen=tvb_get_guint8(tvb, 13);
-	dstport=tvb_get_ntohs(tvb, 18);
-	dstportq=tvb_get_guint8(tvb, 21);
+	if (type == 3) { /* IPv6-*/
+		set_address_tvb(&dstip, AT_IPv6, 16, tvb, 4+iplen);
+	} else {
+		set_address_tvb(&dstip, AT_IPv4, 4, tvb, 4+iplen);
+	}
+	dstlen = tvb_get_guint8(tvb, 5+iplen*2);
+	dstport = tvb_get_ntohs(tvb, 10+iplen*2);
+	dstportq = tvb_get_guint8(tvb, 13+iplen*2);
 
-	if (dstip || dstlen || dstportq) {
-		wmem_strbuf_append_printf(filterstr, " dstip %s/%d", tvb_ip_to_str(tvb, 8), dstlen);
+	if (dstlen || dstportq) {
+		wmem_strbuf_append_printf(filterstr, " dstip %s/%d", address_to_display(wmem_packet_scope(), &dstip), dstlen);
 		if (dstportq)
 			wmem_strbuf_append_printf(filterstr, " dstport %s %d",
 				val_to_str(dstportq, ascenddf_portq, "%u"), dstport);
@@ -630,7 +724,7 @@ static const gchar *dissect_framed_ipx_network(proto_tree* tree, tvbuff_t* tvb, 
 	if (len != 4)
 		return "[wrong length for IPX network]";
 
-	net=tvb_get_ntohl(tvb,0);
+	net = tvb_get_ntohl(tvb,0);
 
 	if (net == 0xFFFFFFFE)
 		str = "NAS-selected";
@@ -693,6 +787,45 @@ dissect_radius_3gpp_ms_tmime_zone(proto_tree* tree, tvbuff_t* tvb, packet_info* 
 	return wmem_strdup_printf(wmem_packet_scope(), "Timezone: GMT %c%d hours %d minutes %s ",
 				  sign, oct / 4, oct % 4 * 15, val_to_str_const(daylight_saving_time, daylight_saving_time_vals, "Unknown"));
 
+}
+
+static const value_string egress_vlan_tag_vals[] = {
+	{ 0x31, "Tagged"},
+	{ 0x32, "Untagged"},
+	{  0, NULL}
+};
+static const gchar *dissect_rfc4675_egress_vlanid(proto_tree* tree, tvbuff_t* tvb, packet_info* pinfo _U_) {
+	int len;
+	guint32 vlanid;
+
+	len = tvb_reported_length(tvb);
+	if (len != 4)
+		return "[wrong length for Egress-VLANID ]";
+
+	proto_tree_add_item(tree, hf_radius_egress_vlanid_tag, tvb, 0, 4, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_radius_egress_vlanid_pad, tvb, 0, 4, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_radius_egress_vlanid, tvb, 0, 4, ENC_BIG_ENDIAN);
+	vlanid = tvb_get_ntohl(tvb, 0);
+
+	return wmem_strdup_printf(wmem_packet_scope(), "%s, Vlan ID: %u",
+				   val_to_str_const( ((vlanid&0xFF000000)>>24), egress_vlan_tag_vals, "Unknown"), vlanid&0xFFF);
+}
+
+static const gchar *dissect_rfc4675_egress_vlan_name(proto_tree* tree, tvbuff_t* tvb, packet_info* pinfo _U_) {
+	int len;
+	guint8 tag;
+
+	len = tvb_reported_length(tvb);
+	if (len < 2)
+		return "[wrong length for Egress-VLAN-Name ]";
+
+	proto_tree_add_item(tree, hf_radius_egress_vlan_name_tag, tvb, 0, 1, ENC_BIG_ENDIAN);
+	tag = tvb_get_guint8(tvb, 0);
+	len -= 1;
+	proto_tree_add_item(tree, hf_radius_egress_vlan_name, tvb, 1, len, ENC_ASCII|ENC_NA);
+
+	return wmem_strdup_printf(wmem_packet_scope(), "%s, Vlan Name: %s",
+				   val_to_str_const( tag, egress_vlan_tag_vals, "Unknown"), tvb_get_string_enc(wmem_packet_scope(),tvb, 1, len, ENC_ASCII|ENC_NA));
 }
 
 static void
@@ -836,7 +969,7 @@ void radius_string(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _
 			proto_tree_add_item(tree, a->hf_alt, tvb, offset, len, ENC_NA);
 		} else {
 			gchar *buffer;
-			buffer=(gchar *)wmem_alloc(wmem_packet_scope(), 1024); /* an AVP value can be at most 253 bytes */
+			buffer = (gchar *)wmem_alloc(wmem_packet_scope(), 1024); /* an AVP value can be at most 253 bytes */
 			radius_decrypt_avp(buffer,1024,tvb,offset,len);
 			proto_item_append_text(avp_item, "Decrypted: %s", buffer);
 			proto_tree_add_string(tree, a->hf, tvb, offset, len, buffer);
@@ -861,25 +994,18 @@ void radius_octets(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _
 }
 
 void radius_ipaddr(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _U_, tvbuff_t* tvb, int offset, int len, proto_item* avp_item) {
-	guint32 ip;
-	gchar buf[MAX_IP_STR_LEN];
 
 	if (len != 4) {
 		proto_item_append_text(avp_item, "[wrong length for IP address]");
 		return;
 	}
 
-	ip=tvb_get_ipv4(tvb,offset);
-
 	proto_tree_add_item(tree, a->hf, tvb, offset, len, ENC_BIG_ENDIAN);
 
-	ip_to_str_buf((guint8 *)&ip, buf, MAX_IP_STR_LEN);
-	proto_item_append_text(avp_item, "%s", buf);
+	proto_item_append_text(avp_item, "%s", tvb_ip_to_str(tvb, offset));
 }
 
 void radius_ipv6addr(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _U_, tvbuff_t* tvb, int offset, int len, proto_item* avp_item) {
-	struct e_in6_addr ipv6_buff;
-	gchar txtbuf[256];
 
 	if (len != 16) {
 		proto_item_append_text(avp_item, "[wrong length for IPv6 address]");
@@ -888,9 +1014,7 @@ void radius_ipv6addr(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo
 
 	proto_tree_add_item(tree, a->hf, tvb, offset, len, ENC_NA);
 
-	tvb_get_ipv6(tvb, offset, &ipv6_buff);
-	ip6_to_str_buf(&ipv6_buff, txtbuf);
-	proto_item_append_text(avp_item, "%s", txtbuf);
+	proto_item_append_text(avp_item, "%s", tvb_ip6_to_str(tvb, offset));
 }
 
 void radius_ipv6prefix(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _U_, tvbuff_t* tvb, int offset, int len, proto_item* avp_item) {
@@ -927,23 +1051,16 @@ void radius_ipv6prefix(radius_attr_info_t* a, proto_tree* tree, packet_info *pin
 
 
 void radius_combo_ip(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _U_, tvbuff_t* tvb, int offset, int len, proto_item* avp_item) {
-	guint32 ip;
-	struct e_in6_addr ipv6_buff;
-	gchar buf[256];
 
 	if (len == 4){
-		ip=tvb_get_ipv4(tvb,offset);
 
 		proto_tree_add_item(tree, a->hf, tvb, offset, len, ENC_BIG_ENDIAN);
 
-		ip_to_str_buf((guint8 *)&ip, buf, MAX_IP_STR_LEN);
-		proto_item_append_text(avp_item, "%s", buf);
+		proto_item_append_text(avp_item, "%s", tvb_ip_to_str(tvb, offset));
 	} else if (len == 16) {
 		proto_tree_add_item(tree, a->hf_alt, tvb, offset, len, ENC_NA);
 
-		tvb_get_ipv6(tvb, offset, &ipv6_buff);
-		ip6_to_str_buf(&ipv6_buff, buf);
-		proto_item_append_text(avp_item, "%s", buf);
+		proto_item_append_text(avp_item, "%s", tvb_ip6_to_str(tvb, offset));
 	} else {
 		proto_item_append_text(avp_item, "[wrong length for both of IPv4 and IPv6 address]");
 		return;
@@ -958,7 +1075,7 @@ void radius_ipxnet(radius_attr_info_t* a, proto_tree* tree, packet_info *pinfo _
 		return;
 	}
 
-	net=tvb_get_ntohl(tvb,offset);
+	net = tvb_get_ntohl(tvb,offset);
 
 	proto_tree_add_item(tree, a->hf, tvb, offset, len, ENC_NA);
 
@@ -1222,6 +1339,9 @@ void dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_
 
 			vendor_tree = proto_item_add_subtree(avp_item,vendor->ett);
 
+			proto_tree_add_item(vendor_tree, hf_radius_avp_type, tvb, offset-6, 1, ENC_BIG_ENDIAN);
+			proto_tree_add_item(vendor_tree, hf_radius_avp_length, tvb, offset-5, 1, ENC_BIG_ENDIAN);
+
 			while (offset < max_offset) {
 				guint32 avp_vsa_type;
 				guint32 avp_vsa_len;
@@ -1351,6 +1471,9 @@ void dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_
 		}
 
 		avp_tree = proto_item_add_subtree(avp_item,dictionary_entry->ett);
+
+		proto_tree_add_item(avp_tree, hf_radius_avp_type, tvb, offset-2, 1, ENC_BIG_ENDIAN);
+		proto_tree_add_item(avp_tree, hf_radius_avp_length, tvb, offset-1, 1, ENC_BIG_ENDIAN);
 
 		if (show_length) {
 			avp_len_item = proto_tree_add_uint(avp_tree,
@@ -1500,7 +1623,7 @@ is_radius(tvbuff_t *tvb)
 	guint8 code;
 	guint16 length;
 
-	code=tvb_get_guint8(tvb, 0);
+	code = tvb_get_guint8(tvb, 0);
 	if (try_val_to_str_ext(code, &radius_pkt_type_codes_ext) == NULL) {
 		return FALSE;
 	}
@@ -1516,7 +1639,7 @@ is_radius(tvbuff_t *tvb)
 	 *  silently discarded.  The minimum length is 20 and maximum length
 	 *  is 4096.
 	 */
-	length=tvb_get_ntohs(tvb, 2);
+	length = tvb_get_ntohs(tvb, 2);
 	if ( (length<20) || (length>4096) ) {
 		return FALSE;
 	}
@@ -1541,21 +1664,21 @@ valid_authenticator(tvbuff_t *tvb, guint8 request_authenticator[])
 	guint tvb_length;
 	guint8 * payload;
 
-	tvb_length = tvb_captured_length(tvb) ; /* should it be tvb_reported_length ? */
+	tvb_length = tvb_captured_length(tvb); /* should it be tvb_reported_length ? */
 
 	/* copy response into payload */
-	payload = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_length) ;
+	payload = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_length);
 
 	/* replace authenticator in reply with the one in request*/
 	memcpy(payload+4, request_authenticator, AUTHENTICATOR_LENGTH);
 
 	/* calculate MD5 hash (payload+shared_secret) */
 	md5_init(&md_ctx);
-	md5_append(&md_ctx, payload, tvb_length) ;
-	md5_append(&md_ctx, shared_secret, strlen(shared_secret)) ;
+	md5_append(&md_ctx, payload, tvb_length);
+	md5_append(&md_ctx, shared_secret, strlen(shared_secret));
 	md5_finish(&md_ctx, digest);
 
-	return !memcmp(digest, authenticator, AUTHENTICATOR_LENGTH) ;
+	return !memcmp(digest, authenticator, AUTHENTICATOR_LENGTH);
 }
 
 static int
@@ -1572,7 +1695,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 	radius_call_info_key radius_call_key;
 	radius_call_info_key *new_radius_call_key;
 	radius_call_t *radius_call = NULL;
-	static address null_address = { AT_NONE, 0, NULL };
+	static address null_address = ADDRESS_INIT_NONE;
 
 	/* does this look like radius ? */
 	if(!is_radius(tvb)){
@@ -1582,9 +1705,9 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "RADIUS");
 	col_clear(pinfo->cinfo, COL_INFO);
 
-	rh.rh_code=tvb_get_guint8(tvb,0);
-	rh.rh_ident=tvb_get_guint8(tvb,1);
-	rh.rh_pktlength=tvb_get_ntohs(tvb,2);
+	rh.rh_code = tvb_get_guint8(tvb,0);
+	rh.rh_ident = tvb_get_guint8(tvb,1);
+	rh.rh_pktlength = tvb_get_ntohs(tvb,2);
 
 
 	/* Initialise stat info for passing to tap */
@@ -1679,13 +1802,13 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			 * pointer for the second address argument even
 			 * if you do that.
 			 */
-			conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+			conversation = find_conversation(pinfo->num, &pinfo->src,
 				&null_address, pinfo->ptype, pinfo->srcport,
 				pinfo->destport, 0);
 			if (conversation == NULL)
 			{
 				/* It's not part of any conversation - create a new one. */
-				conversation = conversation_new(pinfo->fd->num, &pinfo->src,
+				conversation = conversation_new(pinfo->num, &pinfo->src,
 					&null_address, pinfo->ptype, pinfo->srcport,
 					pinfo->destport, 0);
 			}
@@ -1694,7 +1817,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			radius_call_key.code = rh.rh_code;
 			radius_call_key.ident = rh.rh_ident;
 			radius_call_key.conversation = conversation;
-			radius_call_key.req_time = pinfo->fd->abs_ts;
+			radius_call_key.req_time = pinfo->abs_ts;
 
 			/* Look up the request */
 			radius_call = (radius_call_t *)g_hash_table_lookup(radius_calls, &radius_call_key);
@@ -1702,7 +1825,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			{
 				/* We've seen a request with this ID, with the same
 				   destination, before - but was it *this* request? */
-				if (pinfo->fd->num != radius_call->req_num)
+				if (pinfo->num != radius_call->req_num)
 				{
 					/* No, so it's a duplicate request. Mark it as such.
 					  FIXME: This is way too simple, as the request number
@@ -1732,17 +1855,17 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 				new_radius_call_key = wmem_new(wmem_file_scope(), radius_call_info_key);
 				*new_radius_call_key = radius_call_key;
 				radius_call = wmem_new(wmem_file_scope(), radius_call_t);
-				radius_call->req_num = pinfo->fd->num;
+				radius_call->req_num = pinfo->num;
 				radius_call->rsp_num = 0;
 				radius_call->ident = rh.rh_ident;
 				radius_call->code = rh.rh_code;
 				radius_call->responded = FALSE;
-				radius_call->req_time = pinfo->fd->abs_ts;
+				radius_call->req_time = pinfo->abs_ts;
 				radius_call->rspcode = 0;
 				/* Copy request authenticator for future validation */
 				if (validate_authenticator && *shared_secret != '\0')
 				{
-					radius_call->req_authenticator=(guint8 *)tvb_memdup(wmem_file_scope(), tvb, 4, AUTHENTICATOR_LENGTH);
+					radius_call->req_authenticator = (guint8 *)tvb_memdup(wmem_file_scope(), tvb, 4, AUTHENTICATOR_LENGTH);
 				}
 
 				/* Store it */
@@ -1801,7 +1924,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			 * pointer for the second address argument even
 			 * if you do that.
 			 */
-			conversation = find_conversation(pinfo->fd->num, &null_address,
+			conversation = find_conversation(pinfo->num, &null_address,
 				&pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 			if (conversation != NULL)
 			{
@@ -1811,7 +1934,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 				radius_call_key.code = rh.rh_code;
 				radius_call_key.ident = rh.rh_ident;
 				radius_call_key.conversation = conversation;
-				radius_call_key.req_time = pinfo->fd->abs_ts;
+				radius_call_key.req_time = pinfo->abs_ts;
 
 				radius_call = (radius_call_t *)g_hash_table_lookup(radius_calls, &radius_call_key);
 				if (radius_call)
@@ -1833,15 +1956,15 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 								"This is a response to a request in frame %u",
 								radius_call->req_num);
 							PROTO_ITEM_SET_GENERATED(item);
-							nstime_delta(&delta, &pinfo->fd->abs_ts, &radius_call->req_time);
+							nstime_delta(&delta, &pinfo->abs_ts, &radius_call->req_time);
 							item = proto_tree_add_time(radius_tree, hf_radius_time, tvb, 0, 0, &delta);
 							PROTO_ITEM_SET_GENERATED(item);
-							/* Resonse Authenticator Validation */
+							/* Response Authenticator Validation */
 							if (validate_authenticator && *shared_secret != '\0')
 							{
-								proto_item * authenticator_tree ;
-								int valid ;
-								valid = valid_authenticator(tvb, radius_call->req_authenticator) ;
+								proto_item * authenticator_tree;
+								int valid;
+								valid = valid_authenticator(tvb, radius_call->req_authenticator);
 
 								proto_item_append_text(authenticator_item, " [%s]", valid? "correct" : "incorrect");
 								authenticator_tree = proto_item_add_subtree(authenticator_item, ett_radius_authenticator);
@@ -1853,7 +1976,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 								if (!valid)
 								{
 									/* FIXME: this information disappears when a display filter is enterred */
-									col_append_fstr(pinfo->cinfo,COL_INFO," [incorrect authenticator]") ;
+									col_append_fstr(pinfo->cinfo,COL_INFO," [incorrect authenticator]");
 								}
 							}
 						}
@@ -1864,13 +1987,13 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 						/* We have not yet seen a response to that call, so
 						   this must be the first response; remember its
 						   frame number. */
-						radius_call->rsp_num = pinfo->fd->num;
+						radius_call->rsp_num = pinfo->num;
 					}
 					else
 					{
 						/* We have seen a response to this call - but was it
 						   *this* response? (disregard provisional responses) */
-						if ( (radius_call->rsp_num != pinfo->fd->num) && (radius_call->rspcode == rh.rh_code) )
+						if ( (radius_call->rsp_num != pinfo->num) && (radius_call->rspcode == rh.rh_code) )
 						{
 							/* No, so it's a duplicate response. Mark it as such. */
 							rad_info->is_duplicate = TRUE;
@@ -1901,8 +2024,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
 	if (radius_call)
 	{
-		rad_info->req_time.secs = radius_call->req_time.secs;
-		rad_info->req_time.nsecs = radius_call->req_time.nsecs;
+		rad_info->req_time = radius_call->req_time;
 	}
 
 	if (avplength > 0)
@@ -2229,6 +2351,57 @@ static void register_radius_fields(const char* unused _U_) {
 		 { &hf_radius_ascend_data_filter,
 		 { "Ascend Data Filter", "radius.ascenddatafilter", FT_BYTES, BASE_NONE, NULL, 0x0,
 			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_type,
+		 { "Type", "radius.ascenddatafilter.type", FT_UINT8, BASE_DEC, VALS(ascenddf_filtertype), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_filteror,
+		 { "Filter or forward", "radius.ascenddatafilter.filteror", FT_UINT8, BASE_DEC, VALS(ascenddf_filteror), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_inout,
+		 { "Indirection", "radius.ascenddatafilter.inout", FT_UINT8, BASE_DEC, VALS(ascenddf_inout), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_spare,
+		 { "Spare", "radius.ascenddatafilter.spare", FT_UINT8, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_src_ipv4,
+		 { "Source IPv4 address", "radius.ascenddatafilter.src_ipv4", FT_IPv4, BASE_NONE, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_dst_ipv4,
+		 { "Destination IPv4 address", "radius.ascenddatafilter.dst_ipv4", FT_IPv4, BASE_NONE, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_src_ipv6,
+		 { "Source IPv6 address", "radius.ascenddatafilter.src_ipv6", FT_IPv6, BASE_NONE, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_dst_ipv6,
+		 { "Destination IPv6 address", "radius.ascenddatafilter.dst_ipv6", FT_IPv6, BASE_NONE, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_src_ip_prefix,
+		 { "Source IP prefix", "radius.ascenddatafilter.src_prefix_ip", FT_UINT8, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_dst_ip_prefix,
+		 { "Destination IP prefix", "radius.ascenddatafilter.dst_prefix_ip", FT_UINT8, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_protocol,
+		 { "Protocol", "radius.ascenddatafilter.protocol", FT_UINT8, BASE_DEC, VALS(ascenddf_proto), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_established,
+		 { "Established", "radius.ascenddatafilter.established", FT_UINT8, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_src_port,
+		 { "Source Port", "radius.ascenddatafilter.src_port", FT_UINT16, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_dst_port,
+		 { "Destination Port", "radius.ascenddatafilter.dst_port", FT_UINT16, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_src_port_qualifier,
+		 { "Source Port Qualifier", "radius.ascenddatafilter.src_port_qualifier", FT_UINT8, BASE_DEC, VALS(ascenddf_portq), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_dst_port_qualifier,
+		 { "Destination Port Qualifier", "radius.ascenddatafilter.dst_port_qualifier", FT_UINT8, BASE_DEC, VALS(ascenddf_portq), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_ascend_data_filter_reserved,
+		 { "Reserved", "radius.ascenddatafilter.reserved", FT_UINT16, BASE_HEX, NULL, 0x0,
+			 NULL, HFILL }},
 		 { &hf_radius_vsa_fragment,
 		 { "VSA fragment", "radius.vsa_fragment", FT_BYTES, BASE_NONE, NULL, 0x0,
 			 NULL, HFILL }},
@@ -2237,6 +2410,27 @@ static void register_radius_fields(const char* unused _U_) {
 			 NULL, HFILL }},
 		 { &hf_radius_avp,
 		 { "AVP", "radius.avp", FT_BYTES, BASE_NONE, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_avp_length,
+		 { "AVP Length", "radius.avp.length", FT_UINT8, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_avp_type,
+		 { "AVP Type", "radius.avp.type", FT_UINT8, BASE_DEC, NULL, 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_egress_vlanid_tag,
+		 { "Tag", "radius.egress_vlanid_tag", FT_UINT32, BASE_HEX, VALS(egress_vlan_tag_vals), 0xFF000000,
+			 NULL, HFILL }},
+		 { &hf_radius_egress_vlanid_pad,
+		 { "Pad", "radius.egress_vlanid_pad", FT_UINT32, BASE_HEX, NULL, 0x00FFF000,
+			 NULL, HFILL }},
+		 { &hf_radius_egress_vlanid,
+		 { "Vlan ID", "radius.egress_vlanid", FT_UINT32, BASE_DEC, NULL, 0x00000FFF,
+			 NULL, HFILL }},
+		 { &hf_radius_egress_vlan_name_tag,
+		 { "Tag", "radius.egress_vlan_name_tag", FT_UINT8, BASE_HEX, VALS(egress_vlan_tag_vals), 0x0,
+			 NULL, HFILL }},
+		 { &hf_radius_egress_vlan_name,
+		 { "Vlan Name", "radius.egress_vlan_name", FT_STRING, BASE_NONE, NULL, 0x0,
 			 NULL, HFILL }},
 		 { &hf_radius_3gpp_ms_tmime_zone,
 		 { "Timezone", "radius.3gpp_ms_tmime_zone", FT_BYTES, BASE_NONE, NULL, 0x0,
@@ -2247,6 +2441,7 @@ static void register_radius_fields(const char* unused _U_) {
 		 &ett_radius,
 		 &ett_radius_avp,
 		 &ett_radius_authenticator,
+		 &ett_radius_ascend,
 		 &ett_eap,
 		 &ett_chap,
 		 &(no_dictionary_entry.ett),
@@ -2312,6 +2507,9 @@ static void register_radius_fields(const char* unused _U_) {
 	radius_register_avp_dissector(0,8,dissect_framed_ip_address);
 	radius_register_avp_dissector(0,14,dissect_login_ip_host);
 	radius_register_avp_dissector(0,23,dissect_framed_ipx_network);
+	radius_register_avp_dissector(0,56,dissect_rfc4675_egress_vlanid);
+	radius_register_avp_dissector(0,58,dissect_rfc4675_egress_vlan_name);
+
 	radius_register_avp_dissector(VENDOR_COSINE,5,dissect_cosine_vpvc);
 	/*
 	 * XXX - should we just call dissect_ascend_data_filter()
@@ -2336,8 +2534,8 @@ proto_register_radius(void)
 {
 	module_t *radius_module;
 
-	proto_radius = proto_register_protocol("Radius Protocol", "RADIUS", "radius");
-	new_register_dissector("radius", dissect_radius, proto_radius);
+	proto_radius = proto_register_protocol("RADIUS Protocol", "RADIUS", "radius");
+	register_dissector("radius", dissect_radius, proto_radius);
 	register_init_routine(&radius_init_protocol);
 	register_cleanup_routine(&radius_cleanup_protocol);
 	radius_module = prefs_register_protocol(proto_radius, proto_reg_handoff_radius);
@@ -2345,8 +2543,8 @@ proto_register_radius(void)
 					 "Shared secret used to decode User Passwords and validate Response Authenticators",
 					 &shared_secret);
 	prefs_register_bool_preference(radius_module,"validate_authenticator","Validate Reponse Authenticator",
-                                   "Whether to check or not if Response Authenticator is correct. You need to define shared secret for this to work.",
-                                   &validate_authenticator);
+				       "Whether to check or not if Response Authenticator is correct. You need to define shared secret for this to work.",
+				       &validate_authenticator);
 	prefs_register_bool_preference(radius_module,"show_length","Show AVP Lengths",
 				       "Whether to add or not to the tree the AVP's payload length",
 				       &show_length);

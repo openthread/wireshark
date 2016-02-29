@@ -1,5 +1,6 @@
 /* dissector_filters.h
- * Routines for dissector generated display filters
+ * Routines for dissector-generated conversation filters for use as
+ * display and color filters
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -35,24 +36,26 @@ extern "C" {
 /** callback function definition: is a filter available for this packet? */
 typedef gboolean (*is_filter_valid_func)(packet_info *pinfo);
 
-/** callback function definition: return the available filter for this packet or NULL if no filter is available */
-typedef const gchar* (*build_filter_string_func)(packet_info *pinfo);
-
+/** callback function definition: return the available filter for this packet or NULL if no filter is available,
+    Filter needs to be freed after use */
+typedef gchar* (*build_filter_string_func)(packet_info *pinfo);
 
 /** register a dissector filter */
-WS_DLL_PUBLIC void register_dissector_filter(const char *name, is_filter_valid_func is_filter_valid, build_filter_string_func build_filter_string);
+WS_DLL_PUBLIC void register_conversation_filter(const char *proto_name, const char *display_name,
+                                                      is_filter_valid_func is_filter_valid, build_filter_string_func build_filter_string);
 
-
+WS_DLL_PUBLIC struct conversation_filter_s* find_conversation_filter(const char *proto_name);
 
 /*** THE FOLLOWING SHOULD NOT BE USED BY ANY DISSECTORS!!! ***/
 
-typedef struct dissector_filter_s {
-    const char *                name;
-    is_filter_valid_func        is_filter_valid;
-    build_filter_string_func    build_filter_string;
-} dissector_filter_t;
+typedef struct conversation_filter_s {
+    const char *              proto_name;
+    const char *              display_name;
+    is_filter_valid_func      is_filter_valid;
+    build_filter_string_func  build_filter_string;
+} conversation_filter_t;
 
-WS_DLL_PUBLIC GList *dissector_filter_list;
+WS_DLL_PUBLIC GList *conv_filter_list;
 
 #ifdef __cplusplus
 }

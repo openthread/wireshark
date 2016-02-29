@@ -119,7 +119,7 @@ dissect_bthci_sco(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
     k_interface_id      = bluetooth_data->interface_id;
     k_adapter_id        = bluetooth_data->adapter_id;
     k_connection_handle = flags & 0x0fff;
-    k_frame_number      = pinfo->fd->num;
+    k_frame_number      = pinfo->num;
 
     key[0].length = 1;
     key[0].key    = &k_interface_id;
@@ -129,7 +129,7 @@ dissect_bthci_sco(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
     key[2].key    = NULL;
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bthci_sco_stream_numbers, key);
-    sco_stream_number = (subtree) ? (bthci_sco_stream_number_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    sco_stream_number = (subtree) ? (bthci_sco_stream_number_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
 
     key[2].length = 1;
     key[2].key    = &k_connection_handle;
@@ -137,10 +137,10 @@ dissect_bthci_sco(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
     key[3].key    = NULL;
 
     subtree = (wmem_tree_t *) wmem_tree_lookup32_array(bluetooth_data->chandle_sessions, key);
-    chandle_session = (subtree) ? (chandle_session_t *) wmem_tree_lookup32_le(subtree, pinfo->fd->num) : NULL;
+    chandle_session = (subtree) ? (chandle_session_t *) wmem_tree_lookup32_le(subtree, pinfo->num) : NULL;
     if (!(chandle_session &&
-            chandle_session->connect_in_frame < pinfo->fd->num &&
-            chandle_session->disconnect_in_frame > pinfo->fd->num)){
+            chandle_session->connect_in_frame < pinfo->num &&
+            chandle_session->disconnect_in_frame > pinfo->num)){
         chandle_session = NULL;
     }
 
@@ -169,7 +169,7 @@ dissect_bthci_sco(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
 
         k_bd_addr_oui  = bd_addr_oui;
         k_bd_addr_id   = bd_addr_id;
-        k_frame_number = pinfo->fd->num;
+        k_frame_number = pinfo->num;
 
         key[0].length = 1;
         key[0].key    = &k_interface_id;
@@ -197,29 +197,29 @@ dissect_bthci_sco(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
         g_snprintf(remote_addr_name, remote_length, "%s (%s)", remote_ether_addr, remote_name);
 
         if (pinfo->p2p_dir == P2P_DIR_RECV) {
-            SET_ADDRESS(&pinfo->net_src, AT_STRINGZ, (int)strlen(remote_name) + 1, remote_name);
-            SET_ADDRESS(&pinfo->dl_src, AT_ETHER, 6, remote_bdaddr->bd_addr);
-            SET_ADDRESS(&pinfo->src, AT_STRINGZ, (int)strlen(remote_addr_name) + 1, remote_addr_name);
+            set_address(&pinfo->net_src, AT_STRINGZ, (int)strlen(remote_name) + 1, remote_name);
+            set_address(&pinfo->dl_src, AT_ETHER, 6, remote_bdaddr->bd_addr);
+            set_address(&pinfo->src, AT_STRINGZ, (int)strlen(remote_addr_name) + 1, remote_addr_name);
         } else if (pinfo->p2p_dir == P2P_DIR_SENT) {
-            SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, (int)strlen(remote_name) + 1, remote_name);
-            SET_ADDRESS(&pinfo->dl_dst, AT_ETHER, 6, remote_bdaddr->bd_addr);
-            SET_ADDRESS(&pinfo->dst, AT_STRINGZ, (int)strlen(remote_addr_name) + 1, remote_addr_name);
+            set_address(&pinfo->net_dst, AT_STRINGZ, (int)strlen(remote_name) + 1, remote_name);
+            set_address(&pinfo->dl_dst, AT_ETHER, 6, remote_bdaddr->bd_addr);
+            set_address(&pinfo->dst, AT_STRINGZ, (int)strlen(remote_addr_name) + 1, remote_addr_name);
         }
     } else {
         if (pinfo->p2p_dir == P2P_DIR_RECV) {
-            SET_ADDRESS(&pinfo->net_src, AT_STRINGZ, 1, "");
-            SET_ADDRESS(&pinfo->dl_src, AT_STRINGZ, 1, "");
-            SET_ADDRESS(&pinfo->src, AT_STRINGZ, 10, "remote ()");
+            set_address(&pinfo->net_src, AT_STRINGZ, 1, "");
+            set_address(&pinfo->dl_src, AT_STRINGZ, 1, "");
+            set_address(&pinfo->src, AT_STRINGZ, 10, "remote ()");
         } else if (pinfo->p2p_dir == P2P_DIR_SENT) {
-            SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, 1, "");
-            SET_ADDRESS(&pinfo->dl_dst, AT_STRINGZ, 1, "");
-            SET_ADDRESS(&pinfo->dst, AT_STRINGZ, 10, "remote ()");
+            set_address(&pinfo->net_dst, AT_STRINGZ, 1, "");
+            set_address(&pinfo->dl_dst, AT_STRINGZ, 1, "");
+            set_address(&pinfo->dst, AT_STRINGZ, 10, "remote ()");
         }
     }
 
     k_interface_id      = bluetooth_data->interface_id;
     k_adapter_id        = bluetooth_data->adapter_id;
-    k_frame_number      = pinfo->fd->num;
+    k_frame_number      = pinfo->num;
 
     /* localhost bdaddr and name */
     key[0].length = 1;
@@ -257,13 +257,13 @@ dissect_bthci_sco(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void 
     g_snprintf(localhost_addr_name, localhost_length, "%s (%s)", localhost_ether_addr, localhost_name);
 
     if (pinfo->p2p_dir == P2P_DIR_RECV) {
-        SET_ADDRESS(&pinfo->net_dst, AT_STRINGZ, (int)strlen(localhost_name) + 1, localhost_name);
-        SET_ADDRESS(&pinfo->dl_dst, AT_ETHER, 6, localhost_bdaddr);
-        SET_ADDRESS(&pinfo->dst, AT_STRINGZ, (int)strlen(localhost_addr_name) + 1, localhost_addr_name);
+        set_address(&pinfo->net_dst, AT_STRINGZ, (int)strlen(localhost_name) + 1, localhost_name);
+        set_address(&pinfo->dl_dst, AT_ETHER, 6, localhost_bdaddr);
+        set_address(&pinfo->dst, AT_STRINGZ, (int)strlen(localhost_addr_name) + 1, localhost_addr_name);
     } else if (pinfo->p2p_dir == P2P_DIR_SENT) {
-        SET_ADDRESS(&pinfo->net_src, AT_STRINGZ, (int)strlen(localhost_name) + 1, localhost_name);
-        SET_ADDRESS(&pinfo->dl_src, AT_ETHER, 6, localhost_bdaddr);
-        SET_ADDRESS(&pinfo->src, AT_STRINGZ, (int)strlen(localhost_addr_name) + 1, localhost_addr_name);
+        set_address(&pinfo->net_src, AT_STRINGZ, (int)strlen(localhost_name) + 1, localhost_name);
+        set_address(&pinfo->dl_src, AT_ETHER, 6, localhost_bdaddr);
+        set_address(&pinfo->src, AT_STRINGZ, (int)strlen(localhost_addr_name) + 1, localhost_addr_name);
     }
 
     proto_tree_add_item(bthci_sco_tree, hf_bthci_sco_data, tvb, offset, tvb_reported_length(tvb), ENC_NA);
@@ -339,7 +339,7 @@ proto_register_bthci_sco(void)
 
     /* Register the protocol name and description */
     proto_bthci_sco = proto_register_protocol("Bluetooth HCI SCO Packet", "HCI_SCO", "bthci_sco");
-    bthci_sco_handle = new_register_dissector("bthci_sco", dissect_bthci_sco, proto_bthci_sco);
+    bthci_sco_handle = register_dissector("bthci_sco", dissect_bthci_sco, proto_bthci_sco);
 
     bthci_sco_stream_numbers = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 

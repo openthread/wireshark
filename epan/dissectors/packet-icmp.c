@@ -41,6 +41,8 @@
 #include <epan/conversation.h>
 #include <epan/tap.h>
 #include <epan/ipproto.h>
+#include <epan/capture_dissectors.h>
+#include <epan/proto_data.h>
 
 #include "packet-ip.h"
 #include "packet-icmp.h"
@@ -355,12 +357,12 @@ static conversation_t *_find_or_create_conversation(packet_info * pinfo)
 
 	/* Have we seen this conversation before? */
 	conv =
-	    find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	    find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
 			      pinfo->ptype, 0, 0, 0);
 	if (conv == NULL) {
 		/* No, this is a new conversation. */
 		conv =
-		    conversation_new(pinfo->fd->num, &pinfo->src,
+		    conversation_new(pinfo->num, &pinfo->src,
 				     &pinfo->dst, pinfo->ptype, 0, 0, 0);
 	}
 	return conv;
@@ -922,7 +924,6 @@ dissect_extensions(tvbuff_t * tvb, gint offset, proto_tree * tree)
 	}
 }
 
-#include <stdio.h>
 /* ======================================================================= */
 static icmp_transaction_t *transaction_start(packet_info * pinfo,
 					     proto_tree * tree,
@@ -955,15 +956,15 @@ static icmp_transaction_t *transaction_start(packet_info * pinfo,
 		icmp_key[1].key = NULL;
 
 		icmp_trans = wmem_new(wmem_file_scope(), icmp_transaction_t);
-		icmp_trans->rqst_frame = PINFO_FD_NUM(pinfo);
+		icmp_trans->rqst_frame = pinfo->num;
 		icmp_trans->resp_frame = 0;
-		icmp_trans->rqst_time = pinfo->fd->abs_ts;
+		icmp_trans->rqst_time = pinfo->abs_ts;
 		nstime_set_zero(&icmp_trans->resp_time);
 		wmem_tree_insert32_array(icmp_info->unmatched_pdus, icmp_key,
 				       (void *) icmp_trans);
 	} else {
 		/* Already visited this frame */
-		guint32 frame_num = pinfo->fd->num;
+		guint32 frame_num = pinfo->num;
 
 		icmp_key[0].length = 2;
 		icmp_key[0].key = key;
@@ -1022,7 +1023,7 @@ static icmp_transaction_t *transaction_end(packet_info * pinfo,
 	double resp_time;
 
 	conversation =
-	    find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	    find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
 			      pinfo->ptype, 0, 0, 0);
 	if (conversation == NULL) {
 		return NULL;
@@ -1052,7 +1053,7 @@ static icmp_transaction_t *transaction_end(packet_info * pinfo,
 			return NULL;
 		}
 
-		icmp_trans->resp_frame = PINFO_FD_NUM(pinfo);
+		icmp_trans->resp_frame = pinfo->num;
 
 		/* we found a match. Add entries to the matched table for both request and reply frames
 		 */
@@ -1072,7 +1073,7 @@ static icmp_transaction_t *transaction_end(packet_info * pinfo,
 				       (void *) icmp_trans);
 	} else {
 		/* Already visited this frame */
-		guint32 frame_num = pinfo->fd->num;
+		guint32 frame_num = pinfo->num;
 
 		icmp_key[0].length = 2;
 		icmp_key[0].key = key;
@@ -1095,7 +1096,7 @@ static icmp_transaction_t *transaction_end(packet_info * pinfo,
 				 icmp_trans->rqst_frame);
 	PROTO_ITEM_SET_GENERATED(it);
 
-	nstime_delta(&ns, &pinfo->fd->abs_ts, &icmp_trans->rqst_time);
+	nstime_delta(&ns, &pinfo->abs_ts, &icmp_trans->rqst_time);
 	icmp_trans->resp_time = ns;
 	resp_time = nstime_to_msec(&ns);
 	it = proto_tree_add_double_format_value(tree, hf_icmp_resptime,
@@ -1163,6 +1164,13 @@ get_best_guess_mstimeofday(tvbuff_t * tvb, gint offset, guint32 comp_ts)
 	}
 	return le_ts;
 }				/* get_best_guess_mstimeofday() */
+
+static gboolean
+capture_icmp(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+{
+	capture_dissector_increment_count(cpinfo, proto_icmp);
+	return TRUE;
+}
 
 /*
  * RFC 792 for basic ICMP.
@@ -1515,18 +1523,18 @@ dissect_icmp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data)
 		 */
 		ts.secs = tvb_get_ntohl(tvb, 8);
 		ts.nsecs = tvb_get_ntohl(tvb, 8 + 4);	/* Leave at microsec resolution for now */
-		if ((guint32) (ts.secs - pinfo->fd->abs_ts.secs) >=
+		if ((guint32) (ts.secs - pinfo->abs_ts.secs) >=
 		    3600 * 24 || ts.nsecs >= 1000000) {
 			/* Timestamp does not look right in BE, try LE representation */
 			ts.secs = tvb_get_letohl(tvb, 8);
 			ts.nsecs = tvb_get_letohl(tvb, 8 + 4);	/* Leave at microsec resolution for now */
 		}
-		if ((guint32) (ts.secs - pinfo->fd->abs_ts.secs) <
+		if ((guint32) (ts.secs - pinfo->abs_ts.secs) <
 		    3600 * 24 && ts.nsecs < 1000000) {
 			ts.nsecs *= 1000;	/* Convert to nanosec resolution */
 			proto_tree_add_time(icmp_tree, hf_icmp_data_time,
 					    tvb, 8, 8, &ts);
-			nstime_delta(&time_relative, &pinfo->fd->abs_ts,
+			nstime_delta(&time_relative, &pinfo->abs_ts,
 				     &ts);
 			ti = proto_tree_add_time(icmp_tree,
 						 hf_icmp_data_time_relative,
@@ -1567,19 +1575,19 @@ dissect_icmp(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data)
 		{
 			guint32 frame_ts, orig_ts;
 
-			frame_ts = (guint32)(((pinfo->fd->abs_ts.secs * 1000) +
-				    (pinfo->fd->abs_ts.nsecs / 1000000)) %
+			frame_ts = (guint32)(((pinfo->abs_ts.secs * 1000) +
+				    (pinfo->abs_ts.nsecs / 1000000)) %
 			    86400000);
 
 			orig_ts = get_best_guess_mstimeofday(tvb, 8, frame_ts);
 			ti = proto_tree_add_item(icmp_tree, hf_icmp_originate_timestamp, tvb, 8, 4, ENC_BIG_ENDIAN);
-			proto_item_append_text(ti, " (%s after midnight UTC)", time_secs_to_str(wmem_packet_scope(), orig_ts));
+			proto_item_append_text(ti, " (%s after midnight UTC)", time_msecs_to_str(wmem_packet_scope(), orig_ts));
 
 			ti = proto_tree_add_item(icmp_tree, hf_icmp_receive_timestamp, tvb, 12, 4, ENC_BIG_ENDIAN);
-			proto_item_append_text(ti, " (%s after midnight UTC)", time_secs_to_str(wmem_packet_scope(), get_best_guess_mstimeofday(tvb, 12, frame_ts)));
+			proto_item_append_text(ti, " (%s after midnight UTC)", time_msecs_to_str(wmem_packet_scope(), get_best_guess_mstimeofday(tvb, 12, frame_ts)));
 
 			ti = proto_tree_add_item(icmp_tree, hf_icmp_transmit_timestamp, tvb, 16, 4, ENC_BIG_ENDIAN);
-			proto_item_append_text(ti, " (%s after midnight UTC)", time_secs_to_str(wmem_packet_scope(), get_best_guess_mstimeofday(tvb, 16, frame_ts)));
+			proto_item_append_text(ti, " (%s after midnight UTC)", time_msecs_to_str(wmem_packet_scope(), get_best_guess_mstimeofday(tvb, 16, frame_ts)));
 
 		}
 		break;
@@ -1945,20 +1953,19 @@ void proto_register_icmp(void)
 		  HFILL}},
 		{&hf_icmp_int_info_ipaddr,
 		 {"IP Address", "icmp.int_info.ipaddr", FT_BOOLEAN, 8,
-		  NULL,
+		  TFS(&tfs_present_not_present),
 		  INT_INFO_IPADDR,
-		  "True: IP Address Sub-Object present; False: IP Address Sub-Object not present",
-		  HFILL}},
+		  NULL, HFILL}},
 		{&hf_icmp_int_info_name,
-		 {"Interface Name", "icmp.int_info.name", FT_BOOLEAN, 8,
-		  NULL,
+		 {"Interface Name", "icmp.int_info.name_present", FT_BOOLEAN, 8,
+		  TFS(&tfs_present_not_present),
 		  INT_INFO_NAME,
-		  "True: Interface Name Sub-Object present; False: Interface Name Sub-Object not present",
+		  NULL,
 		  HFILL}},
 		{&hf_icmp_int_info_mtu,
-		 {"MTU", "icmp.int_info.mtu", FT_BOOLEAN, 8, NULL,
+		 {"MTU", "icmp.int_info.mtu", FT_BOOLEAN, 8, TFS(&tfs_present_not_present),
 		  INT_INFO_MTU,
-		  "True: MTU present; False: MTU not present", HFILL}},
+		  NULL, HFILL}},
 		{&hf_icmp_int_info_index,
 		 {"Interface Index", "icmp.int_info.index",
 		  FT_UINT32, BASE_DEC,
@@ -2028,7 +2035,7 @@ void proto_register_icmp(void)
 				       "Whether the 128th and following bytes of the ICMP payload should be decoded as MPLS extensions or as a portion of the original packet",
 				       &favor_icmp_mpls_ext);
 
-	new_register_dissector("icmp", dissect_icmp, proto_icmp);
+	register_dissector("icmp", dissect_icmp, proto_icmp);
 	icmp_tap = register_tap("icmp");
 }
 
@@ -2044,6 +2051,8 @@ void proto_reg_handoff_icmp(void)
 	data_handle = find_dissector("data");
 
 	dissector_add_uint("ip.proto", IP_PROTO_ICMP, icmp_handle);
+	register_capture_dissector("ip.proto", IP_PROTO_ICMP, capture_icmp, proto_icmp);
+	register_capture_dissector("ipv6.nxt", IP_PROTO_ICMP, capture_icmp, proto_icmp);
 }
 
 /*

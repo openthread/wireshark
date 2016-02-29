@@ -31,8 +31,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <wtap.h>
-#include <libpcap.h>
 #include <glib.h>
 
 #include <ntddndis.h>
@@ -49,7 +47,8 @@
 
 #include "caputils/capture_ifinfo.h"
 #include "caputils/capture_win_ifnames.h"
-#include "wsutil/file_util.h"
+
+#include <wsutil/file_util.h>
 
 static int gethexdigit(const char *p)
 {

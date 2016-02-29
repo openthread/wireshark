@@ -101,13 +101,10 @@ static int new_pref(lua_State* L, pref_type_t type) {
     const gchar* label = luaL_optstring(L,1,NULL);
     const gchar* descr = luaL_optstring(L,3,"");
 
-    Pref pref = (wslua_pref_t *)g_malloc(sizeof(wslua_pref_t));
-    pref->name = NULL;
-    pref->label = label ? g_strdup(label) : NULL;
+    Pref pref = (wslua_pref_t *)g_malloc0(sizeof(wslua_pref_t));
+    pref->label = g_strdup(label);
     pref->desc = g_strdup(descr);
     pref->type = type;
-    pref->next = NULL;
-    pref->proto = NULL;
 
     switch(type) {
         case PREF_BOOL: {
@@ -122,7 +119,29 @@ static int new_pref(lua_State* L, pref_type_t type) {
         }
         case PREF_STRING: {
             gchar* def = g_strdup(luaL_optstring(L,2,""));
+            /*
+             * prefs_register_string_preference() assumes that the
+             * variable for the preference points to a static
+             * string that is the initial (default) value of the
+             * preference.  It makes a g_strdup()ed copy of that
+             * string, and assigns a pointer to that string to
+             * the variable.
+             *
+             * Our default string is *not* a static string, it's
+             * a g_strdup()ed copy of a string from Lua, so it would
+             * be leaked.
+             *
+             * We save it in info.default_s, as well as setting the
+             * initial value of the preference from it, so that we
+             * can free it after prefs_register_string_preference()
+             * returns.
+             *
+             * (Would that we were programming in a language where
+             * the details of memory management were handled by the
+             * compiler and language support....)
+             */
             pref->value.s = def;
+            pref->info.default_s = def;
             break;
         }
         case PREF_ENUM: {
@@ -237,12 +256,51 @@ static range_t* get_range(lua_State *L, int idx_r, int idx_m)
 static int Pref__gc(lua_State* L) {
     Pref pref = toPref(L,1);
 
+    /*
+     * Only free never-registered and registered-and-then-deregistered
+     * Prefs; those have a null name pointer.
+     *
+     * If this has never been registered, it obviously has not been
+     * deregistered, so, if it's a string preference, we need to
+     * free the initial value in pref->info.default_s.  We don't
+     * need to free the current value, as that's the same string
+     * as the initial value.
+     *
+     * If this has been registred and deregistered, and the current
+     * value was allocated, it was freed when it was deregistered,
+     * so we don't need to free it.  If it's a string preference,
+     * the initial value was freed and the pointer to it set to
+     * NULL, so we can still call g_free() on it, as that won't
+     * do anything.
+     */
     if (! pref->name) {
-        /* Only free unregistered and deregistered Pref */
         g_free(pref->label);
         g_free(pref->desc);
-        if (pref->type == PREF_STRING)
-            g_free((void*)pref->value.s);
+        switch (pref->type) {
+            case PREF_STRING:
+                /*
+                 * Free the initial string value; if it's not NULL, that
+                 * means this is a never-registered preference, so the
+                 * initial value hasn't been freed.
+                 */
+                g_free(pref->info.default_s);
+                break;
+            case PREF_ENUM: {
+                /*
+                 * Free the enum values allocated in get_enum().
+                 */
+                const enum_val_t *enum_valp = pref->info.enum_info.enumvals;
+                while (enum_valp->name) {
+                    g_free((char *)enum_valp->name);
+                    g_free((char *)enum_valp->description);
+                    enum_valp++;
+                }
+                g_free ((enum_val_t *)pref->info.enum_info.enumvals);
+                break;
+            }
+            default:
+                break;
+        }
         g_free(pref);
     }
 
@@ -353,6 +411,12 @@ WSLUA_METAMETHOD Prefs__newindex(lua_State* L) {
                                                      pref->label,
                                                      pref->desc,
                                                      (const char **)(&(pref->value.s)));
+                    /*
+                     * We're finished with the initial string value; see
+                     * the comment in new_pref().
+                     */
+                    g_free(pref->info.default_s);
+                    pref->info.default_s = NULL;
                     break;
                 case PREF_ENUM:
                     prefs_register_enum_preference(prefs_p->proto->prefs_module,

@@ -65,8 +65,8 @@ static const value_string names_cmd[] = {
 };
 
 
-static void
-dissect_interlink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_interlink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int		offset = 0;
 	proto_tree	*il_tree;
@@ -143,6 +143,8 @@ dissect_interlink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Call the sub-dissector. */
 	call_dissector(handle, next_tvb, pinfo, tree);
+
+	return tvb_captured_length(tvb);
 }
 
 
@@ -160,7 +162,7 @@ dissect_interlink_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 	)
 		return FALSE;
 
-	dissect_interlink(tvb, pinfo, tree);
+	dissect_interlink(tvb, pinfo, tree, data);
 	return TRUE;
 }
 
@@ -217,7 +219,7 @@ proto_register_interlink(void)
 
 	/* Probably someone will write sub-dissectors. You can never know. */
 	subdissector_table = register_dissector_table("interlink.type_version",
-		"Interlink type_version", FT_UINT16, BASE_HEX);
+		"Interlink type_version", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 

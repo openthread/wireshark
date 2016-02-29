@@ -97,8 +97,8 @@ static const value_string opcode_vals[] = {
     { 0, NULL }
 };
 
-static void
-dissect_udld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_udld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *udld_tree = NULL;
@@ -220,13 +220,14 @@ dissect_udld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             proto_tree_add_item(tlv_tree, hf_udld_data, tvb, offset + 4,
                 length - 4, ENC_NA);
         } else {
-            return;
+            return offset;
         }
         offset += length;
         }
     }
 
     call_dissector(data_handle, tvb_new_subset_remaining(tvb, offset), pinfo, udld_tree);
+    return tvb_captured_length(tvb);
 }
 
 void

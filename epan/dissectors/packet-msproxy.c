@@ -191,8 +191,8 @@ typedef struct {
 /************** negotiated conversation hash stuff ***************/
 
 
-static void msproxy_sub_dissector( tvbuff_t *tvb, packet_info *pinfo,
-		proto_tree *tree) {
+static int msproxy_sub_dissector( tvbuff_t *tvb, packet_info *pinfo,
+		proto_tree *tree, void* data _U_) {
 
 /* Conversation dissector called from TCP or UDP dissector. Decode and	*/
 /* display the msproxy header, the pass the rest of the data to the tcp	*/
@@ -204,7 +204,7 @@ static void msproxy_sub_dissector( tvbuff_t *tvb, packet_info *pinfo,
 	proto_tree      *msp_tree;
 	proto_item      *ti;
 
-	conversation = find_conversation( pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	conversation = find_conversation( pinfo->num, &pinfo->src, &pinfo->dst,
 		pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 
 	DISSECTOR_ASSERT( conversation);	/* should always find a conversation */
@@ -249,6 +249,7 @@ static void msproxy_sub_dissector( tvbuff_t *tvb, packet_info *pinfo,
 			pinfo->destport, -1);
 
 	*ptr = redirect_info->server_int_port;
+	return tvb_captured_length(tvb);
 }
 
 
@@ -278,12 +279,12 @@ static void add_msproxy_conversation( packet_info *pinfo,
 		return;
 	}
 
-	conversation = find_conversation( pinfo->fd->num, &pinfo->src,
+	conversation = find_conversation( pinfo->num, &pinfo->src,
 		&pinfo->dst, (port_type)hash_info->proto, hash_info->server_int_port,
 		hash_info->clnt_port, 0);
 
 	if ( !conversation) {
-		conversation = conversation_new( pinfo->fd->num, &pinfo->src, &pinfo->dst,
+		conversation = conversation_new( pinfo->num, &pinfo->src, &pinfo->dst,
 			(port_type)hash_info->proto, hash_info->server_int_port,
 			hash_info->clnt_port, 0);
 	}
@@ -1046,8 +1047,7 @@ static void dissect_msproxy_response(tvbuff_t *tvb, packet_info *pinfo,
 
 
 
-static void dissect_msproxy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
-
+static int dissect_msproxy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
 
 	proto_tree      *msproxy_tree;
 	proto_item      *ti;
@@ -1085,6 +1085,8 @@ static void dissect_msproxy(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dissect_msproxy_response( tvb, pinfo, msproxy_tree, hash_info);
 	else
 		dissect_msproxy_request( tvb, pinfo, msproxy_tree, hash_info);
+
+	return tvb_captured_length(tvb);
 }
 
 

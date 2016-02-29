@@ -37,8 +37,8 @@
 #include <epan/wslua/init_wslua.h>
 #endif
 
-#include "../log.h"
-#include "../register.h"
+#include "../../log.h"
+#include "../../register.h"
 
 #include "ui/alert_box.h"
 #include "ui/last_open_dir.h"
@@ -52,6 +52,10 @@
 #include "wsutil/plugins.h"
 #include "wsutil/copyright_info.h"
 #include "wsutil/ws_version_info.h"
+
+#ifdef HAVE_EXTCAP
+#include "extcap.h"
+#endif
 
 #include "qt_ui_utils.h"
 
@@ -82,7 +86,7 @@ const QString AboutDialog::about_folders_row(const char *name, const QString dir
 
 static void plugins_add_description(const char *name, const char *version,
                                     const char *types, const char *filename,
-                                    void *user_data )
+                                    void *user_data)
 {
     QList<QStringList> *plugin_data = (QList<QStringList> *)user_data;
     QStringList plugin_row = QStringList() << name << version << types << filename;
@@ -114,6 +118,25 @@ const QString AboutDialog::plugins_scan()
                 .arg(plugin_row[2]) // Type
                 .arg(short_file);
     }
+
+    GHashTable * tools = extcap_tools_list();
+    if (tools && g_hash_table_size(tools) > 0) {
+        QString short_file;
+        GList * walker = g_list_first(g_hash_table_get_keys(tools));
+        while (walker) {
+            extcap_info * tool = (extcap_info *)g_hash_table_lookup(tools, walker->data);
+            if (tool) {
+                short_file = fontMetrics().elidedText(tool->full_path, Qt::ElideMiddle, one_em*22);
+                plugin_table += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>\n")
+                       .arg(tool->basename) // Name
+                       .arg(tool->version) // Version
+                       .arg("extcap") // Type
+                       .arg(short_file);
+            }
+            walker = g_list_next(walker);
+        }
+    }
+
     return plugin_table;
 }
 
@@ -122,6 +145,7 @@ AboutDialog::AboutDialog(QWidget *parent) :
     ui(new Ui::AboutDialog)
 {
     ui->setupUi(this);
+    setAttribute(Qt::WA_DeleteOnClose, true);
     QFile f_authors;
     QFile f_license;
     const char *constpath;
@@ -157,7 +181,7 @@ AboutDialog::AboutDialog(QWidget *parent) :
 
 /* Check if it is a dev release... (VERSION_MINOR is odd in dev release) */
 #if VERSION_MINOR & 1
-        ui->label_logo->setPixmap( QPixmap( ":/about/wssplash_dev.png" ) );
+        ui->label_logo->setPixmap(QPixmap(":/about/wssplash_dev.png"));
 #endif
 
 
@@ -266,7 +290,7 @@ AboutDialog::AboutDialog(QWidget *parent) :
     message += plugins_scan();
 
     message += "</table>";
-    ui->label_plugins->setText(message);
+    ui->te_plugins->setHtml(message);
 
     /* Shortcuts */
     bool have_shortcuts = false;

@@ -22,8 +22,6 @@
 
 #include "config.h"
 
-#include <stdio.h>
-
 #include <string.h>
 #include <glib.h>
 #include "packet.h"
@@ -172,7 +170,7 @@ conversation_create_from_template(conversation_t *conversation, const address *a
 		 * Set the protocol dissector used for the template conversation as
 		 * the handler of the new conversation as well.
 		 */
-		new_conversation_from_template->dissector_handle = conversation->dissector_handle;
+		new_conversation_from_template->dissector_tree = conversation->dissector_tree;
 
 		return new_conversation_from_template;
 	}
@@ -199,15 +197,15 @@ conversation_hash_exact(gconstpointer v)
 	hash_val = 0;
 	tmp_addr.len  = 4;
 
-	ADD_ADDRESS_TO_HASH(hash_val, &key->addr1);
+	hash_val = add_address_to_hash(hash_val, &key->addr1);
 
 	tmp_addr.data = &key->port1;
-	ADD_ADDRESS_TO_HASH(hash_val, &tmp_addr);
+	hash_val = add_address_to_hash(hash_val, &tmp_addr);
 
-	ADD_ADDRESS_TO_HASH(hash_val, &key->addr2);
+	hash_val = add_address_to_hash(hash_val, &key->addr2);
 
 	tmp_addr.data = &key->port2;
-	ADD_ADDRESS_TO_HASH(hash_val, &tmp_addr);
+	hash_val = add_address_to_hash(hash_val, &tmp_addr);
 
 	hash_val += ( hash_val << 3 );
 	hash_val ^= ( hash_val >> 11 );
@@ -236,8 +234,8 @@ conversation_match_exact(gconstpointer v, gconstpointer w)
 	 */
 	if (v1->port1 == v2->port1 &&
 	    v1->port2 == v2->port2 &&
-	    ADDRESSES_EQUAL(&v1->addr1, &v2->addr1) &&
-	    ADDRESSES_EQUAL(&v1->addr2, &v2->addr2)) {
+	    addresses_equal(&v1->addr1, &v2->addr1) &&
+	    addresses_equal(&v1->addr2, &v2->addr2)) {
 		/*
 		 * Yes.  It's the same conversation, and the two
 		 * address/port pairs are going in the same direction.
@@ -253,8 +251,8 @@ conversation_match_exact(gconstpointer v, gconstpointer w)
 	 */
 	if (v1->port2 == v2->port1 &&
 	    v1->port1 == v2->port2 &&
-	    ADDRESSES_EQUAL(&v1->addr2, &v2->addr1) &&
-	    ADDRESSES_EQUAL(&v1->addr1, &v2->addr2)) {
+	    addresses_equal(&v1->addr2, &v2->addr1) &&
+	    addresses_equal(&v1->addr1, &v2->addr2)) {
 		/*
 		 * Yes.  It's the same conversation, and the two
 		 * address/port pairs are going in opposite directions.
@@ -282,13 +280,13 @@ conversation_hash_no_addr2(gconstpointer v)
 	hash_val = 0;
 	tmp_addr.len  = 4;
 
-	ADD_ADDRESS_TO_HASH(hash_val, &key->addr1);
+	hash_val = add_address_to_hash(hash_val, &key->addr1);
 
 	tmp_addr.data = &key->port1;
-	ADD_ADDRESS_TO_HASH(hash_val, &tmp_addr);
+	hash_val = add_address_to_hash(hash_val, &tmp_addr);
 
 	tmp_addr.data = &key->port2;
-	ADD_ADDRESS_TO_HASH(hash_val, &tmp_addr);
+	hash_val = add_address_to_hash(hash_val, &tmp_addr);
 
 	hash_val += ( hash_val << 3 );
 	hash_val ^= ( hash_val >> 11 );
@@ -319,7 +317,7 @@ conversation_match_no_addr2(gconstpointer v, gconstpointer w)
 	 */
 	if (v1->port1 == v2->port1 &&
 	    v1->port2 == v2->port2 &&
-	    ADDRESSES_EQUAL(&v1->addr1, &v2->addr1)) {
+	    addresses_equal(&v1->addr1, &v2->addr1)) {
 		/*
 		 * Yes.  It's the same conversation, and the two
 		 * address/port pairs are going in the same direction.
@@ -347,12 +345,12 @@ conversation_hash_no_port2(gconstpointer v)
 	hash_val = 0;
 	tmp_addr.len  = 4;
 
-	ADD_ADDRESS_TO_HASH(hash_val, &key->addr1);
+	hash_val = add_address_to_hash(hash_val, &key->addr1);
 
 	tmp_addr.data = &key->port1;
-	ADD_ADDRESS_TO_HASH(hash_val, &tmp_addr);
+	hash_val = add_address_to_hash(hash_val, &tmp_addr);
 
-	ADD_ADDRESS_TO_HASH(hash_val, &key->addr2);
+	hash_val = add_address_to_hash(hash_val, &key->addr2);
 
 	hash_val += ( hash_val << 3 );
 	hash_val ^= ( hash_val >> 11 );
@@ -382,8 +380,8 @@ conversation_match_no_port2(gconstpointer v, gconstpointer w)
 	 * address 2 values the same?
 	 */
 	if (v1->port1 == v2->port1 &&
-	    ADDRESSES_EQUAL(&v1->addr1, &v2->addr1) &&
-	    ADDRESSES_EQUAL(&v1->addr2, &v2->addr2)) {
+	    addresses_equal(&v1->addr1, &v2->addr1) &&
+	    addresses_equal(&v1->addr2, &v2->addr2)) {
 		/*
 		 * Yes.  It's the same conversation, and the two
 		 * address/port pairs are going in the same direction.
@@ -411,10 +409,10 @@ conversation_hash_no_addr2_or_port2(gconstpointer v)
 	hash_val = 0;
 	tmp_addr.len  = 4;
 
-	ADD_ADDRESS_TO_HASH(hash_val, &key->addr1);
+	hash_val = add_address_to_hash(hash_val, &key->addr1);
 
 	tmp_addr.data = &key->port1;
-	ADD_ADDRESS_TO_HASH(hash_val, &tmp_addr);
+	hash_val = add_address_to_hash(hash_val, &tmp_addr);
 
 	hash_val += ( hash_val << 3 );
 	hash_val ^= ( hash_val >> 11 );
@@ -443,7 +441,7 @@ conversation_match_no_addr2_or_port2(gconstpointer v, gconstpointer w)
 	 * and second address 1 values the same?
 	 */
 	if (v1->port1 == v2->port1 &&
-	    ADDRESSES_EQUAL(&v1->addr1, &v2->addr1)) {
+	    addresses_equal(&v1->addr1, &v2->addr1)) {
 		/*
 		 * Yes.  It's the same conversation, and the two
 		 * address/port pairs are going in the same direction.
@@ -699,8 +697,8 @@ conversation_new(const guint32 setup_frame, const address *addr1, const address 
 	new_key = wmem_new(wmem_file_scope(), struct conversation_key);
 	new_key->next = conversation_keys;
 	conversation_keys = new_key;
-	WMEM_COPY_ADDRESS(wmem_file_scope(), &new_key->addr1, addr1);
-	WMEM_COPY_ADDRESS(wmem_file_scope(), &new_key->addr2, addr2);
+	copy_address_wmem(wmem_file_scope(), &new_key->addr1, addr1);
+	copy_address_wmem(wmem_file_scope(), &new_key->addr2, addr2);
 	new_key->ptype = ptype;
 	new_key->port1 = port1;
 	new_key->port2 = port2;
@@ -712,8 +710,7 @@ conversation_new(const guint32 setup_frame, const address *addr1, const address 
 	conversation->setup_frame = conversation->last_frame = setup_frame;
 	conversation->data_list = NULL;
 
-	/* clear dissector handle */
-	conversation->dissector_handle = NULL;
+	conversation->dissector_tree = wmem_tree_new(wmem_file_scope());
 
 	/* set the options and key pointer */
 	conversation->options = options;
@@ -790,7 +787,7 @@ conversation_set_addr2(conversation_t *conv, const address *addr)
 		conversation_remove_from_hashtable(conversation_hashtable_no_port2, conv);
 	}
 	conv->options &= ~NO_ADDR2;
-	WMEM_COPY_ADDRESS(wmem_file_scope(), &conv->key_ptr->addr2, addr);
+	copy_address_wmem(wmem_file_scope(), &conv->key_ptr->addr2, addr);
 	if (conv->options & NO_PORT2) {
 		conversation_insert_into_hashtable(conversation_hashtable_no_port2, conv);
 	} else {
@@ -1280,9 +1277,22 @@ conversation_delete_proto_data(conversation_t *conv, const int proto)
 }
 
 void
+conversation_set_dissector_from_frame_number(conversation_t *conversation,
+	const guint32 starting_frame_num, const dissector_handle_t handle)
+{
+	wmem_tree_insert32(conversation->dissector_tree, starting_frame_num, (void *)handle);
+}
+
+void
 conversation_set_dissector(conversation_t *conversation, const dissector_handle_t handle)
 {
-	conversation->dissector_handle = handle;
+	conversation_set_dissector_from_frame_number(conversation, 0, handle);
+}
+
+dissector_handle_t
+conversation_get_dissector(conversation_t *conversation, const guint32 frame_num)
+{
+	return (dissector_handle_t)wmem_tree_lookup32_le(conversation->dissector_tree, frame_num);
 }
 
 /*
@@ -1302,15 +1312,15 @@ try_conversation_dissector(const address *addr_a, const address *addr_b, const p
 {
 	conversation_t *conversation;
 
-	conversation = find_conversation(pinfo->fd->num, addr_a, addr_b, ptype, port_a,
+	conversation = find_conversation(pinfo->num, addr_a, addr_b, ptype, port_a,
 	    port_b, 0);
 
 	if (conversation != NULL) {
 		int ret;
-		if (conversation->dissector_handle == NULL)
+		dissector_handle_t handle = (dissector_handle_t)wmem_tree_lookup32_le(conversation->dissector_tree, pinfo->num);
+		if (handle == NULL)
 			return FALSE;
-		ret=call_dissector_only(conversation->dissector_handle, tvb, pinfo,
-		    tree, data);
+		ret=call_dissector_only(handle, tvb, pinfo, tree, data);
 		if(!ret) {
 			/* this packet was rejected by the dissector
 			 * so return FALSE in case our caller wants
@@ -1335,25 +1345,25 @@ find_or_create_conversation(packet_info *pinfo)
 	conversation_t *conv=NULL;
 
 	DPRINT(("called for frame #%d: %s:%d -> %s:%d (ptype=%d)",
-		pinfo->fd->num, address_to_str(wmem_packet_scope(), &pinfo->src), pinfo->srcport,
+		pinfo->num, address_to_str(wmem_packet_scope(), &pinfo->src), pinfo->srcport,
 		address_to_str(wmem_packet_scope(), &pinfo->dst), pinfo->destport, pinfo->ptype));
 	DINDENT();
 
 	/* Have we seen this conversation before? */
-	if((conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	if((conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
 				     pinfo->ptype, pinfo->srcport,
 				     pinfo->destport, 0)) != NULL) {
 		DPRINT(("found previous conversation for frame #%d (last_frame=%d)",
-				pinfo->fd->num, conv->last_frame));
-		if (pinfo->fd->num > conv->last_frame) {
-			conv->last_frame = pinfo->fd->num;
+				pinfo->num, conv->last_frame));
+		if (pinfo->num > conv->last_frame) {
+			conv->last_frame = pinfo->num;
 		}
 	} else {
 		/* No, this is a new conversation. */
 		DPRINT(("did not find previous conversation for frame #%d",
-				pinfo->fd->num));
+				pinfo->num));
 		DINDENT();
-		conv = conversation_new(pinfo->fd->num, &pinfo->src,
+		conv = conversation_new(pinfo->num, &pinfo->src,
 					&pinfo->dst, pinfo->ptype,
 					pinfo->srcport, pinfo->destport, 0);
 		DENDENT();

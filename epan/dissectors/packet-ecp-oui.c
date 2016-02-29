@@ -27,9 +27,11 @@
 
 #include <epan/packet.h>
 #include <epan/addr_resolv.h>
+#include <epan/oui.h>
+
+#include <wsutil/str_util.h>
 
 #include "packet-ieee802a.h"
-#include "oui.h"
 
 void proto_register_ecp_oui(void);
 void proto_reg_handoff_ecp(void);
@@ -300,8 +302,8 @@ dissect_vdp_end_of_vdpdu_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
 	return -1;	/* Force the VDP dissector to terminate */
 }
 
-static void
-dissect_ecp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ecp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *ecp_tree;
 	proto_item *ti;
@@ -346,7 +348,7 @@ dissect_ecp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		if (tempLen < 0)
 			end = TRUE;
 	}
-
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_ecp_oui(void)

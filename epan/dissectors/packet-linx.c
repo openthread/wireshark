@@ -283,8 +283,8 @@ static const value_string linx_conn_cmd[] = {
 	{ 0,	NULL}
 };
 
-static void
-dissect_linx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_linx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint32 dword;
 	int	offset = 0;
@@ -441,7 +441,7 @@ dissect_linx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 					/* how many sequence numbers will be there? */
 					/* this is not implemented due to a lack of documentation with */
-					/* longer seqence numbers. */
+					/* longer sequence numbers. */
 					/* guess there will be padding if the Seqno doesn't reach */
 					/* a 32bit boundary */
 
@@ -639,6 +639,7 @@ dissect_linx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 
 	}
+	return tvb_captured_length(tvb);
 }
 
 
@@ -849,8 +850,8 @@ proto_reg_handoff_linx(void)
 /* Default the port to zero */
 static guint linx_tcp_port = 0;
 
-static void
-dissect_linx_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_linx_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint32 dword;
 	int offset = 0;
@@ -981,6 +982,7 @@ dissect_linx_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

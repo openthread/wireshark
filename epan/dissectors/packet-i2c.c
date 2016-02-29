@@ -25,16 +25,18 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/prefs.h>
 #include <epan/decode_as.h>
 #include <wiretap/wtap.h>
-
-#include "packet-i2c.h"
 
 void proto_register_i2c(void);
 void proto_reg_handoff_i2c(void);
 
 static int proto_i2c = -1;
+static int proto_i2c_event = -1;
+static int proto_i2c_data = -1;
+
 
 static int hf_i2c_bus = -1;
 static int hf_i2c_event = -1;
@@ -85,14 +87,16 @@ static gpointer i2c_value(packet_info *pinfo _U_)
 	return 0;
 }
 
-void
-capture_i2c(union wtap_pseudo_header *pseudo_header, packet_counts *ld)
+static gboolean
+capture_i2c(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
 	if (pseudo_header->i2c.is_event) {
-		ld->i2c_event++;
+		capture_dissector_increment_count(cpinfo, proto_i2c_event);
 	} else {
-		ld->i2c_data++;
+		capture_dissector_increment_count(cpinfo, proto_i2c_data);
 	}
+
+	return TRUE;
 }
 
 static const char *
@@ -164,8 +168,8 @@ i2c_get_event_desc(guint32 event)
 	return desc;
 }
 
-static void
-dissect_i2c(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_i2c(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *i2c_tree;
@@ -221,6 +225,7 @@ dissect_i2c(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			call_dissector(data_handle, tvb, pinfo, tree);
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -243,11 +248,15 @@ proto_register_i2c(void)
 	static decode_as_t i2c_da = {"i2c", "I2C Message", "i2c.message", 1, 0, &i2c_da_values, NULL, NULL,
 									decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
 
+	/* Placeholders for capture statistics */
+	proto_i2c_event = proto_register_protocol("I2C Events", "I2C Events", "i2c_event");
+	proto_i2c_data = proto_register_protocol("I2C Data", "I2C Data", "i2c_data");
+
 	proto_i2c = proto_register_protocol("Inter-Integrated Circuit", "I2C", "i2c");
 	proto_register_field_array(proto_i2c, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	subdissector_table = register_dissector_table("i2c.message", "I2C messages dissector", FT_UINT32, BASE_DEC);
+	subdissector_table = register_dissector_table("i2c.message", "I2C messages dissector", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	m = prefs_register_protocol(proto_i2c, NULL);
 	prefs_register_obsolete_preference(m, "type");
@@ -264,6 +273,7 @@ proto_reg_handoff_i2c(void)
 
 	i2c_handle = create_dissector_handle(dissect_i2c, proto_i2c);
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_I2C, i2c_handle);
+	register_capture_dissector("wtap_encap", WTAP_ENCAP_I2C, capture_i2c, proto_i2c);
 }
 
 /*

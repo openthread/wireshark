@@ -254,7 +254,7 @@ get_first_marker_offset(mpa_state_t *state, struct tcpinfo *tcpinfo,
 
 /*
  * Returns the total length of this FPDU under the assumption that a TCP
- * segement carries only one FPDU.
+ * segment carries only one FPDU.
  */
 static guint32
 fpdu_total_length(struct tcpinfo *tcpinfo)
@@ -350,12 +350,12 @@ is_mpa_req(tvbuff_t *tvb, packet_info *pinfo)
 		 */
 		state = init_mpa_state();
 
-		/* anaylize MPA connection parameter and record them */
+		/* analyze MPA connection parameter and record them */
 		mcrres = tvb_get_guint8(tvb, 16);
 		state->ini_exp_m_res = mcrres & MPA_MARKER_FLAG;
 		state->crc = mcrres & MPA_CRC_FLAG;
 		state->revision = tvb_get_guint8(tvb, 17);
-		state->req_frame_num = pinfo->fd->num;
+		state->req_frame_num = pinfo->num;
 		state->minfo[MPA_INITIATOR].port = pinfo->srcport;
 		state->minfo[MPA_RESPONDER].port = pinfo->destport;
 
@@ -384,7 +384,7 @@ is_mpa_rep(tvbuff_t *tvb, packet_info *pinfo)
 		return FALSE;
 	}
 
-	conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+	conversation = find_conversation(pinfo->num, &pinfo->src,
 			&pinfo->dst, pinfo->ptype, pinfo->srcport,
 			pinfo->destport, 0);
 
@@ -402,7 +402,7 @@ is_mpa_rep(tvbuff_t *tvb, packet_info *pinfo)
 		mcrres = tvb_get_guint8(tvb, 16);
 		state->res_exp_m_ini = mcrres & MPA_MARKER_FLAG;
 		state->crc = state->crc | (mcrres & MPA_CRC_FLAG);
-		state->rep_frame_num = pinfo->fd->num;
+		state->rep_frame_num = pinfo->num;
 
 		 /* enter Full Operation Phase only if the Reject bit is not set */
 		if (!(mcrres & MPA_REJECT_FLAG))
@@ -420,7 +420,7 @@ is_mpa_fpdu(packet_info *pinfo)
 	conversation_t *conversation = NULL;
 	mpa_state_t *state = NULL;
 
-	conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+	conversation = find_conversation(pinfo->num, &pinfo->src,
 			&pinfo->dst, pinfo->ptype, pinfo->srcport,
 			pinfo->destport, 0);
 
@@ -438,8 +438,8 @@ is_mpa_fpdu(packet_info *pinfo)
 		return FALSE;
 	}
 
-	if (pinfo->fd->num == state->req_frame_num
-			|| pinfo->fd->num == state->rep_frame_num) {
+	if (pinfo->num == state->req_frame_num
+			|| pinfo->num == state->rep_frame_num) {
 		return FALSE;
 	} else {
 		return TRUE;
@@ -711,7 +711,7 @@ dissect_mpa_fpdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		 * libpcap was not able to capture every packet) or lost alignment (the
 		 * MPA FPDU header does not start right after TCP header).
 		 * We consider the above to be an error since we make the assumption
-		 * that	exactly one MPA FPDU is contained in one TCP segement and starts
+		 * that	exactly one MPA FPDU is contained in one TCP segment and starts
 		 * always either with a Marker or the ULPDU_LENGTH header field.
 		 */
 		exp_ulpdu_length = expected_ulpdu_length(state, tcpinfo, endpoint);
@@ -795,7 +795,7 @@ dissect_iwarp_mpa(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 	/* FPDU */
 	if (tvb_captured_length(tvb) >= MPA_SMALLEST_FPDU_LEN && is_mpa_fpdu(pinfo)) {
 
-		conversation = find_conversation(pinfo->fd->num, &pinfo->src,
+		conversation = find_conversation(pinfo->num, &pinfo->src,
 				&pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 
 		state = get_mpa_state(conversation);

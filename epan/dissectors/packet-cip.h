@@ -28,6 +28,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#ifndef PACKET_CIP_H
+#define PACKET_CIP_H
+
 /* CIP Service Codes */
 #define SC_GET_ATT_ALL           0x01
 #define SC_SET_ATT_ALL           0x02
@@ -55,7 +58,7 @@
 #define CIP_SC_MASK              0x7F
 #define CIP_SC_RESPONSE_MASK     0x80
 
-/* Classes that have class-specfic dissectors */
+/* Classes that have class-specific dissectors */
 #define CI_CLS_MR   0x02    /* Message Router */
 #define CI_CLS_CM   0x06    /* Connection Manager */
 #define CI_CLS_MB   0x44    /* Modbus Object */
@@ -158,7 +161,7 @@
 #define CI_LOGICAL_SEG_ATTR_ID      0x10
 #define CI_LOGICAL_SEG_SPECIAL      0x14
 #define CI_LOGICAL_SEG_SERV_ID      0x18
-#define CI_LOGICAL_SEG_RES_1        0x1C
+#define CI_LOGICAL_SEG_EXT_LOGICAL  0x1C
 
 #define CI_LOGICAL_SEG_FORMAT_MASK  0x03
 #define CI_LOGICAL_SEG_8_BIT        0x00
@@ -178,7 +181,18 @@
 #define CI_NETWORK_SEG_FIXED_TAG    0x02
 #define CI_NETWORK_SEG_PROD_INHI    0x03
 #define CI_NETWORK_SEG_SAFETY       0x10
+#define CI_NETWORK_SEG_PROD_INHI_US 0x11
 #define CI_NETWORK_SEG_EXTENDED     0x1F
+
+#define CI_SYMBOL_SEG_FORMAT_MASK   0xE0
+#define CI_SYMBOL_SEG_SIZE_MASK     0x1F
+#define CI_SYMBOL_SEG_DOUBLE        0x20
+#define CI_SYMBOL_SEG_TRIPLE        0x40
+#define CI_SYMBOL_SEG_NUMERIC       0xC0
+
+#define CI_SYMBOL_NUMERIC_USINT     6
+#define CI_SYMBOL_NUMERIC_UINT      7
+#define CI_SYMBOL_NUMERIC_UDINT     8
 
 #define CI_TRANSPORT_CLASS_MASK     0x0F
 #define CI_PRODUCTION_TRIGGER_MASK  0x70
@@ -189,10 +203,12 @@
 #define CONN_TYPE_P2P               2
 #define CONN_TYPE_RESERVED          3
 
+#define ENIP_CIP_INTERFACE          0
+
 /* Define common services */
 #define GENERIC_SC_LIST \
-   { SC_GET_ATT_ALL,          "Get Attribute All" }, \
-   { SC_SET_ATT_ALL,          "Set Attribute All" }, \
+   { SC_GET_ATT_ALL,          "Get Attributes All" }, \
+   { SC_SET_ATT_ALL,          "Set Attributes All" }, \
    { SC_GET_ATT_LIST,         "Get Attribute List" }, \
    { SC_SET_ATT_LIST,         "Set Attribute List" }, \
    { SC_RESET,                "Reset" }, \
@@ -264,6 +280,7 @@ typedef struct attribute_info {
    guint                     class_id;
    gboolean                  class_instance;
    guint                     attribute;
+   int                       gaa_index; /* Index of attribute in GetAttributeAll response (< 0 means not in GetAttrbuteAll */
    const char               *text;
    enum cip_datatype         datatype;
    int*                      phf;
@@ -294,6 +311,7 @@ typedef struct cip_conn_info {
    guint8                  TransportClass_trigger;
    cip_safety_epath_info_t safety;
    gboolean                motion;
+   guint32                 ClassID;
 } cip_conn_info_t;
 
 typedef struct cip_req_info {
@@ -304,21 +322,26 @@ typedef struct cip_req_info {
    void                      *pData;
    cip_simple_request_info_t *ciaData;
    cip_conn_info_t*           connInfo;
-   gboolean                   isUnconnectedSend;
 } cip_req_info_t;
 
 /*
 ** Exported functions
 */
+
+/* Depending on if a Class or Symbol segment appears in Connection Path or
+   a Request Path, display '->' before or after the actual name. */
+#define NO_DISPLAY 0
+#define DISPLAY_CONNECTION_PATH 1
+#define DISPLAY_REQUEST_PATH 2
 extern void dissect_epath( tvbuff_t *tvb, packet_info *pinfo, proto_tree *path_tree, proto_item *epath_item, int offset, int path_length,
-                          gboolean generate, gboolean packed, cip_simple_request_info_t* req_data, cip_safety_epath_info_t* safety);
+                          gboolean generate, gboolean packed, cip_simple_request_info_t* req_data, cip_safety_epath_info_t* safety,
+                          int display_type);
 extern void dissect_cip_date_and_time(proto_tree *tree, tvbuff_t *tvb, int offset, int hf_datetime);
 extern attribute_info_t* cip_get_attribute(guint class_id, guint instance, guint attribute);
 
 /*
 ** Exported variables
 */
-extern dissector_table_t subdissector_class_table;
 extern const value_string cip_sc_rr[];
 extern const value_string cip_reset_type_vals[];
 extern value_string_ext cip_gs_vals_ext;
@@ -326,6 +349,39 @@ extern value_string_ext cip_cm_ext_st_vals_ext;
 extern value_string_ext cip_vendor_vals_ext;
 extern value_string_ext cip_devtype_vals_ext;
 extern value_string_ext cip_class_names_vals_ext;
+
+/* Common class attributes and attribute dissection functions*/
+extern int hf_attr_class_revision;
+extern int hf_attr_class_max_instance;
+extern int hf_attr_class_num_instance;
+extern int hf_attr_class_opt_attr_num;
+extern int hf_attr_class_attr_num;
+extern int hf_attr_class_opt_service_num;
+extern int hf_attr_class_service_code;
+extern int hf_attr_class_num_class_attr;
+extern int hf_attr_class_num_inst_attr;
+
+#define CLASS_ATTRIBUTE_1_NAME  "Revision"
+#define CLASS_ATTRIBUTE_2_NAME  "Max Instance"
+#define CLASS_ATTRIBUTE_3_NAME  "Number of Instances"
+#define CLASS_ATTRIBUTE_4_NAME  "Optional Attribute List"
+#define CLASS_ATTRIBUTE_5_NAME  "Optional Service List"
+#define CLASS_ATTRIBUTE_6_NAME  "Maximum ID Number Class Attributes"
+#define CLASS_ATTRIBUTE_7_NAME  "Maximum ID Number Instance Attributes"
+
+extern int dissect_optional_attr_list(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
+   int offset, int total_len);
+extern int dissect_optional_service_list(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
+   int offset, int total_len);
+
+extern int dissect_packed_epath(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
+   int offset, int total_len);
+extern int dissect_padded_epath(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
+   int offset, int total_len);
+extern int dissect_padded_epath_len_usint(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
+   int offset, int total_len);
+extern int dissect_padded_epath_len_uint(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
+   int offset, int total_len);
 
 /*
  * Editor modelines
@@ -339,3 +395,5 @@ extern value_string_ext cip_class_names_vals_ext;
  * ex: set shiftwidth=3 tabstop=8 expandtab:
  * :indentSize=3:tabSize=8:noTabs=true:
  */
+
+#endif /* PACKET_CIP_H */

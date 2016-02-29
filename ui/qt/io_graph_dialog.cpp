@@ -77,10 +77,6 @@ const int yfield_col_  = 5;
 const int sma_period_col_ = 6;
 const int num_cols_ = 7;
 
-// Available colors
-// XXX - Add custom
-QList<QRgb> colors_ = ColorUtils::graph_colors_;
-
 const qreal graph_line_width_ = 1.0;
 
 // When we drop support for Qt <5 we can initialize these with
@@ -190,9 +186,12 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf) :
     stat_timer_(NULL),
     need_replot_(false),
     need_retap_(false),
-    auto_axes_(true)
+    auto_axes_(true),
+    colors_(ColorUtils::graphColors())
 {
     ui->setupUi(this);
+    loadGeometry();
+
     setWindowSubtitle(tr("IO Graphs"));
     setAttribute(Qt::WA_DeleteOnClose, true);
     QCustomPlot *iop = ui->ioPlot;
@@ -200,14 +199,17 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf) :
     QPushButton *save_bt = ui->buttonBox->button(QDialogButtonBox::Save);
     save_bt->setText(tr("Save As" UTF8_HORIZONTAL_ELLIPSIS));
 
+    QPushButton *copy_bt = ui->buttonBox->addButton(tr("Copy"), QDialogButtonBox::ActionRole);
+    connect (copy_bt, SIGNAL(clicked()), this, SLOT(copyAsCsvClicked()));
+
     stat_timer_ = new QTimer(this);
     connect(stat_timer_, SIGNAL(timeout()), this, SLOT(updateStatistics()));
     stat_timer_->start(stat_update_interval_);
 
     // Intervals (ms)
-    ui->intervalComboBox->addItem(tr("0.001 sec"),   1);
-    ui->intervalComboBox->addItem(tr("0.01 sec"),   10);
-    ui->intervalComboBox->addItem(tr("0.1 sec"),   100);
+    ui->intervalComboBox->addItem(tr("1 ms"),        1);
+    ui->intervalComboBox->addItem(tr("10 ms"),      10);
+    ui->intervalComboBox->addItem(tr("100 ms"),    100);
     ui->intervalComboBox->addItem(tr("1 sec"),    1000);
     ui->intervalComboBox->addItem(tr("10 sec"),  10000);
     ui->intervalComboBox->addItem(tr("1 min"),   60000);
@@ -219,7 +221,11 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf) :
     ui->dragRadioButton->setChecked(mouse_drags_);
 
     ctx_menu_.addAction(ui->actionZoomIn);
+    ctx_menu_.addAction(ui->actionZoomInX);
+    ctx_menu_.addAction(ui->actionZoomInY);
     ctx_menu_.addAction(ui->actionZoomOut);
+    ctx_menu_.addAction(ui->actionZoomOutX);
+    ctx_menu_.addAction(ui->actionZoomOutY);
     ctx_menu_.addAction(ui->actionReset);
     ctx_menu_.addSeparator();
     ctx_menu_.addAction(ui->actionMoveRight10);
@@ -257,7 +263,15 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf) :
             QRgb pcolor = QColor(iogs->color).rgb();
             int color_idx;
             IOGraph::PlotStyles style = plot_style_to_name_.key(iogs->style, IOGraph::psLine);
-            io_graph_item_unit_t value_units = value_unit_to_name_.key(iogs->yaxis, IOG_ITEM_UNIT_PACKETS);
+
+            io_graph_item_unit_t value_units;
+            if (g_strcmp0(iogs->yaxis, "Bytes/s") == 0) { // Silently upgrade obsolete yaxis unit name
+                value_units = value_unit_to_name_.key(iogs->yaxis, IOG_ITEM_UNIT_BYTES);
+            } else if (g_strcmp0(iogs->yaxis, "Bits/s") == 0) { // Silently upgrade obsolete yaxis unit name
+                value_units = value_unit_to_name_.key(iogs->yaxis, IOG_ITEM_UNIT_BITS);
+            } else {
+                value_units = value_unit_to_name_.key(iogs->yaxis, IOG_ITEM_UNIT_PACKETS);
+            }
 
             for (color_idx = 0; color_idx < colors_.size(); color_idx++) {
                 if (pcolor == colors_[color_idx]) break;
@@ -437,6 +451,7 @@ void IOGraphDialog::syncGraphSettings(QTreeWidgetItem *item)
 
 void IOGraphDialog::updateWidgets()
 {
+    WiresharkDialog::updateWidgets();
 }
 
 void IOGraphDialog::scheduleReplot(bool now)
@@ -478,7 +493,20 @@ void IOGraphDialog::keyPressEvent(QKeyEvent *event)
     case Qt::Key_I:             // GTK+
         zoomAxes(true);
         break;
-
+    case Qt::Key_X:             // Zoom X axis only
+        if(event->modifiers() & Qt::ShiftModifier){
+            zoomXAxis(false);   // upper case X -> Zoom out
+        } else {
+            zoomXAxis(true);    // lower case x -> Zoom in
+        }
+        break;
+    case Qt::Key_Y:             // Zoom Y axis only
+        if(event->modifiers() & Qt::ShiftModifier){
+            zoomYAxis(false);   // upper case Y -> Zoom out
+        } else {
+            zoomYAxis(true);    // lower case y -> Zoom in
+        }
+        break;
     case Qt::Key_Right:
     case Qt::Key_L:
         panAxes(pan_pixels, 0);
@@ -591,6 +619,36 @@ void IOGraphDialog::zoomAxes(bool in)
     iop->replot();
 }
 
+void IOGraphDialog::zoomXAxis(bool in)
+{
+    QCustomPlot *iop = ui->ioPlot;
+    double h_factor = iop->axisRect()->rangeZoomFactor(Qt::Horizontal);
+
+    auto_axes_ = false;
+
+    if (!in) {
+        h_factor = pow(h_factor, -1);
+    }
+
+    iop->xAxis->scaleRange(h_factor, iop->xAxis->range().center());
+    iop->replot();
+}
+
+void IOGraphDialog::zoomYAxis(bool in)
+{
+    QCustomPlot *iop = ui->ioPlot;
+    double v_factor = iop->axisRect()->rangeZoomFactor(Qt::Vertical);
+
+    auto_axes_ = false;
+
+    if (!in) {
+        v_factor = pow(v_factor, -1);
+    }
+
+    iop->yAxis->scaleRange(v_factor, iop->yAxis->range().center());
+    iop->replot();
+}
+
 void IOGraphDialog::panAxes(int x_pixels, int y_pixels)
 {
     QCustomPlot *iop = ui->ioPlot;
@@ -685,6 +743,7 @@ void IOGraphDialog::updateLegend()
 {
     QCustomPlot *iop = ui->ioPlot;
     QSet<QString> vu_label_set;
+    QString intervalText = ui->intervalComboBox->itemText(ui->intervalComboBox->currentIndex());
 
     iop->legend->setVisible(false);
     iop->yAxis->setLabel(QString());
@@ -706,11 +765,20 @@ void IOGraphDialog::updateLegend()
 
     // All the same. Use the Y Axis label.
     if (vu_label_set.size() == 1) {
-        iop->yAxis->setLabel(vu_label_set.values()[0]);
+        iop->yAxis->setLabel(vu_label_set.values()[0] + "/" + intervalText);
         return;
     }
 
-    // Differing labels. Create a legend.
+    // Differing labels. Create a legend with a Title label at top.
+    // Legend Title thanks to: http://www.qcustomplot.com/index.php/support/forum/443
+    QCPStringLegendItem* legendTitle = qobject_cast<QCPStringLegendItem*>(iop->legend->elementAt(0));
+    if (legendTitle == NULL) {
+        legendTitle = new QCPStringLegendItem(iop->legend, QString(""));
+        iop->legend->insertRow(0);
+        iop->legend->addElement(0, 0, legendTitle);
+    }
+    legendTitle->setText(QString(intervalText + " Intervals "));
+
     for (int i = 0; i < ui->graphTreeWidget->topLevelItemCount(); i++) {
         QTreeWidgetItem *ti = ui->graphTreeWidget->topLevelItem(i);
         IOGraph *iog = NULL;
@@ -825,7 +893,7 @@ void IOGraphDialog::mouseMoved(QMouseEvent *event)
             QString val;
             if (interval_packet > 0) {
                 packet_num_ = (guint32) interval_packet;
-                msg = tr("%1 %2")
+                msg = QString("%1 %2")
                         .arg(!file_closed_ ? tr("Click to select packet") : tr("Packet"))
                         .arg(packet_num_);
                 val = " = " + QString::number(tracer_->position->value(), 'g', 4);
@@ -1118,6 +1186,8 @@ void IOGraphDialog::on_intervalComboBox_currentIndexChanged(int)
     if (need_retap) {
         scheduleRetap(true);
     }
+
+    updateLegend();
 }
 
 void IOGraphDialog::on_todCheckBox_toggled(bool checked)
@@ -1131,6 +1201,7 @@ void IOGraphDialog::on_todCheckBox_toggled(bool checked)
     auto_axes_ = orig_auto;
     getGraphInfo();
     ui->ioPlot->xAxis->moveRange(start_time_ - orig_start);
+    mouseMoved(NULL); // Update hint
 }
 
 void IOGraphDialog::on_graphTreeWidget_currentItemChanged(QTreeWidgetItem *, QTreeWidgetItem *previous)
@@ -1170,6 +1241,13 @@ void IOGraphDialog::on_graphTreeWidget_itemActivated(QTreeWidgetItem *item, int 
     }
     item->setIcon(color_col_, QIcon());
     color_combo_box_->setFocusPolicy(Qt::StrongFocus);
+
+#ifdef Q_OS_WIN
+    // QTBUG-3097
+    color_combo_box_->view()->setMinimumWidth(
+        style()->pixelMetric(QStyle::PM_ListViewIconSize) + // Not entirely correct but close enough.
+        style()->pixelMetric(QStyle::PM_ScrollBarExtent));
+#endif
 
     style_combo_box_ = new QComboBox();
     cur_idx = item->data(style_col_, Qt::UserRole).toInt();
@@ -1361,9 +1439,29 @@ void IOGraphDialog::on_actionZoomIn_triggered()
     zoomAxes(true);
 }
 
+void IOGraphDialog::on_actionZoomInX_triggered()
+{
+    zoomXAxis(true);
+}
+
+void IOGraphDialog::on_actionZoomInY_triggered()
+{
+    zoomYAxis(true);
+}
+
 void IOGraphDialog::on_actionZoomOut_triggered()
 {
     zoomAxes(false);
+}
+
+void IOGraphDialog::on_actionZoomOutX_triggered()
+{
+    zoomXAxis(false);
+}
+
+void IOGraphDialog::on_actionZoomOutY_triggered()
+{
+    zoomYAxis(false);
 }
 
 void IOGraphDialog::on_actionMoveUp10_triggered()
@@ -1447,11 +1545,13 @@ void IOGraphDialog::on_buttonBox_accepted()
     QString bmp_filter = tr("Windows Bitmap (*.bmp)");
     // Gaze upon my beautiful graph with lossy artifacts!
     QString jpeg_filter = tr("JPEG File Interchange Format (*.jpeg *.jpg)");
-    QString filter = QString("%1;;%2;;%3;;%4")
+    QString csv_filter = tr("Comma Separated Values (*.csv)");
+    QString filter = QString("%1;;%2;;%3;;%4;;%5")
             .arg(pdf_filter)
             .arg(png_filter)
             .arg(bmp_filter)
-            .arg(jpeg_filter);
+            .arg(jpeg_filter)
+            .arg(csv_filter);
 
     QString save_file = path.canonicalPath();
     if (!file_closed_) {
@@ -1470,6 +1570,8 @@ void IOGraphDialog::on_buttonBox_accepted()
             save_ok = ui->ioPlot->saveBmp(file_name);
         } else if (extension.compare(jpeg_filter) == 0) {
             save_ok = ui->ioPlot->saveJpg(file_name);
+        } else if (extension.compare(csv_filter) == 0) {
+            save_ok = saveCsv(file_name);
         }
         // else error dialog?
         if (save_ok) {
@@ -1477,6 +1579,61 @@ void IOGraphDialog::on_buttonBox_accepted()
             wsApp->setLastOpenDir(path.canonicalPath().toUtf8().constData());
         }
     }
+}
+
+void IOGraphDialog::makeCsv(QTextStream &stream) const
+{
+    QList<IOGraph *> activeGraphs;
+
+    int ui_interval = ui->intervalComboBox->itemData(ui->intervalComboBox->currentIndex()).toInt();
+    int max_interval = 0;
+
+    stream << "\"Interval start\"";
+    for (int i = 0; i < ui->graphTreeWidget->topLevelItemCount(); i++) {
+        QTreeWidgetItem *ti = ui->graphTreeWidget->topLevelItem(i);
+        if (ti && ti->checkState(name_col_) == Qt::Checked) {
+            IOGraph *iog = ti->data(name_col_, Qt::UserRole).value<IOGraph *>();
+            activeGraphs.append(iog);
+            if (max_interval < iog->maxInterval()) {
+                max_interval = iog->maxInterval();
+            }
+            QString name = iog->name().toUtf8();
+            name = QString("\"%1\"").arg(name.replace("\"", "\"\""));  // RFC 4180
+            stream << "," << name;
+        }
+    }
+    stream << endl;
+
+    for (int interval = 0; interval <= max_interval; interval++) {
+        double interval_start = (double)interval * ((double)ui_interval / 1000.0);
+        stream << interval_start;
+        foreach (IOGraph *iog, activeGraphs) {
+            double value = 0.0;
+            if (interval <= iog->maxInterval()) {
+                value = iog->getItemValue(interval, cap_file_.capFile());
+            }
+            stream << "," << value;
+        }
+        stream << endl;
+    }
+}
+
+void IOGraphDialog::copyAsCsvClicked()
+{
+    QString csv;
+    QTextStream stream(&csv, QIODevice::Text);
+    makeCsv(stream);
+    wsApp->clipboard()->setText(stream.readAll());
+}
+
+bool IOGraphDialog::saveCsv(const QString &file_name) const
+{
+    QFile save_file(file_name);
+    save_file.open(QFile::WriteOnly);
+    QTextStream out(&save_file);
+    makeCsv(out);
+
+    return true;
 }
 
 // IOGraph
@@ -1580,7 +1737,7 @@ void IOGraph::applyCurrentColor()
     if (graph_) {
         graph_->setPen(QPen(color_, graph_line_width_));
     } else if (bars_) {
-        bars_->setPen(QPen(QBrush(colors_[0]), graph_line_width_)); // ...or omit it altogether?
+        bars_->setPen(QPen(QBrush(ColorUtils::graphColor(0)), graph_line_width_)); // ...or omit it altogether?
         bars_->setBrush(color_);
     }
 }
@@ -1785,9 +1942,9 @@ QMap<io_graph_item_unit_t, QString> IOGraph::valueUnitsToNames()
 {
     QMap<io_graph_item_unit_t, QString> vuton;
 
-    vuton[IOG_ITEM_UNIT_PACKETS] = QObject::tr("Packets/s");
-    vuton[IOG_ITEM_UNIT_BYTES] = QObject::tr("Bytes/s");
-    vuton[IOG_ITEM_UNIT_BITS] = QObject::tr("Bits/s");
+    vuton[IOG_ITEM_UNIT_PACKETS] = QObject::tr("Packets");
+    vuton[IOG_ITEM_UNIT_BYTES] = QObject::tr("Bytes");
+    vuton[IOG_ITEM_UNIT_BITS] = QObject::tr("Bits");
     vuton[IOG_ITEM_UNIT_CALC_SUM] = QObject::tr("SUM(Y Field)");
     vuton[IOG_ITEM_UNIT_CALC_FRAMES] = QObject::tr("COUNT FRAMES(Y Field)");
     vuton[IOG_ITEM_UNIT_CALC_FIELDS] = QObject::tr("COUNT FIELDS(Y Field)");
@@ -1871,7 +2028,7 @@ void IOGraph::recalcGraphData(capture_file *cap_file)
         mavg_to_add = warmup_interval;
     }
 
-    for (int i = 0; i < cur_idx_; i++) {
+    for (int i = 0; i <= cur_idx_; i++) {
         double ts = (double) i * interval_ / 1000;
         if (x_axis && x_axis->tickLabelType() == QCPAxis::ltDateTime) {
             ts += start_time_;
@@ -1930,11 +2087,11 @@ void IOGraph::setInterval(int interval)
 
 // Get the value at the given interval (idx) for the current value unit.
 // Adapted from get_it_value in gtk/io_stat.c.
-double IOGraph::getItemValue(int idx, capture_file *cap_file)
+double IOGraph::getItemValue(int idx, const capture_file *cap_file) const
 {
     double     value = 0;          /* FIXME: loss of precision, visible on the graph for small values */
     int        adv_type;
-    io_graph_item_t *item;
+    const io_graph_item_t *item;
     guint32    interval;
 
     g_assert(idx < max_io_items_);
@@ -2120,7 +2277,7 @@ gboolean IOGraph::tapPacket(void *iog_ptr, packet_info *pinfo, epan_dissect_t *e
     if (iog->start_time_ == 0.0) {
         nstime_t start_nstime;
         nstime_set_zero(&start_nstime);
-        nstime_delta(&start_nstime, &pinfo->fd->abs_ts, &pinfo->rel_ts);
+        nstime_delta(&start_nstime, &pinfo->abs_ts, &pinfo->rel_ts);
         iog->start_time_ = nstime_to_sec(&start_nstime);
     }
 

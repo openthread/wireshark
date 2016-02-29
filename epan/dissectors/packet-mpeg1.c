@@ -76,8 +76,8 @@ static const value_string rtp_mpg_picture_types_vals[] =
 	{ 0, NULL },
 };
 
-static void
-dissect_mpeg1( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int
+dissect_mpeg1( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
 	proto_item *ti;
 	proto_tree *mpg_tree;
@@ -125,6 +125,7 @@ dissect_mpeg1( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
 
 	/* The rest of the packet is the MPEG-1 stream */
 	proto_tree_add_item( mpg_tree, hf_rtp_mpg_data, tvb, offset, -1, ENC_NA );
+	return tvb_captured_length(tvb);
 }
 
 void

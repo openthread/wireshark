@@ -264,7 +264,7 @@ megacostat_is_duplicate_reply(const gcp_cmd_t* cmd)
             return FALSE;
         }
         break;
-	default:
+    default:
         return FALSE;
         break;
     }
@@ -361,7 +361,7 @@ megacostat_packet(void *pms, packet_info *pinfo, epan_dissect_t *edt _U_, const 
         else {
             ms->time_stats[0].open_req_num--;
             /* calculate time delta between request and response */
-            nstime_delta(&delta, &pinfo->fd->abs_ts, &mi->trx->initial->time);
+            nstime_delta(&delta, &pinfo->abs_ts, &mi->trx->initial->time);
 
             switch(mi->type) {
 
@@ -436,8 +436,8 @@ static void
 dissect_megaco_Packagesdescriptor(tvbuff_t *tvb, proto_tree *tree, gint tvb_next_offset, gint tvb_current_offset);
 static void
 tvb_raw_text_add(tvbuff_t *tvb, proto_tree *tree);
-static void
-dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
+static int
+dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 static gint
 megaco_tvb_find_token(tvbuff_t *tvb, gint offset, gint maxlength);
 static dissector_handle_t data_handle;
@@ -452,7 +452,7 @@ static gboolean keep_persistent_data = FALSE;
  * dissect_megaco_text over TCP, there will be a TPKT header there
  *
  */
-static void dissect_megaco_text_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_megaco_text_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int lv_tpkt_len;
 
@@ -469,10 +469,12 @@ static void dissect_megaco_text_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tre
          * It's not a TPKT packet;
          * Is in MEGACO ?
          */
-        dissect_megaco_text(tvb, pinfo, tree);
+        dissect_megaco_text(tvb, pinfo, tree, data);
     }
     dissect_tpkt_encap(tvb, pinfo, tree, TRUE,
         megaco_text_handle);
+
+    return tvb_captured_length(tvb);
 }
 
 #define ERRORTOKEN          1
@@ -548,8 +550,8 @@ my_proto_tree_add_uint(proto_tree *tree, int hfindex, tvbuff_t *tvb,
  * dissect_megaco_text - The dissector for the MEGACO Protocol, using
  * text encoding.
  */
-static void
-dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     gint        tvb_len, len;
     gint        tvb_offset,tvb_current_offset,tvb_previous_offset,tvb_next_offset,tokenlen;
@@ -559,7 +561,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     gint        tvb_transaction_end_offset;
     proto_tree  *megaco_tree, *message_body_tree, *megaco_tree_command_line, *ti, *sub_ti;
 
-    guint8      word[7];
+    guint8      word[15];
     guint8      TermID[30];
     guint8      tempchar;
     gint        tvb_RBRKT, tvb_LBRKT,  RBRKT_counter, LBRKT_counter;
@@ -597,7 +599,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     dword = tvb_get_ntoh24(tvb,0);
     if ((dword == 0x836803)&&(h248_otp_handle)){
         call_dissector(h248_otp_handle, tvb, pinfo, tree);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     msg = gcp_msg(pinfo, tvb_raw_offset(tvb), keep_persistent_data);
@@ -614,7 +616,29 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
      *
      * tvb_offset = tvb_find_guint8(tvb, tvb_offset, 5, 'M');
      */
-    if(!tvb_get_nstringz0(tvb,tvb_offset,sizeof(word),word)) return;
+    if(!tvb_get_nstringz0(tvb,tvb_offset,sizeof(word),word)) return tvb_captured_length(tvb);
+
+    /* Quick fix for MEGACO packet with Authentication Header,
+     * marked as "AU" or "Authentication".
+     */
+    if ((g_ascii_strncasecmp(word, "Authentication", 14) == 0) ||
+        (g_ascii_strncasecmp(word, "AU", 2) == 0)) {
+        gint counter;
+        guint8 next;
+
+        /* move offset to end of auth header (EOL or WSP) */
+        for ( counter = tvb_offset; counter < tvb_len; counter++ ) {
+            needle = tvb_get_guint8(tvb, counter);
+            if (needle == ' ' || needle == '\r' || needle == '\n') {
+                next = tvb_get_guint8(tvb, counter+1);
+                if (next == ' ' || next == '\r' || next == '\n') {
+                    continue;
+                }
+                tvb_offset = counter + 1;
+                break;
+            }
+        }
+    }
 
     short_form = (tvb_get_guint8(tvb, tvb_offset ) == '!');
 
@@ -631,8 +655,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
 
         call_dissector(handle,tvb,pinfo,tree);
-
-        return;
+        return tvb_captured_length(tvb);
     }
 
 
@@ -654,7 +677,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (tvb_previous_offset == -1) {
         expert_add_info_format(pinfo, ti, &ei_megaco_parse_error,
             "Sorry, no \"/\" in the MEGACO header, I can't parse this packet");
-        return;
+        return tvb_captured_length(tvb);
     }
 
     my_proto_tree_add_string(megaco_tree, hf_megaco_start, tvb, 0, tvb_previous_offset+1,
@@ -680,7 +703,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (tvb_previous_offset == tvb_current_offset) {
         expert_add_info_format(pinfo, ti, &ei_megaco_parse_error,
             "[ Parse error: missing SEP in MEGACO header ]");
-        return;
+        return tvb_current_offset;
     }
 
     tvb_previous_offset = tvb_current_offset;
@@ -699,7 +722,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (tvb_current_offset == -1) {
         expert_add_info_format(pinfo, ti, &ei_megaco_parse_error,
             "[ Parse error: no body in MEGACO message (missing SEP after mId) ]");
-        return;
+        return tvb_captured_length(tvb);
     }
 
     tvb_next_offset = megaco_tvb_skip_wsp(tvb, tvb_current_offset);
@@ -772,7 +795,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 tvb_command_start_offset = tvb_previous_offset;
                 dissect_megaco_errordescriptor(tvb, megaco_tree, tvb_len-1, tvb_command_start_offset);
             }
-            return;
+            return tvb_captured_length(tvb);
             /* transactionResponseAck
              * transactionResponseAck = ResponseAckToken LBRKT transactionAck
              *                           *(COMMA transactionAck) RBRKT
@@ -801,7 +824,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             if(global_megaco_raw_text){
                 tvb_raw_text_add(tvb, megaco_tree);
             }
-            return;
+            return tvb_captured_length(tvb);
         /* Pe and PN is transactionPending, P+"any char" is transactionReply */
         case PENDINGTOKEN:
 
@@ -822,7 +845,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "%d Pending", pending_id);
 
             my_proto_tree_add_uint(megaco_tree, hf_megaco_transid, tvb, save_offset, save_length, pending_id);
-            return;
+            return tvb_captured_length(tvb);
 
         /* transactionReply */
         case REPLYTOKEN:
@@ -849,7 +872,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             tempchar = tvb_get_guint8(tvb,tvb_offset);
             if ((tempchar == 'E')||(tempchar == 'e')){
                 dissect_megaco_errordescriptor(tvb, megaco_tree, tvb_transaction_end_offset-1, tvb_offset);
-                return;
+                return tvb_captured_length(tvb);
             }
             /* Offset should be at first printable char after { */
             tvb_previous_offset = tvb_offset;
@@ -879,7 +902,7 @@ dissect_megaco_text(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             proto_tree_add_expert_format(tree, pinfo, &ei_megaco_error_descriptor_transaction_list, tvb, 0, -1,
                     "Sorry, can't understand errorDescriptor / transactionList = %s, can't parse it pos %u",
                         tvb_format_text(tvb,tvb_previous_offset,2),tvb_previous_offset);
-            return;
+            return tvb_captured_length(tvb);
         } /* end switch */
 /*      Only these remains now
  *      transactionReply = ReplyToken EQUAL TransactionID LBRKT
@@ -912,7 +935,7 @@ nextcontext:
         if (tvb_current_offset >= tvb_next_offset) {
             proto_tree_add_expert_format(megaco_tree, pinfo, &ei_megaco_parse_error,
                                     tvb, context_offset, context_length, "Parse error: Invalid offset");
-            return;
+            return tvb_captured_length(tvb);
         }
         tvb_current_offset = tvb_next_offset;
 
@@ -1073,13 +1096,13 @@ nextcontext:
                         gint tvb_topology_end_offset = tvb_find_guint8(tvb, tvb_command_start_offset, tvb_transaction_end_offset, '}');
                         if ( tvb_topology_end_offset == -1 ){
                             expert_add_info_format(pinfo, sub_ti, &ei_megaco_parse_error, "Parse error: Missing \"}\"");
-                            return;
+                            return tvb_captured_length(tvb);
                         }
 
                         tvb_command_start_offset = tvb_find_guint8(tvb, tvb_command_start_offset, tvb_transaction_end_offset, '{');
                         if ( tvb_command_start_offset == -1 ){
                             expert_add_info_format(pinfo, sub_ti, &ei_megaco_parse_error, "Parse error: Missing \"{\"");
-                            return;
+                            return tvb_captured_length(tvb);
                         }
                         dissect_megaco_topologydescriptor(tvb, megaco_tree_command_line, tvb_topology_end_offset-1, tvb_command_start_offset+1);
 
@@ -1120,7 +1143,7 @@ nextcontext:
                     tvb_transaction_end_offset, '=');
                 if (tvb_offset == -1 ) {
                     proto_tree_add_expert_format(megaco_tree, pinfo, &ei_megaco_parse_error, tvb, tvb_command_start_offset, len+1, "Parse error: Missing \"=\"");
-                    return;
+                    return tvb_captured_length(tvb);
                 }
                 tvb_offset = megaco_tvb_skip_wsp_return(tvb, tvb_offset -1);
                 tokenlen = tvb_offset - tvb_command_start_offset;
@@ -1315,11 +1338,9 @@ nextcontext:
                             break;
 
                         default:
-                        {
                             proto_item_append_text(sub_ti, "<None> 0x%02x", tempchar);
                             expert_add_info(pinfo, sub_ti, &ei_megaco_no_command);
-                            return;
-                        }
+                            return tvb_captured_length(tvb);
                         }
                     }
                     else{
@@ -1407,13 +1428,13 @@ nextcontext:
                         tvb_transaction_end_offset, '=');
                     if (tvb_offset == -1 ) {
                         expert_add_info_format(pinfo, sub_ti, &ei_megaco_parse_error, "Parse error: Missing \"=\"");
-                        return;
+                        return tvb_captured_length(tvb);
                     }
                     tvb_offset = megaco_tvb_skip_wsp(tvb, tvb_offset+1);
                     tokenlen = tvb_next_offset - tvb_offset;
                     if (tokenlen+1 <= 0) {
                         expert_add_info_format(pinfo, sub_ti, &ei_megaco_parse_error, "Parse error: Invalid token length (%d)", tokenlen+1);
-                        return;
+                        return tvb_captured_length(tvb);
                     }
 
                     tempchar = tvb_get_guint8(tvb, tvb_offset);
@@ -1429,7 +1450,7 @@ nextcontext:
                     case 'E':
                         if ((tokenlen+1 > (int) sizeof(TermID))) {
                             expert_add_info_format(pinfo, sub_ti, &ei_megaco_parse_error, "Parse error: Invalid TermID length (%d)", tokenlen+1);
-                            return;
+                            return tvb_captured_length(tvb);
                         }
                         tvb_get_nstringz0(tvb,tvb_offset,tokenlen+1,TermID);
                         TermID[0] = 'e';
@@ -1542,6 +1563,7 @@ nextcontext:
     if(global_megaco_raw_text){
         tvb_raw_text_add(tvb, megaco_tree);
     }
+    return tvb_captured_length(tvb);
 }
 
 #define MEGACO_MODEM_TOKEN          1
@@ -2156,7 +2178,7 @@ dissect_megaco_signaldescriptor(tvbuff_t *tvb, packet_info *pinfo, proto_tree *m
 
             }
 
-            tvb_help_offset = tvb_LBRKT = tvb_find_guint8(tvb, tvb_previous_offset, tvb_signals_end_offset, '{');
+            tvb_help_offset = tvb_find_guint8(tvb, tvb_previous_offset, tvb_signals_end_offset, '{');
 
             /* if there are signalparameter  */
 
@@ -2407,7 +2429,7 @@ dissect_megaco_servicechangedescriptor(tvbuff_t *tvb, proto_tree *megaco_tree,  
         case MEGACO_PROFILE_TOKEN:
         case MEGACO_VERSION_TOKEN:
         case MEGACO_METHOD_TOKEN:
-            /* No special dissection: fall trough */
+            /* No special dissection: fall through */
         default:
         /* Unknown or:
          * extension            = extensionParameter parmValue

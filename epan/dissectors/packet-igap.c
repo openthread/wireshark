@@ -219,7 +219,7 @@ dissect_igap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
             proto_tree_add_item(tree, hf_igap_challenge, tvb, offset, msize, ENC_NA);
             break;
         case IGAP_SUBTYPE_AUTH_MESSAGE:
-            /* Challenge field indicates the result of the authenticaion */
+            /* Challenge field indicates the result of the authentication */
             proto_tree_add_uint(tree, hf_igap_authentication_result, tvb, offset, msize, message[0]);
             break;
         case IGAP_SUBTYPE_ACCOUNTING_MESSAGE:
@@ -344,7 +344,7 @@ proto_reg_handoff_igap(void)
 {
     dissector_handle_t igap_handle;
 
-    igap_handle = new_create_dissector_handle(dissect_igap, proto_igap);
+    igap_handle = create_dissector_handle(dissect_igap, proto_igap);
     dissector_add_uint("igmp.type", IGMP_IGAP_JOIN, igap_handle);
     dissector_add_uint("igmp.type", IGMP_IGAP_QUERY, igap_handle);
     dissector_add_uint("igmp.type", IGMP_IGAP_LEAVE, igap_handle);

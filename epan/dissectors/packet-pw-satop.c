@@ -383,18 +383,18 @@ void dissect_pw_satop(tvbuff_t * tvb_original
 
 
 static
-void dissect_pw_satop_mpls( tvbuff_t * tvb_original, packet_info * pinfo, proto_tree * tree)
+int dissect_pw_satop_mpls( tvbuff_t * tvb_original, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
 	dissect_pw_satop(tvb_original,pinfo,tree,PWC_DEMUX_MPLS);
-	return;
+	return tvb_captured_length(tvb_original);
 }
 
 
 static
-void dissect_pw_satop_udp( tvbuff_t * tvb_original, packet_info * pinfo, proto_tree * tree)
+int dissect_pw_satop_udp( tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
-	dissect_pw_satop(tvb_original,pinfo,tree,PWC_DEMUX_UDP);
-	return;
+	dissect_pw_satop(tvb,pinfo,tree,PWC_DEMUX_UDP);
+	return tvb_captured_length(tvb);
 }
 
 

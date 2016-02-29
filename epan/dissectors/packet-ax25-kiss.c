@@ -111,9 +111,9 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/prefs.h>
 #include <wiretap/wtap.h>
-#include "packet-ax25-kiss.h"
 #include "packet-ax25.h"
 
 #define STRLEN	80
@@ -178,40 +178,41 @@ static const value_string kiss_frame_types[] = {
 	{ 0, NULL }
 };
 
-void
-capture_ax25_kiss( const guchar *pd, int offset, int len, packet_counts *ld)
+static gboolean
+capture_ax25_kiss( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
 	int    l_offset;
 	guint8 kiss_cmd;
 
 	if ( ! BYTES_ARE_IN_FRAME( offset, len, KISS_HEADER_SIZE ) )
-		{
-		ld->other++;
-		return;
-		}
+		return FALSE;
 
 	l_offset  = offset;
 	kiss_cmd  = pd[ l_offset ];
 	l_offset += KISS_HEADER_SIZE; /* step over kiss header */
 	switch ( kiss_cmd & KISS_CMD_MASK )
-		{
-		case KISS_DATA_FRAME	: capture_ax25( pd, l_offset, len, ld ); break;
+	{
+		case KISS_DATA_FRAME	:
+			return capture_ax25( pd, l_offset, len, cpinfo, pseudo_header );
 		case KISS_TXDELAY	: break;
 		case KISS_PERSISTENCE	: break;
 		case KISS_SLOT_TIME	: break;
 		case KISS_TXTAIL	: break;
 		case KISS_FULLDUPLEX	: break;
 		case KISS_SETHARDWARE	: break;
-		case KISS_DATA_FRAME_ACK: l_offset += 2; capture_ax25( pd, l_offset, len, ld ); break;
+		case KISS_DATA_FRAME_ACK:
+			l_offset += 2;
+			return capture_ax25( pd, l_offset, len, cpinfo, pseudo_header );
 		case KISS_POLL_MODE	: break;
 		case KISS_RETURN	: break;
 		default			: break;
-		}
+	}
+	return FALSE;
 }
 
 /* Code to actually dissect the packets */
-static void
-dissect_ax25_kiss( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree )
+static int
+dissect_ax25_kiss( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_ )
 {
 	proto_item *ti;
 	proto_tree *kiss_tree;
@@ -354,6 +355,8 @@ dissect_ax25_kiss( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree )
 		next_tvb = tvb_new_subset_remaining( tvb, offset );
 		call_dissector( ax25_handle, next_tvb, pinfo, parent_tree );
 		}
+
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -444,6 +447,7 @@ void
 proto_reg_handoff_ax25_kiss(void)
 {
 	dissector_add_uint( "wtap_encap", WTAP_ENCAP_AX25_KISS, kiss_handle );
+	register_capture_dissector("wtap_encap", WTAP_ENCAP_AX25_KISS, capture_ax25_kiss, proto_ax25_kiss);
 
 	/* only currently implemented for AX.25 */
 	ax25_handle = find_dissector( "ax25" );

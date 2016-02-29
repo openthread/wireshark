@@ -44,6 +44,8 @@
 #include <epan/packet.h>
 #include <epan/sctpppids.h>      /* include V5UA payload protocol ID */
 
+#include <wsutil/str_util.h>
+
 void proto_register_v5ua(void);
 void proto_reg_handoff_v5ua(void);
 
@@ -242,67 +244,34 @@ dissect_dlci_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, prot
    sapi = tvb_get_ntohs(parameter_tvb, offset-DLCI_TEI_LENGTH-DLCI_SAPI_LENGTH)>>2;
    tei = tvb_get_ntohs(parameter_tvb, offset-DLCI_TEI_LENGTH)>>1;
 
-   /* if SAPI & TEI not set to ZERO, value of EFA must be decode (EFA = 0 -> ISDN protocol)*/
-   if(tvb_get_ntohs(parameter_tvb,offset-DLCI_TEI_LENGTH) != 0x01){
+   offset += DLCI_TEI_LENGTH;
+   efa = tvb_get_ntohs(parameter_tvb, offset);
+   dlci_efa = tvb_get_ntohs(parameter_tvb, offset);
 
-      offset += DLCI_TEI_LENGTH;
-      efa = tvb_get_ntohs(parameter_tvb, offset);
-      dlci_efa = tvb_get_ntohs(parameter_tvb, offset);
+   if (dlci_efa >= 0 && dlci_efa <= 8175) { col_append_fstr(pinfo->cinfo, COL_INFO, " | ISDN: %u", dlci_efa); }
+   else if (dlci_efa == 8176) { col_append_str(pinfo->cinfo, COL_INFO, " | PSTN"); }
+   else if (dlci_efa == 8177) { col_append_str(pinfo->cinfo, COL_INFO, " | Ctrl"); }
+   else if (dlci_efa == 8178) { col_append_str(pinfo->cinfo, COL_INFO, " | BCC"); }
+   else if (dlci_efa == 8179) { col_append_str(pinfo->cinfo, COL_INFO, " | ProtProt"); }
+   else if (dlci_efa == 8180) { col_append_str(pinfo->cinfo, COL_INFO, " | LinkCtrl"); }
 
-      if (dlci_efa >= 0 && dlci_efa <= 8175) { col_append_fstr(pinfo->cinfo, COL_INFO, " | ISDN: %u", dlci_efa); }
-      else if (dlci_efa == 8176) { col_append_str(pinfo->cinfo, COL_INFO, " | PSTN"); }
-      else if (dlci_efa == 8177) { col_append_str(pinfo->cinfo, COL_INFO, " | Ctrl"); }
-      else if (dlci_efa == 8178) { col_append_str(pinfo->cinfo, COL_INFO, " | BCC"); }
-      else if (dlci_efa == 8179) { col_append_str(pinfo->cinfo, COL_INFO, " | ProtProt"); }
-      else if (dlci_efa == 8180) { col_append_str(pinfo->cinfo, COL_INFO, " | LinkCtrl"); }
-
-      if(efa <= 8175) {
-         proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
-               "ISDN (%u)", efa);
-         proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:ISDN (%u))",sapi,tei,efa);
-      }
-      else if (efa > 8175 && efa <= 8180){
-         proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
-               "%s (%u)", val_to_str_const(efa, efa_values, "unknown EFA"),tvb_get_ntohs(parameter_tvb, offset));
-         proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:%s (%u))",sapi,tei,val_to_str_const(efa, efa_values, "unknown EFA-value"),efa);
-      }
-      else {
-         proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
-               "RESERVED (%u)", efa);
-         proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:RESERVED (%u))",sapi,tei,efa);
-      }
+   if(efa <= 8175) {
+      proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
+            "ISDN (%u)", efa);
+      proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:ISDN (%u))",sapi,tei,efa);
    }
-   /* if SAPI & TEI set to ZERO, EFA also shall be set to ZERO and didn't comply with value for ISDN protocol */
-   else{
-      offset += DLCI_TEI_LENGTH;
-      efa = tvb_get_ntohs(parameter_tvb, offset);
-      dlci_efa = tvb_get_ntohs(parameter_tvb, offset);
-
-      if (dlci_efa >= 0 && dlci_efa <= 8175) { col_append_fstr(pinfo->cinfo, COL_INFO, " | ISDN: %u", dlci_efa); }
-      else if (dlci_efa == 8176) { col_append_str(pinfo->cinfo, COL_INFO, " | PSTN"); }
-      else if (dlci_efa == 8177) { col_append_str(pinfo->cinfo, COL_INFO, " | Ctrl"); }
-      else if (dlci_efa == 8178) { col_append_str(pinfo->cinfo, COL_INFO, " | BCC"); }
-      else if (dlci_efa == 8179) { col_append_str(pinfo->cinfo, COL_INFO, " | ProtProt"); }
-      else if (dlci_efa == 8180) { col_append_str(pinfo->cinfo, COL_INFO, " | LinkCtrl"); }
-
-      if (efa <= 8175) {
-         proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
-               "ISDN (%u)", efa);
-         proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:ISDN (%u))",sapi,tei,efa);
-
-      }
-      else if (efa > 8175 && efa <= 8180){
-         proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
-               "%s (%u)", val_to_str_const(efa, efa_values, "unknown EFA"),tvb_get_ntohs(parameter_tvb, offset));
-         proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:%s (%u))",sapi,tei,val_to_str_const(efa, efa_values, "unknown EFA-value"),efa);
-
-      }
-      else {
-         proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
-               "RESERVED (%u)", efa);
-         proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:RESERVED (%u))",sapi,tei,efa);
-      }
+   else if (efa > 8175 && efa <= 8180){
+      proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
+            "%s (%u)", val_to_str_const(efa, efa_values, "unknown EFA"),tvb_get_ntohs(parameter_tvb, offset));
+      proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:%s (%u))",sapi,tei,val_to_str_const(efa, efa_values, "unknown EFA-value"),efa);
    }
+   else {
+      proto_tree_add_uint_format_value(parameter_tree, hf_efa,  parameter_tvb, offset, EFA_LENGTH, efa,
+            "RESERVED (%u)", efa);
+      proto_item_append_text(parameter_item, " (SAPI:%u TEI:%u EFA:RESERVED (%u))",sapi,tei,efa);
+   }
+
+
 }
 /*----------------------DLCI & Envelope Function Address------------------------*/
 
@@ -1159,7 +1128,7 @@ static const value_string msg_class_type_values[] = {
    { MSG_CLASS_MGMT_MSG  * 256 + MGMT_MSG_TYPE_TEI_QUERY_REQUEST5,          "TEI query request" },
 
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_REQ,   "TEI status request" },
-   { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_CON,   "TEI status confimation" },
+   { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_CON,   "TEI status confirmation" },
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_IND,   "TEI status indication" },
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_QUERY_REQUEST,  "TEI query request" },
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_QUERY_REQUEST5, "TEI query request" },
@@ -1231,7 +1200,7 @@ static const value_string msg_class_type_values_short[] = {
    { MSG_CLASS_MGMT_MSG  * 256 + MGMT_MSG_TYPE_TEI_QUERY_REQUEST5,          "TEI query request" },
 
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_REQ,   "TEI status request" },
-   { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_CON,   "TEI status confimation" },
+   { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_CON,   "TEI status confirmation" },
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_STATUS_IND,   "TEI status indication" },
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_QUERY_REQUEST,  "TEI query request" },
    { MSG_CLASS_MGMT_MSG_DRAFT * 256 + MGMT_MSG_DRAFT_TYPE_TEI_QUERY_REQUEST5, "TEI query request" },
@@ -1378,10 +1347,9 @@ dissect_v5ua_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_
 
 }
 
-static void
-dissect_v5ua(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_v5ua(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
    gint    offset, remaining_length, length, tag, one_bit;
 
 
@@ -1393,14 +1361,10 @@ dissect_v5ua(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    col_set_str(pinfo->cinfo, COL_PROTOCOL, "V5UA");
    /* end */
    col_clear(pinfo->cinfo, COL_INFO);
-   if (tree) {
-      /* create display subtree for the protocol */
-      ti = proto_tree_add_item(tree, proto_v5ua, tvb, 0, -1, ENC_NA);
-      v5ua_tree = proto_item_add_subtree(ti, ett_v5ua);
-   }
-   else {
-      v5ua_tree=NULL;
-   };
+
+   /* create display subtree for the protocol */
+   ti = proto_tree_add_item(tree, proto_v5ua, tvb, 0, -1, ENC_NA);
+   v5ua_tree = proto_item_add_subtree(ti, ett_v5ua);
 
    /* detect version of IUA */
    iua_version = RFC;
@@ -1465,6 +1429,7 @@ dissect_v5ua(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
    /* dissect the message */
    dissect_v5ua_message(tvb, pinfo, tree, v5ua_tree);
+   return tvb_captured_length(tvb);
 }
 
 

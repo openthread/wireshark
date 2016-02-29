@@ -21,8 +21,6 @@
 
 #include "multicast_statistics_dialog.h"
 
-#include "ui/mcast_stream.h"
-
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -171,9 +169,7 @@ MulticastStatisticsDialog::MulticastStatisticsDialog(QWidget &parent, CaptureFil
     TapParameterDialog(parent, cf)
 {
     setWindowSubtitle(tr("UDP Multicast Streams"));
-
-    // XXX Use recent settings instead
-    resize(parent.width() * 4 / 5, parent.height() * 3 / 4);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 3 / 4, "MulticastStatisticsDialog");
 
     tapinfo_ = new mcaststream_tapinfo_t();
     tapinfo_->user_data = this;
@@ -219,9 +215,9 @@ MulticastStatisticsDialog::MulticastStatisticsDialog(QWidget &parent, CaptureFil
     param_grid->addWidget(new QLabel(tr("Buffer alarm threshold (B):")), 0, 6, Qt::AlignRight);
     param_grid->addWidget(buffer_alarm_threshold_le_, 0, 7);
 
-    param_grid->addWidget(new QLabel(tr("Stream empty speed (Kb/s:")), 1, 0, Qt::AlignRight);
+    param_grid->addWidget(new QLabel(tr("Stream empty speed (Kb/s):")), 1, 0, Qt::AlignRight);
     param_grid->addWidget(stream_empty_speed_le_, 1, 1);
-    param_grid->addWidget(new QLabel(tr("Total empty speed (Kb/s:")), 1, 3, Qt::AlignRight);
+    param_grid->addWidget(new QLabel(tr("Total empty speed (Kb/s):")), 1, 3, Qt::AlignRight);
     param_grid->addWidget(total_empty_speed_le_, 1, 4);
 
     burst_measurement_interval_le_->setText(QString::number(mcast_stream_burstint));
@@ -246,7 +242,7 @@ MulticastStatisticsDialog::MulticastStatisticsDialog(QWidget &parent, CaptureFil
         setDisplayFilter(filter);
     }
 
-    connect(this, SIGNAL(updateFilter(QString&,bool)),
+    connect(this, SIGNAL(updateFilter(QString)),
             this, SLOT(updateMulticastParameters()));
 
     connect(&cap_file_, SIGNAL(captureFileClosing()),
@@ -269,18 +265,16 @@ MulticastStatisticsDialog::~MulticastStatisticsDialog()
     delete tapinfo_;
 }
 
-void MulticastStatisticsDialog::tapReset(void *mti_ptr)
+void MulticastStatisticsDialog::tapReset(mcaststream_tapinfo_t *tapinfo)
 {
-    mcaststream_tapinfo_t *tapinfo = (mcaststream_tapinfo_t *)mti_ptr;
     MulticastStatisticsDialog *ms_dlg = dynamic_cast<MulticastStatisticsDialog *>((MulticastStatisticsDialog*)tapinfo->user_data);
     if (!ms_dlg || !ms_dlg->statsTreeWidget()) return;
 
     ms_dlg->statsTreeWidget()->clear();
 }
 
-void MulticastStatisticsDialog::tapDraw(void *mti_ptr)
+void MulticastStatisticsDialog::tapDraw(mcaststream_tapinfo_t *tapinfo)
 {
-    mcaststream_tapinfo_t *tapinfo = (mcaststream_tapinfo_t *)mti_ptr;
     MulticastStatisticsDialog *ms_dlg = dynamic_cast<MulticastStatisticsDialog *>((MulticastStatisticsDialog*)tapinfo->user_data);
     if (!ms_dlg || !ms_dlg->statsTreeWidget()) return;
 
@@ -449,6 +443,7 @@ void MulticastStatisticsDialog::captureFileClosing()
     remove_tap_listener_mcast_stream(tapinfo_);
 
     updateWidgets();
+    WiresharkDialog::captureFileClosing();
 }
 
 // Stat command + args

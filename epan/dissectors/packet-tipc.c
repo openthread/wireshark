@@ -1088,7 +1088,7 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			offset = offset + 4;
 
 			if ((message_type == TIPCv2_RESET_MSG)
-					|| ((message_type == TIPCv2_STATE_MSG) && ((msg_size-(orig_hdr_size*4)) != 0))) /* is allowed */
+					|| ((message_type == TIPCv2_STATE_MSG) && ((msg_size-(orig_hdr_size*4)) != 0))){ /* is allowed */
 				proto_tree_add_item(tipc_tree, hf_tipcv2_bearer_instance, tipc_tvb, offset, -1, ENC_ASCII|ENC_NA);
 				/* the bearer instance string is padded with \0 to the next word boundry */
 				b_inst_strlen = tvb_strsize(tipc_tvb, offset);
@@ -1096,11 +1096,12 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				if ((padlen = (4-b_inst_strlen%4)) > 0) {
 					proto_tree_add_bytes_format_value(tipc_tree, hf_tipcv2_padding, tipc_tvb, offset, padlen, NULL, "%d byte%c", padlen, (padlen!=1?'s':0));
 					offset += padlen;
-				};
+				}
 				if ((offset-msg_size) > 0) {
 					proto_tree_add_bytes_format_value(tipc_tree, hf_tipcv2_filler_mtu_discovery, tipc_tvb, offset, -1, NULL,
 													"%d byte%c", tvb_reported_length_remaining(tipc_tvb, offset), (padlen!=1?'s':0));
-				};
+				}
+			}
 			break;
 		case TIPCv2_CONN_MANAGER:
 			/* CONN_MANAGER uses the 36-byte header format of CONN_MSG payload messages */
@@ -2125,18 +2126,18 @@ dissect_tipc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 				/* Data type header */
 				if (hdr_size > 5 && user <4) {
 					/* W6 Originating Processor */
-					TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 24, 4);
+					set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 24);
 
 					/* W7 Destination Processor */
-					TVB_SET_ADDRESS(&pinfo->dst, tipc_address_type, tipc_tvb, offset + 28, 4);
+					set_address_tvb(&pinfo->dst, tipc_address_type, 4, tipc_tvb, offset + 28);
 				} else {
 					/* Short data hdr */
 					/* W2 Previous Processor */
-					TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 8, 4);
+					set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 8);
 				}
 			} else {
 				/* W2 Previous Processor */
-				TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 8, 4);
+				set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 8);
 			}
 			break;
 		case TIPCv2:
@@ -2161,28 +2162,28 @@ dissect_tipc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 			if (datatype_hdr) {
 				if (hdr_size > 6) {
 					/* W6 Originating Processor */
-					TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 24, 4);
+					set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 24);
 
 					/* W7 Destination Processor */
-					TVB_SET_ADDRESS(&pinfo->dst, tipc_address_type, tipc_tvb, offset + 28, 4);
+					set_address_tvb(&pinfo->dst, tipc_address_type, 4, tipc_tvb, offset + 28);
 				} else {
 					/* W3 Previous Processor */
-					TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 12, 4);
+					set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 12);
 				}
 
 			} else {
 				if (user != TIPCv2_NEIGHBOUR_DISCOVERY) {
 					/* W6 Originating Processor */
-					TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 24, 4);
+					set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 24);
 
 					/* W7 Destination Processor */
-					TVB_SET_ADDRESS(&pinfo->dst, tipc_address_type, tipc_tvb, offset + 28, 4);
+					set_address_tvb(&pinfo->dst, tipc_address_type, 4, tipc_tvb, offset + 28);
 				} else {
 					/* W2 Destination Domain */
-					TVB_SET_ADDRESS(&pinfo->dst, tipc_address_type, tipc_tvb, offset + 8, 4);
+					set_address_tvb(&pinfo->dst, tipc_address_type, 4, tipc_tvb, offset + 8);
 
 					/* W3 Previous Node */
-					TVB_SET_ADDRESS(&pinfo->src, tipc_address_type, tipc_tvb, offset + 12, 4);
+					set_address_tvb(&pinfo->src, tipc_address_type, 4, tipc_tvb, offset + 12);
 				}
 			}
 			break;
@@ -3026,18 +3027,18 @@ proto_register_tipc(void)
 
 	/* this allows e.g. to dissect everything which is TIPC Data */
 	tipc_user_dissector = register_dissector_table("tipc.usr",
-			"TIPC user", FT_UINT8, BASE_DEC);
+			"TIPC user", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	/* this allows to dissect everything which is TIPC Data and uses a specific
 	 * port name type it actually does not really work because the type is not
 	 * necessarily set in every data message */
 	tipc_type_dissector = register_dissector_table("tipcv2.port_name_type",
-			"TIPC port name type", FT_UINT32, BASE_DEC);
+			"TIPC port name type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	/* make heuristic dissectors possible */
 	tipc_heur_subdissector_list = register_heur_dissector_list("tipc");
 
 	/* Register by name */
-	new_register_dissector("tipc", dissect_tipc, proto_tipc);
+	tipc_handle = register_dissector("tipc", dissect_tipc, proto_tipc);
 
 	register_init_routine(tipc_defragment_init);
 	register_cleanup_routine(tipc_defragment_cleanup);
@@ -3099,8 +3100,7 @@ proto_reg_handoff_tipc(void)
 	static range_t *tipc_udp_port_range;
 
 	if (!inited) {
-		tipc_handle = new_create_dissector_handle(dissect_tipc, proto_tipc);
-		tipc_tcp_handle = new_create_dissector_handle(dissect_tipc_tcp, proto_tipc);
+		tipc_tcp_handle = create_dissector_handle(dissect_tipc_tcp, proto_tipc);
 		ip_handle = find_dissector("ip");
 		data_handle = find_dissector("data");
 

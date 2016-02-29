@@ -29,7 +29,7 @@ extern "C" {
 
 #include <glib.h>
 
-#include "color.h"
+#include "color_filters.h"
 
 #include <epan/params.h>
 #include <epan/range.h>
@@ -182,6 +182,7 @@ typedef struct _e_prefs {
   gboolean     gui_use_pref_save;
   gchar       *gui_webbrowser;
   gchar       *gui_window_title;
+  gchar       *gui_prepend_window_title;
   gchar       *gui_start_title;
   version_info_e gui_version_placement;
   gboolean     gui_auto_scroll_on_expand;
@@ -201,7 +202,7 @@ typedef struct _e_prefs {
 #endif
   gchar       *capture_devices_snaplen;
   gchar       *capture_devices_pmode;
-  gchar       *capture_devices_filter;
+  gchar       *capture_devices_filter; /* XXX - Mostly unused. Deprecate? */
   gboolean     capture_prom_mode;
   gboolean     capture_pcap_ng;
   gboolean     capture_real_time;
@@ -223,6 +224,8 @@ typedef struct _e_prefs {
   gboolean     gui_qt_packet_list_separator;
   gboolean     gui_packet_editor; /* Enable Packet Editor */
   elide_mode_e gui_packet_list_elide_mode;
+  gboolean     gui_packet_list_show_related;
+  gboolean     gui_packet_list_show_minimap;
   gboolean     st_enable_burstinfo;
   gboolean     st_burst_showcount;
   gint         st_burst_resolution;
@@ -233,6 +236,9 @@ typedef struct _e_prefs {
   gint         st_sort_defcolflag;
   gboolean     st_sort_defdescending;
   gboolean     st_sort_showfullname;
+#ifdef HAVE_EXTCAP
+  gboolean     extcap_save_on_start;
+#endif
 } e_prefs;
 
 WS_DLL_PUBLIC e_prefs prefs;
@@ -271,7 +277,7 @@ void prefs_cleanup(void);
  * name is the protocol name specified at the "proto_register_protocol()"
  * call so that the "Protocol Properties..." menu item works.
  */
-module_t *prefs_register_module(module_t *parent, const char *name,
+WS_DLL_PUBLIC module_t *prefs_register_module(module_t *parent, const char *name,
     const char *title, const char *description, void (*apply_cb)(void),
     const gboolean use_gui);
 
@@ -281,7 +287,7 @@ module_t *prefs_register_module(module_t *parent, const char *name,
  * at the top level and the title used in the tab for it in a preferences
  * dialog box.
  */
-module_t *prefs_register_subtree(module_t *parent, const char *title,
+WS_DLL_PUBLIC module_t *prefs_register_subtree(module_t *parent, const char *title,
     const char *description, void (*apply_cb)(void));
 
 /*
@@ -292,7 +298,7 @@ WS_DLL_PUBLIC module_t *prefs_register_protocol(int id, void (*apply_cb)(void));
 /**
  * Deregister preferences from a protocol.
  */
-WS_DLL_PUBLIC void prefs_deregister_protocol(int id);
+void prefs_deregister_protocol(int id);
 
 /*
  * Register that a statistical tap has preferences.
@@ -522,11 +528,6 @@ WS_DLL_PUBLIC GList *prefs_get_string_list(const gchar *str);
 
 /* Clear the given list of string data. */
 WS_DLL_PUBLIC void prefs_clear_string_list(GList *sl);
-
-/*
- * Register all non-dissector modules' preferences.
- */
-WS_DLL_PUBLIC void prefs_register_modules(void);
 
 /** Fetch a short preference type name, e.g. "Integer".
  *

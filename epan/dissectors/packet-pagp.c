@@ -147,8 +147,8 @@ static const true_false_string automode = {
 };
 
 /* Code to actually dissect the PAGP packets */
-static void
-dissect_pagp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pagp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint32 raw_word;
     guint16 num_tlvs;
@@ -174,8 +174,6 @@ dissect_pagp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "PAGP"); /* PAGP Protocol */
 
     col_clear(pinfo->cinfo, COL_INFO);
-
-    pinfo->current_proto = "PAGP";
 
     raw_octet = tvb_get_guint8(tvb, PAGP_VERSION_NUMBER);
     if (tree) {
@@ -207,7 +205,7 @@ dissect_pagp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         proto_tree_add_uint(pagp_tree, hf_pagp_flush_transaction_id, tvb,
                             PAGP_FLUSH_TRANSACTION_ID, 4, raw_word);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     /* Info PDU */
@@ -283,12 +281,12 @@ dissect_pagp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if ( len == 0 ) {
             expert_add_info_format(pinfo, len_item, &ei_pagp_tlv_length,
                                    "Unknown data - TLV len=0");
-            return;
+            return offset;
         }
         if ( tvb_reported_length_remaining(tvb, offset) < len ) {
             expert_add_info_format(pinfo, len_item, &ei_pagp_tlv_length,
                                    "TLV length too large");
-            return;
+            return offset;
         }
 
         switch (tlv) {
@@ -311,6 +309,7 @@ dissect_pagp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         offset += len;
 
     }
+    return tvb_captured_length(tvb);
 }
 
 

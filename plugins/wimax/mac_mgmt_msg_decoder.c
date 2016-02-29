@@ -120,7 +120,7 @@ static const value_string mgt_msg_abbrv_vals[] = {
 
 static value_string_ext mgt_msg_abbrv_vals_ext = VALUE_STRING_EXT_INIT(mgt_msg_abbrv_vals);
 
-static void dissect_mac_mgmt_msg_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_mgmt_msg_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint message_type;
@@ -135,7 +135,7 @@ static void dissect_mac_mgmt_msg_decoder(tvbuff_t *tvb, packet_info *pinfo, prot
 	if (tvb_reported_length(tvb) == 0)
 	{
 		expert_add_info(pinfo, message_item, &ei_empty_payload);
-		return;
+		return tvb_captured_length(tvb);
 	}
 
 	/* Get the payload type */
@@ -151,7 +151,7 @@ static void dissect_mac_mgmt_msg_decoder(tvbuff_t *tvb, packet_info *pinfo, prot
 	{
 		/* display the MAC payload in Hex */
 		proto_tree_add_item(message_tree, hf_mac_mgmt_msg_values, tvb, offset, -1, ENC_NA);
-		return;
+		return 1;
 	}
 
 	/* add the MAC header info to parent*/
@@ -163,6 +163,7 @@ static void dissect_mac_mgmt_msg_decoder(tvbuff_t *tvb, packet_info *pinfo, prot
 	{
 		proto_tree_add_item(message_tree, hf_mac_mgmt_msg_values, tvb, offset, -1, ENC_NA);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax Mac Payload Protocol and Dissector */
@@ -213,7 +214,7 @@ void proto_register_mac_mgmt_msg(void)
 	expert_register_field_array(expert_mac_mgmt, ei, array_length(ei));
 
 	subdissector_message_table = register_dissector_table("wmx.mgmtmsg",
-		"WiMax MAC Management Message", FT_UINT8, BASE_DEC);
+		"WiMax MAC Management Message", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 	/* Register dissector by name */
 	register_dissector("wmx_mac_mgmt_msg_decoder", dissect_mac_mgmt_msg_decoder,
@@ -313,7 +314,7 @@ void proto_reg_handoff_mac_mgmt_msg(void)
 	if (mgt_msg_handle)
 		dissector_add_uint( "wmx.mgmtmsg", MAC_MGMT_MSG_MOB_NBR_ADV, mgt_msg_handle );
 
-	/* find the Scanning Interval Allocation Reqest message handler */
+	/* find the Scanning Interval Allocation Request message handler */
 	mgt_msg_handle = find_dissector("mac_mgmt_msg_mob_scn_req_handler");
 	if (mgt_msg_handle)
 		dissector_add_uint( "wmx.mgmtmsg", MAC_MGMT_MSG_MOB_SCN_REQ, mgt_msg_handle );

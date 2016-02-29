@@ -23,9 +23,10 @@
 #include <ui_compiled_filter_output.h>
 #include "compiled_filter_output.h"
 
-#include "capture_opts.h"
-#include "wtap.h"
 #include <pcap.h>
+
+#include "capture_opts.h"
+#include <wiretap/wtap.h>
 #include "ui/capture_globals.h"
 
 #include "wireshark_application.h"
@@ -34,12 +35,13 @@
 #include <QPushButton>
 
 CompiledFilterOutput::CompiledFilterOutput(QWidget *parent, QStringList &intList, QString &compile_filter) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     intList_(intList),
     compile_filter_(compile_filter),
     ui(new Ui::CompiledFilterOutput)
 {
     ui->setupUi(this);
+    loadGeometry();
     setAttribute(Qt::WA_DeleteOnClose, true);
     ui->filterList->setCurrentFont(wsApp->monospaceFont());
 
@@ -127,11 +129,10 @@ void CompiledFilterOutput::copyFilterText()
 //
 // Local variables:
 // c-basic-offset: 4
-// tab-width: 4
+// tab-width: 8
 // indent-tabs-mode: nil
 // End:
 //
-// vi: set shiftwidth=4 tabstop=4 expandtab:
-// :indentSize=4:tabSize=4:noTabs=true:
+// vi: set shiftwidth=4 tabstop=8 expandtab:
+// :indentSize=4:tabSize=8:noTabs=true:
 //
-

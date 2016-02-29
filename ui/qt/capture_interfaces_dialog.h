@@ -27,7 +27,7 @@
 
 #ifdef HAVE_LIBPCAP
 
-#include <QDialog>
+#include "geometry_state_dialog.h"
 #include <QPushButton>
 
 typedef struct if_stat_cache_s if_stat_cache_t;
@@ -55,6 +55,9 @@ public:
     void setTree(QTreeWidget* tree) { tree_ = tree; }
     bool eventFilter(QObject *object, QEvent *event);
 
+signals:
+    void filterChanged(const QString filter);
+
 private slots:
     void pmode_changed(QString index);
 #if defined (HAVE_PCAP_CREATE)
@@ -65,7 +68,7 @@ private slots:
     void buffer_changed(int value);
 };
 
-class CaptureInterfacesDialog : public QDialog
+class CaptureInterfacesDialog : public GeometryStateDialog
 {
     Q_OBJECT
 
@@ -75,6 +78,9 @@ public:
 
     void SetTab(int index);
     void updateInterfaces();
+
+protected:
+    virtual void showEvent(QShowEvent *);
 
 private slots:
     void on_capturePromModeCheckBox_toggled(bool checked);
@@ -91,11 +97,10 @@ private slots:
     void start_button_clicked();
     void on_buttonBox_rejected();
     void on_buttonBox_helpRequested();
-    void interfaceClicked(QTreeWidgetItem *item, int column);
     void interfaceSelected();
+    void filterEdited();
     void updateWidgets();
     void updateStatistics(void);
-    void allFilterChanged();
     void refreshInterfaceList();
     void updateLocalInterfaces();
     void browseButtonClicked();
@@ -106,10 +111,11 @@ signals:
     void stopCapture();
     void getPoints(int row, PointList *pts);
     void setSelectedInterfaces();
-    void setFilterValid(bool valid);
+    void setFilterValid(bool valid, const QString capture_filter);
     void interfacesChanged();
     void ifsChanged();
     void interfaceListChanged();
+    void captureFilterTextEdited(const QString & text);
 
 private:
     Ui::CaptureInterfacesDialog *ui;
@@ -120,9 +126,10 @@ private:
     if_stat_cache_t *stat_cache_;
     QTimer *stat_timer_;
     InterfaceTreeDelegate interface_item_delegate_;
-    QMap<int, int> deviceMap;
 
+    interface_t *getDeviceByName(const QString device_name);
     bool saveOptionsToPreferences();
+    void updateSelectedFilter();
 };
 
 #endif /* HAVE_LIBPCAP */

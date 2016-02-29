@@ -586,7 +586,7 @@ nbns_add_nb_flags(proto_tree *rr_tree, tvbuff_t *tvb, int offset)
     tf = proto_tree_add_bitmask(rr_tree, tvb, offset, hf_nbns_nb_flags, ett_nbns_nb_flags, flags, ENC_BIG_ENDIAN);
 
     flag = tvb_get_ntohs(tvb, offset);
-    proto_item_append_text(tf, "(%s, %s",
+    proto_item_append_text(tf, " (%s, %s)",
                 val_to_str_const(flag & NB_FLAGS_ONT, nb_flags_ont_vals, "Unknown"),
                 (flag & NB_FLAGS_G) ? "group" : "unique");
 }
@@ -612,7 +612,7 @@ nbns_add_name_flags(proto_tree *rr_tree, tvbuff_t *tvb, int offset)
     flag = tvb_get_ntohs(tvb, offset);
     tf = proto_tree_add_bitmask(rr_tree, tvb, offset, hf_nbns_name_flags, ett_nbns_name_flags, flags, ENC_BIG_ENDIAN);
 
-    proto_item_append_text(tf, "(%s, %s",
+    proto_item_append_text(tf, " (%s, %s",
                 val_to_str_const(flag & NAME_FLAGS_ONT, name_flags_ont_vals, "Unknown"),
                 (flag & NAME_FLAGS_G) ? "group" : "unique");
     if (flag & NAME_FLAGS_DRG)
@@ -1001,8 +1001,8 @@ dissect_answer_records(tvbuff_t *tvb, packet_info *pinfo, int cur_off, int nbns_
     return cur_off - start_off;
 }
 
-static void
-dissect_nbns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nbns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int          offset    = 0;
     int          nbns_data_offset;
@@ -1091,6 +1091,8 @@ dissect_nbns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                                               nbns_data_offset,
                                               add, NULL, nbns_tree, opcode,
                                               "Additional records");
+
+    return tvb_captured_length(tvb);
 }
 
 static heur_dissector_list_t netbios_heur_subdissector_list;
@@ -1168,8 +1170,8 @@ static const value_string nbds_error_codes[] = {
     { 0x00, NULL }
 };
 
-static void
-dissect_nbdgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nbdgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int                  offset     = 0;
     proto_tree          *nbdgm_tree = NULL;
@@ -1320,6 +1322,7 @@ dissect_nbdgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             proto_item_set_len(ti, offset);
         break;
     }
+    return tvb_captured_length(tvb);
 }
 
 /*
@@ -1584,7 +1587,7 @@ dissect_nbss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         }
 
         /*
-         * The larged size in for non-SMB NBSS traffic is
+         * The largest size in for non-SMB NBSS traffic is
          * 17 bits (0x1FFFF).
          *
          * The SMB1 unix extensions and the SMB2 multi credit
@@ -2089,7 +2092,7 @@ proto_reg_handoff_nbt(void)
     nbdgm_handle = create_dissector_handle(dissect_nbdgm, proto_nbdgm);
     dissector_add_uint("udp.port", UDP_PORT_NBDGM, nbdgm_handle);
 
-    nbss_handle  = new_create_dissector_handle(dissect_nbss, proto_nbss);
+    nbss_handle  = create_dissector_handle(dissect_nbss, proto_nbss);
     dissector_add_uint("tcp.port", TCP_PORT_NBSS, nbss_handle);
     dissector_add_uint("tcp.port", TCP_PORT_CIFS, nbss_handle);
 

@@ -36,6 +36,7 @@
 #include <epan/expert.h>
 #include <epan/conversation.h>
 #include <epan/prefs.h>
+#include <epan/proto_data.h>
 #include "packet-rdt.h"
 
 static dissector_handle_t rdt_handle;
@@ -169,9 +170,6 @@ static guint    global_rdt_udp_port = 6970;
 void proto_register_rdt(void);
 void proto_reg_handoff_rdt(void);
 
-/* Main dissection function */
-static void dissect_rdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
 /* Parse individual packet types */
 static guint dissect_rdt_data_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
 static guint dissect_rdt_asm_action_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint offset);
@@ -244,17 +242,17 @@ void rdt_add_address(packet_info *pinfo,
         return;
     }
 
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
 
     /* Check if the ip address and port combination is not already registered
        as a conversation. */
-    p_conv = find_conversation(pinfo->fd->num, addr, &null_addr, PT_UDP, port, other_port,
+    p_conv = find_conversation(pinfo->num, addr, &null_addr, PT_UDP, port, other_port,
                                NO_ADDR_B | (!other_port ? NO_PORT_B : 0));
 
     /* If not, create a new conversation. */
-    if ( !p_conv || p_conv->setup_frame != pinfo->fd->num)
+    if ( !p_conv || p_conv->setup_frame != pinfo->num)
     {
-        p_conv = conversation_new(pinfo->fd->num, addr, &null_addr, PT_UDP,
+        p_conv = conversation_new(pinfo->num, addr, &null_addr, PT_UDP,
                                   (guint32)port, (guint32)other_port,
                                   NO_ADDR2 | (!other_port ? NO_PORT2 : 0));
     }
@@ -275,7 +273,7 @@ void rdt_add_address(packet_info *pinfo,
 
     /* Update the conversation data. */
     g_strlcpy(p_conv_data->method, setup_method, MAX_RDT_SETUP_METHOD_SIZE);
-    p_conv_data->frame_number = pinfo->fd->num;
+    p_conv_data->frame_number = pinfo->num;
     p_conv_data->feature_level = rdt_feature_level;
 }
 
@@ -284,7 +282,7 @@ void rdt_add_address(packet_info *pinfo,
 /****************************************************************************/
 /* Main dissection function                                                 */
 /****************************************************************************/
-static void dissect_rdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_rdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint       previous_offset = 0;
     gint        offset = 0;
@@ -387,6 +385,8 @@ static void dissect_rdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
         previous_offset = offset;
     }
+
+    return tvb_captured_length(tvb);
 }
 
 
@@ -1234,7 +1234,7 @@ static void show_setup_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (!p_conv_data)
     {
         /* First time, get info from conversation */
-        p_conv = find_conversation(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src,
+        p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
                                    pinfo->ptype,
                                    pinfo->destport, pinfo->srcport, NO_ADDR_B);
         if (p_conv)

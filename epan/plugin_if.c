@@ -38,6 +38,7 @@
 static GList * menubar_entries = NULL;
 static GList * menubar_menunames = NULL;
 
+
 extern GList * ext_menubar_get_entries(void)
 {
     return menubar_entries;
@@ -249,6 +250,39 @@ extern void plugin_if_save_preference(const char * pref_module, const char * pre
     plugin_if_call_gui_cb(PLUGIN_IF_PREFERENCE_SAVE, dataSet);
 }
 
+extern void plugin_if_get_ws_info(ws_info_t **ws_info_ptr)
+{
+    static ws_info_t ws_info = { FALSE, FILE_CLOSED, NULL, 0, 0, FALSE };
+#ifdef HAVE_LIBPCAP
+
+    GHashTable * dataSet;
+    gchar * pluginKey = g_strdup("ws_info");
+
+    dataSet = g_hash_table_new(g_str_hash, g_str_equal);
+
+    g_hash_table_insert(dataSet, pluginKey, &ws_info);
+
+    plugin_if_call_gui_cb(PLUGIN_IF_GET_WS_INFO, dataSet);
+
+    g_hash_table_destroy(dataSet);
+    g_free(pluginKey);
+
+#else
+
+    /* Initialise the ws_info structure */
+
+    ws_info.ws_info_supported = FALSE;
+    ws_info.cf_count = 0;
+    ws_info.cf_filename = NULL;
+    ws_info.cf_framenr = 0;
+    ws_info.frame_passed_dfilter = FALSE;
+    ws_info.cf_state = FILE_CLOSED;
+
+#endif /* HAVE_LIBPCAP */
+
+    *ws_info_ptr = &ws_info;
+}
+
 extern void plugin_if_register_gui_cb(plugin_if_callback_t actionType, plugin_if_gui_cb callback)
 {
     gint * key = 0;
@@ -259,7 +293,7 @@ extern void plugin_if_register_gui_cb(plugin_if_callback_t actionType, plugin_if
     plugin_if_init_hashtable();
 
     if ( ! g_hash_table_lookup_extended(plugin_if_callback_functions, key, NULL, NULL ) )
-        g_hash_table_insert(plugin_if_callback_functions, key, callback);
+        g_hash_table_insert(plugin_if_callback_functions, key, (gpointer)callback);
 }
 
 /*

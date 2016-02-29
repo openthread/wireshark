@@ -35,17 +35,27 @@
 #include <QFileInfo>
 #include <QVariant>
 
-#include <extcap_parser.h>
+#include <epan/prefs.h>
+#include <color_utils.h>
 
+#include <extcap_parser.h>
 
 ExtcapArgumentFileSelection::ExtcapArgumentFileSelection (extcap_arg * argument) :
     ExtcapArgument(argument), textBox(0)
 {
-    _default = new QVariant(QString(""));
+}
+
+ExtcapArgumentFileSelection::~ExtcapArgumentFileSelection()
+{
+    if ( textBox != NULL )
+        delete textBox;
 }
 
 QWidget * ExtcapArgumentFileSelection::createEditor(QWidget * parent)
 {
+    QString storeval;
+    QString text = defaultValue();
+
     QWidget * fileWidget = new QWidget(parent);
     QHBoxLayout * editLayout = new QHBoxLayout();
     QMargins margins = editLayout->contentsMargins();
@@ -53,18 +63,23 @@ QWidget * ExtcapArgumentFileSelection::createEditor(QWidget * parent)
     fileWidget->setContentsMargins(margins.left(), margins.right(), 0, margins.bottom());
     QPushButton * button = new QPushButton(UTF8_HORIZONTAL_ELLIPSIS, fileWidget);
 
-    textBox = new QLineEdit(_default->toString(), parent);
+    textBox = new QLineEdit(defaultValue(), parent);
     textBox->setReadOnly(true);
 
-    if ( _argument->default_complex != NULL && _argument->arg_type == EXTCAP_ARG_STRING )
-        textBox->setText(QString().fromUtf8(extcap_complex_get_string(_argument->default_complex)));
+    if ( _argument->storeval )
+    {
+        QString storeValue = _argument->storeval;
+
+        if ( storeValue.length() > 0 && storeValue.compare(text) != 0 )
+            text = storeValue.trimmed();
+    }
+    textBox->setText(text);
 
     if ( _argument->tooltip != NULL )
     {
         textBox->setToolTip(QString().fromUtf8(_argument->tooltip));
         button->setToolTip(QString().fromUtf8(_argument->tooltip));
     }
-
 
     connect(button, SIGNAL(clicked()), (QObject *)this, SLOT(openFileDialog()));
 
@@ -92,12 +107,42 @@ void ExtcapArgumentFileSelection::openFileDialog()
     if (QFileInfo(filename).exists())
         workingDir = QFileInfo(filename).dir();
 
+    QString fileExt(tr("Any File (*.*)"));
+    if ( _argument->fileextension != NULL )
+    {
+        QString givenExt = QString().fromUtf8(_argument->fileextension);
+        if ( givenExt.length() != 0 )
+            fileExt.prepend(";;").prepend(givenExt);
+    }
+
     filename = QFileDialog::getOpenFileName((QWidget *)(textBox->parent()),
         QString().fromUtf8(_argument->display) + " " + tr("Open File"),
-        workingDir.absolutePath(), tr("All Files (*.*)"));
+        workingDir.absolutePath(), fileExt);
 
-    if ( QFileInfo(filename).exists() )
+    if ( ! fileExists() || QFileInfo(filename).exists() )
+    {
         textBox->setText(filename);
+        emit valueChanged();
+    }
+}
+
+bool ExtcapArgumentFileSelection::isValid()
+{
+    bool valid = false;
+
+    if ( textBox->text().length() > 0 )
+    {
+        if ( QFileInfo(textBox->text()).exists() && _argument->fileexists )
+            valid = true;
+    }
+    else if ( ! isRequired() )
+        valid = true;
+
+    QString lblInvalidColor = ColorUtils::fromColorT(prefs.gui_text_invalid).name();
+    QString txtStyle("QLineEdit { background-color: %1; } ");
+    textBox->setStyleSheet( txtStyle.arg(valid ? QString("") : lblInvalidColor) );
+
+    return valid;
 }
 
 /*

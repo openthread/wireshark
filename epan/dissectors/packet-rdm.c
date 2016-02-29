@@ -46,6 +46,7 @@
 #include "packet-rdm.h"
 
 void proto_register_rdm(void);
+void proto_reg_handoff_rdm(void);
 
 #define RDM_SC_RDM				0xCC
 #define RDM_SC_SUB_MESSAGE			0x01
@@ -2040,8 +2041,8 @@ dissect_rdm_mdb(tvbuff_t *tvb, guint offset, proto_tree *tree)
 	return offset;
 }
 
-static void
-dissect_rdm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rdm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "RDM");
 	col_clear(pinfo->cinfo, COL_INFO);
@@ -2127,6 +2128,7 @@ dissect_rdm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			proto_tree_add_item(rdm_tree, hf_rdm_trailer, tvb,
 					offset, -1, ENC_NA);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -2309,7 +2311,7 @@ proto_register_rdm(void)
 				NULL, HFILL }},
 
 		{ &hf_rdm_pd_manu_label,
-			{ "Manufacturur Label", "rdm.pd.manu_label",
+			{ "Manufacturer Label", "rdm.pd.manu_label",
 				FT_STRING, BASE_NONE, NULL, 0x0,
 				NULL, HFILL }},
 
@@ -2365,12 +2367,12 @@ proto_register_rdm(void)
 				NULL, HFILL }},
 
 		{ &hf_rdm_pd_dmx_pers_current,
-			{ "Current DMX Personallity", "rdm.pd.dmx_pers_current",
+			{ "Current DMX Personality", "rdm.pd.dmx_pers_current",
 				FT_UINT8, BASE_DEC, NULL, 0x0,
 				NULL, HFILL }},
 
 		{ &hf_rdm_pd_dmx_pers_total,
-			{ "Total nr. DMX Personallities", "rdm.pd.dmx_pers_total",
+			{ "Total nr. DMX Personalities", "rdm.pd.dmx_pers_total",
 				FT_UINT8, BASE_DEC, NULL, 0x0,
 				NULL, HFILL }},
 
@@ -2620,7 +2622,7 @@ proto_register_rdm(void)
 				NULL, HFILL }},
 
 		{ &hf_rdm_pd_parameter_default_value,
-			{ "Delauft Value", "rdm.pd.parameter.default_value",
+			{ "Default Value", "rdm.pd.parameter.default_value",
 				FT_UINT32, BASE_DEC, NULL, 0x0,
 				NULL, HFILL }},
 
@@ -2779,6 +2781,11 @@ proto_register_rdm(void)
 	proto_register_field_array(proto_rdm, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 	register_dissector("rdm", dissect_rdm, proto_rdm);
+}
+
+void
+proto_reg_handoff_rdm(void) {
+	dissector_add_uint("dmx", 0xCC, create_dissector_handle(dissect_rdm, proto_rdm));
 }
 
 /*

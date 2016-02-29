@@ -51,8 +51,10 @@
 
 #include "config.h"
 
+#include "ws_symbol_export.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/prefs.h>
 #include <epan/exceptions.h>
 #include <epan/exported_pdu.h>
@@ -64,9 +66,12 @@
 #include <epan/conversation_table.h>
 #include <epan/show_exception.h>
 #include <epan/decode_as.h>
+#include <epan/proto_data.h>
+
 #include <wsutil/crc32.h>
 #include <wsutil/adler32.h>
 #include <wsutil/utf8_entities.h>
+#include <wsutil/str_util.h>
 
 #include "packet-sctp.h"
 
@@ -309,33 +314,7 @@ static expert_field ei_sctp_sack_chunk_number_tsns_gap_acked_100 = EI_INIT;
 
 static dissector_handle_t data_handle;
 
-#define SCTP_DATA_CHUNK_ID               0
-#define SCTP_INIT_CHUNK_ID               1
-#define SCTP_INIT_ACK_CHUNK_ID           2
-#define SCTP_SACK_CHUNK_ID               3
-#define SCTP_HEARTBEAT_CHUNK_ID          4
-#define SCTP_HEARTBEAT_ACK_CHUNK_ID      5
-#define SCTP_ABORT_CHUNK_ID              6
-#define SCTP_SHUTDOWN_CHUNK_ID           7
-#define SCTP_SHUTDOWN_ACK_CHUNK_ID       8
-#define SCTP_ERROR_CHUNK_ID              9
-#define SCTP_COOKIE_ECHO_CHUNK_ID       10
-#define SCTP_COOKIE_ACK_CHUNK_ID        11
-#define SCTP_ECNE_CHUNK_ID              12
-#define SCTP_CWR_CHUNK_ID               13
-#define SCTP_SHUTDOWN_COMPLETE_CHUNK_ID 14
-#define SCTP_AUTH_CHUNK_ID              15
-#define SCTP_NR_SACK_CHUNK_ID           16
-#define SCTP_I_DATA_CHUNK_ID          0x40
-#define SCTP_ASCONF_ACK_CHUNK_ID      0x80
-#define SCTP_PKTDROP_CHUNK_ID         0x81
-#define SCTP_RE_CONFIG_CHUNK_ID       0x82
-#define SCTP_PAD_CHUNK_ID             0x84
-#define SCTP_FORWARD_TSN_CHUNK_ID     0xC0
-#define SCTP_ASCONF_CHUNK_ID          0xC1
-#define SCTP_IETF_EXT                 0xFF
-
-static const value_string chunk_type_values[] = {
+WS_DLL_PUBLIC_DEF const value_string chunk_type_values[] = {
   { SCTP_DATA_CHUNK_ID,              "DATA" },
   { SCTP_INIT_CHUNK_ID,              "INIT" },
   { SCTP_INIT_ACK_CHUNK_ID,          "INIT_ACK" },
@@ -845,7 +824,7 @@ sctp_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_,
   const struct _sctp_info *sctphdr=(const struct _sctp_info *)vip;
 
   add_conversation_table_data(hash, &sctphdr->ip_src, &sctphdr->ip_dst,
-        sctphdr->sport, sctphdr->dport, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->fd->abs_ts, &sctp_ct_dissector_info, PT_SCTP);
+        sctphdr->sport, sctphdr->dport, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &sctp_ct_dissector_info, PT_SCTP);
 
 
   return 1;
@@ -1103,7 +1082,7 @@ tsn_tree(sctp_tsn_t *t, proto_item *tsn_item, packet_info *pinfo,
     PROTO_ITEM_SET_GENERATED(pi);
     expert_add_info(pinfo, pi, &ei_sctp_tsn_retransmitted);
 
-    nstime_delta( &rto, &pinfo->fd->abs_ts, &(t->first_transmit.ts) );
+    nstime_delta( &rto, &pinfo->abs_ts, &(t->first_transmit.ts) );
     pi = proto_tree_add_time(pt, hf_sctp_rto, tvb, 0, 0, &rto);
     PROTO_ITEM_SET_GENERATED(pi);
 
@@ -1143,7 +1122,7 @@ tsn_tree(sctp_tsn_t *t, proto_item *tsn_item, packet_info *pinfo,
 
     r = &t->retransmit;
     while (*r) {
-      nstime_delta(&rto, &((*r)->ts), &pinfo->fd->abs_ts);
+      nstime_delta(&rto, &((*r)->ts), &pinfo->abs_ts);
       pi = proto_tree_add_uint_format(pt,
                                       hf_sctp_retransmitted,
                                       tvb, 0, 0,
@@ -1188,7 +1167,7 @@ sctp_tsn(packet_info *pinfo,  tvbuff_t *tvb, proto_item *tsn_item,
     return(is_retransmission);
 
 
-  framenum = PINFO_FD_NUM(pinfo);
+  framenum = pinfo->num;
 
   /*  If we're dissecting for a read filter in the GUI [tshark assigns
    *  frame numbers before running the read filter], don't do the TSN
@@ -1220,7 +1199,7 @@ sctp_tsn(packet_info *pinfo,  tvbuff_t *tvb, proto_item *tsn_item,
     t->tsn = tsn;
 
     t->first_transmit.framenum = framenum;
-    t->first_transmit.ts = pinfo->fd->abs_ts;
+    t->first_transmit.ts = pinfo->abs_ts;
 
     wmem_tree_insert32(h->tsns,reltsn,t);
   }
@@ -1242,7 +1221,7 @@ sctp_tsn(packet_info *pinfo,  tvbuff_t *tvb, proto_item *tsn_item,
     if (i <= MAX_RETRANS_TRACKED_PER_TSN) {
       *r = wmem_new0(wmem_file_scope(), retransmit_t);
       (*r)->framenum = framenum;
-      (*r)->ts = pinfo->fd->abs_ts;
+      (*r)->ts = pinfo->abs_ts;
     }
   }
 
@@ -1258,7 +1237,7 @@ ack_tree(sctp_tsn_t *t, proto_tree *acks_tree,
   proto_item *pi;
   proto_tree *pt;
   nstime_t rtt;
-  guint framenum =  pinfo->fd->num;
+  guint framenum =  pinfo->num;
 
   if ( t->ack.framenum == framenum ) {
     nstime_delta( &rtt, &(t->ack.ts), &(t->first_transmit.ts) );
@@ -1287,7 +1266,7 @@ sctp_ack(packet_info *pinfo, tvbuff_t *tvb,  proto_tree *acks_tree,
   if (!h || !h->peer)
     return;
 
-  framenum = PINFO_FD_NUM(pinfo);
+  framenum = pinfo->num;
 
   /* printf("%.6d ACK: %p->%p [%u] \n",framenum,h,h->peer,reltsn); */
 
@@ -1298,7 +1277,7 @@ sctp_ack(packet_info *pinfo, tvbuff_t *tvb,  proto_tree *acks_tree,
       sctp_tsn_t *t2;
 
       t->ack.framenum = framenum;
-      t->ack.ts = pinfo->fd->abs_ts;
+      t->ack.ts = pinfo->abs_ts;
 
       if (( t2 = (sctp_tsn_t *)wmem_tree_lookup32(h->peer->tsn_acks, framenum) )) {
         for(;t2->next;t2 = t2->next)
@@ -1333,7 +1312,7 @@ sctp_ack_block(packet_info *pinfo, sctp_half_assoc_t *h, tvbuff_t *tvb,
   if ( !h || !h->peer || ! h->peer->started )
     return;
 
-  framenum =  PINFO_FD_NUM(pinfo);
+  framenum =  pinfo->num;
   rel_end = RELTSNACK(tsn_end);
 
   if (tsn_start_ptr) {
@@ -1594,6 +1573,7 @@ static const value_string stream_reset_result_values[] = {
   { 3, "Error - Wrong SSN"                   },
   { 4, "Error - Request already in progress" },
   { 5, "Error - Bad sequence number"         },
+  { 6, "In progress"                         },
   { 0, NULL                                  }
 };
 
@@ -2765,7 +2745,7 @@ add_fragment(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 tsn,
     /* this fragment is already known.
      * compare frame number to check if it's a duplicate
      */
-    if (fragment->frame_num == pinfo->fd->num) {
+    if (fragment->frame_num == pinfo->num) {
       return fragment;
     } else {
       /* There already is a fragment having the same ports, v_tag,
@@ -2789,7 +2769,7 @@ add_fragment(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 tsn,
 
   /* create new fragment */
   fragment = (sctp_fragment *)g_malloc (sizeof (sctp_fragment));
-  fragment->frame_num = pinfo->fd->num;
+  fragment->frame_num = pinfo->num;
   fragment->tsn = tsn;
   fragment->len = tvb_captured_length(tvb);
   fragment->ppi = msg->ppi;
@@ -3241,12 +3221,14 @@ dissect_fragmented_payload(tvbuff_t *payload_tvb, packet_info *pinfo, proto_tree
     cur = wmem_list_tail(pinfo->layers);
     retval = dissect_payload(new_tvb, pinfo, tree, ppi);
     cur = wmem_list_frame_next(cur);
-    tmp = wmem_list_frame_data(cur);
-    proto_id = GPOINTER_TO_UINT(tmp);
-    proto_name = proto_get_protocol_filter_name(proto_id);
-    if(strcmp(proto_name, "data") != 0){
-      if (have_tap_listener(exported_pdu_tap)){
-        export_sctp_data_chunk(pinfo,payload_tvb, proto_name);
+    if (cur) {
+      tmp = wmem_list_frame_data(cur);
+      proto_id = GPOINTER_TO_UINT(tmp);
+      proto_name = proto_get_protocol_filter_name(proto_id);
+      if(strcmp(proto_name, "data") != 0){
+        if (have_tap_listener(exported_pdu_tap)){
+          export_sctp_data_chunk(pinfo,payload_tvb, proto_name);
+        }
       }
     }
     return retval;
@@ -3439,12 +3421,14 @@ dissect_data_chunk(tvbuff_t *chunk_tvb,
       cur = wmem_list_tail(pinfo->layers);
       retval = dissect_payload(payload_tvb, pinfo, tree, payload_proto_id);
       cur = wmem_list_frame_next(cur);
-      tmp = wmem_list_frame_data(cur);
-      proto_id = GPOINTER_TO_UINT(tmp);
-      proto_name = proto_get_protocol_filter_name(proto_id);
-      if (strcmp(proto_name, "data") != 0){
-        if (have_tap_listener(exported_pdu_tap)){
-          export_sctp_data_chunk(pinfo,payload_tvb, proto_name);
+      if (cur) {
+        tmp = wmem_list_frame_data(cur);
+        proto_id = GPOINTER_TO_UINT(tmp);
+        proto_name = proto_get_protocol_filter_name(proto_id);
+        if (strcmp(proto_name, "data") != 0){
+          if (have_tap_listener(exported_pdu_tap)){
+            export_sctp_data_chunk(pinfo,payload_tvb, proto_name);
+          }
         }
       }
     }
@@ -3921,6 +3905,8 @@ dissect_heartbeat_chunk(tvbuff_t *chunk_tvb, guint16 chunk_length, packet_info *
   }
 }
 
+#define HEARTBEAT_ACK_CHUNK_INFO_OFFSET CHUNK_VALUE_OFFSET
+
 static void
 dissect_heartbeat_ack_chunk(tvbuff_t *chunk_tvb, guint16 chunk_length, packet_info *pinfo, proto_tree *chunk_tree, proto_item *chunk_item)
 {
@@ -3928,9 +3914,9 @@ dissect_heartbeat_ack_chunk(tvbuff_t *chunk_tvb, guint16 chunk_length, packet_in
 
   if (chunk_tree) {
     proto_item_append_text(chunk_item, " (Information: %u byte%s)", chunk_length - CHUNK_HEADER_LENGTH, plurality(chunk_length - CHUNK_HEADER_LENGTH, "", "s"));
-    parameter_tvb  = tvb_new_subset(chunk_tvb, HEARTBEAT_CHUNK_INFO_OFFSET,
-                                    MIN(chunk_length - CHUNK_HEADER_LENGTH, tvb_captured_length_remaining(chunk_tvb, HEARTBEAT_CHUNK_INFO_OFFSET)),
-                                    MIN(chunk_length - CHUNK_HEADER_LENGTH, tvb_reported_length_remaining(chunk_tvb, HEARTBEAT_CHUNK_INFO_OFFSET)));
+    parameter_tvb  = tvb_new_subset(chunk_tvb, HEARTBEAT_ACK_CHUNK_INFO_OFFSET,
+                                    MIN(chunk_length - CHUNK_HEADER_LENGTH, tvb_captured_length_remaining(chunk_tvb, HEARTBEAT_ACK_CHUNK_INFO_OFFSET)),
+                                    MIN(chunk_length - CHUNK_HEADER_LENGTH, tvb_reported_length_remaining(chunk_tvb, HEARTBEAT_ACK_CHUNK_INFO_OFFSET)));
     /* FIXME: Parameters or parameter? */
     dissect_parameter(parameter_tvb, pinfo, chunk_tree, NULL, FALSE, TRUE);
   }
@@ -4311,8 +4297,6 @@ dissect_sctp_chunk(tvbuff_t *chunk_tvb,
   chunk_tree   = proto_tree_add_subtree_format(sctp_tree, chunk_tvb, CHUNK_HEADER_OFFSET, reported_length,
                     ett_sctp_chunk, &chunk_item, "%s chunk",
                     val_to_str_const(type, chunk_type_values, "RESERVED"));
-  if (reported_length % 4)
-    expert_add_info_format(pinfo, chunk_item, &ei_sctp_chunk_length_bad, "Chunk length is not padded to a multiple of 4 bytes (length=%d).", reported_length);
 
   if (tree) {
     /* then insert the chunk header components into the protocol tree */
@@ -4678,8 +4662,15 @@ dissect_sctp_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolea
   proto_tree_move_item(sctp_tree, vt, pi);
 }
 
-static void
-dissect_sctp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static gboolean
+capture_sctp(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+{
+  capture_dissector_increment_count(cpinfo, proto_sctp);
+  return TRUE;
+}
+
+static int
+dissect_sctp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint16 source_port, destination_port;
   guint      number_of_ppid;
@@ -4721,12 +4712,14 @@ dissect_sctp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
   sctp_info.sport = pinfo->srcport;
   sctp_info.dport = pinfo->destport;
-  SET_ADDRESS(&sctp_info.ip_src, pinfo->src.type, pinfo->src.len, pinfo->src.data);
-  SET_ADDRESS(&sctp_info.ip_dst, pinfo->dst.type, pinfo->dst.len, pinfo->dst.data);
+  set_address(&sctp_info.ip_src, pinfo->src.type, pinfo->src.len, pinfo->src.data);
+  set_address(&sctp_info.ip_dst, pinfo->dst.type, pinfo->dst.len, pinfo->dst.data);
 
   dissect_sctp_packet(tvb, pinfo, tree, FALSE);
   if (!pinfo->flags.in_error_pkt && sctp_info.number_of_tvbs > 0)
     tap_queue_packet(sctp_tap, pinfo, &sctp_info);
+
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -4883,7 +4876,7 @@ proto_register_sctp(void)
     { &hf_sctp_ack_tsn,                             { "Acknowledges TSN",                               "sctp.ack",                                             FT_UINT32, BASE_DEC, NULL,                                             0x0,                                NULL, HFILL } },
     { &hf_sctp_ack_frame,                           { "Acknowledges TSN in frame",                      "sctp.ack_frame",                                       FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_ACK),                0x0,                                NULL, HFILL } },
     { &hf_sctp_retransmitted_after_ack,             { "Chunk was acked prior to retransmission",        "sctp.retransmitted_after_ack",                         FT_FRAMENUM, BASE_NONE, NULL,                                          0x0,                                NULL, HFILL } },
-    { &hf_sctp_assoc_index,                         { "Assocation index",                               "sctp.assoc_index",                                     FT_UINT16, BASE_DEC, NULL,                                             0x0,                                NULL, HFILL } }
+    { &hf_sctp_assoc_index,                         { "Association index",                              "sctp.assoc_index",                                     FT_UINT16, BASE_DEC, NULL,                                             0x0,                                NULL, HFILL } }
 
  };
 
@@ -5037,8 +5030,8 @@ proto_register_sctp(void)
   sctp_tap = register_tap("sctp");
   exported_pdu_tap = find_tap_id(EXPORT_PDU_TAP_NAME_LAYER_3);
   /* subdissector code */
-  sctp_port_dissector_table = register_dissector_table("sctp.port", "SCTP port", FT_UINT16, BASE_DEC);
-  sctp_ppi_dissector_table  = register_dissector_table("sctp.ppi",  "SCTP payload protocol identifier", FT_UINT32, BASE_HEX);
+  sctp_port_dissector_table = register_dissector_table("sctp.port", "SCTP port", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  sctp_ppi_dissector_table  = register_dissector_table("sctp.ppi",  "SCTP payload protocol identifier", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   register_dissector("sctp", dissect_sctp, proto_sctp);
   sctp_heur_subdissector_list = register_heur_dissector_list("sctp");
@@ -5065,6 +5058,8 @@ proto_reg_handoff_sctp(void)
   dissector_add_uint("wtap_encap", WTAP_ENCAP_SCTP, sctp_handle);
   dissector_add_uint("ip.proto", IP_PROTO_SCTP, sctp_handle);
   dissector_add_uint("udp.port", UDP_TUNNELING_PORT, sctp_handle);
+  register_capture_dissector("ip.proto", IP_PROTO_SCTP, capture_sctp, proto_sctp);
+  register_capture_dissector("ipv6.nxt", IP_PROTO_SCTP, capture_sctp, proto_sctp);
 }
 
 /*

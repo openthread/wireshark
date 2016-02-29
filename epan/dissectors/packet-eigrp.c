@@ -35,6 +35,12 @@
 #include "packet-ipx.h"
 #include "packet-atalk.h"
 
+/*
+ * Originally Cisco proprietary; now the subject of an I-D:
+ *
+ *    https://tools.ietf.org/html/draft-savage-eigrp-04
+ */
+
 /**
  * EIGRP Header size in bytes
  */
@@ -191,6 +197,7 @@
  * opaque flag field definitions
  */
 #define EIGRP_OPAQUE_SRCWD    0x01   /*!< Route Source Withdraw */
+#define EIGRP_OPAQUE_CD       0x02   /*!< Candidate Default */
 #define EIGRP_OPAQUE_ACTIVE   0x04   /*!< Route is currently in active state */
 #define EIGRP_OPAQUE_REPL     0x08   /*!< Route is replicated from different tableid */
 
@@ -435,6 +442,7 @@ static gint hf_eigrp_routerid = -1;
 
 /* protocol dependent module route flags */
 static gint hf_eigrp_metric_flags_srcwd = -1;
+static gint hf_eigrp_metric_flags_cd = -1;
 static gint hf_eigrp_metric_flags_active = -1;
 static gint hf_eigrp_metric_flags_repl = -1;
 static gint ett_eigrp_metric_flags = -1;
@@ -1071,6 +1079,8 @@ dissect_eigrp_metric_flags (proto_tree *tree, tvbuff_t *tvb, int offset, int lim
     /* just care about 'flags' byte, there are no MP flags for now */
     proto_tree_add_item(sub_tree, hf_eigrp_metric_flags_srcwd, sub_tvb, 0, 1,
                         ENC_BIG_ENDIAN);
+    proto_tree_add_item(sub_tree, hf_eigrp_metric_flags_cd, sub_tvb, 0, 1,
+                        ENC_BIG_ENDIAN);
     proto_tree_add_item(sub_tree, hf_eigrp_metric_flags_active, sub_tvb, 0, 1,
                         ENC_BIG_ENDIAN);
     proto_tree_add_item(sub_tree, hf_eigrp_metric_flags_repl, sub_tvb, 0, 1,
@@ -1081,46 +1091,48 @@ dissect_eigrp_metric_flags (proto_tree *tree, tvbuff_t *tvb, int offset, int lim
 }
 
 /**
- *@fn int dissect_eigrp_ipv4_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
- *                                 packet_info *pinfo, int offset, int unreachable)
+ *@fn void dissect_eigrp_ipv4_addrs (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *                                   packet_info *pinfo, int offset, int unreachable)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
  * @param[in] pinfo     general data about the protocol
  * @param[in] offset    current byte offset in packet being processed
  *
- * @return int          number of bytes process
- *
  * @par
  * Dissect all IPv4 address from offset though the end of the packet
  */
-static int
-dissect_eigrp_ipv4_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+static void
+dissect_eigrp_ipv4_addrs (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                          packet_info *pinfo, int offset, int unreachable)
 {
-    guint8      ip_addr[4], length;
+    guint8 length;
+    union {
+       guint8 addr_bytes[4];
+       guint32 addr;
+    } ip_addr;
     int         addr_len;
     proto_item *ti_prefixlen, *ti_dst;
     int         first = TRUE;
 
     for (; tvb_reported_length_remaining(tvb, offset) > 0; offset += (1 + addr_len)) {
         length = tvb_get_guint8(tvb, offset);
-        addr_len = ipv4_addr_and_mask(tvb, offset + 1, ip_addr, length);
+        addr_len = tvb_get_ipv4_addr_with_prefix_len(tvb, offset + 1, ip_addr.addr_bytes, length);
 
         if (addr_len < 0) {
+            /* Invalid prefix length, more than 32 bits */
             ti_prefixlen = proto_tree_add_item(tree, hf_eigrp_ipv4_prefixlen,
                                                tvb, offset, 1, ENC_BIG_ENDIAN);
             expert_add_info_format(pinfo, ti_prefixlen, &ei_eigrp_prefixlen, "Invalid prefix length %u, must be <= 32", length);
-            addr_len = 4; /* assure we can exit the loop */
-
+            break;  /* We don't know how long this address is */
         } else {
             address addr;
 
             proto_tree_add_item(tree, hf_eigrp_ipv4_prefixlen, tvb, offset, 1,
                                 ENC_BIG_ENDIAN);
             offset += 1;
-            SET_ADDRESS(&addr, AT_IPv4, 4, ip_addr);
-            ti_dst = proto_tree_add_ipv4(tree, hf_eigrp_ipv4_destination, tvb, offset, addr_len, *ip_addr);
+            set_address(&addr, AT_IPv4, 4, ip_addr.addr_bytes);
+            ti_dst = proto_tree_add_ipv4(tree, hf_eigrp_ipv4_destination, tvb, offset, addr_len, ip_addr.addr);
 
             /* add it to the top level line */
             proto_item_append_text(ti,"  %c   %s/%u", first ? '=':',',
@@ -1132,26 +1144,23 @@ dissect_eigrp_ipv4_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
         }
         first = FALSE;
     }
-    return (offset);
 }
 
 /**
- *@fn int dissect_eigrp_ipv6_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
- *                                 packet_info *pinfo, int offset, int unreachable)
+ *@fn void dissect_eigrp_ipv6_addrs (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *                                   packet_info *pinfo, int offset, int unreachable)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
  * @param[in] pinfo     general data about the protocol
  * @param[in] offset    current byte offset in packet being processed
  *
- * @return int          number of bytes process
- *
  * @par
  * Dissect all IPv6 address from offset though the end of the packet
  */
-static int
-dissect_eigrp_ipv6_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
-                         packet_info *pinfo, int offset, int unreachable)
+static void
+dissect_eigrp_ipv6_addrs (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+                          packet_info *pinfo, int offset, int unreachable)
 {
     guint8             length;
     int                addr_len;
@@ -1162,13 +1171,14 @@ dissect_eigrp_ipv6_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
 
     for (; tvb_reported_length_remaining(tvb, offset) > 0; offset += (1 + addr_len)) {
         length = tvb_get_guint8(tvb, offset);
-        addr_len = ipv6_addr_and_mask(tvb, offset + 1, &addr, length);
+        addr_len = tvb_get_ipv6_addr_with_prefix_len(tvb, offset + 1, &addr, length);
 
         if (addr_len < 0) {
+            /* Invalid prefix length, more than 128 bits */
             ti_prefixlen = proto_tree_add_item(tree, hf_eigrp_ipv6_prefixlen,
                                                tvb, offset, 1, ENC_BIG_ENDIAN);
             expert_add_info_format(pinfo, ti_prefixlen, &ei_eigrp_prefixlen, "Invalid prefix length %u, must be <= 128", length);
-            addr_len = 16; /* assure we can exit the loop */
+            break;  /* We don't know how long this address is */
         } else {
             proto_tree_add_item(tree, hf_eigrp_ipv6_prefixlen, tvb, offset, 1,
                                 ENC_BIG_ENDIAN);
@@ -1178,8 +1188,8 @@ dissect_eigrp_ipv6_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                 addr_len++;
             }
 
-            SET_ADDRESS(&addr_str, AT_IPv6, 16, addr.bytes);
-            ti_dst = proto_tree_add_ipv6(tree, hf_eigrp_ipv6_destination, tvb, offset, addr_len, addr.bytes);
+            set_address(&addr_str, AT_IPv6, 16, addr.bytes);
+            ti_dst = proto_tree_add_ipv6(tree, hf_eigrp_ipv6_destination, tvb, offset, addr_len, &addr);
 
             /* add it to the top level line */
             proto_item_append_text(ti,"  %c   %s/%u", first ? '=':',',
@@ -1191,12 +1201,11 @@ dissect_eigrp_ipv6_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
         }
         first = FALSE;
     }
-    return(offset);
 }
 
 /**
- *@fn int dissect_eigrp_ipx_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
- *                                packet_info *pinfo, int offset, int unreachable)
+ *@fn int dissect_eigrp_ipx_addrs (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *                                 packet_info *pinfo, int offset, int unreachable)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
@@ -1209,8 +1218,8 @@ dissect_eigrp_ipv6_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  * Dissect all IPX address from offset though the end of the packet
  */
 static int
-dissect_eigrp_ipx_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
-                        packet_info *pinfo, int offset, int unreachable)
+dissect_eigrp_ipx_addrs (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+                         packet_info *pinfo, int offset, int unreachable)
 {
     proto_item *ti_dst;
 
@@ -1229,16 +1238,14 @@ dissect_eigrp_ipx_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
 }
 
 /**
- *@fn int dissect_eigrp_service (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
- *                               packet_info *pinfo, int offset)
+ *@fn void dissect_eigrp_services (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *                                 packet_info *pinfo, int offset)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
  * @param[in] pinfo     general data about the protocol
  * @param[in] ti        protocol item
  * @param[in] offset    current byte offset in packet being processed
- *
- * @return int          number of bytes process
  *
  * @par
  * Dissect all SAF Services from offset though the end of the packet. The
@@ -1275,8 +1282,8 @@ dissect_eigrp_ipx_addr (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *
  */
-static int
-dissect_eigrp_service (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+static void
+dissect_eigrp_services (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                        packet_info *pinfo, int offset)
 {
     int         afi, length, remaining;
@@ -1383,9 +1390,6 @@ dissect_eigrp_service (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
         }
         sub_offset += length;
     }
-
-    offset += sub_offset;
-    return(offset);
 }
 
 /**
@@ -1683,15 +1687,13 @@ dissect_eigrp_general_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
 }
 
 /**
- *@fn int dissect_eigrp_ipv4_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *@fn void dissect_eigrp_ipv4_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *                                 packet_info *pinfo, guint16 tlv)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
  * @param[in] pinfo     general data about the protocol
  * @param[in] tlv       Specific TLV in to be dissected
- *
- * @return int          number of bytes process
  *
  * @par
  * Dissect the Legacy IPv4 route TLV; handles both the internal and external
@@ -1714,7 +1716,7 @@ dissect_eigrp_general_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *   | Reliability  |      Load     |  Internal Tag   |   Flag       |
  *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-static int
+static void
 dissect_eigrp_ipv4_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                         packet_info *pinfo, guint16 tlv)
 {
@@ -1734,9 +1736,7 @@ dissect_eigrp_ipv4_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
     offset = dissect_eigrp_legacy_metric(tree, tvb, offset);
 
     /* dissect addresses */
-    offset = dissect_eigrp_ipv4_addr(ti, tree, tvb, pinfo, offset, unreachable);
-
-    return offset;
+    dissect_eigrp_ipv4_addrs(ti, tree, tvb, pinfo, offset, unreachable);
 }
 
 /**
@@ -1783,7 +1783,6 @@ dissect_eigrp_atalk_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
         proto_item_append_text(ti, ": %u-%u",
                                tvb_get_ntohs(tvb, 36), tvb_get_ntohs(tvb, 38));
     }
-    return;
 }
 
 /**
@@ -1822,20 +1821,17 @@ dissect_eigrp_ipv6_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
     offset = dissect_eigrp_legacy_metric(tree, tvb, offset);
 
     /* dissect addresses */
-    dissect_eigrp_ipv6_addr(ti, tree, tvb, pinfo, offset, unreachable);
-    return;
+    dissect_eigrp_ipv6_addrs(ti, tree, tvb, pinfo, offset, unreachable);
 }
 
 /**
- *@fn int dissect_eigrp_ipx_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *@fn void dissect_eigrp_ipx_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *                                packet_info *pinfo, guint16 tlv)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
  * @param[in] pinfo     general data about the protocol
  * @param[in] tlv       Specific TLV in to be dissected
- *
- * @return int          number of bytes process
  *
  * @par
  * Dissect the legacy IPX route TLV; handles both the internal and external
@@ -1880,7 +1876,7 @@ dissect_eigrp_ipv6_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *
  *
  */
-static int
+static void
 dissect_eigrp_ipx_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                        packet_info *pinfo, guint16 tlv)
 {
@@ -1899,22 +1895,18 @@ dissect_eigrp_ipx_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
     offset = dissect_eigrp_legacy_metric(tree, tvb, offset);
 
     /* dissect addresses */
-    offset = dissect_eigrp_ipx_addr(ti, tree, tvb, pinfo, offset, unreachable);
-
-    return offset;
+    dissect_eigrp_ipx_addrs(ti, tree, tvb, pinfo, offset, unreachable);
 }
 
 /**
- *@fn void dissect_eigrp_ipv4_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
- *                                 packet_info *pinfo, proto_item *ti, guint16 tlv)
+ *@fn void dissect_eigrp_multi_topology_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *                                           packet_info *pinfo, proto_item *ti, guint16 tlv)
  *
  * @param[in,out] tree  detail dissection result
  * @param[in] tvb       packet data
  * @param[in] pinfo     general data about the protocol
  * @param[in] ti        protocol item
  * @param[in] tlv       Specific TLV in to be dissected
- *
- * @return int          number of bytes process
  *
  * @par
  * Dissect the Multi-Topology route TLV; This packet format has been deprecated
@@ -1949,7 +1941,7 @@ dissect_eigrp_ipx_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *
  */
-static int
+static void
 dissect_eigrp_multi_topology_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                                   packet_info *pinfo, guint16 tlv)
 {
@@ -1992,26 +1984,24 @@ dissect_eigrp_multi_topology_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tv
     /* dissect dest information */
     switch (afi) {
     case EIGRP_AF_IPv4:
-        offset = dissect_eigrp_ipv4_addr(ti, tree, tvb, pinfo, offset, unreachable);
+        dissect_eigrp_ipv4_addrs(ti, tree, tvb, pinfo, offset, unreachable);
         break;
     case EIGRP_AF_IPv6:
-        offset = dissect_eigrp_ipv6_addr(ti, tree, tvb, pinfo, offset, unreachable);
+        dissect_eigrp_ipv6_addrs(ti, tree, tvb, pinfo, offset, unreachable);
         break;
     case EIGRP_AF_IPX:
-        offset = dissect_eigrp_ipx_addr(ti, tree, tvb, pinfo, offset, unreachable);
+        dissect_eigrp_ipx_addrs(ti, tree, tvb, pinfo, offset, unreachable);
         break;
 
     case EIGRP_SF_COMMON:
     case EIGRP_SF_IPv4:
     case EIGRP_SF_IPv6:
-        offset = dissect_eigrp_service(ti, tree, tvb, pinfo, offset);
+        dissect_eigrp_services(ti, tree, tvb, pinfo, offset);
         break;
 
     default:
         proto_tree_add_expert(tree, pinfo, &ei_eigrp_afi, tvb, offset, -1);
     }
-
-    return offset;
 }
 
 /**
@@ -2312,7 +2302,7 @@ dissect_eigrp_wide_metric (proto_tree *tree, tvbuff_t *tvb, int offset)
 }
 
 /**
- *@fn int dissect_eigrp_multi_protocol_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
+ *@fn void dissect_eigrp_multi_protocol_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
  *                                           packet_info *pinfo, guint16 tlv)
 
  *
@@ -2320,8 +2310,6 @@ dissect_eigrp_wide_metric (proto_tree *tree, tvbuff_t *tvb, int offset)
  * @param[in] tvb       packet data
  * @param[in] ti        protocol item
  * @param[in] pinfo     general data about the protocol
- *
- * @return int          number of bytes process
  *
  * @par
  * Dissect the Multi-Protocol (TLV Version 2.0) TLV format definition. The following
@@ -2345,7 +2333,7 @@ dissect_eigrp_wide_metric (proto_tree *tree, tvbuff_t *tvb, int offset)
  *   |\/\/\/       Destination (Family Specific Length)        \/\/\/|
  *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-static int
+static void
 dissect_eigrp_multi_protocol_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tvb,
                                   packet_info *pinfo, guint16 tlv)
 {
@@ -2384,28 +2372,26 @@ dissect_eigrp_multi_protocol_tlv (proto_item *ti, proto_tree *tree, tvbuff_t *tv
     /* dissect dest information */
     switch (afi) {
     case EIGRP_AF_IPv4:
-        offset = dissect_eigrp_ipv4_addr(ti, tree, tvb, pinfo, offset, unreachable);
+        dissect_eigrp_ipv4_addrs(ti, tree, tvb, pinfo, offset, unreachable);
         break;
 
     case EIGRP_AF_IPv6:
-        offset = dissect_eigrp_ipv6_addr(ti, tree, tvb, pinfo, offset, unreachable);
+        dissect_eigrp_ipv6_addrs(ti, tree, tvb, pinfo, offset, unreachable);
         break;
 
     case EIGRP_AF_IPX:
-        offset = dissect_eigrp_ipx_addr(ti, tree, tvb, pinfo, offset, unreachable);
+        dissect_eigrp_ipx_addrs(ti, tree, tvb, pinfo, offset, unreachable);
         break;
 
     case EIGRP_SF_COMMON:
     case EIGRP_SF_IPv4:
     case EIGRP_SF_IPv6:
-        offset = dissect_eigrp_service(ti, tree, tvb, pinfo, offset);
+        dissect_eigrp_services(ti, tree, tvb, pinfo, offset);
         break;
 
     default:
         proto_tree_add_expert(tree, pinfo, &ei_eigrp_afi, tvb, offset, -1);
     }
-
-    return offset;
 }
 
 /**
@@ -2526,7 +2512,13 @@ dissect_eigrp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
             }
 
             size =  tvb_get_ntohs(tvb, offset + 2);
-            if (size == 0) {
+            if (size < 4) {
+                /*
+                 * As the draft says, in section 6.6.2 "Length Field Encoding",
+                 * "The value does includes[sic] the Type and Length fields".
+                 *
+                 * Therefore, it must be at least 4.
+                 */
                 proto_tree_add_expert(eigrp_tree, pinfo, &ei_eigrp_tlv_len, tvb, offset, -1);
                 return(tvb_captured_length(tvb));
             }
@@ -2992,6 +2984,11 @@ proto_register_eigrp(void)
             FT_BOOLEAN, 8, TFS(&tfs_true_false), EIGRP_OPAQUE_SRCWD,
             "Route Source Withdraw", HFILL }
         },
+        { &hf_eigrp_metric_flags_cd,
+          { "Candidate Default", "eigrp.metric.flags.cd",
+            FT_BOOLEAN, 8, TFS(&tfs_true_false), EIGRP_OPAQUE_CD,
+            NULL, HFILL }
+        },
         { &hf_eigrp_metric_flags_active,
           { "Route is Active", "eigrp.metric.flags.active",
             FT_BOOLEAN, 8, TFS(&tfs_true_false), EIGRP_OPAQUE_ACTIVE,
@@ -3368,7 +3365,7 @@ proto_register_eigrp(void)
         { &ei_eigrp_tlv_type, { "eigrp.tlv_type.unknown", PI_PROTOCOL, PI_WARN, "Unknown TLV", EXPFILL }},
         { &ei_eigrp_afi, { "eigrp.afi.unknown", PI_PROTOCOL, PI_WARN, "Unknown AFI", EXPFILL }},
         { &ei_eigrp_checksum_bad, { "eigrp.checksum.bad", PI_CHECKSUM, PI_WARN, "Bad Checksum", EXPFILL }},
-        { &ei_eigrp_tlv_len, { "eigrp.tlv.len.invalid", PI_MALFORMED, PI_ERROR, "Corrupt TLV (Length field set to 0)", EXPFILL }},
+        { &ei_eigrp_tlv_len, { "eigrp.tlv.len.invalid", PI_MALFORMED, PI_ERROR, "Corrupt TLV (Length field less than 4)", EXPFILL }},
         { &ei_eigrp_tlv_trunc, { "eigrp.tlv.truncated", PI_MALFORMED, PI_ERROR, "Corrupt TLV (Truncated prematurely)", EXPFILL }},
     };
 
@@ -3413,7 +3410,7 @@ proto_reg_handoff_eigrp(void)
     ipxsap_handle = find_dissector("ipxsap");
     media_type_table = find_dissector_table("media_type");
 
-    eigrp_handle = new_create_dissector_handle(dissect_eigrp, proto_eigrp);
+    eigrp_handle = create_dissector_handle(dissect_eigrp, proto_eigrp);
 
     dissector_add_uint("ip.proto", IP_PROTO_EIGRP, eigrp_handle);
     dissector_add_uint("ddp.type", DDP_EIGRP, eigrp_handle);

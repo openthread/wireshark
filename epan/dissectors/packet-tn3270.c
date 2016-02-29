@@ -5234,8 +5234,8 @@ dissect_inbound_stream(proto_tree *tn3270_tree, packet_info *pinfo, tvbuff_t *tv
 }
 
 
-static void
-dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree         *tn3270_tree;
   proto_item         *pi;
@@ -5248,7 +5248,7 @@ dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   pinfo->fd->flags.encoding = PACKET_CHAR_ENC_CHAR_EBCDIC;
 
   /* Do we have a conversation for this connection? */
-  conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                    pinfo->ptype, pinfo->srcport,
                                    pinfo->destport, 0);
   if (conversation != NULL) {
@@ -5257,7 +5257,7 @@ dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   }
 
   if (tn3270_info == NULL)
-    return;
+    return 0;
 
   pi = proto_tree_add_item(tree, proto_tn3270, tvb, offset, -1, ENC_NA);
   tn3270_tree = proto_item_add_subtree(pi, ett_tn3270);
@@ -5268,7 +5268,7 @@ dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   }
 
   if (tvb_reported_length_remaining(tvb, offset) <= 0)
-    return;
+    return offset;
 
   if (pinfo->srcport == tn3270_info->outbound_port) {
     col_set_str(pinfo->cinfo, COL_INFO, "TN3270 Data from Mainframe");
@@ -5288,6 +5288,7 @@ dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
   }
 
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -5308,10 +5309,10 @@ add_tn3270_conversation(packet_info *pinfo, int tn3270e, gint model)
      */
     tn3270_info = wmem_new(wmem_file_scope(), tn3270_conv_info_t);
 
-    COPY_ADDRESS(&(tn3270_info->outbound_addr), &(pinfo->dst));
+    copy_address(&(tn3270_info->outbound_addr), &(pinfo->dst));
     tn3270_info->outbound_port = pinfo->destport;
 
-    COPY_ADDRESS(&(tn3270_info->inbound_addr), &(pinfo->src));
+    copy_address(&(tn3270_info->inbound_addr), &(pinfo->src));
     tn3270_info->inbound_port  = pinfo->srcport;
 
     conversation_add_proto_data(conversation, proto_tn3270, tn3270_info);
@@ -5353,7 +5354,7 @@ find_tn3270_conversation(packet_info *pinfo)
   /*
    * Do we have a conversation for this connection?
    */
-  conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                    pinfo->ptype, pinfo->srcport,
                                    pinfo->destport, 0);
   if (conversation != NULL) {

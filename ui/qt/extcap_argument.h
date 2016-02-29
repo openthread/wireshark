@@ -27,8 +27,15 @@
 #include <QLabel>
 #include <QVariant>
 #include <QList>
+#include <QLineEdit>
+#include <QComboBox>
+#include <QButtonGroup>
+#include <QCheckBox>
 
 #include <extcap_parser.h>
+
+#define EXTCAP_GUI_BLANK_LABEL "QLabel { color : ; }"
+#define EXTCAP_GUI_ERROR_LABEL "QLabel { color : red; }"
 
 class ExtcapValue;
 
@@ -87,18 +94,111 @@ public:
     virtual QString value();
     virtual QString defaultValue();
 
-    static ExtcapArgument * create(extcap_arg * argument = 0, GHashTable * device_defaults = 0);
+    bool isDefault();
+    bool isValid();
+    bool isRequired();
+
+    QString prefKey(const QString & device_name);
+    virtual QString prefValue();
+
+    static ExtcapArgument * create(extcap_arg * argument = 0);
+
+Q_SIGNALS:
+    void valueChanged();
 
 protected:
 
-    void setDefault(GHashTable * defaultsList);
+    bool fileExists();
 
     ExtcapValueList loadValues(QString parent);
 
     ExtcapValueList values;
 
     extcap_arg * _argument;
-    QVariant * _default;
+    QWidget * _label;
+
+    const QString label_style;
+
+private Q_SLOTS:
+
+    void onStringChanged(QString);
+    void onIntChanged(int);
+    void onBoolChanged(bool);
+
+};
+
+class ExtArgText : public ExtcapArgument
+{
+
+public:
+    ExtArgText(extcap_arg * argument);
+
+    virtual QWidget * createEditor(QWidget * parent);
+    virtual QString value();
+    virtual bool isValid();
+
+protected:
+
+    QLineEdit * textBox;
+};
+
+class ExtArgNumber : public ExtArgText
+{
+public:
+    ExtArgNumber(extcap_arg * argument);
+
+    virtual QWidget * createEditor(QWidget * parent);
+    virtual QString defaultValue();
+};
+
+class ExtArgSelector : public ExtcapArgument
+{
+public:
+    ExtArgSelector(extcap_arg * argument);
+
+    virtual QWidget * createEditor(QWidget * parent);
+    virtual QString value();
+    virtual bool isValid();
+
+private:
+
+    QComboBox * boxSelection;
+};
+
+class ExtArgRadio : public ExtcapArgument
+{
+public:
+    ExtArgRadio(extcap_arg * argument);
+
+    virtual QWidget * createEditor(QWidget * parent);
+    virtual QString value();
+    virtual bool isValid();
+
+private:
+
+    QButtonGroup * selectorGroup;
+    QList<QString> * callStrings;
+};
+
+class ExtArgBool : public ExtcapArgument
+{
+public:
+    ExtArgBool(extcap_arg * argument);
+
+    virtual QWidget * createLabel(QWidget * parent);
+    virtual QWidget * createEditor(QWidget * parent);
+
+    virtual QString call();
+    virtual QString value();
+    virtual bool isValid();
+    virtual QString defaultValue();
+    virtual QString prefValue();
+
+private:
+
+    QCheckBox * boolBox;
+
+    bool defaultBool();
 };
 
 #endif /* UI_QT_EXTCAP_ARGUMENT_H_ */

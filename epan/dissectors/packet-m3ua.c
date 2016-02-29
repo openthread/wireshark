@@ -35,6 +35,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/sctpppids.h>
+#include <wsutil/str_util.h>
 #include "packet-mtp3.h"
 #include "packet-sccp.h"
 #include "packet-frame.h"
@@ -1115,22 +1116,22 @@ m3ua_heur_mtp3_standard(tvbuff_t *tvb, packet_info *pinfo, guint32 opc, guint32 
   case MTP_SI_SCCP:
   {
     if (opc < ITU_PC_MASK && dpc < ITU_PC_MASK &&
-        looks_like_valid_sccp(PINFO_FD_NUM(pinfo), tvb, ITU_STANDARD)) {
+        looks_like_valid_sccp(pinfo->num, tvb, ITU_STANDARD)) {
 
       return ITU_STANDARD;
     }
     /* Network 0 is reserved in ANSI */
     /* Could also check that cluster!=0 for small networks (networks 1-5) */
     if ((opc & ANSI_NETWORK_MASK) > 0 && (dpc & ANSI_NETWORK_MASK) > 0 &&
-        looks_like_valid_sccp(PINFO_FD_NUM(pinfo), tvb, ANSI_STANDARD)) {
+        looks_like_valid_sccp(pinfo->num, tvb, ANSI_STANDARD)) {
 
       return ANSI_STANDARD;
     }
-    if (looks_like_valid_sccp(PINFO_FD_NUM(pinfo), tvb, CHINESE_ITU_STANDARD)) {
+    if (looks_like_valid_sccp(pinfo->num, tvb, CHINESE_ITU_STANDARD)) {
       return CHINESE_ITU_STANDARD;
     }
     if (opc < JAPAN_PC_MASK && dpc < JAPAN_PC_MASK &&
-        looks_like_valid_sccp(PINFO_FD_NUM(pinfo), tvb, JAPAN_STANDARD)) {
+        looks_like_valid_sccp(pinfo->num, tvb, JAPAN_STANDARD)) {
 
       return JAPAN_STANDARD;
     }
@@ -1193,13 +1194,13 @@ dissect_protocol_data_parameter(tvbuff_t *parameter_tvb, packet_info *pinfo, pro
   mtp3_tap->addr_dpc.type = (Standard_Type)mtp3_standard;
   mtp3_tap->addr_dpc.pc = dpc;
   mtp3_tap->addr_dpc.ni = tvb_get_guint8(parameter_tvb, DATA_NI_OFFSET);
-  SET_ADDRESS(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) &mtp3_tap->addr_dpc);
+  set_address(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) &mtp3_tap->addr_dpc);
 
 
   mtp3_tap->addr_opc.type = (Standard_Type)mtp3_standard;
   mtp3_tap->addr_opc.pc = opc;
   mtp3_tap->addr_opc.ni = tvb_get_guint8(parameter_tvb, DATA_NI_OFFSET);
-  SET_ADDRESS(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) &mtp3_tap->addr_opc);
+  set_address(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) &mtp3_tap->addr_opc);
 
   mtp3_tap->mtp3_si_code = tvb_get_guint8(parameter_tvb, DATA_SI_OFFSET);
   mtp3_tap->size = 0;
@@ -1998,8 +1999,8 @@ dissect_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree, pro
   dissect_parameters(parameters_tvb, pinfo, tree, m3ua_tree);
 }
 
-static void
-dissect_m3ua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_m3ua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *m3ua_item;
   proto_tree *m3ua_tree;
@@ -2027,6 +2028,7 @@ dissect_m3ua(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
 
   /* dissect the message */
   dissect_message(message_tvb, pinfo, tree, m3ua_tree);
+  return tvb_captured_length(message_tvb);
 }
 
 /* Register the protocol with Wireshark */

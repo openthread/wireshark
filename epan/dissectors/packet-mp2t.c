@@ -35,6 +35,7 @@
 #include <epan/expert.h>
 #include <epan/reassemble.h>
 #include <epan/address_types.h>
+#include <epan/proto_data.h>
 #include "packet-l2tp.h"
 
 #include <epan/tvbuff-int.h> /* XXX, for tvb_new_proxy() */
@@ -229,6 +230,7 @@ static int hf_msg_ts_packet_reassembled = -1;
 
 static expert_field ei_mp2t_pointer = EI_INIT;
 static expert_field ei_mp2t_cc_drop = EI_INIT;
+static expert_field ei_mp2t_invalid_afc = EI_INIT;
 
 static const fragment_items mp2t_msg_frag_items = {
     /* Fragment subtrees */
@@ -266,7 +268,7 @@ static const fragment_items mp2t_msg_frag_items = {
  *          |     +-> pid_analysis_data
  *          |     +-> pid_analysis_data
  *          |
- *          +-> frame_table (RB tree) (key: pinfo->fd->num)
+ *          +-> frame_table (RB tree) (key: pinfo->num)
  *                |
  *                +-> frame_analysis_data (only created if drop detected)
  *                      |
@@ -281,7 +283,7 @@ typedef struct mp2t_analysis_data {
 
     /* This structure contains a tree containing data for the
      * individual pid's, this is only used when packets are
-     * processed sequencially.
+     * processed sequentially.
      */
     wmem_tree_t    *pid_table;
 
@@ -338,7 +340,7 @@ typedef struct pid_analysis_data {
 typedef struct ts_analysis_data {
     guint16  pid;
     gint8    cc_prev;      /* Previous CC number */
-    guint8   skips;          /* Skips between CCs max 14 */
+    guint8   skips;          /* Skips between Ccs max 14 */
 } ts_analysis_data_t;
 
 
@@ -390,7 +392,7 @@ init_frame_analysis_data(mp2t_analysis_data_t *mp2t_data, packet_info *pinfo)
     frame_analysis_data_p = wmem_new0(wmem_file_scope(), struct frame_analysis_data);
     frame_analysis_data_p->ts_table = wmem_tree_new(wmem_file_scope());
     /* Insert into mp2t tree */
-    wmem_tree_insert32(mp2t_data->frame_table, pinfo->fd->num,
+    wmem_tree_insert32(mp2t_data->frame_table, pinfo->num,
             (void *)frame_analysis_data_p);
 
     return frame_analysis_data_p;
@@ -401,7 +403,7 @@ static frame_analysis_data_t *
 get_frame_analysis_data(mp2t_analysis_data_t *mp2t_data, packet_info *pinfo)
 {
     frame_analysis_data_t *frame_analysis_data_p;
-    frame_analysis_data_p = (frame_analysis_data_t *)wmem_tree_lookup32(mp2t_data->frame_table, pinfo->fd->num);
+    frame_analysis_data_p = (frame_analysis_data_t *)wmem_tree_lookup32(mp2t_data->frame_table, pinfo->num);
     return frame_analysis_data_p;
 }
 
@@ -472,7 +474,7 @@ mp2t_get_packet_length(tvbuff_t *tvb, guint offset, packet_info *pinfo,
         if ( (pload_type == pid_pload_docsis && remaining_len < 4) ||
                 (pload_type == pid_pload_sect && remaining_len < 3) ||
                 (pload_type == pid_pload_pes && remaining_len < 5) ) {
-            /* Not enough info to determine the size of the encapulated packet */
+            /* Not enough info to determine the size of the encapsulated packet */
             /* Just add the fragment and we'll check out the length later */
             return -1;
         }
@@ -529,14 +531,14 @@ mp2t_fragment_handle(tvbuff_t *tvb, guint offset, packet_info *pinfo,
 
     save_fragmented = pinfo->fragmented;
     pinfo->fragmented = TRUE;
-    COPY_ADDRESS_SHALLOW(&save_src, &pinfo->src);
-    COPY_ADDRESS_SHALLOW(&save_dst, &pinfo->dst);
+    copy_address_shallow(&save_src, &pinfo->src);
+    copy_address_shallow(&save_dst, &pinfo->dst);
 
     /* It's possible that a fragment in the same packet set an address already
      * This will change the hash value, we need to make sure it's NULL */
 
-    SET_ADDRESS(&pinfo->src, mp2t_no_address_type, 0, NULL);
-    SET_ADDRESS(&pinfo->dst, mp2t_no_address_type, 0, NULL);
+    set_address(&pinfo->src, mp2t_no_address_type, 0, NULL);
+    set_address(&pinfo->dst, mp2t_no_address_type, 0, NULL);
 
     /* check length; send frame for reassembly */
     frag_msg = fragment_add_check(&mp2t_reassembly_table,
@@ -550,8 +552,8 @@ mp2t_fragment_handle(tvbuff_t *tvb, guint offset, packet_info *pinfo,
             frag_msg, &mp2t_msg_frag_items,
             NULL, tree);
 
-    COPY_ADDRESS_SHALLOW(&pinfo->src, &save_src);
-    COPY_ADDRESS_SHALLOW(&pinfo->dst, &save_dst);
+    copy_address_shallow(&pinfo->src, &save_src);
+    copy_address_shallow(&pinfo->dst, &save_dst);
 
     if (new_tvb) {
         /* ti = */ proto_tree_add_item(tree, hf_msg_ts_packet_reassembled, tvb, 0, 0, ENC_NA);
@@ -854,9 +856,9 @@ detect_cc_drops(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo,
     gboolean detected_drop = FALSE;
     guint32 skips = 0;
 
-    /* The initial sequencial processing stage */
+    /* The initial sequential processing stage */
     if (!pinfo->fd->flags.visited) {
-        /* This is the sequencial processing stage */
+        /* This is the sequential processing stage */
         pid_data = get_pid_analysis(mp2t_data, pid);
 
         cc_prev = pid_data->cc_prev;
@@ -1085,13 +1087,13 @@ dissect_mp2t_adaptation_field(tvbuff_t *tvb, gint offset, proto_tree *tree)
 }
 
 static void
-dissect_tsp(tvbuff_t *tvb, volatile gint offset, packet_info *pinfo,
+dissect_tsp(tvbuff_t *tvb, gint offset, packet_info *pinfo,
         proto_tree *tree, conversation_t *conv)
 {
     guint32              header;
     guint                afc;
     gint                 start_offset = offset;
-    volatile gint        payload_len;
+    gint                 payload_len;
     mp2t_analysis_data_t *mp2t_data;
     pid_analysis_data_t *pid_analysis;
 
@@ -1114,11 +1116,12 @@ dissect_tsp(tvbuff_t *tvb, volatile gint offset, packet_info *pinfo,
     mp2t_tree = proto_item_add_subtree( ti, ett_mp2t );
 
     header = tvb_get_ntohl(tvb, offset);
-
-    pid = (header & MP2T_PID_MASK) >> MP2T_PID_SHIFT;
-    cc  = (header & MP2T_CC_MASK)  >> MP2T_CC_SHIFT;
-    tsc = (header & MP2T_TSC_MASK);
     pusi_flag = (header & 0x00400000);
+    pid = (header & MP2T_PID_MASK) >> MP2T_PID_SHIFT;
+    tsc = (header & MP2T_TSC_MASK);
+    afc = (header & MP2T_AFC_MASK) >> MP2T_AFC_SHIFT;
+    cc  = (header & MP2T_CC_MASK)  >> MP2T_CC_SHIFT;
+
     proto_item_append_text(ti, " PID=0x%x CC=%d", pid, cc);
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "MPEG TS");
 
@@ -1134,13 +1137,10 @@ dissect_tsp(tvbuff_t *tvb, volatile gint offset, packet_info *pinfo,
     afci = proto_tree_add_item( mp2t_header_tree, hf_mp2t_afc, tvb, offset, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item( mp2t_header_tree, hf_mp2t_cc, tvb, offset, 4, ENC_BIG_ENDIAN);
 
-    afc = (header & MP2T_AFC_MASK) >> MP2T_AFC_SHIFT;
-
     mp2t_data = get_mp2t_conversation_data(conv);
 
     pid_analysis = get_pid_analysis(mp2t_data, pid);
 
-    /* Find out the payload type based on the payload */
     if (pid_analysis->pload_type == pid_pload_unknown) {
         if (pid == MP2T_PID_NULL) {
             pid_analysis->pload_type = pid_pload_null;
@@ -1151,13 +1151,19 @@ dissect_tsp(tvbuff_t *tvb, volatile gint offset, packet_info *pinfo,
 
     if (pid_analysis->pload_type == pid_pload_docsis && (afc != 1)) {
         /* DOCSIS packets should not have an adaptation field */
-        proto_item_append_text(afci, " (Invalid for DOCSIS packets, should be 1)");
+        if (afc != 1) {
+            expert_add_info_format(pinfo, afci, &ei_mp2t_invalid_afc,
+                    "Adaptation Field Control for DOCSIS packets must be 0x01");
+        }
     }
 
     if (pid_analysis->pload_type == pid_pload_null) {
-        /* Nothing more to do */
         col_set_str(pinfo->cinfo, COL_INFO, "NULL packet");
-        proto_item_append_text(afci, " (Should be 0 for NULL packets)");
+        if (afc != 1) {
+            expert_add_info_format(pinfo, afci, &ei_mp2t_invalid_afc,
+                    "Adaptation Field Control for NULL packets must be 0x01");
+        }
+        /* Nothing more to do */
         return;
     }
 
@@ -1199,8 +1205,8 @@ dissect_tsp(tvbuff_t *tvb, volatile gint offset, packet_info *pinfo,
 }
 
 
-static void
-dissect_mp2t( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int
+dissect_mp2t( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
     guint         offset = 0;
     conversation_t    *conv;
@@ -1210,7 +1216,7 @@ dissect_mp2t( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
     for (; tvb_reported_length_remaining(tvb, offset) >= MP2T_PACKET_SIZE; offset += MP2T_PACKET_SIZE) {
        dissect_tsp(tvb, offset, pinfo, tree, conv);
     }
-
+    return tvb_captured_length(tvb);
 }
 
 static gboolean
@@ -1237,7 +1243,7 @@ heur_dissect_mp2t( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
         }
     }
 
-    dissect_mp2t(tvb, pinfo, tree);
+    dissect_mp2t(tvb, pinfo, tree, data);
     return TRUE;
 }
 
@@ -1518,6 +1524,8 @@ proto_register_mp2t(void)
     static ei_register_info ei[] = {
         { &ei_mp2t_pointer, { "mp2t.pointer_too_large", PI_MALFORMED, PI_ERROR, "Pointer value is too large", EXPFILL }},
         { &ei_mp2t_cc_drop, { "mp2t.cc.drop", PI_MALFORMED, PI_ERROR, "Detected missing TS frames", EXPFILL }},
+        { &ei_mp2t_invalid_afc, { "mp2t.afc.invalid", PI_PROTOCOL, PI_WARN,
+                                    "Adaptation Field Control contains an invalid value", EXPFILL }}
     };
 
     expert_module_t* expert_mp2t;

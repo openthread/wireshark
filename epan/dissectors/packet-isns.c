@@ -1,4 +1,4 @@
-/* XXX fixme   can not reassemple multiple isns PDU fragments into one
+/* XXX fixme   can not reassemble multiple isns PDU fragments into one
   isns PDU
 */
 
@@ -783,10 +783,10 @@ dissect_isns_attr_port(tvbuff_t *tvb, guint offset, proto_tree *tree, int hf_ind
             handle = isns_tcp_handle;
         }
 
-        conversation = find_conversation(pinfo->fd->num,
+        conversation = find_conversation(pinfo->num,
                 &pinfo->src, &pinfo->dst, pt, port, 0, NO_PORT_B);
         if (conversation == NULL) {
-            conversation = conversation_new(pinfo->fd->num,
+            conversation = conversation_new(pinfo->num,
                     &pinfo->src, &pinfo->dst, pt, port, 0, NO_PORT2_FORCE);
             conversation_set_dissector(conversation, handle);
         }
@@ -1724,8 +1724,8 @@ void proto_register_isns(void)
 void
 proto_reg_handoff_isns(void)
 {
-    isns_tcp_handle = new_create_dissector_handle(dissect_isns_tcp,proto_isns);
-    isns_udp_handle = new_create_dissector_handle(dissect_isns_udp,proto_isns);
+    isns_tcp_handle = create_dissector_handle(dissect_isns_tcp,proto_isns);
+    isns_udp_handle = create_dissector_handle(dissect_isns_udp,proto_isns);
 
     dissector_add_uint("tcp.port",ISNS_TCP_PORT,isns_tcp_handle);
     dissector_add_uint("udp.port",ISNS_UDP_PORT,isns_udp_handle);

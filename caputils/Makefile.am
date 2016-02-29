@@ -20,16 +20,18 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 include Makefile.common
-include ../Makefile.am.inc
+include $(top_srcdir)/Makefile.am.inc
 
-if HAVE_WARNINGS_AS_ERRORS
-AM_CLEAN_CFLAGS = -Werror
-endif
+AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) $(GLIB_CFLAGS) $(LIBNL_CFLAGS)
 
 noinst_LIBRARIES = libcaputils.a
 
 PLATFORM_CAPUTILS_SRC = \
 	capture-pcap-util-unix.c
+
+CAPUTILS_SRC = \
+	$(COMMON_CAPUTILS_SRC)	\
+	$(PLATFORM_CAPUTILS_SRC)
 
 CLEANFILES = \
 	doxygen-caputils.tag	\
@@ -39,6 +41,22 @@ CLEANFILES = \
 MAINTAINERCLEANFILES = \
 	$(GENERATED_FILES)	\
 	Makefile.in
+
+EXTRA_DIST = \
+	$(GENERATOR_FILES)	\
+	airpcap.h		\
+	airpcap_loader.c	\
+	airpcap_loader.h	\
+	capture_win_ifnames.c	\
+	capture_win_ifnames.h	\
+	capture-wpcap.c		\
+	capture-wpcap.h		\
+	capture_wpcap_packet.c  \
+	capture_wpcap_packet.h  \
+	CMakeLists.txt		\
+	doxygen.cfg.in		\
+	Makefile.common		\
+	Makefile.nmake
 
 # All sources that should be put in the source distribution tarball
 libcaputils_a_SOURCES = \
@@ -51,13 +69,9 @@ libcaputils_a_SOURCES = \
 # as it might be running with extra privileges), so this library needs
 # to be built that way as well.
 #
-libcaputils_a_CFLAGS = $(AM_CLEAN_CFLAGS) $(PIE_CFLAGS)
+libcaputils_a_CFLAGS = $(AM_CFLAGS) $(PIE_CFLAGS)
 
 libcaputils_a_DEPENDENCIES =
-
-# Common headers
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/wiretap $(LIBGCRYPT_CFLAGS) $(LIBGNUTLS_CFLAGS) $(PORTAUDIO_INCLUDES)
-
 
 doxygen:
 if HAVE_DOXYGEN
@@ -80,16 +94,3 @@ checkapi-todo:
 	$(PERL) $(top_srcdir)/tools/checkAPIs.pl -M -g deprecated-gtk-todo -build \
 	-sourcedir=$(srcdir) \
 	$(CAPUTILS_SRC)
-
-EXTRA_DIST = \
-	$(GENERATOR_FILES)	\
-	capture_win_ifnames.c	\
-	capture_win_ifnames.h	\
-	capture-wpcap.c		\
-	capture-wpcap.h		\
-	capture_wpcap_packet.c  \
-	capture_wpcap_packet.h  \
-	CMakeLists.txt		\
-	doxygen.cfg.in		\
-	Makefile.common		\
-	Makefile.nmake

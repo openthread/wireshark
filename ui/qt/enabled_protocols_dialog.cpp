@@ -123,10 +123,11 @@ private:
 };
 
 EnabledProtocolsDialog::EnabledProtocolsDialog(QWidget *parent) :
-    QDialog(parent),
+    GeometryStateDialog(parent),
     ui(new Ui::EnabledProtocolsDialog)
 {
     ui->setupUi(this);
+    loadGeometry();
     setWindowTitle(wsApp->windowTitleString(tr("Enabled Protocols")));
 
     void *cookie;
@@ -345,7 +346,7 @@ void EnabledProtocolsDialog::on_buttonBox_helpRequested()
  *
  * Local Variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *

@@ -1297,8 +1297,8 @@ static int check_tvb_length(ptvcursor_t *cursor, const gint length)
   return TVB_LEN_GREATEST;
 }
 
-static void
-dissect_homeplug(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_homeplug(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item * it;
   proto_tree * homeplug_tree;
@@ -1343,6 +1343,7 @@ dissect_homeplug(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
   }
 
   ptvcursor_free(cursor);
+  return tvb_captured_length(tvb);
 }
 
 static void

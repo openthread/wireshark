@@ -38,8 +38,8 @@ static int hf_docsis_rngreq_pend_compl = -1;
 static gint ett_docsis_rngreq = -1;
 
 /* Dissection */
-static void
-dissect_rngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_rngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *rngreq_tree;
@@ -66,6 +66,7 @@ dissect_rngreq (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
       proto_tree_add_item (rngreq_tree, hf_docsis_rngreq_pend_compl, tvb, 3,
                            1, ENC_BIG_ENDIAN);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

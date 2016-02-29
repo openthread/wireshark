@@ -3324,9 +3324,9 @@ void proto_register_edonkey(void) {
       { &hf_emule_signature_length, { "Signature length", "edonkey.emule.signature_length", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_obfuscation_settings, { "Obfuscation Settings", "edonkey.obfuscation_settings", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_start_offset, { "Start Offset", "edonkey.start_offset", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_edonkey_start_offset_64, { "Start Offset", "edonkey.start_offset", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_edonkey_start_offset_64, { "Start Offset", "edonkey.start_offset64", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_end_offset, { "End Offset", "edonkey.end_offset", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_edonkey_end_offset_64, { "End Offset", "edonkey.end_offset", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_edonkey_end_offset_64, { "End Offset", "edonkey.end_offset64", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_emule_file_length, { "File Length", "edonkey.emule.file_length", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_overnet_peer_type, { "Peer Type", "edonkey.overnet_peer_type", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_more_search_file_results, { "More", "edonkey.more_search_file_results", FT_BOOLEAN, 8, TFS(&tfs_true_false), 0x0, NULL, HFILL }},
@@ -3404,8 +3404,8 @@ void proto_reg_handoff_edonkey(void) {
     dissector_handle_t edonkey_tcp_handle;
     dissector_handle_t edonkey_udp_handle;
 
-    edonkey_tcp_handle = new_create_dissector_handle(dissect_edonkey_tcp, proto_edonkey);
-    edonkey_udp_handle = new_create_dissector_handle(dissect_edonkey_udp, proto_edonkey);
+    edonkey_tcp_handle = create_dissector_handle(dissect_edonkey_tcp, proto_edonkey);
+    edonkey_udp_handle = create_dissector_handle(dissect_edonkey_udp, proto_edonkey);
 
     dissector_add_uint("tcp.port", 4661, edonkey_tcp_handle);
     dissector_add_uint("tcp.port", 4662, edonkey_tcp_handle);

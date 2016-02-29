@@ -40,10 +40,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/prefs.h>
@@ -539,6 +535,7 @@ static expert_field ei_lmp_checksum_incorrect = EI_INIT;
 static expert_field ei_lmp_invalid_msg_type = EI_INIT;
 static expert_field ei_lmp_invalid_class = EI_INIT;
 static expert_field ei_lmp_trace_len = EI_INIT;
+static expert_field ei_lmp_obj_len = EI_INIT;
 
 static int
 lmp_valid_class(int lmp_class)
@@ -792,6 +789,10 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         proto_item* trace_item;
 
         obj_length = tvb_get_ntohs(tvb, offset+2);
+        if (obj_length == 0) {
+            proto_tree_add_expert(tree, pinfo, &ei_lmp_obj_len, tvb, offset+2, 2);
+            break;
+        }
         lmp_class = tvb_get_guint8(tvb, offset+1);
         type = tvb_get_guint8(tvb, offset);
         negotiable = (type >> 7); type &= 0x7f;
@@ -1260,12 +1261,13 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                                         tvb_get_guint8(tvb, offset2+l+1), ENC_NA);
                     break;
                 }
-                if (tvb_get_guint8(tvb, offset2+l+1) < 1)
-                    THROW(ReportedBoundsError);
+                if (tvb_get_guint8(tvb, offset2+l+1) == 0)
+                    break;
+
                 l += tvb_get_guint8(tvb, offset2+l+1);
             }
         }
-            break;
+        break;
 
         case LMP_CLASS_CHANNEL_STATUS:
 
@@ -1623,7 +1625,7 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                                        (l & 0x02) ? "Line/MS Overhead Transparency " : "",
                                        (l & 0x04) ? "Section/RS Overhead Transparency " : "");
 
-                /* Contiguous Concatentation Types */
+                /* Contiguous Concatenation Types */
                 proto_tree_add_bitmask(lmp_object_tree, tvb, offset2+3, hf_lmp_filter[LMPF_VAL_SERVICE_CONFIG_CPSA_CCT_FLAGS], lmp_subtree[LMP_TREE_SERVICE_CONFIG_CPSA_CCT_FLAGS], cct_flags, ENC_NA);
 
                 /* Min and Max NCC */
@@ -1850,8 +1852,9 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                                             tvb_get_guint8(tvb, offset2+l+1), ENC_NA);
                         break;
                     }
-                    if (tvb_get_guint8(tvb, offset2+l+1) < 1)
-                        THROW(ReportedBoundsError);
+                    if (tvb_get_guint8(tvb, offset2+l+1) == 0)
+                        break;
+
                     l += tvb_get_guint8(tvb, offset2+l+1);
                 }
 
@@ -1870,8 +1873,6 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             break;
         }
 
-        if (obj_length < 1)
-            THROW(ReportedBoundsError);
         offset += obj_length;
         len += obj_length;
 
@@ -1880,6 +1881,7 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
     return tvb_captured_length(tvb);
 }
+
 static void
 lmp_prefs_applied (void)
 {
@@ -2347,7 +2349,7 @@ proto_register_lmp(void)
          { "Summary - Unacceptable non-negotiable parameters", "lmp.error.summary_bad_params",
            FT_BOOLEAN, 8, NULL, 0x01, NULL, HFILL }},
         {&hf_lmp_filter[LMPF_VAL_ERROR_SUMMARY_RENEGOTIATE],
-         { "Summary - Renegotiate Parametere", "lmp.error.summary_renegotiate",
+         { "Summary - Renegotiate Parameter", "lmp.error.summary_renegotiate",
            FT_BOOLEAN, 8, NULL, 0x02, NULL, HFILL }},
         {&hf_lmp_filter[LMPF_VAL_ERROR_SUMMARY_BAD_TE_LINK],
          { "Summary - Bad TE Link Object", "lmp.error.summary_bad_te_link",
@@ -2627,6 +2629,7 @@ proto_register_lmp(void)
         { &ei_lmp_invalid_msg_type, { "lmp.invalid_msg_type", PI_PROTOCOL, PI_WARN, "Invalid message type", EXPFILL }},
         { &ei_lmp_invalid_class, { "lmp.invalid_class", PI_PROTOCOL, PI_WARN, "Invalid class", EXPFILL }},
         { &ei_lmp_trace_len, { "lmp.trace.len_invalid", PI_PROTOCOL, PI_WARN, "Invalid Trace Length", EXPFILL }},
+        { &ei_lmp_obj_len, { "lmp.obj.len_invalid", PI_PROTOCOL, PI_WARN, "Invalid Object Length", EXPFILL }}
     };
 
     expert_module_t* expert_lmp;
@@ -2650,7 +2653,7 @@ proto_register_lmp(void)
 void
 proto_reg_handoff_lmp(void)
 {
-    lmp_handle = new_create_dissector_handle(dissect_lmp, proto_lmp);
+    lmp_handle = create_dissector_handle(dissect_lmp, proto_lmp);
     dissector_add_uint("udp.port", lmp_udp_port, lmp_handle);
 }
 

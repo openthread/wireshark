@@ -19,24 +19,17 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-include ../Makefile.am.inc
+include Makefile.common
+include $(top_srcdir)/Makefile.am.inc
 
 ACLOCAL_AMFLAGS = `../aclocal-flags`
 
-include Makefile.common
+AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) -DWS_BUILD_DLL $(GLIB_CFLAGS)
 
 noinst_LTLIBRARIES = libwiretap_generated.la
 lib_LTLIBRARIES = libwiretap.la
 # http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
 libwiretap_la_LDFLAGS = -version-info 0:0:0 @LDFLAGS_SHAREDLIB@
-
-AM_NON_GENERATED_CFLAGS =-DWS_BUILD_DLL
-
-if HAVE_WARNINGS_AS_ERRORS
-AM_NON_GENERATED_CFLAGS += -Werror
-endif
-
-AM_CPPFLAGS = -I$(srcdir)/..
 
 CLEANFILES = \
 	libwiretap.a		\
@@ -56,10 +49,11 @@ MAINTAINERCLEANFILES = \
 libwiretap_la_SOURCES = \
 	$(NONGENERATED_C_FILES)	\
 	$(NONGENERATED_HEADER_FILES)
-libwiretap_la_CFLAGS = $(AM_NON_GENERATED_CFLAGS)
 
 libwiretap_generated_la_SOURCES = \
 	$(GENERATED_C_FILES)
+
+libwiretap_generated_la_CFLAGS = $(GENERATED_CFLAGS)
 
 EXTRA_DIST = \
 	README.airmagnet	\
@@ -70,9 +64,8 @@ EXTRA_DIST = \
 	$(GENERATED_FILES)
 
 libwiretap_la_LIBADD = libwiretap_generated.la ${top_builddir}/wsutil/libwsutil.la $(GLIB_LIBS)
-libwiretap_la_DEPENDENCIES = libwiretap_generated.la ${top_builddir}/wsutil/libwsutil.la
 
-RUNLEX = $(top_srcdir)/tools/runlex.sh
+libwiretap_la_DEPENDENCIES = libwiretap_generated.la ${top_builddir}/wsutil/libwsutil.la
 
 k12text_lex.h : k12text.c
 
@@ -87,7 +80,7 @@ ascend.c: ascend.y
 		echo "Neither bison nor byacc has been found"; \
 		exit 1; \
 	fi
-	$(YACC) -d -p ascend -o ascend.c $(srcdir)/ascend.y
+	$(AM_V_YACC)$(YACC) -d -p ascend -o ascend.c $(srcdir)/ascend.y
 
 # ABI compliance checker can be obtained from
 # http://ispras.linux-foundation.org/index.php/ABI_compliance_checker
@@ -96,11 +89,18 @@ dumpabi-libwiretap: all abi-descriptor.xml
 	rm -rf abi-check-headers abi_dumps .libs/*.abi.tar.gz
 	mkdir abi-check-headers
 	cp *.h ../ws_symbol_export.h abi-check-headers/
-	abi-compliance-checker -l libwiretap -v1 `readlink .libs/libwiretap.so | sed 's/.*\.so\.//'` \
+	abi-compliance-checker -log-path abi_logs/log.txt -l libwiretap -v1 `readlink .libs/libwiretap.so | sed 's/.*\.so\.//'` \
 		-relpath $(abs_srcdir) -dump-abi abi-descriptor.xml || \
 		cat logs/libwiretap/[0-9]*/log.txt
 	cp -f abi_dumps/libwiretap/libwiretap_* .libs/
 	cd .libs && ln -sf libwiretap_*.abi.tar.gz libwiretap.abi.tar.gz
+
+maintainer-clean-local: clean-dumpabi-libwiretap
+
+.PHONY: clean-dumpabi-libwiretap
+
+clean-dumpabi-libwiretap:
+	rm -rf abi-check-headers abi_dumps .libs/*.abi.tar.gz abi_logs abi-descriptor.xml
 
 checkapi:
 ## 'abort' checking disabled for now pending resolution of existing use of g_assert & g_error

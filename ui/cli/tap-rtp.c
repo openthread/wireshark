@@ -37,12 +37,15 @@
 #include <string.h>
 #include <locale.h>
 
-#include "epan/packet_info.h"
-#include "epan/value_string.h"
+#include <glib.h>
+
+#include <epan/packet_info.h>
+#include <epan/value_string.h>
 #include <epan/tap.h>
 #include <epan/rtp_pt.h>
 #include <epan/stat_tap_ui.h>
 #include <epan/addr_resolv.h>
+
 #include "ui/rtp_stream.h"
 #include "ui/tap-rtp-common.h"
 
@@ -103,8 +106,8 @@ rtp_streams_stat_draw(void *arg _U_)
             perc = 0;
         }
 
-        src_addr = (char*)address_to_display(NULL, &(strinfo->src_addr));
-        dst_addr = (char*)address_to_display(NULL, &(strinfo->dest_addr));
+        src_addr = address_to_display(NULL, &(strinfo->src_addr));
+        dst_addr = address_to_display(NULL, &(strinfo->dest_addr));
         printf("%15s %5u %15s %5u 0x%08X %16s %5u %5d (%.1f%%) %15.2f %15.2f %15.2f %s\n",
             src_addr,
             strinfo->src_port,

@@ -76,6 +76,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/to_str.h>
+#include <epan/proto_data.h>
 
 void proto_register_rtcp(void);
 void proto_reg_handoff_rtcp(void);
@@ -702,8 +703,8 @@ static expert_field ei_rtcp_block_length = EI_INIT;
 static expert_field ei_srtcp_encrypted_payload = EI_INIT;
 
 /* Main dissection function */
-static void dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo,
-     proto_tree *tree );
+static int dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo,
+     proto_tree *tree, void* data );
 
 /* Displaying set info */
 static gboolean global_rtcp_show_setup_info = TRUE;
@@ -743,20 +744,20 @@ void srtcp_add_address( packet_info *pinfo,
         return;
     }
 
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
 
     /*
      * Check if the ip address and port combination is not
      * already registered as a conversation.
      */
-    p_conv = find_conversation( pinfo->fd->num, addr, &null_addr, PT_UDP, port, other_port,
+    p_conv = find_conversation( pinfo->num, addr, &null_addr, PT_UDP, port, other_port,
                                 NO_ADDR_B | (!other_port ? NO_PORT_B : 0));
 
     /*
      * If not, create a new conversation.
      */
     if ( ! p_conv ) {
-        p_conv = conversation_new( pinfo->fd->num, addr, &null_addr, PT_UDP,
+        p_conv = conversation_new( pinfo->num, addr, &null_addr, PT_UDP,
                                    (guint32)port, (guint32)other_port,
                                    NO_ADDR2 | (!other_port ? NO_PORT2 : 0));
     }
@@ -834,7 +835,7 @@ dissect_rtcp_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
     }
 
     /* OK, dissect as RTCP */
-    dissect_rtcp(tvb, pinfo, tree);
+    dissect_rtcp(tvb, pinfo, tree, data);
     return TRUE;
 }
 
@@ -2995,7 +2996,7 @@ void show_setup_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
         conversation_t *p_conv;
         /* First time, get info from conversation */
-        p_conv = find_conversation(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src,
+        p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
                                    pinfo->ptype,
                                    pinfo->destport, pinfo->srcport, NO_ADDR_B);
 
@@ -3060,7 +3061,7 @@ static void remember_outgoing_sr(packet_info *pinfo, guint32 lsr)
     /* Look first in packet info */
     p_packet_data = (struct _rtcp_conversation_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rtcp, 0);
     if (p_packet_data && p_packet_data->last_received_set &&
-        (p_packet_data->last_received_frame_number >= pinfo->fd->num))
+        (p_packet_data->last_received_frame_number >= pinfo->num))
     {
         /* We already did this, OK */
         return;
@@ -3073,14 +3074,14 @@ static void remember_outgoing_sr(packet_info *pinfo, guint32 lsr)
     /* First time, get info from conversation.
        Even though we think of this as an outgoing packet being sent,
        we store the time as being received by the destination. */
-    p_conv = find_conversation(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src,
+    p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
                                pinfo->ptype,
                                pinfo->destport, pinfo->srcport, NO_ADDR_B);
 
     /* If the conversation doesn't exist, create it now. */
     if (!p_conv)
     {
-        p_conv = conversation_new(pinfo->fd->num, &pinfo->net_dst, &pinfo->net_src, PT_UDP,
+        p_conv = conversation_new(pinfo->num, &pinfo->net_dst, &pinfo->net_src, PT_UDP,
                                   pinfo->destport, pinfo->srcport,
                                   NO_ADDR2);
         if (!p_conv)
@@ -3106,8 +3107,8 @@ static void remember_outgoing_sr(packet_info *pinfo, guint32 lsr)
     /*******************************************************/
     /* Update conversation data                            */
     p_conv_data->last_received_set = TRUE;
-    p_conv_data->last_received_frame_number = pinfo->fd->num;
-    p_conv_data->last_received_timestamp = pinfo->fd->abs_ts;
+    p_conv_data->last_received_frame_number = pinfo->num;
+    p_conv_data->last_received_timestamp = pinfo->abs_ts;
     p_conv_data->last_received_ts = lsr;
 
 
@@ -3165,7 +3166,7 @@ static void calculate_roundtrip_delay(tvbuff_t *tvb, packet_info *pinfo,
     /********************************************************************/
     /* Look for captured timestamp of last SR in conversation of sender */
     /* of this packet                                                   */
-    p_conv = find_conversation(pinfo->fd->num, &pinfo->net_src, &pinfo->net_dst,
+    p_conv = find_conversation(pinfo->num, &pinfo->net_src, &pinfo->net_dst,
                                pinfo->ptype,
                                pinfo->srcport, pinfo->destport, NO_ADDR_B);
     if (!p_conv)
@@ -3193,7 +3194,7 @@ static void calculate_roundtrip_delay(tvbuff_t *tvb, packet_info *pinfo,
         }
 
         /* Don't allow match seemingly calculated from same (or later!) frame */
-        if (pinfo->fd->num <= p_conv_data->last_received_frame_number)
+        if (pinfo->num <= p_conv_data->last_received_frame_number)
         {
             return;
         }
@@ -3203,9 +3204,9 @@ static void calculate_roundtrip_delay(tvbuff_t *tvb, packet_info *pinfo,
         {
             /* Look at time of since original packet was sent */
             gint seconds_between_packets = (gint)
-                  (pinfo->fd->abs_ts.secs - p_conv_data->last_received_timestamp.secs);
+                  (pinfo->abs_ts.secs - p_conv_data->last_received_timestamp.secs);
             gint nseconds_between_packets =
-                  pinfo->fd->abs_ts.nsecs - p_conv_data->last_received_timestamp.nsecs;
+                  pinfo->abs_ts.nsecs - p_conv_data->last_received_timestamp.nsecs;
 
             gint total_gap = (seconds_between_packets*1000) +
                              (nseconds_between_packets / 1000000);
@@ -3235,7 +3236,7 @@ static void calculate_roundtrip_delay(tvbuff_t *tvb, packet_info *pinfo,
     }
 }
 
-/* Show the calcaulted roundtrip delay info by adding protocol tree items
+/* Show the calculated roundtrip delay info by adding protocol tree items
    and appending text to the info column */
 static void add_roundtrip_delay_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                      guint frame, guint gap_between_reports,
@@ -3302,8 +3303,8 @@ rtcp_packet_type_to_tree( int rtcp_packet_type)
     return tree;
 }
 
-static void
-dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int
+dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
     proto_item       *ti;
     proto_tree       *rtcp_tree           = NULL;
@@ -3319,7 +3320,7 @@ dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
     guint32           srtcp_index         = 0;
 
     /* first see if this conversation is encrypted SRTP, and if so do not try to dissect the payload(s) */
-    p_conv = find_conversation(pinfo->fd->num, &pinfo->net_src, &pinfo->net_dst,
+    p_conv = find_conversation(pinfo->num, &pinfo->net_src, &pinfo->net_dst,
                                pinfo->ptype,
                                pinfo->srcport, pinfo->destport, NO_ADDR_B);
     if (p_conv)
@@ -3595,6 +3596,7 @@ dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
 
         expert_add_info_format(pinfo, ti, &ei_rtcp_length_check, "Incorrect RTCP packet length information (expected %u bytes, found %d)", total_packet_length, offset);
     }
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -6531,9 +6533,9 @@ proto_register_rtcp(void)
         10, &global_rtcp_show_roundtrip_calculation_minimum);
 
     /* Register table for sub-dissetors */
-    rtcp_dissector_table = register_dissector_table("rtcp.app.name", "RTCP Application Name", FT_STRING, BASE_NONE);
-    rtcp_psfb_dissector_table = register_dissector_table("rtcp.psfb.fmt", "RTCP Payload Specific Feedback Message Format", FT_UINT8, BASE_DEC);
-    rtcp_rtpfb_dissector_table = register_dissector_table("rtcp.rtpfb.fmt", "RTCP Generic RTP Feedback Message Format", FT_UINT8, BASE_DEC);
+    rtcp_dissector_table = register_dissector_table("rtcp.app.name", "RTCP Application Name", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    rtcp_psfb_dissector_table = register_dissector_table("rtcp.psfb.fmt", "RTCP Payload Specific Feedback Message Format", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    rtcp_rtpfb_dissector_table = register_dissector_table("rtcp.rtpfb.fmt", "RTCP Generic RTP Feedback Message Format", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void

@@ -27,7 +27,7 @@
 #include <wsutil/pint.h>
 
 #include <epan/packet.h>
-#include "packet-null.h"
+#include <epan/capture_dissectors.h>
 #include "packet-ip.h"
 #include "packet-ipv6.h"
 #include "packet-ppp.h"
@@ -65,8 +65,8 @@ static const value_string family_vals[] = {
 static dissector_handle_t ppp_hdlc_handle;
 static dissector_handle_t data_handle;
 
-void
-capture_null( const guchar *pd, int len, packet_counts *ld )
+static gboolean
+capture_null( const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_ )
 {
   guint32 null_header;
 
@@ -252,23 +252,21 @@ capture_null( const guchar *pd, int len, packet_counts *ld )
    * digits would be zero and the next 2 hex digits would not be zero.
    * Furthermore, the third hex digit from the bottom would be <
    */
-  if (!BYTES_ARE_IN_FRAME(0, len, 2)) {
-    ld->other++;
-    return;
-  }
+  if (!BYTES_ARE_IN_FRAME(0, len, 2))
+    return FALSE;
+
   if (pd[0] == 0xFF && pd[1] == 0x03) {
     /*
      * Hand it to PPP.
      */
-    capture_ppp_hdlc(pd, 0, len, ld);
+    return capture_ppp_hdlc(pd, 0, len, cpinfo, pseudo_header);
   } else {
     /*
      * Treat it as a normal DLT_NULL header.
      */
-    if (!BYTES_ARE_IN_FRAME(0, len, (int)sizeof(null_header))) {
-      ld->other++;
-      return;
-    }
+    if (!BYTES_ARE_IN_FRAME(0, len, (int)sizeof(null_header)))
+      return FALSE;
+
     memcpy((char *)&null_header, (const char *)&pd[0], sizeof(null_header));
 
     if ((null_header & 0xFFFF0000) != 0) {
@@ -317,60 +315,51 @@ capture_null( const guchar *pd, int len, packet_counts *ld )
      * BSD derivatives have different values?).
      */
     if (null_header > IEEE_802_3_MAX_LEN)
-      capture_ethertype((guint16) null_header, pd, 4, len, ld);
+      return try_capture_dissector("ethertype", null_header, pd, 4, len, cpinfo, pseudo_header);
     else {
 
       switch (null_header) {
 
       case BSD_AF_INET:
-        capture_ip(pd, 4, len, ld);
-        break;
+        return capture_ip(pd, 4, len, cpinfo, pseudo_header);
 
       case BSD_AF_INET6_BSD:
       case BSD_AF_INET6_FREEBSD:
       case BSD_AF_INET6_DARWIN:
-        capture_ipv6(pd, 4, len, ld);
-        break;
-
-      default:
-        ld->other++;
-        break;
+        return capture_ipv6(pd, 4, len, cpinfo, pseudo_header);
       }
     }
   }
+
+  return FALSE;
 }
 
-void
-capture_loop( const guchar *pd, int len, packet_counts *ld )
+static gboolean
+capture_loop( const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_ )
 {
   guint32 loop_family;
 
-  if (!BYTES_ARE_IN_FRAME(0, len, (int)sizeof(loop_family))) {
-    ld->other++;
-    return;
-  }
+  if (!BYTES_ARE_IN_FRAME(0, len, (int)sizeof(loop_family)))
+    return FALSE;
+
   loop_family = pntoh32(&pd[0]);
 
   switch (loop_family) {
 
   case BSD_AF_INET:
-    capture_ip(pd, 4, len, ld);
-    break;
+    return capture_ip(pd, 4, len, cpinfo, pseudo_header);
 
   case BSD_AF_INET6_BSD:
   case BSD_AF_INET6_FREEBSD:
   case BSD_AF_INET6_DARWIN:
-    capture_ipv6(pd, 4, len, ld);
-    break;
-
-  default:
-    ld->other++;
-    break;
+    return capture_ipv6(pd, 4, len, cpinfo, pseudo_header);
   }
+
+  return FALSE;
 }
 
-static void
-dissect_null(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_null(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint32       null_header;
   proto_tree    *fh_tree;
@@ -473,14 +462,15 @@ dissect_null(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       }
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 /*
  * OpenBSD DLT_LOOP; like DLT_NULL, but with the first 4 byte *always*
  * being a *big-endian* type.
  */
-static void
-dissect_loop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_loop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   guint32       loop_family;
   proto_tree    *fh_tree;
@@ -509,6 +499,7 @@ dissect_loop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* No sub-dissector found.  Label rest of packet as "Data" */
     call_dissector(data_handle,next_tvb, pinfo, tree);
   }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -535,7 +526,7 @@ proto_register_null(void)
 
   /* subdissector code */
   null_dissector_table = register_dissector_table("null.type",
-                                                  "Null type", FT_UINT32, BASE_DEC);
+                                                  "Null type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
@@ -557,6 +548,9 @@ proto_reg_handoff_null(void)
 
   loop_handle = create_dissector_handle(dissect_loop, proto_null);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_LOOP, loop_handle);
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_NULL, capture_null, proto_null);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_LOOP, capture_loop, proto_null);
 }
 
 /*

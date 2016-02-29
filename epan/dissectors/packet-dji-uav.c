@@ -125,9 +125,9 @@ request_response_handling(tvbuff_t *tvb, packet_info *pinfo, proto_tree *djiuav_
 	if (!pinfo->fd->flags.visited) {
 		if (is_cmd) {
 			djiuav_trans=wmem_new(wmem_file_scope(), djiuav_transaction_t);
-			djiuav_trans->request_frame=pinfo->fd->num;
+			djiuav_trans->request_frame=pinfo->num;
 			djiuav_trans->reply_frame=0;
-			djiuav_trans->request_time=pinfo->fd->abs_ts;
+			djiuav_trans->request_time=pinfo->abs_ts;
 			djiuav_trans->seqno=seq_no;
 			djiuav_trans->command=packet_type;
 			wmem_map_insert(djiuav_info->pdus, GUINT_TO_POINTER((guint)seq_no), (void *)djiuav_trans);
@@ -136,7 +136,7 @@ request_response_handling(tvbuff_t *tvb, packet_info *pinfo, proto_tree *djiuav_
 			if (djiuav_trans) {
 				/* Special case: djiuav seems to send 0x24 replies with seqno 0 and without a request */
 				if (djiuav_trans->reply_frame == 0)
-					djiuav_trans->reply_frame=pinfo->fd->num;
+					djiuav_trans->reply_frame=pinfo->num;
 			}
 		}
 	} else {
@@ -163,7 +163,7 @@ request_response_handling(tvbuff_t *tvb, packet_info *pinfo, proto_tree *djiuav_
 						tvb, 0, 0, djiuav_trans->request_frame);
 				PROTO_ITEM_SET_GENERATED(it);
 
-				nstime_delta(&ns, &pinfo->fd->abs_ts, &djiuav_trans->request_time);
+				nstime_delta(&ns, &pinfo->abs_ts, &djiuav_trans->request_time);
 				it = proto_tree_add_time(djiuav_tree, hf_djiuav_response_time, tvb, 0, 0, &ns);
 				PROTO_ITEM_SET_GENERATED(it);
 			}
@@ -244,7 +244,7 @@ dissect_djiuav_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 				pdu_length - 1 - offset, ENC_NA);
 			offset += pdu_length - 1 - offset;
 		}
-/* FIXME: calcualte XOR and validate transmitted value */
+/* FIXME: calculate XOR and validate transmitted value */
 		proto_tree_add_item(djiuav_tree, hf_djiuav_checksum, tvb, offset, 1,
 			ENC_BIG_ENDIAN);
 		offset += 1;
@@ -388,7 +388,7 @@ proto_reg_handoff_djiuav(void)
 	dissector_handle_t djiuav_handle;
 
 
-	djiuav_handle = new_create_dissector_handle(dissect_djiuav_static, proto_djiuav);
+	djiuav_handle = create_dissector_handle(dissect_djiuav_static, proto_djiuav);
 	dissector_add_uint("tcp.port", PORT_DJIUAV, djiuav_handle);
 }
 

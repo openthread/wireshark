@@ -81,8 +81,8 @@ static int hf_maap_conflict_count = -1;
 /* Initialize the subtree pointers */
 static int ett_maap = -1;
 
-static void
-dissect_maap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_maap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8      maap_msg_type;
     proto_item *maap_item     = NULL;
@@ -134,6 +134,8 @@ dissect_maap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_item(maap_tree, hf_maap_conflict_start_addr, tvb, MAAP_CONFLICT_START_ADDR_OFFSET, 6, ENC_NA);
         proto_tree_add_item(maap_tree, hf_maap_conflict_count,      tvb, MAAP_CONFLICT_COUNT_OFFSET,      2, ENC_BIG_ENDIAN);
     }
+
+    return tvb_captured_length(tvb);
 } /* end dissect_maap() */
 
 /* Register the protocol with Wireshark */

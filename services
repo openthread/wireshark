@@ -1368,6 +1368,8 @@ dhcp-failover2    847/tcp # dhcp-failover 2 [Bernard_Volz] [Bernard_Volz]
 dhcp-failover2    847/udp # dhcp-failover 2 [Bernard_Volz] [Bernard_Volz]
 gdoi              848/tcp # GDOI [RFC3547]
 gdoi              848/udp # GDOI [RFC3547]
+domain-s          853/tcp # DNS query-response protocol run over TLS/DTLS [IETF_DPRIVE_Working_Group_Chairs] [Paul_Hoffman_1] 2015-10-08 [draft-ietf-dprive-dns-over-tls] TEMPORARY - registered 2015-10-08, expires 2016-10-08
+domain-s          853/udp # DNS query-response protocol run over TLS/DTLS [IETF_DPRIVE_Working_Group_Chairs] [Dan_Wing] 2015-10-08 [draft-ietf-dprive-dnsodtls] TEMPORARY - registered 2015-10-08, expires 2016-10-08
 iscsi             860/tcp # iSCSI [IESG] [IETF_Chair] 2013-08-27 [RFC7143]
 iscsi             860/udp # iSCSI [IESG] [IETF_Chair] 2013-08-27 [RFC7143]
 owamp-control     861/tcp # OWAMP-Control [RFC4656]
@@ -7286,8 +7288,8 @@ sops             3944/tcp # S-Ops Management [Stefan_Hochuli] [Stefan_Hochuli] 2
 sops             3944/udp # S-Ops Management [Stefan_Hochuli] [Stefan_Hochuli] 2003-12
 emcads           3945/tcp # EMCADS Server Port [Lars_Struwe_Christen] [Lars_Struwe_Christen] 2004-01
 emcads           3945/udp # EMCADS Server Port [Lars_Struwe_Christen] [Lars_Struwe_Christen] 2004-01
-backupedge       3946/tcp # BackupEDGE Server [Frank_Liberato] [Frank_Liberato] 2004-06
-backupedge       3946/udp # BackupEDGE Server [Frank_Liberato] [Frank_Liberato] 2004-06
+backupedge       3946/tcp # BackupEDGE Server [Microlite_Corporation] [D_Thomas_Podnar] 2004-06
+backupedge       3946/udp # BackupEDGE Server [Microlite_Corporation] [D_Thomas_Podnar] 2004-06
 ccp              3947/tcp # Connect and Control Protocol for Consumer, Commercial, and Industrial Electronic Devices [Aaron_Myer] [Aaron_Myer] 2004-06
 ccp              3947/udp # Connect and Control Protocol for Consumer, Commercial, and Industrial Electronic Devices [Aaron_Myer] [Aaron_Myer] 2004-06
 apdap            3948/tcp # Anton Paar Device Administration Protocol [Martin_Leitner] [Martin_Leitner] 2004-06
@@ -7751,13 +7753,13 @@ storman          4178/udp # StorMan [Werner_Guertler] [Werner_Guertler] 2009-05-
 MaxumSP          4179/tcp # Maxum Services [Greg_Stine] [Greg_Stine] 2007-07-05
 MaxumSP          4179/udp # Maxum Services [Greg_Stine] [Greg_Stine] 2007-07-05
 httpx            4180/tcp # HTTPX [Paul_McGough] [Paul_McGough] 2007-02
-httpx            4180/udp # HTTPX [Paul_McGough] [Paul_McGough] 2007-02
+httpx            4180/udp # HTTPX [Paul_McGough] [Paul_McGough] 2007-02 2016-01-05
 macbak           4181/tcp # MacBak [Wes_Peters] [Wes_Peters] 2007-04
 macbak           4181/udp # MacBak [Wes_Peters] [Wes_Peters] 2007-04
 pcptcpservice    4182/tcp # Production Company Pro TCP Service [Ben_McNeill] [Ben_McNeill] 2007-05
 pcptcpservice    4182/udp # Production Company Pro TCP Service [Ben_McNeill] [Ben_McNeill] 2007-05
-gmmp             4183/tcp # General Metaverse Messaging Protocol [Gareth_Nelson] [Gareth_Nelson] 2007-06
-gmmp             4183/udp # General Metaverse Messaging Protocol [Gareth_Nelson] [Gareth_Nelson] 2007-06
+cyborgnet        4183/tcp # CyborgNet communications protocol [Gareth_Nelson] [Gareth_Nelson] 2015-11-13
+cyborgnet        4183/udp # CyborgNet communications protocol [Gareth_Nelson] [Gareth_Nelson] 2015-11-13
 universe-suite   4184/tcp # UNIVERSE SUITE MESSAGE SERVICEIANA assigned this well-formed service name as a replacement for "universe_suite". [Gary_ANDREWS] [Gary_ANDREWS] 2008-01-07
 universe_suite   4184/tcp # UNIVERSE SUITE MESSAGE SERVICE [Gary_ANDREWS] [Gary_ANDREWS] 2008-01-07 This entry is an alias to "universe-suite".This entry is now historic, not usable for use with manycommon service discovery mechanisms.
 universe-suite   4184/udp # UNIVERSE SUITE MESSAGE SERVICEIANA assigned this well-formed service name as a replacement for "universe_suite". [Gary_ANDREWS] [Gary_ANDREWS] 2008-01-07
@@ -7826,6 +7828,9 @@ ktickets-rest    4331/tcp # ktickets REST API for event management and ticketing
 ahsp             4333/tcp # ArrowHead Service Protocol (AHSP) [QuantuMatriX_Technologies] [Matthew_Schultz] 2014-04-10
 ahsp             4333/udp # ArrowHead Service Protocol (AHSP) [QuantuMatriX_Technologies] [Matthew_Schultz] 2014-04-10
 ahsp             4333/sctp # ArrowHead Service Protocol (AHSP) [QuantuMatriX_Technologies] [Matthew_Schultz] 2014-04-10
+netconf-ch-ssh   4334/tcp # NETCONF Call Home (SSH) [IESG] [IETF_Chair] 2016-01-12 [RFC-ietf-netconf-call-home-17]
+netconf-ch-tls   4335/tcp # NETCONF Call Home (TLS) [IESG] [IETF_Chair] 2016-01-12 [RFC-ietf-netconf-call-home-17]
+restconf-ch-tls  4336/tcp # RESTCONF Call Home (TLS) [IESG] [IETF_Chair] 2016-01-12 [RFC-ietf-netconf-call-home-17]
 gaia             4340/tcp # Gaia Connector Protocol [Philippe_Detournay] [Philippe_Detournay] 2007-11-12
 gaia             4340/udp # Gaia Connector Protocol [Philippe_Detournay] [Philippe_Detournay] 2007-11-12
 lisp-data        4341/tcp # LISP Data Packets [Dino_Farinacci] [Dino_Farinacci] 2007-11-12
@@ -7929,6 +7934,11 @@ found            4411/tcp # Found Messaging Protocol [Found_Software] [John_Mitc
 smallchat        4412/udp # SmallChat [Valentino_Giudice] [Valentino_Giudice] 2015-08-18
 avi-nms          4413/tcp # AVI Systems NMS [AVI_Systems] [Dave_Hatz] 2015-09-18
 avi-nms-disc     4413/udp # AVI Systems NMS [AVI_Systems] [Dave_Hatz] 2015-09-18
+updog            4414/tcp # Updog Monitoring and Status Framework [Egon_Technologies_LLC] [James_Downs] 2015-10-05
+brcd-vr-req      4415/tcp # Brocade Virtual Router Request [Brocade_Communications_Systems] [Nick_Carter] 2015-11-17
+pjj-player       4416/tcp # PJJ Media Player [PJJ_Productions_Inc] [Bruno_Frechette] 2015-11-18
+pjj-player-disc  4416/udp # PJJ Media Player discovery [PJJ_Productions_Inc] [Bruno_Frechette] 2015-11-18
+workflowdir      4417/tcp # Workflow Director Communication [WfDir] [Brian_Doyle] 2015-12-11
 netrockey6       4425/tcp # NetROCKEY6 SMART Plus Service [Feitian_Technologies] [Feitian_Technologies] 2010-09-15
 netrockey6       4425/udp # NetROCKEY6 SMART Plus Service [Feitian_Technologies] [Feitian_Technologies] 2010-09-15
 beacon-port-2    4426/tcp # SMARTS Beacon Port [Eyal_Yardeni] [Eyal_Yardeni] 2003-11
@@ -8446,7 +8456,7 @@ llrp             5084/udp # EPCglobal Low-Level Reader Protocol [Margaret_Wasser
 encrypted-llrp   5085/tcp # EPCglobal Encrypted LLRP [Margaret_Wasserman] [Margaret_Wasserman] 2006-11
 encrypted-llrp   5085/udp # EPCglobal Encrypted LLRP [Margaret_Wasserman] [Margaret_Wasserman] 2006-11
 aprigo-cs        5086/tcp # Aprigo Collection Service [Ron_Zalkind] [Ron_Zalkind] 2010-05-28
-biotic           5087/tcp # BIOTIC - Binary Internet of Things Interoperable Communication [Clayster_Laboratorios_Chile_S.A.] [Peter_Waher] 2014-06-16
+biotic           5087/tcp # BIOTIC - Binary Internet of Things Interoperable Communication [Waher_Data_AB] [Peter_Waher] 2014-06-16 2015-11-25
 car              5090/sctp # Candidate AR
 cxtp             5091/sctp # Context Transfer Protocol 2005-07 [RFC4065]
 magpie           5092/udp # Magpie Binary [Phil_Maker] [Phil_Maker] 2008-06-18
@@ -8466,6 +8476,7 @@ actifio-c2c      5103/tcp # Actifio C2C [Ravi_Kollipara] [Ravi_Kollipara] 2010-0
 tinymessage      5104/udp # TinyMessage [Josip_Medved] [Josip_Medved] 2010-10-20
 hughes-ap        5105/udp # Hughes Association Protocol [Varun_Santosh] [Varun_Santosh] 2010-10-20
 actifioudsagent  5106/tcp # Actifio UDS Agent [Actifio] [Madhav_Mutalik] 2014-06-05
+actifioreplic    5107/tcp # Disk to Disk replication between Actifio Clusters [Actifio] [Madhav_Mutalik] 2015-10-23
 taep-as-svc      5111/tcp # TAEP AS service [Liu_Changchun] [Liu_Changchun] 2008-11-05
 taep-as-svc      5111/udp # TAEP AS service [Liu_Changchun] [Liu_Changchun] 2008-11-05
 pm-cmdsvr        5112/tcp # PeerMe Msg Cmd Service [Marcos_Della] [Marcos_Della] 2005-08
@@ -8807,6 +8818,7 @@ personal-agent   5555/udp # Personal Agent [Jackie_Wu] [Jackie_Wu] Known UNAUTHO
 freeciv          5556/tcp # Freeciv gameplay [Reinier_Post_and_Pau] [Reinier_Post_and_Pau] 2006-01 Known Unauthorized Use on port 5556
 freeciv          5556/udp # Freeciv gameplay [Reinier_Post_and_Pau] [Reinier_Post_and_Pau] 2006-01 Known Unauthorized Use on port 5556
 farenet          5557/tcp # Sandlab FARENET [Kay_T_Labinsky] [Kay_T_Labinsky] 2010-05-03
+hpe-dp-bura      5565/tcp # HPE Advanced BURA [Hewlett_Packard_Enterprise] [Silvia_Veronese] 2016-01-13
 westec-connect   5566/tcp # Westec Connect [Jon_Bolen] [Jon_Bolen] 2009-03-18
 dof-dps-mc-sec   5567/tcp # DOF Protocol Stack Multicast/Secure Transport [OpenDOF] [Bryant_Eastham] 2004-11 2015-04-23
 dof-dps-mc-sec   5567/udp # DOF Protocol Stack Multicast/Secure Transport [OpenDOF] [Bryant_Eastham] 2004-11 2015-04-23
@@ -9551,6 +9563,7 @@ iwg1             7071/udp # IWGADTS Aircraft Housekeeping Message [Don_Sullivan]
 martalk          7073/tcp # MarTalk protocol [Mahr_GmbH_Göttingen] [Kevin_Bube] 2013-09-02
 empowerid        7080/tcp # EmpowerID Communication [Matthew_Whited] [Matthew_Whited] 2008-01-16
 empowerid        7080/udp # EmpowerID Communication [Matthew_Whited] [Matthew_Whited] 2008-01-16
+zixi-transport   7088/udp # Zixi live video transport protocol [Zixi] [Igor_Ratner] 2015-11-16
 jdp-disc         7095/udp # Java Discovery Protocol [OpenJDK] [Florian_Weimer] 2013-03-12
 lazy-ptop        7099/tcp # lazy-ptop [Guy_Keren] [Guy_Keren]
 lazy-ptop        7099/udp # lazy-ptop [Guy_Keren] [Guy_Keren]
@@ -9594,6 +9607,8 @@ fodms            7200/tcp # FODMS FLIP [David_Anthony] [David_Anthony]
 fodms            7200/udp # FODMS FLIP [David_Anthony] [David_Anthony]
 dlip             7201/tcp # DLIP [Albert_Manfredi] [Albert_Manfredi]
 dlip             7201/udp # DLIP [Albert_Manfredi] [Albert_Manfredi]
+PS-Server        7215/tcp # Communication ports for PaperStream Server services [PFU_Systems_Inc.] [Hari_Asuri] 2016-02-26
+PS-Capture-Pro   7216/tcp # PaperStream Capture Professional [PFU_Systems_Inc.] [Hari_Asuri] 2016-02-26
 ramp             7227/tcp # Registry A & M Protocol [John_Havard] [John_Havard] 2003-11
 ramp             7227/udp # Registry A $ M Protocol [John_Havard] [John_Havard] 2003-11
 citrixupp        7228/tcp # Citrix Universal Printing Port [Gary_Barton] [Gary_Barton] 2011-02-24
@@ -9646,8 +9661,8 @@ rtps-dd-ut       7401/tcp # RTPS Data-Distribution User-Traffic [Gerardo_Pardo_C
 rtps-dd-ut       7401/udp # RTPS Data-Distribution User-Traffic [Gerardo_Pardo_Castel] [Gerardo_Pardo_Castel] 2005-10
 rtps-dd-mt       7402/tcp # RTPS Data-Distribution Meta-Traffic [Gerardo_Pardo_Castel] [Gerardo_Pardo_Castel] 2005-10
 rtps-dd-mt       7402/udp # RTPS Data-Distribution Meta-Traffic [Gerardo_Pardo_Castel] [Gerardo_Pardo_Castel] 2005-10
-ionixnetmon      7410/tcp # Ionix Network Monitor [Maxime_Deputter] [Maxime_Deputter] 2006-04
-ionixnetmon      7410/udp # Ionix Network Monitor [Maxime_Deputter] [Maxime_Deputter] 2006-04
+ionixnetmon      7410/tcp # Ionix Network Monitor [Maxime_Renaud] [Maxime_Renaud] 2006-04
+ionixnetmon      7410/udp # Ionix Network Monitor [Maxime_Renaud] [Maxime_Renaud] 2006-04
 daqstream        7411/tcp # Streaming of measurement data [Hottinger_Baldwin_Messtechnik_GmbH] [Stephan_Gatzka] 2013-03-15
 daqstream        7411/udp # Streaming of measurement data [Hottinger_Baldwin_Messtechnik_GmbH] [Stephan_Gatzka] 2013-03-15
 mtportmon        7421/tcp # Matisse Port Monitor [Didier_Cabannes] [Didier_Cabannes] 2004-11
@@ -9714,6 +9729,8 @@ coherence        7574/tcp # Oracle Coherence Cluster Service [Oracle_5] [Mark_Fa
 coherence-disc   7574/udp # Oracle Coherence Cluster discovery service [Oracle_5] [Mark_Falco] 2014-07-09
 sun-lm           7588/tcp # Sun License Manager [Sophie_Deng] [Sophie_Deng]
 sun-lm           7588/udp # Sun License Manager [Sophie_Deng] [Sophie_Deng]
+mipi-debug       7606/tcp # MIPI Alliance Debug [MIPI_Alliance] [Peter_Lefkin] 2016-02-26
+mipi-debug       7606/udp # MIPI Alliance Debug [MIPI_Alliance] [Peter_Lefkin] 2016-02-26
 indi             7624/tcp # Instrument Neutral Distributed Interface [Elwood_Downey] [Elwood_Downey] 2002-04
 indi             7624/udp # Instrument Neutral Distributed Interface [Elwood_Downey] [Elwood_Downey] 2002-04
 simco            7626/tcp # SImple Middlebox COnfiguration (SIMCO) Server [RFC4540]
@@ -9778,6 +9795,7 @@ raqmon-pdu       7744/tcp # RAQMON PDU [RFC4712]
 raqmon-pdu       7744/udp # RAQMON PDU [RFC4712]
 prgp             7747/tcp # Put/Run/Get Protocol [Jayasooriah] [Jayasooriah] 2008-02-22
 prgp             7747/udp # Put/Run/Get Protocol [Jayasooriah] [Jayasooriah] 2008-02-22
+inetfs           7775/tcp # A File System using TLS over a wide area network [Roger_Allan] [Roger_Allan] 2016-01-28
 cbt              7777/tcp # cbt [Tony_Ballardie] [Tony_Ballardie] Known Unauthorized Use on port 7777
 cbt              7777/udp # cbt [Tony_Ballardie] [Tony_Ballardie] Known Unauthorized Use on port 7777
 interwise        7778/tcp # Interwise [Joseph_Gray] [Joseph_Gray]
@@ -9966,6 +9984,7 @@ vmware-fdm       8182/udp # VMware Fault Domain Manager [Ron_Passerini] [Ron_Pas
 proremote        8183/tcp # ProRemote [Alex_Lelievre] [Alex_Lelievre] 2009-08-18
 itach            8184/tcp # Remote iTach Connection [Barend_Jacobus_van_d] [Barend_Jacobus_van_d] 2010-04-27
 itach            8184/udp # Remote iTach Connection [Barend_Jacobus_van_d] [Barend_Jacobus_van_d] 2010-04-27
+gcp-rphy         8190/tcp # Generic control plane for RPHY [CableLabs] [Karthik_Sundaresan] 2015-11-24
 limnerpressure   8191/tcp # Limner Pressure [Aaron_Kleinsteiber] [Aaron_Kleinsteiber] 2014-01-16
 spytechphone     8192/tcp # SpyTech Phone Service [Bill_Kay] [Bill_Kay] 2006-04
 spytechphone     8192/udp # SpyTech Phone Service [Bill_Kay] [Bill_Kay] 2006-04
@@ -9992,12 +10011,16 @@ lm-webwatcher    8208/tcp # LM Webwatcher [Chris_Flynn] [Chris_Flynn]
 lm-webwatcher    8208/udp # LM Webwatcher [Chris_Flynn] [Chris_Flynn]
 rexecj           8230/tcp # RexecJ Server [Curtiss_Howard] [Curtiss_Howard] 2004-11
 rexecj           8230/udp # RexecJ Server [Curtiss_Howard] [Curtiss_Howard] 2004-11
+hncp-udp-port    8231/udp # HNCP [IESG] [IETF_Chair] 2016-01-13 [RFC-ietf-homenet-hncp-10]
+hncp-dtls-port   8232/udp # HNCP over DTLS [IESG] [IETF_Chair] 2016-01-13 [RFC-ietf-homenet-hncp-10]
 synapse-nhttps   8243/tcp # Synapse Non Blocking HTTPS [Ruwan_Linton] [Ruwan_Linton] 2008-07-10
 synapse-nhttps   8243/udp # Synapse Non Blocking HTTPS [Ruwan_Linton] [Ruwan_Linton] 2008-07-10
 pando-sec        8276/tcp # Pando Media Controlled Distribution [Laird_Popkin] [Laird_Popkin] 2008-02-27
 pando-sec        8276/udp # Pando Media Controlled Distribution [Laird_Popkin] [Laird_Popkin] 2008-02-27
 synapse-nhttp    8280/tcp # Synapse Non Blocking HTTP [Ruwan_Linton] [Ruwan_Linton] 2008-06-05
 synapse-nhttp    8280/udp # Synapse Non Blocking HTTP [Ruwan_Linton] [Ruwan_Linton] 2008-06-05
+libelle          8282/tcp # Libelle EnterpriseBus [Libelle_AG] [Hans-Joachim_Krueger] 2016-02-17
+libelle-disc     8282/udp # Libelle EnterpriseBus discovery [Libelle_AG] [Hans-Joachim_Krueger] 2016-02-17
 blp3             8292/tcp # Bloomberg professional [Albert_Hou] [Albert_Hou] 2006-05
 blp3             8292/udp # Bloomberg professional [Albert_Hou] [Albert_Hou] 2006-05
 hiperscan-id     8293/tcp # Hiperscan Identification Service [Thomas_Klose] [Thomas_Klose] 2009-12-15
@@ -10069,7 +10092,7 @@ fmtp             8500/udp # Flight Message Transfer Protocol [Eivan_Cerasi] [Eiv
 cmtp-mgt         8501/tcp # CYTEL Message Transfer Management
 cmtp-av          8501/udp # CYTEL Message Transfer Audio and Video [Frank_Jakel] [Frank_Jakel] 2011-04-29
 ftnmtp           8502/tcp # FTN Message Transfer Protocol [Yuri_Myakotin] [Yuri_Myakotin] 2014-01-07
-lsp-self-ping    8503/udp # MPLS LSP Self Ping [Juniper_Networks_2] [Ron_Bonica] 2015-06-11 [draft-ietf-mpls-self-ping]
+lsp-self-ping    8503/udp # MPLS LSP Self-Ping [IESG] [IETF_Chair] 2015-06-11 2016-02-01 [RFC7746]
 rtsp-alt         8554/tcp # RTSP Alternate (see port 554) [Stephen_Casner_2] [Stephen_Casner_2]
 rtsp-alt         8554/udp # RTSP Alternate (see port 554) [Stephen_Casner_2] [Stephen_Casner_2]
 d-fence          8555/tcp # SYMAX D-FENCE [Thomas_Geisel] [Thomas_Geisel] 2003-01
@@ -11323,6 +11346,7 @@ slmap           36423/sctp # SLm Interface Application Protocol [ThreeGPP_4] [Ki
 nq-ap           36424/sctp # Nq and Nq' Application Protocol [ThreeGPP_4] [Kimmo_Kymalainen] 2015-06-18
 m2ap            36443/sctp # M2 Application Part [Dario_S_Tonesi] [Dario_S_Tonesi] 2011-02-07
 m3ap            36444/sctp # M3 Application Part [Dario_S_Tonesi] [Dario_S_Tonesi] 2011-02-07
+xw-control      36462/sctp # Xw-Control Plane (3GPP) [Boubacar_KIMNBA_DIT_ADAMOU] [Boubacar_KIMNBA_DIT_ADAMOU] 2015-11-13
 febooti-aw      36524/tcp # Febooti Automation Workshop [Maris_Bormanis] [Maris_Bormanis] 2011-06-10
 observium-agent 36602/tcp # Observium statistics collection agent [Observium] [Adam_Armstrong] 2013-05-10
 mapx            36700/tcp # MapX communication [MicroTechniX] [Yarochkin_Michail] 2014-10-13
@@ -11350,6 +11374,7 @@ turbonote-1     39681/tcp # TurboNote Default Port [Peter_Hyde] [Peter_Hyde]
 turbonote-1     39681/udp # TurboNote Default Port [Peter_Hyde] [Peter_Hyde]
 safetynetp      40000/tcp # SafetyNET p [Roland_Rupp] [Roland_Rupp] 2006-11
 safetynetp      40000/udp # SafetyNET p [Roland_Rupp] [Roland_Rupp] 2006-11
+k-patentssensor 40023/udp # K-PatentsSensorInformation [K-Patents_Oy] [Arttu_Leinonen] 2015-12-02
 sptx            40404/tcp # Simplify Printing TX [Tricerat] [Eric_Musgrave] 2013-12-09
 cscp            40841/tcp # CSCP [Michael_Dodge] [Michael_Dodge]
 cscp            40841/udp # CSCP [Michael_Dodge] [Michael_Dodge]
@@ -11423,6 +11448,7 @@ qdb2service     45825/tcp # Qpuncture Data Access Service [Michael_Yun] [Michael
 qdb2service     45825/udp # Qpuncture Data Access Service [Michael_Yun] [Michael_Yun] 2007-10-24
 ssr-servermgr   45966/tcp # SSRServerMgr [Jeremy_Gilliat] [Jeremy_Gilliat]
 ssr-servermgr   45966/udp # SSRServerMgr [Jeremy_Gilliat] [Jeremy_Gilliat]
+inedo           46336/tcp # Listen port used for Inedo agent communication [Inedo] [Steve_Dennis] 2016-01-12
 spremotetablet  46998/tcp # Connection between a desktop computer or server and a signature tablet to capture handwritten signatures [SOFTPRO_GmbH] [Christoph_Hipp] 2012-07-19 2013-08-02
 mediabox        46999/tcp # MediaBox Server [Alexander_Graef] [Alexander_Graef] 2004-11
 mediabox        46999/udp # MediaBox Server [Alexander_Graef] [Alexander_Graef] 2004-11

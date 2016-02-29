@@ -627,7 +627,7 @@ dissect_h263_picture_layer( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	A word of 17 bits. Its value is 0000 0000 0000 0000 1.
 	( 1xxx xxxx )
   */
-static void dissect_h263_data( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree )
+static int dissect_h263_data( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissector_data _U_ )
 {
 	guint offset = 0;
 	proto_item *h263_payload_item	= NULL;
@@ -645,7 +645,7 @@ static void dissect_h263_data( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 	if(length<4){
 		if( tree )
 			proto_tree_add_item( h263_payload_tree, hf_h263_data, tvb, offset, -1, ENC_NA );
-		return;
+		return tvb_captured_length(tvb);
 	}
 	/* Check for PSC, PSC is a word of 22 bits. Its value is 0000 0000 0000 0000' 1000 00xx xxxx xxxx. */
 	data = tvb_get_ntohl(tvb, offset);
@@ -690,6 +690,8 @@ static void dissect_h263_data( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 	}
 	if( tree )
 		proto_tree_add_item( h263_payload_tree, hf_h263_data, tvb, offset, -1, ENC_NA );
+
+	return tvb_captured_length(tvb);
 }
 
 void

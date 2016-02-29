@@ -87,7 +87,7 @@ static int hf_aas_beam_cinr_value = -1;
 #endif
 
 
-static void dissect_mac_mgmt_msg_aas_beam_select_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+static int dissect_mac_mgmt_msg_aas_beam_select_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	proto_item *aas_beam_item;
@@ -106,10 +106,11 @@ static void dissect_mac_mgmt_msg_aas_beam_select_decoder(tvbuff_t *tvb, packet_i
 		/* display the reserved fields */
 		proto_tree_add_item(aas_beam_tree, hf_aas_beam_select_reserved, tvb, offset, 1, ENC_BIG_ENDIAN);
 	}
+	return tvb_captured_length(tvb);
 }
 
 #ifdef OFDM
-static void dissect_mac_mgmt_msg_aas_beam_req_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+static int dissect_mac_mgmt_msg_aas_beam_req_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	proto_item *aas_beam_item;
@@ -140,9 +141,10 @@ static void dissect_mac_mgmt_msg_aas_beam_req_decoder(tvbuff_t *tvb, packet_info
 		/* display the reserved fields */
 		proto_tree_add_item(aas_beam_tree, hf_aas_beam_select_reserved, tvb, offset, 1, ENC_BIG_ENDIAN);
 	}
+	return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_mgmt_msg_aas_beam_rsp_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+static int dissect_mac_mgmt_msg_aas_beam_rsp_decoder(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint tvb_len, report_type;
@@ -204,6 +206,7 @@ static void dissect_mac_mgmt_msg_aas_beam_rsp_decoder(tvbuff_t *tvb, packet_info
 		/* display the CINR Mean Value */
 		proto_tree_add_item(aas_beam_tree, hf_aas_beam_cinr_value, tvb, offset, 1, ENC_BIG_ENDIAN);
 	}
+	return tvb_captured_length(tvb);
 }
 #endif
 

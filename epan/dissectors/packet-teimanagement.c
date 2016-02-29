@@ -65,8 +65,8 @@ static const value_string tei_msg_vals[]={
     { 0, NULL}
 };
 
-static void
-dissect_teimanagement(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_teimanagement(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *tei_tree = NULL;
     proto_item *tei_ti;
@@ -91,6 +91,7 @@ dissect_teimanagement(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_item(tei_tree, lm_action, tvb, 4, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(tei_tree, lm_extend, tvb, 4, 1, ENC_BIG_ENDIAN);
     }
+    return tvb_captured_length(tvb);
 }
 
 void

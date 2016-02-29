@@ -26,7 +26,7 @@
      </column>
      <column>
       <property name="text">
-       <string>Label</string>
+       <string>Button Label</string>
       </property>
      </column>
      <column>
@@ -51,6 +51,20 @@
        <property name="icon">
         <iconset resource="../../image/toolbar.qrc">
          <normaloff>:/stock/minus-8.png</normaloff>:/stock/minus-8.png</iconset>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="copyToolButton">
+       <property name="toolTip">
+        <string>Copy this filter.</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="icon">
+        <iconset resource="../../image/toolbar.qrc">
+         <normaloff>:/stock/copy-8.png</normaloff>:/stock/copy-8.png</iconset>
        </property>
       </widget>
      </item>

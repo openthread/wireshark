@@ -34,10 +34,9 @@ static int hf_dvb_tdt_utc_time = -1;
 
 static gint ett_dvb_tdt = -1;
 
-static void
-dissect_dvb_tdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dvb_tdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
     guint offset = 0;
 
     proto_item *ti;
@@ -60,6 +59,7 @@ dissect_dvb_tdt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += 5;
 
     proto_item_set_len(ti, offset);
+    return tvb_captured_length(tvb);
 }
 
 

@@ -6188,7 +6188,7 @@ de_rr_eutran_measurement_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_of
 {
     gint        curr_bit_offset;
     proto_item *item;
-    guint8      rep_quant;
+    guint8      rep_quant, rep_thresh;
 
     curr_bit_offset = bit_offset;
 
@@ -6218,13 +6218,14 @@ de_rr_eutran_measurement_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_of
             if (gsm_rr_csn_flag(tvb, tree, curr_bit_offset++, hf_gsm_a_rr_eutran_fdd_reporting_threshold_2_present))
             {
                 item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_fdd_reporting_threshold_2, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+                rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
                 if (rep_quant == 0)
                 {
-                    proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                    proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
                 }
                 else
                 {
-                    proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                    proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
                 }
                 curr_bit_offset += 6;
             }
@@ -6251,13 +6252,14 @@ de_rr_eutran_measurement_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_of
             if (gsm_rr_csn_flag(tvb, tree, curr_bit_offset++, hf_gsm_a_rr_eutran_tdd_reporting_threshold_2_present))
             {
                 item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_tdd_reporting_threshold_2, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+                rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
                 if (rep_quant == 0)
                 {
-                    proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                    proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
                 }
                 else
                 {
-                    proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                    proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
                 }
                 curr_bit_offset += 6;
             }
@@ -6274,26 +6276,28 @@ de_rr_eutran_measurement_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_of
         if (gsm_rr_csn_flag(tvb, tree, curr_bit_offset++, hf_gsm_a_rr_eutran_fdd_reporting_threshold))
         {
             item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_fdd_measurement_report_offset, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+            rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
             if (rep_quant == 0)
             {
-                proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
             }
             else
             {
-                proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
             }
             curr_bit_offset += 6;
 
             if (gsm_rr_csn_flag(tvb, tree, curr_bit_offset++, hf_gsm_a_rr_eutran_fdd_reporting_threshold_2_present))
             {
                 item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_fdd_reporting_threshold_2, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+                rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
                 if (rep_quant == 0)
                 {
-                    proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                    proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
                 }
                 else
                 {
-                    proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                    proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
                 }
                 curr_bit_offset += 6;
             }
@@ -6307,26 +6311,28 @@ de_rr_eutran_measurement_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_of
         if (gsm_rr_csn_flag(tvb, tree, curr_bit_offset++, hf_gsm_a_rr_eutran_tdd_measurement_report_offset_present))
         {
             item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_tdd_measurement_report_offset, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+            rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
             if (rep_quant == 0)
             {
-                proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
             }
             else
             {
-                proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
             }
             curr_bit_offset += 6;
 
             if (gsm_rr_csn_flag(tvb, tree, curr_bit_offset++, hf_gsm_a_rr_eutran_tdd_reporting_threshold_2_present))
             {
                 item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_tdd_reporting_threshold_2, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+                rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
                 if (rep_quant == 0)
                 {
-                    proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                    proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
                 }
                 else
                 {
-                    proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                    proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
                 }
                 curr_bit_offset += 6;
             }
@@ -6357,7 +6363,7 @@ de_rr_eutran_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_offset)
     proto_tree *subtree;
     proto_item *item;
     gint        curr_bit_offset;
-    guint8      rep_quant = 0;
+    guint8      rep_quant = 0, rep_thresh = 0;
 
     curr_bit_offset = bit_offset;
     subtree = proto_tree_add_subtree(tree, tvb, curr_bit_offset>>3, -1, ett_gsm_rr_rest_octets_elem[DE_RR_REST_OCTETS_EUTRAN_PARAM_DESC], &item,
@@ -6401,13 +6407,14 @@ de_rr_eutran_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_offset)
             if (gsm_rr_csn_flag(tvb, subtree, curr_bit_offset++, hf_gsm_a_rr_eutran_fdd_reporting_threshold_2_present))
             {
                 item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_fdd_reporting_threshold_2, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+                rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
                 if (rep_quant == 0)
                 {
-                    proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                    proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
                 }
                 else
                 {
-                    proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                    proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
                 }
                 curr_bit_offset += 6;
             }
@@ -6433,13 +6440,14 @@ de_rr_eutran_param_desc(tvbuff_t *tvb, proto_tree *tree, gint bit_offset)
             if (gsm_rr_csn_flag(tvb, subtree, curr_bit_offset++, hf_gsm_a_rr_eutran_tdd_reporting_threshold_2_present))
             {
                 item = proto_tree_add_bits_item(tree, hf_gsm_a_rr_eutran_tdd_reporting_threshold_2, tvb, curr_bit_offset, 6, ENC_BIG_ENDIAN);
+                rep_thresh = tvb_get_bits8(tvb,curr_bit_offset, 6);
                 if (rep_quant == 0)
                 {
-                    proto_item_append_text(item, " (%.1f dB)", (gfloat)tvb_get_bits8(tvb,curr_bit_offset,6)/2 - 19.5);
+                    proto_item_append_text(item, " (%.1f dB)", (gfloat)rep_thresh/2 - 19.5);
                 }
                 else
                 {
-                    proto_item_append_text(item, " (%d dBm)", tvb_get_bits8(tvb,curr_bit_offset,6) - 140);
+                    proto_item_append_text(item, " (%d dBm)", rep_thresh - 140);
                 }
                 curr_bit_offset += 6;
             }
@@ -10811,8 +10819,8 @@ void get_rr_msg_params(guint8 oct, const gchar **msg_str, int *ett_tree, int *hf
  * The code should probably be cleaned up.
  * The name CCCH might not be correct!
  */
-static void
-dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
     static gsm_a_tap_rec_t  tap_rec[4];
@@ -10842,7 +10850,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          * too short to be CCCH
          */
         call_dissector(data_handle, tvb, pinfo, tree);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     col_append_str(pinfo->cinfo, COL_INFO, "(CCCH) ");
@@ -10896,7 +10904,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     default:
         /* XXX - hf_idx is still -1! this is a bug in the implementation, and I don't know how to fix it so simple return here */
-        return;
+        return tvb_captured_length(tvb);
     }
 
     /*
@@ -10969,10 +10977,10 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tap_queue_packet(gsm_a_tap, pinfo, tap_p);
 
     if (msg_str == NULL)
-        return;
+        return offset;
 
     if (offset >= len)
-        return;
+        return offset;
 
     /*
      * decode elements
@@ -10982,6 +10990,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }else{
         (*msg_fcn_p)(tvb, ccch_tree, pinfo, offset, len - offset);
     }
+    return tvb_captured_length(tvb);
 }
 
 const value_string gsm_a_rr_short_pd_msg_strings[] = {
@@ -11030,8 +11039,8 @@ const value_string short_protocol_discriminator_vals[] = {
     {  0, NULL }
 };
 
-static void
-dissect_sacch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_sacch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     static gsm_a_tap_rec_t  tap_rec[4];
     static gsm_a_tap_rec_t *tap_p;
@@ -11104,7 +11113,7 @@ dissect_sacch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
        proto_tree_add_bits_item(sacch_tree, hf_gsm_a_rr_short_pd, tvb, offset * 8 + bit_offset++, 1, ENC_BIG_ENDIAN);
 
     if (hf_idx == -1)
-        return;
+        return 1;
 
     /*
      * add SACCH message name
@@ -11122,7 +11131,7 @@ dissect_sacch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     tap_queue_packet(gsm_a_tap, pinfo, tap_p);
 
     if (msg_str == NULL)
-        return;
+        return offset;
 
     /*
      * decode elements
@@ -11132,6 +11141,7 @@ dissect_sacch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }else{
         (*msg_fcn_p)(tvb, sacch_tree, pinfo, offset, len - offset);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

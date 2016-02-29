@@ -21,12 +21,16 @@
  */
 
 #include "config.h"
+
 #include <string.h>
 #include <math.h>
+
+#include <glib.h>
 
 #include "epan/packet_info.h"
 #include "epan/tap.h"
 #include "epan/value_string.h"
+
 #include "ui/tap-sctp-analysis.h"
 
 #include "ui/simple_dialog.h"
@@ -181,7 +185,8 @@ calc_checksum(const struct _sctp_info *check_data, sctp_assoc_info_t *data)
 	{
 		if ((float)(data->n_adler32_correct*1.0/data->n_adler32_calculated) > 0.5)
 		{
-			g_strlcpy(data->checksum_type,"ADLER32",8);
+			char str[] = "ADLER32";
+			g_strlcpy(data->checksum_type, str, strlen(str));
 			data->n_checksum_errors=(data->n_adler32_calculated-data->n_adler32_correct);
 			ok = TRUE;
 		}
@@ -191,7 +196,8 @@ calc_checksum(const struct _sctp_info *check_data, sctp_assoc_info_t *data)
 	{
 		if ((float)(data->n_crc32c_correct*1.0/data->n_crc32c_calculated) > 0.5)
 		{
-			g_strlcpy(data->checksum_type,"CRC32C",8);
+			char str[] = "CRC32C";
+			g_strlcpy(data->checksum_type, str, strlen(str));
 			data->n_checksum_errors=data->n_crc32c_calculated-data->n_crc32c_correct;
 			ok = TRUE;
 		}
@@ -199,7 +205,8 @@ calc_checksum(const struct _sctp_info *check_data, sctp_assoc_info_t *data)
 
 	if (!ok)
 	{
-		g_strlcpy(data->checksum_type,"UNKNOWN",8);
+		char str[] = "UNKNOWN";
+		g_strlcpy(data->checksum_type, str, strlen(str));
 		data->n_checksum_errors=0;
 	}
 
@@ -220,9 +227,9 @@ find_assoc(sctp_tmp_info_t *needle)
 	{
 		while (list)
 		{
-		    info = (sctp_assoc_info_t*)(list->data);
-		    if (needle->assoc_id == info->assoc_id)
-		        return info;
+			info = (sctp_assoc_info_t*)(list->data);
+			if (needle->assoc_id == info->assoc_id)
+				return info;
 
 			list = g_list_previous(list);
 		}
@@ -247,7 +254,7 @@ add_chunk_count(address *vadd, sctp_assoc_info_t *info, guint32 direction, guint
 		if (ch->direction == direction)
 		{
 			v = (address *) (ch->addr);
-			if (ADDRESSES_EQUAL(vadd, v))
+			if (addresses_equal(vadd, v))
 			{
 				if (IS_SCTP_CHUNK_TYPE(type))
 					ch->addr_count[type]++;
@@ -297,7 +304,7 @@ add_address(address *vadd, sctp_assoc_info_t *info, guint16 direction)
 	while (list)
 	{
 		v = (address *) (list->data);
-		if (ADDRESSES_EQUAL(vadd, v)) {
+		if (addresses_equal(vadd, v)) {
 			g_free(vadd);
 			return info;
 		}
@@ -333,7 +340,7 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 	int i;
 	guint8 idx = 0;
 
-	framenumber = PINFO_FD_NUM(pinfo);
+	framenumber = pinfo->num;
 
 	type = sctp_info->ip_src.type;
 
@@ -530,7 +537,7 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 						info->max_usecs = tsn->usecs;
 				}
 
-				sack->frame_number = tsn->frame_number = pinfo->fd->num;
+				sack->frame_number = tsn->frame_number = pinfo->num;
 			}
 			if ((tvb_get_guint8(sctp_info->tvb[0],0) == SCTP_INIT_CHUNK_ID) || (tvb_get_guint8(sctp_info->tvb[0],0) == SCTP_INIT_ACK_CHUNK_ID))
 			{
@@ -541,23 +548,17 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 				info->arwnd1 = tvb_get_ntohl(sctp_info->tvb[0], INIT_CHUNK_ADV_REC_WINDOW_CREDIT_OFFSET);
 				for (chunk_number = 1; chunk_number < sctp_info->number_of_tvbs; chunk_number++)
 				{
-				type = tvb_get_ntohs(sctp_info->tvb[chunk_number],0);
+					type = tvb_get_ntohs(sctp_info->tvb[chunk_number],0);
 					if (type == IPV4ADDRESS_PARAMETER_ID)
 					{
 						store = (address *)g_malloc(sizeof (address));
-						store->type = AT_IPv4;
-						store->len  = 4;
-						store->data = g_malloc(4);
-						tvb_memcpy(sctp_info->tvb[chunk_number], (void *)store->data,IPV4_ADDRESS_OFFSET, 4);
+						alloc_address_tvb(NULL, store, AT_IPv4, 4, sctp_info->tvb[chunk_number], IPV4_ADDRESS_OFFSET);
 						info = add_address(store, info, 1);
 					}
 					else if (type == IPV6ADDRESS_PARAMETER_ID)
 					{
 						store = (address *)g_malloc(sizeof (address));
-						store->type = AT_IPv6;
-						store->len  = 16;
-						store->data = g_malloc(16);
-						tvb_memcpy(sctp_info->tvb[chunk_number], (guint8 *)(store->data),IPV6_ADDRESS_OFFSET, IPV6_ADDRESS_LENGTH);
+						alloc_address_tvb(NULL, store, AT_IPv6, 16, sctp_info->tvb[chunk_number], IPV6_ADDRESS_OFFSET);
 						info = add_address(store, info, 1);
 					}
 				}
@@ -748,7 +749,7 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 				memcpy(addr,(tmp_info.dst.data),tmp_info.dst.len);
 				store->data = addr;
 				info = add_address(store, info, 2);
-				info->frame_numbers=g_list_prepend(info->frame_numbers,&(pinfo->fd->num));
+				info->frame_numbers=g_list_prepend(info->frame_numbers,&(pinfo->num));
 				if (datachunk || forwardchunk)
 					info->tsn1 = g_list_prepend(info->tsn1, tsn);
 				if (sackchunk == TRUE)
@@ -759,7 +760,7 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 			{
 				gchar* tmp_str;
 				error = (sctp_error_info_t *)g_malloc(sizeof(sctp_error_info_t));
-				error->frame_number = pinfo->fd->num;
+				error->frame_number = pinfo->num;
 				error->chunk_info[0] = '\0';
 				if ((tvb_get_guint8(sctp_info->tvb[0],0)) == SCTP_INIT_CHUNK_ID)
 				{
@@ -845,9 +846,9 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 				else if (tsn->secs == info->max_secs && tsn->usecs > info->max_usecs)
 					info->max_usecs = tsn->usecs;
 			}
-			sack->frame_number = tsn->frame_number = pinfo->fd->num;
+			sack->frame_number = tsn->frame_number = pinfo->num;
 		}
-		info->frame_numbers = g_list_prepend(info->frame_numbers,&(pinfo->fd->num));
+		info->frame_numbers = g_list_prepend(info->frame_numbers,&(pinfo->num));
 
 		store = (address *)g_malloc(sizeof (address));
 		store->type = tmp_info.src.type;
@@ -916,19 +917,13 @@ packet(void *tapdata _U_, packet_info *pinfo, epan_dissect_t *edt _U_, const voi
 				if (type == IPV4ADDRESS_PARAMETER_ID)
 				{
 					store = (address *)g_malloc(sizeof (address));
-					store->type = AT_IPv4;
-					store->len  = 4;
-					store->data = g_malloc(4);
-					tvb_memcpy(sctp_info->tvb[chunk_number], (guint8 *)(store->data),IPV4_ADDRESS_OFFSET, 4);
+					alloc_address_tvb(NULL, store, AT_IPv4, 4, sctp_info->tvb[chunk_number], IPV4_ADDRESS_OFFSET);
 					info = add_address(store, info, info->direction);
 				}
 				else if (type == IPV6ADDRESS_PARAMETER_ID)
 				{
 					store = (address *)g_malloc(sizeof (address));
-					store->type = AT_IPv6;
-					store->len  = 16;
-					store->data = g_malloc(16);
-					tvb_memcpy(sctp_info->tvb[chunk_number], (guint8 *)(store->data),IPV6_ADDRESS_OFFSET, IPV6_ADDRESS_LENGTH);
+					alloc_address_tvb(NULL, store, AT_IPv6, 16, sctp_info->tvb[chunk_number], IPV6_ADDRESS_OFFSET);
 					info = add_address(store, info, info->direction);
 				}
 			}

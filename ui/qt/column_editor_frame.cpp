@@ -32,6 +32,7 @@
 #include "column_editor_frame.h"
 #include <ui_column_editor_frame.h>
 
+#include <QPushButton>
 #include <QComboBox>
 
 ColumnEditorFrame::ColumnEditorFrame(QWidget *parent) :
@@ -57,39 +58,59 @@ ColumnEditorFrame::~ColumnEditorFrame()
     delete ui;
 }
 
+void ColumnEditorFrame::setFields(int index)
+{
+    bool ok = true;
+
+    if (index == COL_CUSTOM) {
+        ui->fieldsNameLineEdit->setText(saved_fields_);
+        ui->fieldsNameLineEdit->checkCustomColumn(saved_fields_);
+        ui->occurrenceLineEdit->setText(saved_occurrence_);
+        ui->occurrenceLineEdit->checkInteger(saved_occurrence_);
+        if ((ui->fieldsNameLineEdit->syntaxState() != SyntaxLineEdit::Valid) ||
+            (ui->occurrenceLineEdit->syntaxState() != SyntaxLineEdit::Valid)) {
+            ok = false;
+        }
+    } else {
+        ui->fieldsNameLineEdit->clear();
+        ui->fieldsNameLineEdit->setSyntaxState(SyntaxLineEdit::Empty);
+        ui->occurrenceLineEdit->clear();
+        ui->occurrenceLineEdit->setSyntaxState(SyntaxLineEdit::Empty);
+    }
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ok);
+}
+
 void ColumnEditorFrame::editColumn(int column)
 {
     cur_column_ = column;
     ui->titleLineEdit->setText(get_column_title(column));
-    saved_field_ = get_column_custom_field(column);
-    saved_occurrence_ = get_column_custom_occurrence(column);
+    saved_fields_ = get_column_custom_fields(column);
+    saved_occurrence_ = QString::number(get_column_custom_occurrence(column));
     ui->typeComboBox->setCurrentIndex(get_column_format(column));
+    setFields(ui->typeComboBox->currentIndex());
 }
 
 void ColumnEditorFrame::on_typeComboBox_activated(int index)
 {
-    if (index == COL_CUSTOM) {
-        ui->fieldNameLineEdit->setText(saved_field_);
-        ui->occurrenceLineEdit->setText(saved_occurrence_);
-    } else {
-        ui->fieldNameLineEdit->clear();
-        ui->occurrenceLineEdit->clear();
-    }
+    setFields(index);
 }
 
-void ColumnEditorFrame::on_fieldNameLineEdit_textEdited(const QString &field)
+void ColumnEditorFrame::on_fieldsNameLineEdit_textEdited(const QString &fields)
 {
-    ui->fieldNameLineEdit->checkFieldName(field);
+    ui->fieldsNameLineEdit->checkCustomColumn(fields);
     if (ui->typeComboBox->currentIndex() != COL_CUSTOM) {
         ui->typeComboBox->setCurrentIndex(COL_CUSTOM);
         ui->occurrenceLineEdit->setText(saved_occurrence_);
     }
 
     bool ok = true;
-    if (ui->fieldNameLineEdit->syntaxState() == SyntaxLineEdit::Invalid) ok = false;
-    ui->okButton->setEnabled(ok);
+    if ((ui->fieldsNameLineEdit->syntaxState() == SyntaxLineEdit::Invalid) ||
+        ((ui->typeComboBox->currentIndex() == COL_CUSTOM) &&
+        (ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Empty)))
+        ok = false;
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ok);
 
-    saved_field_ = field;
+    saved_fields_ = fields;
 }
 
 void ColumnEditorFrame::on_occurrenceLineEdit_textEdited(const QString &occurrence)
@@ -97,23 +118,26 @@ void ColumnEditorFrame::on_occurrenceLineEdit_textEdited(const QString &occurren
     ui->occurrenceLineEdit->checkInteger(occurrence);
     if (ui->typeComboBox->currentIndex() != COL_CUSTOM) {
         ui->typeComboBox->setCurrentIndex(COL_CUSTOM);
-        ui->fieldNameLineEdit->setText(saved_field_);
+        ui->fieldsNameLineEdit->setText(saved_fields_);
     }
 
     bool ok = true;
-    if (ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Invalid) ok = false;
-    ui->okButton->setEnabled(ok);
+    if ((ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Invalid) ||
+        ((ui->typeComboBox->currentIndex() == COL_CUSTOM) &&
+        (ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Empty)))
+        ok = false;
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ok);
 
     saved_occurrence_ = occurrence;
 }
 
-void ColumnEditorFrame::on_cancelButton_clicked()
+void ColumnEditorFrame::on_buttonBox_rejected()
 {
     cur_column_ = -1;
     animatedHide();
 }
 
-void ColumnEditorFrame::on_okButton_clicked()
+void ColumnEditorFrame::on_buttonBox_accepted()
 {
     QByteArray col_str;
     if (cur_column_ >= 0) {
@@ -121,8 +145,8 @@ void ColumnEditorFrame::on_okButton_clicked()
         set_column_title(cur_column_, col_str.constData());
         set_column_format(cur_column_, ui->typeComboBox->currentIndex());
         if (ui->typeComboBox->currentIndex() == COL_CUSTOM) {
-            col_str = ui->fieldNameLineEdit->text().toUtf8();
-            set_column_custom_field(cur_column_, col_str.constData());
+            col_str = ui->fieldsNameLineEdit->text().toUtf8();
+            set_column_custom_fields(cur_column_, col_str.constData());
             if (!ui->occurrenceLineEdit->text().isEmpty()) {
                 set_column_custom_occurrence(cur_column_, ui->occurrenceLineEdit->text().toInt());
             }
@@ -132,7 +156,8 @@ void ColumnEditorFrame::on_okButton_clicked()
         }
         emit columnEdited();
     }
-    on_cancelButton_clicked();
+
+    on_buttonBox_rejected();
 }
 
 /*

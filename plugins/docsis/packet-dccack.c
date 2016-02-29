@@ -43,8 +43,8 @@ static int hf_docsis_dccack_hmac_digest = -1;
 static gint ett_docsis_dccack = -1;
 
 /* Dissection */
-static void
-dissect_dccack (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_dccack (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   guint16 pos;
   guint8 type, length;
@@ -97,6 +97,7 @@ dissect_dccack (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
           pos = pos + length;
         }                       /* while (pos < len) */
     }                           /* if (tree) */
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

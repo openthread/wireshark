@@ -32,7 +32,7 @@ Wireshark source code. The code is stored inside Wireshark project's Git
 repository located at a server at the wireshark.org domain.
 
 Changes to the official repository are managed using the
-https://code.google.com/p/gerrit/[Gerrit] code review sytem. Gerrit
+https://www.gerritcodereview.com/[Gerrit] code review system. Gerrit
 makes it easy to test and discuss changes before they are
 pushed to the main repository. For an overview of Gerrit see the
 https://code.wireshark.org/review/Documentation/intro-quick.html[Quick
@@ -49,7 +49,7 @@ Gerrit makes it easy to contribute. You can sign in with any OpenID
 provider and push your changes. It's usable from both the web and
 command line and is integrated with many popular tools.
 
-.Git is our *third* revision conrol system
+.Git is our *third* revision control system
 [NOTE]
 ====
 Wireshark originally used http://www.nongnu.org/cvs/[Concurrent Versions System]
@@ -81,7 +81,7 @@ https://code.wireshark.org/review/gitweb?p=wireshark.git
 
 Like most revision control systems, Git uses
 http://en.wikipedia.org/wiki/Branching_%28revision_control%29[branching] to
-manange different copies of the source code and allow parallel development.
+manage different copies of the source code and allow parallel development.
 Wireshark uses the following branches for official releases:
 
 * 'master': Main feature development and odd-numbered "feature" releases.
@@ -258,13 +258,13 @@ possible (e.g. because of a restrictive firewall).
 
 Age: some number of minutes (a bit older than the Git access).
 
-The buildbot server will automatically start to generate a snapshot of
+The Buildbot server will automatically start to generate a snapshot of
 Wireshark's source tree after a source code change is committed.
-These snapshots can be found at wireshark-download-page:[]automated/src/[].
+These snapshots can be found at wireshark-snapshots-url:[].
 
 If Git access isn't possible, e.g. if the connection to the server
 isn't possible because of a corporate firewall, the sources can be
-obtained by downloading the buildbot snapshots. However, if you are
+obtained by downloading the Buildbot snapshots. However, if you are
 going to maintain your sources in parallel to the "official" sources
 for some time, it's recommended to use the anonymous (or authenticated)
 Git access if possible (believe it, it will save you a lot of time).
@@ -297,7 +297,7 @@ you might want to keep them in sync with the sources at the upstream
 Git repository.
 
 [TIP]
-.Take a look at the buildbot first
+.Take a look at the Buildbot first
 ====
 As development evolves, the Wireshark sources are compilable
 most of the time -- but not always. You should take a look at
@@ -396,29 +396,10 @@ to see what options you have.
 
 ==== Win32 native
 
-Ensure you have correctly set your build environment as discussed in
-<<ChSetupPrepareCommandCom>>
-
-You should then cleanup any intermediate files, which are shipped for
-convenience of Unix users, by typing at the command line prompt:
-
-----
-> nmake -f Makefile.nmake distclean
-----
-
-After doing this, typing at the command line prompt:
-
-----
-> nmake -f Makefile.nmake all
-----
-
-will start the whole Wireshark build process.
-
+Follow the build procedure in <<ChWin32Build>> to build Wireshark.
 
 After the build process has successfully finished, you should find a
-`wireshark.exe` and some other files
-in the root directory.
-
+`Wireshark.exe` and some other files in the `run\RelWithDebInfo` directory.
 
 [[ChSrcRunFirstTime]]
 
@@ -441,7 +422,7 @@ installed version first.
 
 After a successful build you can run Wireshark right from the build
 directory. Still the program would need to know that it's being run from
-the build directory and not from its install location. This has inpact
+the build directory and not from its install location. This has an impact
 on the directories where the program can find the other parts and
 relevant data files.
 
@@ -450,7 +431,7 @@ In order to run the Wireshark from the build directory set the environment
 variable `WIRESHARK_RUN_FROM_BUILD_DIRECTORY` and run
 Wireshark. If your platform is properly setup, your build directory and
 current working directory are not in your PATH, so the
-commandline to launch Wireshark would be:
+command line to launch Wireshark would be:
 
 ----
 $ WIRESHARK_RUN_FROM_BUILD_DIRECTORY=1 ./wireshark
@@ -467,12 +448,12 @@ be informative when things don't work as expected.
 ==== Win32 native
 
 During the build all relevant program files are collected in a subdirectory
-'wireshark-qt-release'. You can run the program from there by
+`run\RelWithDebInfo`. You can run the program from there by
 launching the Wireshark.exe executable.
 
-The older GTK based version is also available in the 'wireshark-gtk'
+The older GTK based version is also available in the same
 subdirectory.  You can run the program from there by launching the
-Wireshark-gtk.exe executable.
+wireshark-gtk.exe executable.
 
 
 [[ChSrcDebug]]
@@ -521,7 +502,7 @@ on using the <<ChToolsDebugger, Debugger Tools>>.
 
 As the Wireshark developers are working on many different platforms, a lot of
 editors are used to develop Wireshark (emacs, vi, Microsoft Visual Studio
-and many many others). There's no "standard" or "default" development
+and many, many others). There's no "standard" or "default" development
 environment.
 
 There are several reasons why you might want to change the Wireshark
@@ -658,7 +639,7 @@ as described at <<ChSrcGit>>.
 //
 // If you've added a new file, e.g.
 // 'packet-myprotocol.c', you can use `svn add` to add it to your local tree before generating the patch.
-// Similarly, you can use `svn rm` for files that shouldbe removed.
+// Similarly, you can use `svn rm` for files that should be removed.
 
 [[ChSrcSVNGUIDiff]]
 
@@ -813,14 +794,14 @@ be rejected.
 
 * 'Submit dissectors as built-in whenever possible.' Developing a new dissector
 as a plugin is a good idea because compiling and testing is quicker, but it's
-best to convert dissectors to the built-in style before submitting for checkin.
+best to convert dissectors to the built-in style before submitting for check in.
 This reduces the number of files that must be installed with Wireshark and
 ensures your dissector will be available on all platforms.
 +
 This is no hard-and-fast rule though. Many dissectors are straightforward so they
 can easily be put into "the big pile", while some are ASN.1 based which takes a
-different approach, and some multiple sourcefile dissectors are more suitable to
-be placed separate as plugin.
+different approach, and some multiple source file dissectors are more suitable to
+be placed separately as plugins.
 
 * 'Verify that your dissector code does not use prohibited or deprecated APIs.'
   This can be done as follows:
@@ -886,7 +867,7 @@ You might get one of the following responses to your patch request:
   the core developers are busy (e.g., with their day jobs or family or other commitments) and
   haven't had time to look at your patch. Don't worry, if
   your patch is in the review system it won't get lost.
-+
+
 If you're concerned, feel free to add a comment to the patch or send an email
 to the developer's list asking for status. But please be patient: most if not
 all of us do this in our spare time.
@@ -993,53 +974,6 @@ It is preferred that people *not* submit patches like
 that, especially if they're only patching files that exist in multiple
 directories such as 'Makefile.am'.
 
-[[ChSrcAdd]]
-
-// Rewrite for Git ?
-// === Add a new file to the Subversion repository
-//
-// The recommended way to commit new files is described in <<ChSrcContribute>>.
-// However, the following might be of interest for contributing developers as well.
-//
-// [NOTE]
-// ====
-// These actions can only be performed by the Wireshark core developers who
-// have write access to the Subversion repository. It is put in here to have
-// all information in one place.
-// ====
-//
-// If you (as a core developer) need to add a file to the SVN repository,
-// then you need to perform the following steps:
-//
-// . Verify that that file is complete (has Wireshark boilerplate, `$Id$`, etc).
-//
-// . Add the new file(s) to the repository:
-// +
-// ----
-// $ svn add new_file
-// ----
-//
-// . Set the line ending property to 'native' for the new file(s):
-// +
-// ----
-// $ svn propset svn:eol-style native new_file
-// ----
-//
-// . Set version keyword to 'Id' for the new file(s):
-// +
-// ----
-// $ svn propset svn:keywords Id new_file
-// ----
-//
-// . Commit your changes, including the added file(s).
-// +
-// ----
-// $ svn commit new_file other_files_you_modified
-// ----
-//
-// Don't forget a brief description of the reason for the commit so other
-// developers don't need to read the diff in order to know what has changed.
-
 [[ChSrcBinary]]
 
 === Binary packaging
@@ -1073,9 +1007,9 @@ to build the Debian Package.
 ==== Red Hat: .rpm packages
 
 The RPM is built using rpmbuild (http://www.rpm.org/), which comes as standard on many flavours of Linux, including
-Red Hat and Fedora. The process creates a clean build environment in _packaging/rpm/BUILD_every
+Red Hat and Fedora. The process creates a clean build environment in _packaging/rpm/BUILD_ every
 time the RPM is built. The settings controlling the build are in _packaging/rpm/SPECS/wireshark.spec.in_.
-After editing the settings in this file, _./configure_must be run again in the wireshark directory to
+After editing the settings in this file, _./configure_ must be run again in the wireshark directory to
 generate the actual specification script.
 
 
@@ -1083,9 +1017,14 @@ generate the actual specification script.
 [NOTE]
 ====
 The SPEC file contains settings for the _configure_ used to set the RPM build
-environment. These are completely independent of any settings passed to the
-usual Wireshark `./configure`. The exception to this rule is that the _prefix_
-given to `configure --prefix` is passed to rpmbuild.
+environment. These are mostly independent of any settings passed to the
+usual Wireshark `./configure`. The exceptions to this rule are:
+
+* The _prefix_ given to `configure --prefix` is passed to rpmbuild.
+
+* The selection of the GUI (Qt, Gtk+, or both) is passed to rpmbuild.
+
+* The selection of whether to include Lua support is passed to rpmbuild.
 ====
 
 In the wireshark directory, type:
@@ -1100,7 +1039,12 @@ to build the RPM and source RPM. Once it is done, there will be a message statin
 [TIP]
 ====
 Because this does a clean build as well as constructing the package this can
-take quite a long time.
+take quite a long time.  Suggestion: add the following to your `~/.rpmmacros`
+file to allow parallel builds:
+
+----
+%_smp_mflags -j %(grep -c processor /proc/cpuinfo)
+----
 ====
 
 .Build requirements differ from run requirements
@@ -1113,9 +1057,9 @@ installing the _qt-devel_ package.
 
 [[ChSrcOSX]]
 
-==== Mac OS X: .dmg packages
+==== OS X: .dmg packages
 
-The Mac OS X Package is built using OS X packaging tools, based on information
+The OS X Package is built using OS X packaging tools, based on information
 found in the source tree under 'packaging/macosx'.
 
 In the wireshark directory, type:
@@ -1124,7 +1068,7 @@ In the wireshark directory, type:
 $ make osx-package
 ----
 
-to build the Mac OS X Package.
+to build the OS X Package.
 
 [[ChSrcNSIS]]
 
@@ -1139,21 +1083,11 @@ When building with CMake you must first build the 'nsis_package_prep' target,
 followed by the 'nsis_package' target, e.g.
 
 ----
-> msbuild nsis_package_prep.vcxproj
-> msbuild nsis_package.vcxproj
+> msbuild /m /p:Configuration=RelWithDebInfo nsis_package_prep.vcxproj
+> msbuild /m /p:Configuration=RelWithDebInfo nsis_package.vcxproj
 ----
 
 Splitting the packaging projects in this way allows for code signing.
-
-For Nmake you will probably have to modify the MAKENSIS setting in the
-'config.nmake' file to specify where the NSIS binaries are installed. In the
-top-level source directory type:
-
-----
-> nmake -f makefile.nmake packaging
-----
-
-to build the installer.
 
 [TIP]
 .This might take a while
@@ -1164,7 +1098,7 @@ It might take some time, even on fast machines.
 
 If everything went well, you will now find something like:
 'wireshark-setup-wireshark-version:[].exe' in
-the 'packaging/nsis' directory.
+the 'packaging/nsis' directory in the source tree.
 
 [[ChSrcPortableApps]]
 
@@ -1173,7 +1107,7 @@ the 'packaging/nsis' directory.
 _PortableApps.com_ is an environment that lets users run popular applications
 from portable media such as flash drives and cloud drive services.
 
-Install the 'PortableApps.com Platform'. Install for ``all users,'' which
+Install the 'PortableApps.com Platform'. Install for ``all users``, which
 will place it in `C:\PortableApps`. Add the following apps:
 
 - NSIS Portable (Unicode)
@@ -1186,17 +1120,9 @@ When building with CMake you must first build the 'nsis_package_prep' target
 'portableapps_package' target, e.g.
 
 ----
-> msbuild nsis_package_prep.vcxproj
-> msbuild portableapps_package.vcxproj
+> msbuild /m /p:Configuration=RelWithDebInfo nsis_package_prep.vcxproj
+> msbuild /m /p:Configuration=RelWithDebInfo portableapps_package.vcxproj
 ----
-
-For Nmake, type the following in the top-level source directory
-
-----
-> nmake -f makefile.nmake packaging_papps
-----
-
-to build the installer.
 
 [TIP]
 .This might take a while

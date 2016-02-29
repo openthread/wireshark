@@ -107,13 +107,13 @@ dissect_xyplex(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     offset += 8;
 
     /* Look for all future TCP conversations between the
-     * requestiong server and the Xyplex host using the
+     * requesting server and the Xyplex host using the
      * return_port.
      */
-    conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                      PT_TCP, return_port, 0, NO_PORT_B);
     if (conversation == NULL) {
-      conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+      conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                       PT_TCP, return_port, 0, NO_PORT2);
       conversation_set_dissector(conversation, xyplex_handle);
     }
@@ -141,7 +141,7 @@ dissect_xyplex(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
   /*
    * This must be the TCP data stream.  This will just be
-   * the raw data being transfered from the remote server
+   * the raw data being transferred from the remote server
    * and the Xyplex serial port.
    */
   col_add_fstr(pinfo->cinfo, COL_INFO, "%d > %d Data",
@@ -205,7 +205,7 @@ proto_register_xyplex(void)
 void
 proto_reg_handoff_xyplex(void)
 {
-  xyplex_handle = new_create_dissector_handle(dissect_xyplex, proto_xyplex);
+  xyplex_handle = create_dissector_handle(dissect_xyplex, proto_xyplex);
   dissector_add_uint("udp.port", UDP_PORT_XYPLEX, xyplex_handle);
 }
 

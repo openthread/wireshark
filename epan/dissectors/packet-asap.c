@@ -44,6 +44,8 @@
 #include <epan/to_str.h>
 #include <epan/sctpppids.h>
 
+#include <wsutil/str_util.h>
+
 void proto_register_asap(void);
 void proto_reg_handoff_asap(void);
 
@@ -103,8 +105,8 @@ static void
 dissect_parameters(tvbuff_t *, proto_tree *);
 static void
 dissect_parameter(tvbuff_t *, proto_tree *);
-static void
-dissect_asap(tvbuff_t *, packet_info *, proto_tree *);
+static int
+dissect_asap(tvbuff_t *, packet_info *, proto_tree *, void *);
 
 #define ADD_PADDING(x) ((((x) + 3) >> 2) << 2)
 
@@ -185,7 +187,7 @@ dissect_error_cause(tvbuff_t *cause_tvb, proto_tree *parameter_tree)
     break;
   case UNRECONGNIZED_MESSAGE_CAUSE_CODE:
     message_tvb = tvb_new_subset_remaining(cause_tvb, CAUSE_INFO_OFFSET);
-    dissect_asap(message_tvb, NULL, cause_tree);
+    dissect_asap(message_tvb, NULL, cause_tree, NULL);
     break;
   case INVALID_VALUES:
     parameter_tvb = tvb_new_subset_remaining(cause_tvb, CAUSE_INFO_OFFSET);
@@ -827,8 +829,8 @@ dissect_asap_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *asap
     }
 }
 
-static void
-dissect_asap(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_asap(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *asap_item;
   proto_tree *asap_tree;
@@ -837,17 +839,13 @@ dissect_asap(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *tree)
   if (pinfo)
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "ASAP");
 
-  /* In the interest of speed, if "tree" is NULL, don't do any work not
-     necessary to generate protocol tree items. */
-  if (tree) {
-    /* create the asap protocol tree */
-    asap_item = proto_tree_add_item(tree, proto_asap, message_tvb, 0, -1, ENC_NA);
-    asap_tree = proto_item_add_subtree(asap_item, ett_asap);
-  } else {
-    asap_tree = NULL;
-  };
+  /* create the asap protocol tree */
+  asap_item = proto_tree_add_item(tree, proto_asap, message_tvb, 0, -1, ENC_NA);
+  asap_tree = proto_item_add_subtree(asap_item, ett_asap);
+
   /* dissect the message */
   dissect_asap_message(message_tvb, pinfo, asap_tree);
+  return tvb_captured_length(message_tvb);
 }
 
 /* Register the protocol with Wireshark */

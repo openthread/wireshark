@@ -211,7 +211,7 @@ static void _dissect_ua_msg(tvbuff_t       *tvb,
                     }
                 case 0x01: /* remote IP */
                     {
-                    TVB_SET_ADDRESS(&remote_rtp_addr, AT_IPv4, tvb, suboffset+2, 4);
+                    set_address_tvb(&remote_rtp_addr, AT_IPv4, 4, tvb, suboffset+2);
                     break;
                     }
                 case 0x02: /* remote port */
@@ -227,9 +227,9 @@ static void _dissect_ua_msg(tvbuff_t       *tvb,
             if ((remote_rtp_addr.data != NULL) && (remote_rtp_port != 0))
             {
                 rtp_add_address(pinfo, &remote_rtp_addr, remote_rtp_port, 0,
-                        "UA", pinfo->fd->num, 0, NULL);
+                        "UA", pinfo->num, 0, NULL);
                 rtcp_add_address(pinfo, &remote_rtp_addr, remote_rtp_port+1, 0,
-                         "UA", pinfo->fd->num);
+                         "UA", pinfo->num);
             }
         }
 
@@ -240,14 +240,16 @@ static void _dissect_ua_msg(tvbuff_t       *tvb,
 }
 
 
-static void dissect_ua_sys_to_term(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_ua_sys_to_term(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     _dissect_ua_msg(tvb, pinfo, tree, SYS_TO_TERM);
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_ua_term_to_sys(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_ua_term_to_sys(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     _dissect_ua_msg(tvb, pinfo, tree, TERM_TO_SYS);
+    return tvb_captured_length(tvb);
 }
 
 
@@ -300,7 +302,7 @@ void proto_reg_handoff_ua_msg(void)
         register_dissector_table("ua.opcode",
                                  "ua.opcode",
                                  FT_UINT8,
-                                 BASE_HEX);
+                                 BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 
 #endif

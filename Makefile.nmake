@@ -39,10 +39,10 @@ LDFLAGS = /NOLOGO /INCREMENTAL:NO $(LOCAL_LDFLAGS)
 # We use GENERATED_CFLAGS to get around flex's non-LLP64-compliant output
 GENERATED_CFLAGS=\
 	$(STANDARD_CFLAGS) \
-	/I.  /Iwiretap $(GLIB_CFLAGS) \
+	/I. $(GLIB_CFLAGS) \
 	$(ZLIB_CFLAGS) /I$(PCAP_DIR)\include $(AIRPCAP_CFLAGS) \
 	$(C_ARES_CFLAGS) $(ADNS_CFLAGS) $(GNUTLS_CFLAGS) \
-	$(SMI_CFLAGS) $(GEOIP_CFLAGS) $(WINSPARKLE_CFLAGS)
+	$(SMI_CFLAGS) $(GEOIP_CFLAGS) $(LIBSSH_CFLAGS) $(WINSPARKLE_CFLAGS)
 
 CFLAGS=$(WARNINGS_ARE_ERRORS) $(GENERATED_CFLAGS)
 
@@ -68,9 +68,6 @@ dftest_OBJECTS = $(dftest_SOURCES:.c=.obj)
 dumpcap_OBJECTS = $(dumpcap_SOURCES:.c=.obj)
 randpkt_OBJECTS = $(randpkt_SOURCES:.c=.obj)
 reordercap_OBJECTS = $(reordercap_SOURCES:.c=.obj)
-# this does not work because source file is in a subfolder of this makefile
-# and we end up recompiling systematically androiddump.c
-#androiddump_OBJECTS = $(androiddump_SOURCES:.c=.obj)
 
 #
 # psapi.lib see http://msdn.microsoft.com/en-us/library/windows/desktop/ms683219(v=vs.85).aspx
@@ -177,11 +174,6 @@ text2pcap_LIBS= \
 	wsutil\libwsutil.lib \
 	$(GLIB_LIBS)
 
-androiddump_LIBS= wiretap\wiretap-$(WTAP_VERSION).lib \
-	wsock32.lib user32.lib \
-	wsutil\libwsutil.lib \
-	$(GLIB_LIBS)
-
 dumpcap_LIBS= \
 	wsock32.lib user32.lib \
 	caputils\libcaputils.lib \
@@ -205,14 +197,15 @@ dftest_LIBS=  wiretap\wiretap-$(WTAP_VERSION).lib \
 	$(SMI_LIBS)
 !ENDIF
 
-randpkt_LIBS= wiretap\wiretap-$(WTAP_VERSION).lib \
+randpkt_LIBS= randpkt_core\librandpkt_core.lib \
+	wiretap\wiretap-$(WTAP_VERSION).lib \
 	user32.lib \
 	wsutil\libwsutil.lib \
 	$(GLIB_LIBS)
 
 EXECUTABLES=$(PROGRAM_NAME_GTK).exe tshark.exe tfshark.exe rawshark.exe \
 	capinfos.exe captype.exe editcap.exe mergecap.exe text2pcap.exe \
-	randpkt.exe reordercap.exe dumpcap.exe androiddump.exe dftest.exe
+	randpkt.exe reordercap.exe dumpcap.exe dftest.exe
 
 !IFDEF QT5_BASE_DIR
 EXECUTABLES=$(EXECUTABLES) $(PROGRAM_NAME).exe
@@ -225,7 +218,7 @@ RESOURCES=image\wireshark.res image\file_dlg_win32.res \
 	image\rawshark.res image\reordercap.res image\libwsutil.res
 
 
-all: $(LIBS_CHECK) config.h ui\qt\config.pri tools image codecs $(C_ARES_DLL) $(ADNS_DLL) $(ZLIB_DLL) wsutil wiretap epan $(EXECUTABLES) wireshark.bsc $(RESOURCES) help install-all
+all: $(LIBS_CHECK) config.h ui\qt\config.pri tools image $(C_ARES_DLL) $(ADNS_DLL) $(ZLIB_DLL) wsutil codecs wiretap epan randpkt_core extcap $(EXECUTABLES) wireshark.bsc $(RESOURCES) help install-all
 
 !IFDEF MAKENSIS
 packaging: all
@@ -290,6 +283,7 @@ wireshark.bsc: \
 	plugins\wimax\*.sbr		\
 	plugins\wimaxasncp\*.sbr	\
 	plugins\wimaxmacphy\*.sbr	\
+	randpkt_core\*.sbr		\
 	ui\*.sbr			\
 	ui\cli\*.sbr			\
 	ui\gtk\*.sbr			\
@@ -316,16 +310,16 @@ $(RESOURCES): image
 ##       (These variables (as well as '$(guilibsdll)' and '$(conlibsdll)') are defined in win32.mak).
 wiretap\wiretap-$(WTAP_VERSION).lib: image $(ZLIB_DLL) wiretap
 
-$(PROGRAM_NAME_GTK).exe	: $(LIBS_CHECK) config.h $(wireshark_gtk_OBJECTS) capchild caputils codecs epan ui gtk win32 image\wireshark.res image\file_dlg_win32.res wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib codecs\codecs.lib ui\libui.lib ui\gtk\libgtkui.lib ui\win32\libgtkui_win32.lib plugins
+$(PROGRAM_NAME_GTK).exe	: $(LIBS_CHECK) config.h $(wireshark_gtk_OBJECTS) capchild caputils epan ui gtk win32 image\wireshark.res image\file_dlg_win32.res wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib codecs\libwscodecs.lib ui\libui.lib ui\gtk\libgtkui.lib ui\win32\libgtkui_win32.lib plugins
 	@$(ECHO) Linking $@
 	$(LINK) @<<
-		/OUT:$(PROGRAM_NAME_GTK).exe $(guiflags) $(guilibsdll) $(LDFLAGS) /LARGEADDRESSAWARE $(wireshark_gtk_LIBS) $(GTK_LIBS) capchild\libcapchild.lib caputils\libcaputils.lib codecs\codecs.lib ui\gtk\libgtkui.lib ui\win32\libgtkui_win32.lib ui\libui.lib $(wireshark_gtk_OBJECTS) image\wireshark.res image\file_dlg_win32.res
+		/OUT:$(PROGRAM_NAME_GTK).exe $(guiflags) $(guilibsdll) $(LDFLAGS) /LARGEADDRESSAWARE $(wireshark_gtk_LIBS) $(GTK_LIBS) capchild\libcapchild.lib caputils\libcaputils.lib codecs\libwscodecs.lib ui\gtk\libgtkui.lib ui\win32\libgtkui_win32.lib ui\libui.lib $(wireshark_gtk_OBJECTS) image\wireshark.res image\file_dlg_win32.res
 <<
 !IFDEF MANIFEST_INFO_REQUIRED
 	mt.exe -nologo -manifest "wireshark.exe.manifest" -outputresource:$(PROGRAM_NAME).exe;1
 !ENDIF
 
-$(PROGRAM_NAME).exe	: install-generated-files $(LIBS_CHECK) config.h capchild caputils codecs epan ui qt wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib plugins
+$(PROGRAM_NAME).exe	: install-generated-files $(LIBS_CHECK) config.h capchild caputils codecs\libwscodecs.lib epan ui qt wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib plugins
 
 tshark.exe	: $(LIBS_CHECK) config.h $(tshark_OBJECTS) capchild caputils epan ui cli image\tshark.res wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib plugins
 	@$(ECHO) Linking $@
@@ -421,22 +415,13 @@ dftest.exe	: $(dftest_OBJECTS) epan ui
 	mt.exe -nologo -manifest "dftest.exe.manifest" -outputresource:dftest.exe;1
 !ENDIF
 
-randpkt.exe	: $(randpkt_OBJECTS)
+randpkt.exe	: $(randpkt_OBJECTS) randpkt_core
 	@$(ECHO) Linking $@
 	$(LINK) @<<
 		/OUT:randpkt.exe $(conflags) $(conlibsdll) $(LDFLAGS) $(randpkt_LIBS) $(randpkt_OBJECTS)
 <<
 !IFDEF MANIFEST_INFO_REQUIRED
 	mt.exe -nologo -manifest "randpkt.exe.manifest" -outputresource:randpkt.exe;1
-!ENDIF
-
-androiddump.exe	: $(LIBS_CHECK) config.h androiddump.obj wsutil\libwsutil.lib wiretap\wiretap-$(WTAP_VERSION).lib
-	@$(ECHO) Linking $@
-	$(LINK) @<<
-		/OUT:androiddump.exe $(conflags) $(conlibsdll) $(LDFLAGS) /SUBSYSTEM:WINDOWS androiddump.obj $(androiddump_LIBS)
-<<
-!IFDEF MANIFEST_INFO_REQUIRED
-	mt.exe -nologo -manifest "androiddump.exe.manifest" -outputresource:androiddump.exe;1
 !ENDIF
 
 dumpcap.exe	: $(LIBS_CHECK) config.h $(dumpcap_OBJECTS) caputils wsutil\libwsutil.lib image\dumpcap.res
@@ -468,6 +453,7 @@ config.h	: config.h.win32 config.nmake
 	    -e "s/@HAVE_REMOTE@/$(PCAP_HAVE_REMOTE_CONFIG)/" \
 	    -e "s/@HAVE_PCAP_REMOTE@/$(PCAP_REMOTE_CONFIG)/" \
 	    -e "s/@HAVE_PCAP_OPEN@/$(PCAP_OPEN_CONFIG)/" \
+	    -e "s/@HAVE_PCAP_CREATE@/$(PCAP_CREATE_CONFIG)/" \
 	    -e "s/@HAVE_PCAP_OPEN_DEAD@/$(PCAP_OPEN_DEAD_CONFIG)/" \
 	    -e "s/@HAVE_PCAP_LIST_DATALINKS@/$(PCAP_LIST_DATALINKS_CONFIG)/" \
 	    -e "s/@HAVE_PCAP_FREE_DATALINKS@/$(PCAP_FREE_DATALINKS_CONFIG)/" \
@@ -485,8 +471,8 @@ config.h	: config.h.win32 config.nmake
 	    -e "s/@HAVE_SMI@/$(SMI_CONFIG)/" \
 	    -e "s/@HAVE_GEOIP@/$(GEOIP_CONFIG)/" \
 	    -e "s/@HAVE_GEOIP_V6@/$(GEOIP_V6_CONFIG)/" \
+	    -e "s/@HAVE_LIBSSH/$(LIBSSH_CONFIG)/" \
 	    -e "s/@HAVE_SOFTWARE_UPDATE@/$(WINSPARKLE_CONFIG)/" \
-	    -e "s/@INET6@/$(INET6_CONFIG)/" \
 	    -e "s/@HAVE_NTDDNDIS_H@/$(NTDDNDIS_CONFIG)/" \
 	    -e "s/@PCAP_NG_DEFAULT@/$(PCAP_NG_DEFAULT)/" \
 	    -e "s/@WANT_PACKET_EDITOR@/$(WANT_PACKET_EDITOR)/" \
@@ -517,6 +503,7 @@ SMI_DIR = $(SMI_DIR:\=/)
 KFW_DIR = $(KFW_DIR:\=/)
 LUA_DIR = $(LUA_DIR:\=/)
 GEOIP_DIR = $(GEOIP_DIR:\=/)
+LIBSSH_DIR = $(LIBSSH_DIR:\=/)
 WINSPARKLE_DIR = $(WINSPARKLE_DIR:\=/)
 
 GCC_DLL = $(GCC_DLL)
@@ -570,9 +557,6 @@ text2pcap-scanner.c : text2pcap-scanner.l
 text2pcap-scanner.obj : text2pcap-scanner.c
 	$(CC) $(GENERATED_CFLAGS) -Fd.\ -c $?
 
-androiddump.obj : extcap/androiddump.c
-	$(CC) $(CFLAGS) -Fd.\ -c $?
-
 test-programs:
 	cd epan
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake test-programs
@@ -581,7 +565,6 @@ test-programs:
 clean-local:
 	rm -f $(wireshark_gtk_OBJECTS) $(tshark_OBJECTS) $(tfshark_OBJECTS) $(dumpcap_OBJECTS) $(rawshark_OBJECTS) \
 		$(EXECUTABLES) *.nativecodeanalysis.xml *.pdb *.sbr *.exe.manifest \
-		androiddump.obj \
 		capinfos.obj capinfos.exp capinfos.lib \
 		captype.obj captype.exp captype.lib \
 		editcap.obj editcap.exp editcap.lib \
@@ -592,7 +575,7 @@ clean-local:
 		dftest.obj dftest.exe randpkt.obj randpkt.exe \
 		doxygen.cfg \
 		$(RESOURCES) libwireshark.dll wiretap-$(WTAP_VERSION).dll \
-		libwsutil.dll \
+		libwscodecs.lib libwsutil.dll \
 		wireshark.bsc
 	rm -rf $(INSTALL_DIR)
 	rm -rf $(INSTALL_DIR_QT)
@@ -607,6 +590,10 @@ clean: clean-local
 	cd ../capchild
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake clean
 	cd ../caputils
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake clean
+	cd ../randpkt_core
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake clean
+	cd ../extcap
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake clean
 	cd ../codecs
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake clean
@@ -664,6 +651,10 @@ distclean: distclean-local
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake distclean
 	cd ../caputils
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake distclean
+	cd ../randpkt_core
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake distclean
+	cd ../extcap
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake distclean
 	cd ../codecs
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake distclean
 	cd ../ui
@@ -712,6 +703,10 @@ maintainer-clean: maintainer-clean-local
 	cd ../capchild
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake maintainer-clean
 	cd ../caputils
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake maintainer-clean
+	cd ../randpkt_core
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake maintainer-clean
+	cd ../extcap
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake maintainer-clean
 	cd ../codecs
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake maintainer-clean
@@ -829,6 +824,16 @@ capchild:: help config.h version.h doxygen
 caputils:: help config.h version.h doxygen
 	cd caputils
 	$(MAKE) /$(MAKEFLAGS) /f Makefile.nmake libcaputils.lib
+	cd ..
+
+randpkt_core:: help config.h version.h doxygen
+	cd randpkt_core
+	$(MAKE) /$(MAKEFLAGS) /f Makefile.nmake librandpkt_core.lib
+	cd ..
+
+extcap::
+	cd extcap
+	$(MAKE) /$(MAKEFLAGS) /f Makefile.nmake all
 	cd ..
 
 codecs::
@@ -1088,6 +1093,12 @@ process_libs:
 		GeoIP-$(GEOIP_PKG)-$(WIRESHARK_TARGET_PLATFORM)ws.zip \
 		"$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
 !ENDIF
+!IFDEF LIBSSH_DIR
+	@$(SH) $(WIN_SETUP) "$(WIN_SETUP_OPT)" "$(WIRESHARK_LIB_DIR)" \
+		libssh-$(LIBSSH_PKG)-$(WIRESHARK_TARGET_PLATFORM)ws \
+		libssh-$(LIBSSH_PKG)-$(WIRESHARK_TARGET_PLATFORM)ws.zip \
+		"$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
+!ENDIF
 !IFDEF WINSPARKLE_DIR
 	@$(SH) $(WIN_SETUP) "$(WIN_SETUP_OPT)" "$(WIRESHARK_LIB_DIR)" \
 		. \
@@ -1097,7 +1108,7 @@ process_libs:
 !IFDEF HHC_DIR
 	@$(SH) $(WIN_SETUP) "$(WIN_SETUP_OPT)" "$(WIRESHARK_LIB_DIR)" \
 		user-guide \
-		user-guide-g7ea0d6c.zip \
+		user-guide-gdf2fcdf.zip \
 		"$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
 !ENDIF
 !IFDEF UPX
@@ -1112,6 +1123,10 @@ process_libs:
 		nasm-2.09.08-win32.zip \
 		"$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
 !ENDIF
+	@$(SH) $(WIN_SETUP) "$(WIN_SETUP_OPT)" "$(WIRESHARK_LIB_DIR)" \
+		. \
+		USBPcapSetup-1.1.0.0-g794bf26-1.exe \
+		"$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
 !IF "$(WIN_SETUP_OPT)" == "--download"
 	@$(SH) $(WIN_SETUP) --settag "$(WIRESHARK_LIB_DIR)" "$(DOWNLOAD_TAG)" "$(WIRESHARK_TARGET_PLATFORM)"
 !ENDIF
@@ -1180,6 +1195,7 @@ clean_setup:
 	rm -r -f AirPcap_Devpack_4_1_0_1622
 	rm -r -f GeoIP-1.4.5ws
 	rm -r -f GeoIP-1.*-win??ws
+	rm -r -f libssh-0.7.2
 	rm -r -f WinSparkle-0.3-44-g2c8d9d3-win??ws
 	rm -r -f WpdPack
 	cd "$(MAKEDIR)"
@@ -1217,6 +1233,9 @@ install-generated-files: doc
 	if exist epan\libwireshark.lib xcopy .\epan\libwireshark.lib $(INSTALL_DIR) /d
 	if exist epan\libwireshark.pdb xcopy .\epan\libwireshark.pdb $(INSTALL_DIR) /d
 !ENDIF
+	xcopy ".\codecs\libwscodecs.dll" $(INSTALL_DIR) /d
+	if exist ".\codecs\libwscodecs.lib" xcopy ".\codecs\libwscodecs.lib" $(INSTALL_DIR) /d
+	if exist ".\codecs\libwscodecs.pdb" xcopy ".\codecs\libwscodecs.pdb" $(INSTALL_DIR) /d
 	xcopy ".\wiretap\wiretap-$(WTAP_VERSION).dll" $(INSTALL_DIR) /d
 	if exist ".\wiretap\wiretap-$(WTAP_VERSION).lib" xcopy ".\wiretap\wiretap-$(WTAP_VERSION).lib" $(INSTALL_DIR) /d
 	if exist ".\wiretap\wiretap-$(WTAP_VERSION).pdb" xcopy ".\wiretap\wiretap-$(WTAP_VERSION).pdb" $(INSTALL_DIR) /d
@@ -1228,11 +1247,19 @@ install-generated-files: doc
 	if exist $(PROGRAM_NAME_GTK).bsc xcopy $(PROGRAM_NAME_GTK).bsc $(INSTALL_DIR) /d
 	if exist ".\docbook\user-guide.chm" xcopy ".\docbook\user-guide.chm" $(INSTALL_DIR) /d
 	if not exist $(INSTALL_DIR)\extcap mkdir $(INSTALL_DIR)\extcap
-	if exist androiddump.exe xcopy androiddump.exe $(INSTALL_DIR)\extcap /d
-	if exist androiddump.pdb xcopy androiddump.pdb $(INSTALL_DIR)\extcap /d
+	if exist ".\extcap\androiddump.exe" xcopy ".\extcap\androiddump.exe" $(INSTALL_DIR)\extcap /d
+	if exist ".\extcap\androiddump.pdb" xcopy ".\extcap\androiddump.pdb" $(INSTALL_DIR)\extcap /d
+	if exist ".\extcap\randpktdump.exe" xcopy ".\extcap\randpktdump.exe" $(INSTALL_DIR)\extcap /d
+	if exist ".\extcap\randpktdump.pdb" xcopy ".\extcap\randpktdump.pdb" $(INSTALL_DIR)\extcap /d
+	if exist ".\extcap\sshdump.exe" xcopy ".\extcap\sshdump.exe" $(INSTALL_DIR)\extcap /d
+	if exist ".\extcap\sshdump.pdb" xcopy ".\extcap\sshdump.pdb" $(INSTALL_DIR)\extcap /d
 	if not exist $(INSTALL_DIR_QT)\extcap mkdir $(INSTALL_DIR_QT)\extcap
-	if exist androiddump.exe xcopy androiddump.exe $(INSTALL_DIR_QT)\extcap /d
-	if exist androiddump.pdb xcopy androiddump.pdb $(INSTALL_DIR_QT)\extcap /d
+	if exist ".\extcap\androiddump.exe" xcopy ".\extcap\androiddump.exe" $(INSTALL_DIR_QT)\extcap /d
+	if exist ".\extcap\androiddump.pdb" xcopy ".\extcap\androiddump.pdb" $(INSTALL_DIR_QT)\extcap /d
+	if exist ".\extcap\randpktdump.exe" xcopy ".\extcap\randpktdump.exe" $(INSTALL_DIR_QT)\extcap /d
+	if exist ".\extcap\randpktdump.pdb" xcopy ".\extcap\randpktdump.pdb" $(INSTALL_DIR_QT)\extcap /d
+	if exist ".\extcap\sshdump.exe" xcopy ".\extcap\sshdump.exe" $(INSTALL_DIR_QT)\extcap /d
+	if exist ".\extcap\sshdump.pdb" xcopy ".\extcap\sshdump.pdb" $(INSTALL_DIR_QT)\extcap /d
 	if exist capinfos.exe xcopy capinfos.exe $(INSTALL_DIR) /d
 	if exist capinfos.pdb xcopy capinfos.pdb $(INSTALL_DIR) /d
 	if exist captype.exe xcopy captype.exe $(INSTALL_DIR) /d
@@ -1459,6 +1486,9 @@ install-all: install-generated-files
 !IFDEF GEOIP_DIR
 	xcopy "$(GEOIP_DIR)\bin\libGeoip-1.dll" $(INSTALL_DIR) /d
 !ENDIF
+!IFDEF LIBSSH_DIR
+	xcopy "$(LIBSSH_DIR)\bin\libssh.dll" $(INSTALL_DIR) /d
+!ENDIF
 !IFDEF WINSPARKLE_DIR
 	xcopy "$(WINSPARKLE_DIR)\WinSparkle.dll" $(INSTALL_DIR) /d
 !ENDIF
@@ -1483,6 +1513,8 @@ checkapi: checkapi_local
 	cd ../capchild
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake checkapi
 	cd ../caputils
+	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake checkapi
+	cd ../randpkt_core
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake checkapi
 	cd ../codecs
 	$(MAKE) /$(MAKEFLAGS) -f Makefile.nmake checkapi

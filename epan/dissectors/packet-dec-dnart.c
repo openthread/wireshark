@@ -172,17 +172,6 @@ static gint ett_dec_sess_contents = -1;
 static gint dec_dna_total_bytes_this_segment = 0;
 static gint dec_dna_previous_total = 0;
 
-/*static const value_string protocol_id_vals[] = {
-    { 0x6001, "DEC DNA dump/load" },
-    { 0x6002, "DEC DNA Remote Console" },
-    { 0x6003, "DEC DNA routing" },
-    { 0x6004, "DEC DNA Local Area Transport" },
-    { 0x6005, "DEC DNA diagnostics" },
-    { 0x6006, "DEC DNA Customer specific" },
-    { 0x6007, "DEC DNA System Communication Architecture" },
-    { 0,    NULL }
-};*/
-
 static const value_string rt_msg_type_vals[] = {
     { 0x0   , "Initialization message" },
     { 0x1   , "Verification message" },
@@ -353,13 +342,13 @@ set_dnet_address(packet_info *pinfo, address *paddr_src, address *paddr_tgt)
     if (paddr_tgt->type != AT_STRINGZ && paddr_src->type == AT_ETHER) {
         char *addr = dnet_ntoa((const guint8 *)paddr_src->data);
         if (addr != NULL)
-            SET_ADDRESS(paddr_tgt, AT_STRINGZ, 1,
+            set_address(paddr_tgt, AT_STRINGZ, 1,
                     wmem_strdup(pinfo->pool, addr));
     }
 }
 
-static void
-dissect_dec_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dec_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8  padding_length;
     guint8  forward;
@@ -522,7 +511,7 @@ dissect_dec_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             tree, hf_dec_nsp_msgs, tvb, offset, 1, nsp_msg_type);
         if (nsp_msg_type == NOP_MSG) {
             /* Only test data in this msg */
-            return;
+            return offset;
         }
         nsp_msg_tree = proto_item_add_subtree(ti_local, ett_dec_rt_nsp_msg);
         /* Get past the nsp_msg_type */
@@ -532,7 +521,7 @@ dissect_dec_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         if (nsp_msg_type == CONN_ACK_MSG) {
             col_set_str(pinfo->cinfo, COL_INFO, "NSP connect acknowledgement");
             /* Done with this msg type */
-            return;
+            return offset;
         }
         /* All other messages have a source node */
         proto_tree_add_item(nsp_msg_tree, hf_dec_rt_src_node, tvb, offset, 2, ENC_LITTLE_ENDIAN);
@@ -544,6 +533,7 @@ dissect_dec_rt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                            offset,
                            nsp_msg_type);
     }
+    return tvb_captured_length(tvb);
 }
 
 static int
@@ -1298,7 +1288,7 @@ proto_register_dec_rt(void)
           { "Nodes visited ty this package", "dec_dna.vst_node",
             FT_UINT8,    BASE_DEC,    NULL,   0x0,
             "Nodes visited", HFILL }},
-        /* Control messsage items */
+        /* Control message items */
         { &hf_dec_ctl_msgs,
           { "Routing control message",        "dec_dna.rt.msg_type",
             FT_UINT8,    BASE_HEX,    VALS(rt_msg_type_vals),    0xe,

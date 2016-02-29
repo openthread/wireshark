@@ -60,8 +60,8 @@ static const value_string dvb_rcs_cur_next_vals[] = {
 };
 
 
-static void
-dissect_dvb_data_mpe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dvb_data_mpe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
     guint       offset = 0, tot_len = 0;
@@ -130,8 +130,7 @@ dissect_dvb_data_mpe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     packet_mpeg_sect_crc(tvb, pinfo, dvb_data_mpe_tree, 0, tot_len - 1);
-    return;
-
+    return tvb_captured_length(tvb);
 }
 
 void

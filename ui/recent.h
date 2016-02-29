@@ -63,6 +63,11 @@ typedef struct _col_width_data {
 #define COLUMN_XALIGN_CENTER  'C'
 #define COLUMN_XALIGN_RIGHT   'R'
 
+typedef enum {
+  BYTES_HEX,
+  BYTES_BITS
+} bytes_view_type;
+
 /** Recent settings. */
 typedef struct recent_settings_tag {
     gboolean    main_toolbar_show;
@@ -78,7 +83,7 @@ typedef struct recent_settings_tag {
     gint        gui_time_precision;
     ts_seconds_type gui_seconds_format;
     gint        gui_zoom_level;
-    gint        gui_bytes_view;
+    bytes_view_type gui_bytes_view;
 
     gint        gui_geometry_main_x;
     gint        gui_geometry_main_y;
@@ -102,6 +107,7 @@ typedef struct recent_settings_tag {
     GList      *endpoint_tabs;                      /* enabled endpoint dialog tabs */
     gchar      *gui_fileopen_remembered_dir;        /* folder of last capture loaded in File Open dialog */
     gboolean    gui_rlc_use_pdus_from_mac;
+    GList      *custom_colors;
 } recent_settings_t;
 
 /** Global recent settings. */

@@ -43,8 +43,8 @@ static dissector_handle_t isakmp_handle;
  * UDP Encapsulation of IPsec Packets
  * draft-ietf-ipsec-udp-encaps-06.txt
  */
-static void
-dissect_udpencap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_udpencap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   tvbuff_t   *next_tvb;
   proto_tree *udpencap_tree;
@@ -76,6 +76,7 @@ dissect_udpencap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       call_dissector(esp_handle, tvb, pinfo, tree);
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void

@@ -29,6 +29,7 @@
 #include <epan/crc32-tvb.h>
 #include <epan/reassemble.h>
 #include <epan/conversation.h>
+#include <epan/proto_data.h>
 
 /* Packet Classes */
 #define TS2C_STANDARD      0xbef0
@@ -710,7 +711,7 @@ static ts2_conversation* ts2_get_conversation(packet_info *pinfo)
 
 
 /* Dissect a TS2 packet */
-static void dissect_ts2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_ts2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     ts2_conversation *conversation_data;
     guint16 type = tvb_get_letohs(tvb, 2);
@@ -734,7 +735,7 @@ static void dissect_ts2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 switch(type) {
                     case TS2T_LOGINREQUEST:
                         conversation_data->server_port=pinfo->destport;
-                        conversation_data->server_addr=pinfo->dst;
+                        copy_address_shallow(&conversation_data->server_addr, &pinfo->dst);
                         break;
                 }
                 break;
@@ -782,7 +783,7 @@ static void dissect_ts2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         proto_tree_add_item(ts2_tree, hf_ts2_nick, tvb, 150, 1, ENC_ASCII|ENC_BIG_ENDIAN);
 
                         conversation_data->server_port=pinfo->destport;
-                        conversation_data->server_addr=pinfo->dst;
+                        copy_address_shallow(&conversation_data->server_addr, &pinfo->dst);
 
                         break;
                     case TS2T_LOGINREPLY:
@@ -807,6 +808,7 @@ static void dissect_ts2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
         }
     } /* if (tree) */
+    return tvb_captured_length(tvb);
 }
 
 
@@ -1015,25 +1017,25 @@ void proto_register_ts2(void)
                 NULL, HFILL }
         },
         { &hf_ts2_channel_id,
-            { "Channel Id", "ts2.chanelid",
+            { "Channel Id", "ts2.channelid",
                 FT_UINT32, BASE_DEC,
                 NULL, 0x0,
                 NULL, HFILL }
         },
         { &hf_ts2_channel_name,
-            { "Channel Name", "ts2.chanelname",
+            { "Channel Name", "ts2.channelname",
                 FT_STRINGZ, BASE_NONE,
                 NULL, 0x0,
                 NULL, HFILL }
         },
         { &hf_ts2_channel_topic,
-            { "Channel Topic", "ts2.chaneltopic",
+            { "Channel Topic", "ts2.channeltopic",
                 FT_STRINGZ, BASE_NONE,
                 NULL, 0x0,
                 NULL, HFILL }
         },
         { &hf_ts2_channel_description,
-            { "Channel Description", "ts2.chaneldescription",
+            { "Channel Description", "ts2.channeldescription",
                 FT_STRINGZ, BASE_NONE,
                 NULL, 0x0,
                 NULL, HFILL }

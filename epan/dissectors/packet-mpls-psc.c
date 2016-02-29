@@ -108,8 +108,8 @@ const range_string mpls_psc_dpath_rvals[] = {
     { 0,   0, NULL                       }
 };
 
-static void
-dissect_mpls_psc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpls_psc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *psc_tree;
@@ -132,7 +132,7 @@ dissect_mpls_psc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                  fpath, path);
 
     if (!tree) {
-        return;
+        return tvb_captured_length(tvb);
     }
 
     /* create display subtree for the protocol */
@@ -157,6 +157,7 @@ dissect_mpls_psc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += 1;
     /* tlv len */
     proto_tree_add_item(psc_tree, hf_mpls_psc_tlvlen, tvb, offset, 1, ENC_BIG_ENDIAN);
+    return tvb_captured_length(tvb);
 }
 
 void

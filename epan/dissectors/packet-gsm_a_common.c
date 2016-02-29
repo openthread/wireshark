@@ -34,6 +34,7 @@
 #include <epan/expert.h>
 #include <epan/tap.h>
 #include <epan/stat_tap_ui.h>
+#include <wsutil/str_util.h>
 #include "packet-gsm_a_common.h"
 #include "packet-bssap.h"
 #include "packet-gmr1_common.h"
@@ -70,7 +71,7 @@ static const value_string gsm_a_skip_ind_vals[] = {
     { 1, "PLMN identity of the Common PLMN in the broadcast system information"},
     { 2, "PLMN identity of the first Additional PLMN in the broadcast system information"},
     { 3, "PLMN identity of the second Additional PLMN in the broadcast system information"},
-    { 4, "PLMN identity of the third Additional PLMN in the broadcast sytem information"},
+    { 4, "PLMN identity of the third Additional PLMN in the broadcast system information"},
     { 5, "PLMN identity of the fourth Additional PLMN in the broadcast system information"},
     { 6, "Reserved"},
     { 7, "Reserved"},
@@ -756,9 +757,6 @@ static expert_field ei_gsm_a_unknown_pdu_type = EI_INIT;
 static expert_field ei_gsm_a_no_element_dissector = EI_INIT;
 static expert_field ei_gsm_a_format_not_supported = EI_INIT;
 static expert_field ei_gsm_a_mobile_identity_type = EI_INIT;
-
-
-static char a_bigbuf[1024];
 
 sccp_assoc_info_t* sccp_assoc;
 
@@ -1934,51 +1932,6 @@ static dgt_set_t Dgt1_9_bcd = {
 /* FUNCTIONS */
 
 /*
- * Unpack BCD input pattern into output ASCII pattern
- *
- * Input Pattern is supplied using the same format as the digits
- *
- * Returns: length of unpacked pattern
- */
-int
-my_dgt_tbcd_unpack(
-    char    *out,       /* ASCII pattern out */
-    guchar  *in,        /* packed pattern in */
-    int     num_octs,   /* Number of octets to unpack */
-    dgt_set_t   *dgt        /* Digit definitions */
-    )
-{
-    int cnt = 0;
-    unsigned char i;
-
-    while (num_octs)
-    {
-        /*
-         * unpack first value in byte
-         */
-        i = *in++;
-        *out++ = dgt->out[i & 0x0f];
-        cnt++;
-
-        /*
-         * unpack second value in byte
-         */
-        i >>= 4;
-
-        if (i == 0x0f)  /* odd number bytes - hit filler */
-            break;
-
-        *out++ = dgt->out[i & 0xf];   /* ( '& 0xf' added to keep VS Code Analysis happy ) */
-        cnt++;
-        num_octs--;
-    }
-
-    *out = '\0';
-
-    return cnt;
-}
-
-/*
  * Decode the MCC/MNC from 3 octets in 'octs'
  */
 static void
@@ -2182,7 +2135,6 @@ de_mid(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guin
 {
     guint8    oct;
     guint32   curr_offset;
-    guint8   *poctets;
     guint32   value;
     gboolean  odd;
     const gchar *digit_str;
@@ -2260,24 +2212,20 @@ de_mid(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guin
 
         proto_tree_add_item(tree, hf_gsm_a_mobile_identity_type, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
 
-        /* XXX - dynamically allocate a_bigbuf since the only use is now here */
-        a_bigbuf[0] = Dgt1_9_bcd.out[(oct & 0xf0) >> 4];
-        curr_offset++;
+        if (curr_offset - offset >= len) /* Sanity check */
+            return (curr_offset - offset);
 
-        poctets = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, curr_offset, len - (curr_offset - offset));
-
-        my_dgt_tbcd_unpack(&a_bigbuf[1], poctets, len - (curr_offset - offset),
-            &Dgt1_9_bcd);
+        digit_str = tvb_bcd_dig_to_wmem_packet_str(tvb, curr_offset, len - (curr_offset - offset), NULL, TRUE);
 
         proto_tree_add_string_format(tree,
             hf_gsm_a_imei,
             tvb, curr_offset, len - (curr_offset - offset),
-            a_bigbuf,
+            digit_str,
             "BCD Digits: %s",
-            a_bigbuf);
+            digit_str);
 
         if (add_string)
-            g_snprintf(add_string, string_len, " - IMEI (%s)", a_bigbuf);
+            g_snprintf(add_string, string_len, " - IMEI (%s)", digit_str);
 
         curr_offset += len - (curr_offset - offset);
         break;
@@ -3580,10 +3528,10 @@ static stat_tap_table_item gsm_a_stat_fields[] = {
     {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}
     };
 
-static void gsm_a_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data, const char *table_title, const value_string *msg_strings)
+static void gsm_a_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data, const char *table_title, const value_string *msg_strings)
 {
     int num_fields = sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item);
-    new_stat_tap_table* table;
+    stat_tap_table* table;
     guint i;
     stat_tap_table_item_type items[sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item)];
 
@@ -3612,61 +3560,61 @@ static void gsm_a_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb 
     }
 }
 
-static void gsm_a_bssmap_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_bssmap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F BSSMAP Statistics", gsm_a_bssmap_msg_strings);
 }
 
-static void gsm_a_dtap_mm_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_mm_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP Mobility Management Statistics", gsm_a_dtap_msg_mm_strings);
 }
 
-static void gsm_a_dtap_rr_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_rr_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP Radio Resource Management Statistics", gsm_a_dtap_msg_rr_strings);
 }
 
-static void gsm_a_dtap_cc_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_cc_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP Call Control Statistics", gsm_a_dtap_msg_cc_strings);
 }
 
-static void gsm_a_dtap_gmm_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_gmm_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP GPRS Mobility Management Statistics", gsm_a_dtap_msg_gmm_strings);
 }
 
-static void gsm_a_dtap_sm_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_sm_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP GPRS Session Management Statistics", gsm_a_dtap_msg_sm_strings);
 }
 
-static void gsm_a_dtap_sms_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_sms_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP Short Message Service Statistics", gsm_a_dtap_msg_sms_strings);
 }
 
-static void gsm_a_dtap_tp_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_tp_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP Special Conformance Testing Functions", gsm_a_dtap_msg_tp_strings);
 }
 
-static void gsm_a_dtap_ss_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_ss_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F DTAP Supplementary Services Statistics", gsm_a_dtap_msg_ss_strings);
 }
 
-static void gsm_a_sacch_rr_stat_init(new_stat_tap_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_sacch_rr_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
 {
     gsm_a_stat_init(new_stat, gui_callback, gui_data,
                     "GSM A-I/F SACCH Statistics", gsm_a_rr_short_pd_msg_strings);
@@ -3677,7 +3625,7 @@ gsm_a_stat_packet(void *tapdata, const void *gatr_ptr, guint8 pdu_type, int prot
 {
     new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
     const gsm_a_tap_rec_t *gatr = (const gsm_a_tap_rec_t *) gatr_ptr;
-    new_stat_tap_table* table;
+    stat_tap_table* table;
     stat_tap_table_item_type* msg_data;
     guint i = 0;
 
@@ -3685,7 +3633,7 @@ gsm_a_stat_packet(void *tapdata, const void *gatr_ptr, guint8 pdu_type, int prot
     if (pdu_type == BSSAP_PDU_TYPE_DTAP && (int)gatr->protocol_disc != protocol_disc) return FALSE;
     if (pdu_type == GSM_A_PDU_TYPE_SACCH && gatr->protocol_disc != 0) return FALSE;
 
-    table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, i);
+    table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
     msg_data = new_stat_tap_get_field_data(table, gatr->message_type, COUNT_COLUMN);
     msg_data->value.uint_value++;
     new_stat_tap_set_field_data(table, gatr->message_type, COUNT_COLUMN, msg_data);
@@ -3754,7 +3702,7 @@ gsm_a_sacch_rr_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t
 }
 
 static void
-gsm_a_stat_reset(new_stat_tap_table* table)
+gsm_a_stat_reset(stat_tap_table* table)
 {
     guint element;
     stat_tap_table_item_type* item_data;
@@ -3768,7 +3716,7 @@ gsm_a_stat_reset(new_stat_tap_table* table)
 }
 
 static void
-gsm_a_stat_free_table_item(new_stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
+gsm_a_stat_free_table_item(stat_tap_table* table _U_, guint row _U_, guint column, stat_tap_table_item_type* field_data)
 {
     if (column != MSG_NAME_COLUMN) return;
     g_free((char*)field_data->value.string_value);
@@ -4717,7 +4665,7 @@ proto_register_gsm_a_common(void)
         { PARAM_FILTER, "filter", "Filter", NULL, TRUE }
     };
 
-    static new_stat_tap_ui gsm_a_bssmap_stat_table = {
+    static stat_tap_table_ui gsm_a_bssmap_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface BSSMAP",
         "gsm_a",
@@ -4732,7 +4680,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_mm_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_mm_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP Mobility Management",
         "gsm_a",
@@ -4747,7 +4695,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_rr_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_rr_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP Radio Resource Management",
         "gsm_a",
@@ -4762,7 +4710,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_cc_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_cc_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP Call Control",
         "gsm_a",
@@ -4777,7 +4725,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_gmm_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_gmm_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP GPRS Mobility Management",
         "gsm_a",
@@ -4792,7 +4740,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_sm_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_sm_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP GPRS Session Management",
         "gsm_a",
@@ -4807,7 +4755,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_sms_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_sms_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP Short Message Service",
         "gsm_a",
@@ -4822,7 +4770,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_tp_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_tp_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP Special Conformance Testing Functions",
         "gsm_a",
@@ -4837,7 +4785,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_dtap_ss_stat_table = {
+    static stat_tap_table_ui gsm_a_dtap_ss_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface DTAP Supplementary Services",
         "gsm_a",
@@ -4852,7 +4800,7 @@ proto_register_gsm_a_common(void)
         NULL
     };
 
-    static new_stat_tap_ui gsm_a_sacch_rr_stat_table = {
+    static stat_tap_table_ui gsm_a_sacch_rr_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_GSM,
         "A-Interface SACCH",
         "gsm_a",
@@ -4890,16 +4838,16 @@ proto_register_gsm_a_common(void)
 
     gsm_a_tap = register_tap("gsm_a");
 
-    register_new_stat_tap_ui(&gsm_a_bssmap_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_mm_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_rr_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_cc_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_gmm_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_sms_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_sm_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_ss_stat_table);
-    register_new_stat_tap_ui(&gsm_a_dtap_tp_stat_table);
-    register_new_stat_tap_ui(&gsm_a_sacch_rr_stat_table);
+    register_stat_tap_table_ui(&gsm_a_bssmap_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_mm_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_rr_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_cc_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_gmm_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_sms_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_sm_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_ss_stat_table);
+    register_stat_tap_table_ui(&gsm_a_dtap_tp_stat_table);
+    register_stat_tap_table_ui(&gsm_a_sacch_rr_stat_table);
 }
 
 /*

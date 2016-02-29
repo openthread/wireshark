@@ -31,6 +31,8 @@ extern "C" {
 
 #include <pcap.h>
 
+#include "capture_opts.h"
+
 /*
  * A snapshot length of 0 is useless - and libpcap/WinPcap don't guarantee
  * that a snapshot length of 0 will work, and, on some platforms, it won't
@@ -45,25 +47,30 @@ GList *get_interface_list(int *err, char **err_str);
 GList *get_remote_interface_list(const char *hostname, const char *port,
                                  int auth_type, const char *username,
                                  const char *passwd, int *err, char **err_str);
-#endif
+#endif /* HAVE_PCAP_REMOTE */
 
 const char *linktype_val_to_name(int dlt);
 int linktype_name_to_val(const char *linktype);
 
-#ifdef HAVE_PCAP_SET_TSTAMP_PRECISION
-/*
- * Get the versions of capture libraries with which we were compiled,
- * and append them to a GString.
- */
-void request_high_resolution_timestamp(pcap_t *pcap_h);
+int get_pcap_datalink(pcap_t *pch, const char *devicename);
 
+gboolean set_pcap_datalink(pcap_t *pcap_h, int datalink, char *name,
+    char *errmsg, size_t errmsg_len,
+    char *secondary_errmsg, size_t secondary_errmsg_len);
+
+#ifdef HAVE_PCAP_SET_TSTAMP_PRECISION
 /*
  * Return TRUE if the pcap_t in question is set up for high-precision
  * time stamps, FALSE otherwise.
  */
 gboolean have_high_resolution_timestamp(pcap_t *pcap_h);
-
 #endif /* HAVE_PCAP_SET_TSTAMP_PRECISION */
+
+extern if_capabilities_t *get_if_capabilities(interface_options *interface_opts,
+    char **err_str);
+extern pcap_t *open_capture_device(capture_options *capture_opts,
+    interface_options *interface_opts, int timeout,
+    char (*open_err_str)[PCAP_ERRBUF_SIZE]);
 
 #endif /* HAVE_LIBPCAP */
 

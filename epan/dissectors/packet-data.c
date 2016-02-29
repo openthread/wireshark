@@ -29,6 +29,7 @@
 #include <epan/prefs.h>
 #include <epan/to_str.h>
 #include <wsutil/md5.h>
+#include <wsutil/str_util.h>
 
 /* proto_data cannot be static because it's referenced in the
  * print routines
@@ -57,8 +58,8 @@ static gboolean generate_md5_hash = FALSE;
 
 static gint ett_data = -1;
 
-static void
-dissect_data(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree)
+static int
+dissect_data(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree, void* data _U_)
 {
 	gint bytes;
 
@@ -109,6 +110,7 @@ dissect_data(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree)
 			PROTO_ITEM_SET_GENERATED (ti);
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

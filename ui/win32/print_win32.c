@@ -182,7 +182,6 @@ static void print_file(const char *file_name, HDC hdc, int width, int height)
     #define Y_OFFSET 5
 
     FILE* fh1;
-    size_t results;
     int cnt=0, y_pos = Y_OFFSET, y_cnt = 0;
     char buf[MAX_BUF_SIZE];
     char ch;
@@ -204,13 +203,13 @@ static void print_file(const char *file_name, HDC hdc, int width, int height)
         return;
     }
 
-    while ((results = fread(&ch, 1, 1, fh1)) != 0) {
+    while (fread(&ch, 1, 1, fh1) != 0) {
         /* end of page (form feed)? */
         if (ch == 0x0c) {
             /* send buffer */
             buf[cnt] = 0;
             TextOut(hdc, X_OFFSET,y_pos, buf, (int) strlen(buf));
-            y_pos += tm.tmHeight;
+            /*y_pos += tm.tmHeight;*/
             cnt = 0;
 
             /* reset page */

@@ -518,8 +518,8 @@ static const e_guid_t ms_guids[3] = {
     { 0x05FBC6B9, 0x5A80, 0x40E5, {0xA2, 0x2A, 0xAB, 0x40, 0x20, 0x26, 0x7E, 0x26}}     /* Bitstream Information */
 };
 
-static void
-dissect_h264(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
+static int
+dissect_h264(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_);
 
 /* byte_aligned( ) is specified as follows.
  * - If the current position in the bitstream is on a byte boundary, i.e.,
@@ -2116,7 +2116,7 @@ dissect_h264_pacsi(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, gint off
             /* Make a new subset of the existing buffer for the NAL unit */
             nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb,offset), nal_unit_size);
             /* Decode the NAL unit */
-            dissect_h264(nalu_tvb, pinfo, tree);
+            dissect_h264(nalu_tvb, pinfo, tree, NULL);
             offset += nal_unit_size;
         }
     }
@@ -2165,7 +2165,7 @@ dissect_h264_stap(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, gint 
             /* Make a new subset of the existing buffer for the NAL unit */
             nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
             /* Decode the NAL unit */
-            dissect_h264(nalu_tvb, pinfo, tree);
+            dissect_h264(nalu_tvb, pinfo, tree, NULL);
             offset += nal_unit_size;
         }
     }
@@ -2222,7 +2222,7 @@ dissect_h264_mtap(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, gint 
             /* Make a new subset of the existing buffer for the NAL unit */
             nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
             /* Decode the NAL unit */
-            dissect_h264(nalu_tvb, pinfo, tree);
+            dissect_h264(nalu_tvb, pinfo, tree, NULL);
             offset += nal_unit_size;
         }
     }
@@ -2288,7 +2288,7 @@ dissect_h264_nalu_extension (proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo
                 /* Make a new subset of the existing buffer for the NAL unit */
                 nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
                 /* Decode the NAL unit */
-                dissect_h264(nalu_tvb, pinfo, nimtap_tree);
+                dissect_h264(nalu_tvb, pinfo, nimtap_tree, NULL);
                 offset += nal_unit_size;
             }
         }
@@ -2404,8 +2404,8 @@ startover:
 }
 
 /* Code to actually dissect the packets */
-static void
-dissect_h264(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_h264(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int         offset = 0;
     proto_item *item;
@@ -2467,8 +2467,8 @@ dissect_h264(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 if ((tvb_get_guint8(tvb, offset)&0x40) == 0x40) {
                     col_append_fstr(pinfo->cinfo, COL_INFO, " End");
                 }
-                return;
-        }
+                return offset;
+            }
         }
 
         /* Unescape NAL unit */
@@ -2521,6 +2521,7 @@ dissect_h264(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             break;
         }
     } /* if (tree) */
+    return tvb_captured_length(tvb);
 }
 
 
@@ -2649,7 +2650,7 @@ dissect_h264_par_DecoderConfigurationInformation(tvbuff_t *tvb, packet_info *pin
 typedef struct _h264_capability_t {
     const gchar *id;
     const gchar *name;
-    new_dissector_t content_pdu;
+    dissector_t content_pdu;
 } h264_capability_t;
 
 static h264_capability_t h264_capability_tab[] = {
@@ -3719,12 +3720,12 @@ proto_reg_handoff_h264(void)
         dissector_add_string("rtp_dyn_payload_type","H264-SVC", h264_handle);
         dissector_add_string("rtp_dyn_payload_type","X-H264UC", h264_handle);
 
-        h264_name_handle = new_create_dissector_handle(dissect_h264_name, proto_h264);
+        h264_name_handle = create_dissector_handle(dissect_h264_name, proto_h264);
         for (ftr=h264_capability_tab; ftr->id; ftr++) {
             if (ftr->name)
                 dissector_add_string("h245.gef.name", ftr->id, h264_name_handle);
             if (ftr->content_pdu)
-                dissector_add_string("h245.gef.content", ftr->id, new_create_dissector_handle(ftr->content_pdu, proto_h264));
+                dissector_add_string("h245.gef.content", ftr->id, create_dissector_handle(ftr->content_pdu, proto_h264));
         }
         h264_prefs_initialized = TRUE;
     } else {

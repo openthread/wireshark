@@ -42,6 +42,7 @@
 #include "packet-ssl.h"
 
 #ifdef HAVE_LIBZ
+#define ZLIB_CONST
 #include <zlib.h>
 #endif
 
@@ -546,7 +547,7 @@ static spdy_stream_info_t* spdy_get_stream_info(spdy_conv_t *conv_data,
 }
 
 /*
- * Adds a data chunk to a given SPDY converstaion/stream.
+ * Adds a data chunk to a given SPDY conversation/stream.
  */
 static void spdy_add_data_chunk(spdy_conv_t *conv_data,
                                 guint32 stream_id,
@@ -758,7 +759,7 @@ static int dissect_spdy_data_payload(tvbuff_t *tvb,
         if (!is_single_chunk) {
           if (spdy_assemble_entity_bodies) {
             copied_data = (guint8 *)tvb_memdup(wmem_file_scope(),next_tvb, 0, frame->length);
-            spdy_add_data_chunk(conv_data, stream_id, pinfo->fd->num, copied_data, frame->length);
+            spdy_add_data_chunk(conv_data, stream_id, pinfo->num, copied_data, frame->length);
           } else {
             spdy_increment_data_chunk_count(conv_data, stream_id);
           }
@@ -961,7 +962,13 @@ static guint8* spdy_decompress_header_block(tvbuff_t *tvb,
   const guint8 *hptr = tvb_get_ptr(tvb, offset, length);
   guint8 *uncomp_block = (guint8 *)wmem_alloc(wmem_packet_scope(), DECOMPRESS_BUFSIZE);
 
+#ifdef z_const
+  decomp->next_in = (z_const Bytef *)hptr;
+#else
+DIAG_OFF(cast-qual)
   decomp->next_in = (Bytef *)hptr;
+DIAG_ON(cast-qual)
+#endif
   decomp->avail_in = length;
   decomp->next_out = uncomp_block;
   decomp->avail_out = DECOMPRESS_BUFSIZE;
@@ -1905,7 +1912,7 @@ void proto_register_spdy(void)
   expert_spdy = expert_register_protocol(proto_spdy);
   expert_register_field_array(expert_spdy, ei, array_length(ei));
 
-  new_register_dissector("spdy", dissect_spdy, proto_spdy);
+  spdy_handle = register_dissector("spdy", dissect_spdy, proto_spdy);
 
   spdy_module = prefs_register_protocol(proto_spdy, NULL);
   prefs_register_bool_preference(spdy_module, "assemble_data_frames",
@@ -1924,9 +1931,6 @@ void proto_register_spdy(void)
                                  "using \"Content-Encoding: \"",
                                  &spdy_decompress_body);
 
-  /** Create dissector handle and register for dissection. */
-  spdy_handle = new_create_dissector_handle(dissect_spdy, proto_spdy);
-
   register_init_routine(&spdy_init_protocol);
 
   /*
@@ -1940,7 +1944,7 @@ void proto_reg_handoff_spdy(void) {
 
   dissector_add_uint("tcp.port", TCP_PORT_SPDY, spdy_handle);
   /* Use "0" to avoid overwriting HTTPS port and still offer support over SSL */
-  ssl_dissector_add(0, "spdy", TRUE);
+  ssl_dissector_add(0, spdy_handle);
 
   data_handle = find_dissector("data");
   media_handle = find_dissector("media");

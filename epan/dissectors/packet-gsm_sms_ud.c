@@ -64,8 +64,6 @@
 void proto_register_gsm_sms_ud(void);
 void proto_reg_handoff_gsm_sms_ud(void);
 
-static void dissect_gsm_sms_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-
 static int proto_gsm_sms_ud = -1;
 
 /*
@@ -388,7 +386,7 @@ parse_gsm_sms_ud_message(proto_tree *sm_tree, tvbuff_t *tvb, packet_info *pinfo,
         sm_tvb = tvb_new_subset_remaining(tvb, i);
     /* Try calling a subdissector */
     if (sm_tvb) {
-        if ((reassembled && pinfo->fd->num == reassembled_in)
+        if ((reassembled && pinfo->num == reassembled_in)
             || frag==0 || (frag==1 && try_dissect_1st_frag)) {
             /* Try calling a subdissector only if:
              *  - the Short Message is reassembled in this very packet,
@@ -436,8 +434,8 @@ parse_gsm_sms_ud_message(proto_tree *sm_tree, tvbuff_t *tvb, packet_info *pinfo,
     return;
 }
 
-static void
-dissect_gsm_sms_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_gsm_sms_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *subtree;
@@ -445,6 +443,7 @@ dissect_gsm_sms_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     ti      = proto_tree_add_item(tree, proto_gsm_sms_ud, tvb, 0, -1, ENC_NA);
     subtree = proto_item_add_subtree(ti, ett_gsm_sms);
     parse_gsm_sms_ud_message(subtree, tvb, pinfo, tree);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -630,7 +629,7 @@ proto_register_gsm_sms_ud(void)
 
     /* Subdissector code */
     gsm_sms_dissector_table = register_dissector_table("gsm_sms_ud.udh.port",
-        "GSM SMS port IE in UDH", FT_UINT16, BASE_DEC);
+        "GSM SMS port IE in UDH", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Preferences for GSM SMS UD */
     gsm_sms_ud_module = prefs_register_protocol(proto_gsm_sms_ud, NULL);

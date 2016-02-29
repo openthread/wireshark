@@ -67,12 +67,14 @@ SequenceDiagram::SequenceDiagram(QCPAxis *keyAxis, QCPAxis *valueAxis, QCPAxis *
 //    valueAxis->setAutoTickStep(false);
     QList<QCPAxis *> axes;
     axes << value_axis_ << key_axis_ << comment_axis_;
+    QPen no_pen(Qt::NoPen);
     foreach (QCPAxis *axis, axes) {
         axis->setAutoTicks(false);
         axis->setTickStep(1.0);
         axis->setAutoTickLabels(false);
-        axis->setTicks(false);
-        axis->setBasePen(QPen(Qt::NoPen));
+        axis->setSubTickPen(no_pen);
+        axis->setTickPen(no_pen);
+        axis->setBasePen(no_pen);
     }
 
     value_axis_->grid()->setVisible(false);
@@ -115,23 +117,25 @@ void SequenceDiagram::setData(_seq_analysis_info *sainfo)
 
     for (GList *cur = g_queue_peek_nth_link(sainfo->items, 0); cur; cur = g_list_next(cur)) {
         seq_analysis_item_t *sai = (seq_analysis_item_t *) cur->data;
-        WSCPSeqData new_data;
+        if (sai->display) {
+            WSCPSeqData new_data;
 
-        new_data.key = cur_key;
-        new_data.value = sai;
-        data_->insertMulti(new_data.key, new_data);
+            new_data.key = cur_key;
+            new_data.value = sai;
+            data_->insertMulti(new_data.key, new_data);
 
-        key_ticks.append(cur_key);
-        key_labels.append(sai->time_str);
+            key_ticks.append(cur_key);
+            key_labels.append(sai->time_str);
 
-        com_labels.append(com_fm.elidedText(sai->comment, Qt::ElideRight, elide_w));
+            com_labels.append(com_fm.elidedText(sai->comment, Qt::ElideRight, elide_w));
 
-        cur_key++;
+            cur_key++;
+        }
     }
 
     for (unsigned int i = 0; i < sainfo_->num_nodes; i++) {
         val_ticks.append(i);
-        addr_str = (char*)address_to_display(NULL, &(sainfo_->nodes[i]));
+        addr_str = address_to_display(NULL, &(sainfo_->nodes[i]));
         val_labels.append(addr_str);
         if (i % 2 == 0) {
             val_labels.last().append("\n");
@@ -190,6 +194,8 @@ void SequenceDiagram::draw(QCPPainter *painter)
     fg_pen.setStyle(Qt::DashLine);
     painter->setPen(fg_pen);
     for (int ll_x = value_axis_->range().lower; ll_x < value_axis_->range().upper; ll_x++) {
+        // Only draw where we have arrows.
+        if (ll_x < 0 || ll_x >= value_axis_->tickVector().size()) continue;
         QPoint ll_start(coordsToPixels(key_axis_->range().upper, ll_x).toPoint());
         QPoint ll_end(coordsToPixels(key_axis_->range().lower, ll_x).toPoint());
         painter->drawLine(ll_start, ll_end);
@@ -203,7 +209,7 @@ void SequenceDiagram::draw(QCPPainter *painter)
         seq_analysis_item_t *sai = it.value().value;
         QPen fg_pen(mainPen());
 
-        if (sai->fd->num == selected_packet_) {
+        if (sai->frame_number == selected_packet_) {
             // Highlighted background
             painter->save();
             QRect bg_rect(
@@ -220,6 +226,8 @@ void SequenceDiagram::draw(QCPPainter *painter)
             painter->setPen(hl_pen);
             painter->setOpacity(alpha);
             for (int ll_x = value_axis_->range().lower; ll_x < value_axis_->range().upper; ll_x++) {
+                // Only draw where we have arrows.
+                if (ll_x < 0 || ll_x >= value_axis_->tickVector().size()) continue;
                 QPoint ll_start(coordsToPixels(cur_key - 0.5, ll_x).toPoint());
                 QPoint ll_end(coordsToPixels(cur_key + 0.5, ll_x).toPoint());
                 hl_pen.setDashOffset(bg_rect.top() - ll_start.x());

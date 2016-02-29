@@ -564,7 +564,7 @@ gadu_gadu_get_conversation_data(packet_info *pinfo)
 {
 	conversation_t *conv;
 
-	conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+	conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 	if (conv)
 		return (struct gadu_gadu_conv_data *)conversation_get_proto_data(conv, hfi_gadu_gadu->id);
 	return NULL;
@@ -992,7 +992,7 @@ dissect_gadu_gadu_send_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 	proto_tree_add_item(tree, &hfi_gadu_gadu_msg_seq, tvb, offset, 4, ENC_LITTLE_ENDIAN);
 	offset += 4;
 
-	ti = proto_tree_add_time(tree, &hfi_gadu_gadu_msg_time, tvb, 0, 0, &(pinfo->fd->abs_ts));
+	ti = proto_tree_add_time(tree, &hfi_gadu_gadu_msg_time, tvb, 0, 0, &(pinfo->abs_ts));
 	PROTO_ITEM_SET_GENERATED(ti);
 
 	proto_tree_add_item(tree, &hfi_gadu_gadu_msg_class, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -1072,7 +1072,7 @@ dissect_gadu_gadu_send_msg80(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 	proto_tree_add_item(tree, &hfi_gadu_gadu_msg_seq, tvb, offset, 4, ENC_LITTLE_ENDIAN);
 	offset += 4;
 
-	ti = proto_tree_add_time(tree, &hfi_gadu_gadu_msg_time, tvb, 0, 0, &(pinfo->fd->abs_ts));
+	ti = proto_tree_add_time(tree, &hfi_gadu_gadu_msg_time, tvb, 0, 0, &(pinfo->abs_ts));
 	PROTO_ITEM_SET_GENERATED(ti);
 
 	proto_tree_add_item(tree, &hfi_gadu_gadu_msg_class, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -2106,7 +2106,7 @@ proto_register_gadu_gadu(void)
 	proto_register_fields(proto_gadu_gadu, hfi, array_length(hfi));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	gadu_gadu_handle = new_create_dissector_handle(dissect_gadu_gadu, proto_gadu_gadu);
+	gadu_gadu_handle = create_dissector_handle(dissect_gadu_gadu, proto_gadu_gadu);
 }
 
 void

@@ -50,8 +50,8 @@ static const value_string adp_type_val[] =
     {0, NULL},
 };
 
-static void
-dissect_aruba_adp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_adp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *ti = NULL;
     proto_tree *aruba_adp_tree = NULL;
@@ -102,6 +102,7 @@ dissect_aruba_adp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 break;
 
     }
+    return tvb_captured_length(tvb);
 }
 
 void

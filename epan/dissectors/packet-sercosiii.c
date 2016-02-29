@@ -1161,8 +1161,8 @@ static void dissect_siii_at(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 }
 
 /* Main dissector entry */
-static void
-dissect_siii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_siii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
   proto_tree *siii_tree;
@@ -1182,7 +1182,7 @@ dissect_siii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    * to dissect it as a normal SercosIII packet.
    */
   if (dissector_try_heuristic(heur_subdissector_list, tvb, pinfo, tree, &hdtbl_entry, NULL))
-    return;
+    return tvb_captured_length(tvb);
 
   /* check what we got on our hand */
   type = tvb_get_guint8(tvb, 0);
@@ -1209,6 +1209,8 @@ dissect_siii(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     dissect_siii_at(tvb, pinfo, siii_tree);
   else
     dissect_siii_mdt(tvb, pinfo, siii_tree);
+
+  return tvb_captured_length(tvb);
 }
 
 static void

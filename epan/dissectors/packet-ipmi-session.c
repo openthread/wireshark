@@ -130,7 +130,7 @@ dissect_ipmi_session(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
 		payloadtype &= 0x3f;
 
 		/* IPMI v2.0 packets have session ID BEFORE the session
-		   sequence number; just after authentification and payload
+		   sequence number; just after authentication and payload
 		   types. The OEM Explicit payload type has 6 more bytes
 		   (IANA + Payload ID) before the session ID. */
 		if (payloadtype == IPMI_OEM_EXPLICIT) {
@@ -314,7 +314,7 @@ proto_reg_handoff_ipmi_session(void)
 {
 	dissector_handle_t ipmi_session_handle;
 
-	ipmi_session_handle = new_create_dissector_handle(dissect_ipmi_session, proto_ipmi_session);
+	ipmi_session_handle = create_dissector_handle(dissect_ipmi_session, proto_ipmi_session);
 	dissector_add_uint("rmcp.class", RMCP_CLASS_IPMI, ipmi_session_handle);
 
 	data_handle = find_dissector("data");

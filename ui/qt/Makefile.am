@@ -20,11 +20,9 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 include Makefile.common
-include ../../Makefile.am.inc
+include $(top_srcdir)/Makefile.am.inc
 
-if HAVE_WARNINGS_AS_ERRORS
-AM_CLEAN_CFLAGS = -Werror
-endif
+AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) $(GLIB_CFLAGS) $(Qt_CFLAGS)
 
 noinst_LIBRARIES = libqtui.a
 
@@ -63,8 +61,6 @@ wireshark-tap-register.c: $(WIRESHARK_QT_TAP_SRC) $(top_srcdir)/tools/make-tap-r
 	@echo Making wireshark-tap-register.c
 	@$(PYTHON) $(top_srcdir)/tools/make-tap-reg.py $(srcdir) taps $(WIRESHARK_QT_TAP_SRC)
 
-RUNLEX=$(top_srcdir)/tools/runlex.sh
-
 libqtui_a_SOURCES = \
 	$(WIRESHARK_QT_SRC) \
 	$(WIRESHARK_QT_TAP_SRC) \
@@ -78,15 +74,7 @@ nodist_libqtui_a_SOURCES = \
 	$(NODIST_GENERATED_CPP_FILES) \
 	$(NODIST_GENERATED_HEADER_FILES)
 
-libqtui_a_CFLAGS = $(AM_CLEAN_CFLAGS)
-
 libqtui_a_DEPENDENCIES =
-
-# Common headers
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/wiretap $(LIBGCRYPT_CFLAGS) \
-	$(LIBGNUTLS_CFLAGS)
-
-AM_CXXFLAGS = $(AM_CLEAN_CFLAGS)
 
 AM_V_MOC = $(am__v_MOC_@AM_V@)
 am__v_MOC_ = $(am__v_MOC_@AM_DEFAULT_V@)
@@ -108,7 +96,7 @@ am__v_UIC_0 = @echo "  UIC     " $@;
 SUFFIXES = .moc.cpp .qrc .rcc.cpp
 
 .h.moc.cpp:
-	$(AM_V_MOC)$(MOC) -I.. -I../.. -o $@ $<
+	$(AM_V_MOC)$(MOC) $(MOC_OPTIONS) -I.. -I../.. -o $@ $<
 
 .qrc.rcc.cpp:
 	$(MKDIR_P) $(@D)
@@ -174,6 +162,8 @@ file_set_dialog.$(OBJEXT): ui_file_set_dialog.h
 
 filter_dialog.$(OBJEXT): ui_filter_dialog.h
 
+filter_expression_frame.$(OBJEXT): ui_filter_expression_frame.h
+
 filter_expressions_preferences_frame.$(OBJEXT): ui_filter_expressions_preferences_frame.h
 
 follow_stream_dialog.$(OBJEXT): ui_follow_stream_dialog.h
@@ -201,6 +191,8 @@ lbm_lbtru_transport_dialog.$(OBJEXT): ui_lbm_lbtru_transport_dialog.h
 lbm_stream_dialog.$(OBJEXT): ui_lbm_stream_dialog.h
 
 lbm_uimflow_dialog.$(OBJEXT): ui_lbm_uimflow_dialog.h
+
+lte_rlc_graph_dialog.$(OBJEXT): ui_lte_rlc_graph_dialog.h
 
 main_welcome.$(OBJEXT): ui_main_welcome.h
 
@@ -263,6 +255,8 @@ sctp_graph_dialog.$(OBJEXT): ui_sctp_graph_dialog.h
 sctp_graph_arwnd_dialog.$(OBJEXT): ui_sctp_graph_arwnd_dialog.h
 
 sctp_graph_byte_dialog.$(OBJEXT): ui_sctp_graph_byte_dialog.h
+
+show_packet_bytes_dialog.$(OBJEXT): ui_show_packet_bytes_dialog.h
 
 splash_overlay.$(OBJEXT): ui_splash_overlay.h
 

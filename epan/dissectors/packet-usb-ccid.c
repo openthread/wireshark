@@ -738,7 +738,7 @@ proto_register_ccid(void)
     prefs_register_enum_preference(pref_mod, "prtype", "PC -> Reader Payload Type", "How commands from the PC to the reader are interpreted",
         &sub_selected, sub_enum_vals, FALSE);
 
-    usb_ccid_handle = new_register_dissector("usbccid", dissect_ccid, proto_ccid);
+    usb_ccid_handle = register_dissector("usbccid", dissect_ccid, proto_ccid);
 }
 
 /* Handler registration */
@@ -747,7 +747,7 @@ proto_reg_handoff_ccid(void)
 {
     dissector_handle_t usb_ccid_descr_handle;
 
-    usb_ccid_descr_handle = new_create_dissector_handle(
+    usb_ccid_descr_handle = create_dissector_handle(
             dissect_usb_ccid_descriptor, proto_ccid);
     dissector_add_uint("usb.descriptor", IF_CLASS_SMART_CARD, usb_ccid_descr_handle);
 

@@ -124,43 +124,29 @@ dissect_mrdisc_mra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, i
 
 		switch (type) {
 		case MRDISC_QI:
-			if (item) {
-				proto_item_set_text(item,"Option: %s == %d",
+			proto_item_set_text(item,"Option: %s == %d",
 					val_to_str(type, mrdisc_options, "unknown %x"),
 					tvb_get_ntohs(tvb, offset));
-			}
-
-			if (len != 2)
-				THROW(ReportedBoundsError);
 			proto_tree_add_item(tree, hf_qi, tvb, offset, len,
 				ENC_BIG_ENDIAN);
 			offset += len;
 			break;
 		case MRDISC_RV:
-			if (item) {
-				proto_item_set_text(item,"Option: %s == %d",
+			proto_item_set_text(item,"Option: %s == %d",
 					val_to_str(type, mrdisc_options, "unknown %x"),
 					tvb_get_ntohs(tvb, offset));
-			}
-
-			if (len != 2)
-				THROW(ReportedBoundsError);
 			proto_tree_add_item(tree, hf_rv, tvb, offset, len,
 				ENC_BIG_ENDIAN);
 			offset += len;
 			break;
 		default:
-			if (item) {
-				proto_item_set_text(item,"Option: unknown");
-			}
+			proto_item_set_text(item,"Option: unknown");
 
 			proto_tree_add_item(tree, hf_option_bytes,
 				tvb, offset, len, ENC_NA);
 			offset += len;
 		}
-		if (item) {
-			proto_item_set_len(item, offset-old_offset);
-		}
+		proto_item_set_len(item, offset-old_offset);
 	}
 
 	return offset;
@@ -288,7 +274,7 @@ proto_reg_handoff_mrdisc(void)
 {
 	dissector_handle_t mrdisc_handle;
 
-	mrdisc_handle = new_create_dissector_handle(dissect_mrdisc, proto_mrdisc);
+	mrdisc_handle = create_dissector_handle(dissect_mrdisc, proto_mrdisc);
 	dissector_add_uint("igmp.type", IGMP_TYPE_0x24, mrdisc_handle);
 	dissector_add_uint("igmp.type", IGMP_TYPE_0x25, mrdisc_handle);
 	dissector_add_uint("igmp.type", IGMP_TYPE_0x26, mrdisc_handle);

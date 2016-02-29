@@ -412,11 +412,11 @@ static void netxray_guess_atm_type(wtap *wth, struct wtap_pkthdr *phdr,
 static gboolean netxray_dump_1_1(wtap_dumper *wdh,
     const struct wtap_pkthdr *phdr,
     const guint8 *pd, int *err, gchar **err_info);
-static gboolean netxray_dump_close_1_1(wtap_dumper *wdh, int *err);
+static gboolean netxray_dump_finish_1_1(wtap_dumper *wdh, int *err);
 static gboolean netxray_dump_2_0(wtap_dumper *wdh,
     const struct wtap_pkthdr *phdr,
     const guint8 *pd, int *err, gchar **err_info);
-static gboolean netxray_dump_close_2_0(wtap_dumper *wdh, int *err);
+static gboolean netxray_dump_finish_2_0(wtap_dumper *wdh, int *err);
 
 wtap_open_return_val
 netxray_open(wtap *wth, int *err, gchar **err_info)
@@ -1230,6 +1230,7 @@ netxray_process_rec_header(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 			 * Ken also says that xxx[11] is 0x5 when the
 			 * packet is WEP-encrypted.
 			 */
+			memset(&phdr->pseudo_header.ieee_802_11, 0, sizeof(phdr->pseudo_header.ieee_802_11));
 			if (hdr.hdr_2_x.xxx[2] == 0xff &&
 			    hdr.hdr_2_x.xxx[3] == 0xff) {
 				/*
@@ -1259,31 +1260,28 @@ netxray_process_rec_header(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
 			 * type, frequency, 11n/11ac information,
 			 * etc.?
 			 */
+			phdr->pseudo_header.ieee_802_11.has_channel = TRUE;
 			phdr->pseudo_header.ieee_802_11.channel =
 			    hdr.hdr_2_x.xxx[12];
+
+			phdr->pseudo_header.ieee_802_11.has_data_rate = TRUE;
 			phdr->pseudo_header.ieee_802_11.data_rate =
 			    hdr.hdr_2_x.xxx[13];
+
+			phdr->pseudo_header.ieee_802_11.has_signal_percent = TRUE;
 			phdr->pseudo_header.ieee_802_11.signal_percent =
 			    hdr.hdr_2_x.xxx[14];
+
 			/*
 			 * According to Ken Mann, at least in the captures
 			 * he's seen, xxx[15] is the noise level, which
 			 * is either 0xFF meaning "none reported" or a value
 			 * from 0x00 to 0x7F for 0 to 100%.
 			 */
-			if (hdr.hdr_2_x.xxx[15] == 0xFF) {
-				phdr->pseudo_header.ieee_802_11.presence_flags =
-				    PHDR_802_11_HAS_CHANNEL |
-				    PHDR_802_11_HAS_DATA_RATE |
-				    PHDR_802_11_HAS_SIGNAL_PERCENT;
-			} else {
+			if (hdr.hdr_2_x.xxx[15] != 0xFF) {
+				phdr->pseudo_header.ieee_802_11.has_noise_percent = TRUE;
 				phdr->pseudo_header.ieee_802_11.noise_percent =
 				    hdr.hdr_2_x.xxx[15]*100/127;
-				phdr->pseudo_header.ieee_802_11.presence_flags =
-				    PHDR_802_11_HAS_CHANNEL |
-				    PHDR_802_11_HAS_DATA_RATE |
-				    PHDR_802_11_HAS_SIGNAL_PERCENT |
-				    PHDR_802_11_HAS_NOISE_PERCENT;
 			}
 			break;
 
@@ -1709,7 +1707,7 @@ netxray_dump_open_1_1(wtap_dumper *wdh, int *err)
 	netxray_dump_t *netxray;
 
 	wdh->subtype_write = netxray_dump_1_1;
-	wdh->subtype_close = netxray_dump_close_1_1;
+	wdh->subtype_finish = netxray_dump_finish_1_1;
 
 	/* We can't fill in all the fields in the file header, as we
 	   haven't yet written any packets.  As we'll have to rewrite
@@ -1797,7 +1795,7 @@ netxray_dump_1_1(wtap_dumper *wdh,
 /* Finish writing to a dump file.
    Returns TRUE on success, FALSE on failure. */
 static gboolean
-netxray_dump_close_1_1(wtap_dumper *wdh, int *err)
+netxray_dump_finish_1_1(wtap_dumper *wdh, int *err)
 {
 	char hdr_buf[CAPTUREFILE_HEADER_SIZE - sizeof(netxray_magic)];
 	netxray_dump_t *netxray = (netxray_dump_t *)wdh->priv;
@@ -1886,7 +1884,7 @@ netxray_dump_open_2_0(wtap_dumper *wdh, int *err)
 	netxray_dump_t *netxray;
 
 	wdh->subtype_write = netxray_dump_2_0;
-	wdh->subtype_close = netxray_dump_close_2_0;
+	wdh->subtype_finish = netxray_dump_finish_2_0;
 
 	/* We can't fill in all the fields in the file header, as we
 	   haven't yet written any packets.  As we'll have to rewrite
@@ -1962,21 +1960,21 @@ netxray_dump_2_0(wtap_dumper *wdh,
 
 	case WTAP_ENCAP_IEEE_802_11_WITH_RADIO:
 		rec_hdr.xxx[12] =
-		    (pseudo_header->ieee_802_11.presence_flags & PHDR_802_11_HAS_CHANNEL) ?
-		     pseudo_header->ieee_802_11.channel :
-		     0;
+		    pseudo_header->ieee_802_11.has_channel ?
+		      pseudo_header->ieee_802_11.channel :
+		      0;
 		rec_hdr.xxx[13] =
-		    (pseudo_header->ieee_802_11.presence_flags & PHDR_802_11_HAS_DATA_RATE) ?
-		     (guint8)pseudo_header->ieee_802_11.data_rate :
-		     0;
+		    pseudo_header->ieee_802_11.has_data_rate ?
+		      (guint8)pseudo_header->ieee_802_11.data_rate :
+		      0;
 		rec_hdr.xxx[14] =
-		    (pseudo_header->ieee_802_11.presence_flags & PHDR_802_11_HAS_SIGNAL_PERCENT) ?
-		     pseudo_header->ieee_802_11.signal_percent :
-		     0;
+		    pseudo_header->ieee_802_11.has_signal_percent ?
+		      pseudo_header->ieee_802_11.signal_percent :
+		      0;
 		rec_hdr.xxx[15] =
-		    (pseudo_header->ieee_802_11.presence_flags & PHDR_802_11_HAS_NOISE_PERCENT) ?
-		     pseudo_header->ieee_802_11.noise_percent*127/100 :
-		     0xFF;
+		    pseudo_header->ieee_802_11.has_noise_percent ?
+		      pseudo_header->ieee_802_11.noise_percent*127/100 :
+		      0xFF;
 		break;
 
 	case WTAP_ENCAP_PPP_WITH_PHDR:
@@ -2006,7 +2004,7 @@ netxray_dump_2_0(wtap_dumper *wdh,
 /* Finish writing to a dump file.
    Returns TRUE on success, FALSE on failure. */
 static gboolean
-netxray_dump_close_2_0(wtap_dumper *wdh, int *err)
+netxray_dump_finish_2_0(wtap_dumper *wdh, int *err)
 {
 	char hdr_buf[CAPTUREFILE_HEADER_SIZE - sizeof(netxray_magic)];
 	netxray_dump_t *netxray = (netxray_dump_t *)wdh->priv;

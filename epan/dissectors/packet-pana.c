@@ -21,7 +21,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* This protocol implements PANA as of the IETF RFC 5191.
- * (Note: This dissector was udated to reflect
+ * (Note: This dissector was updated to reflect
  * draft-ietf-pana-pana-18 which is a workitem of the ietf workgroup
  * internet area/pana. I believe draft-18 then became RFC 5191).
  */
@@ -517,14 +517,14 @@ dissect_pana_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 if(flags&PANA_FLAG_R){
                         /* This is a request */
                         pana_trans=wmem_new(wmem_file_scope(), pana_transaction_t);
-                        pana_trans->req_frame=pinfo->fd->num;
+                        pana_trans->req_frame=pinfo->num;
                         pana_trans->rep_frame=0;
-                        pana_trans->req_time=pinfo->fd->abs_ts;
+                        pana_trans->req_time=pinfo->abs_ts;
                         wmem_map_insert(pana_info->pdus, GUINT_TO_POINTER(seq_num), (void *)pana_trans);
                 } else {
                         pana_trans=(pana_transaction_t *)wmem_map_lookup(pana_info->pdus, GUINT_TO_POINTER(seq_num));
                         if(pana_trans){
-                                pana_trans->rep_frame=pinfo->fd->num;
+                                pana_trans->rep_frame=pinfo->num;
                         }
                 }
         } else {
@@ -536,7 +536,7 @@ dissect_pana_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 pana_trans=wmem_new(wmem_packet_scope(), pana_transaction_t);
                 pana_trans->req_frame=0;
                 pana_trans->rep_frame=0;
-                pana_trans->req_time=pinfo->fd->abs_ts;
+                pana_trans->req_time=pinfo->abs_ts;
         }
 
         /* print state tracking in the tree */
@@ -557,7 +557,7 @@ dissect_pana_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         it=proto_tree_add_uint(pana_tree, hf_pana_response_to, tvb, 0, 0, pana_trans->req_frame);
                         PROTO_ITEM_SET_GENERATED(it);
 
-                        nstime_delta(&ns, &pinfo->fd->abs_ts, &pana_trans->req_time);
+                        nstime_delta(&ns, &pinfo->abs_ts, &pana_trans->req_time);
                         it=proto_tree_add_time(pana_tree, hf_pana_response_time, tvb, 0, 0, &ns);
                         PROTO_ITEM_SET_GENERATED(it);
                 }
@@ -889,7 +889,7 @@ proto_reg_handoff_pana(void)
 
         heur_dissector_add("udp", dissect_pana, "PANA over UDP", "pana_udp", proto_pana, HEURISTIC_ENABLE);
 
-        pana_handle = new_create_dissector_handle(dissect_pana, proto_pana);
+        pana_handle = create_dissector_handle(dissect_pana, proto_pana);
         dissector_add_for_decode_as("udp.port", pana_handle);
 
         eap_handle = find_dissector("eap");

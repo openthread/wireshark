@@ -71,7 +71,9 @@ dissector_table_t etsi_arg_local_dissector_table;
 dissector_table_t etsi_res_local_dissector_table;
 dissector_table_t etsi_err_local_dissector_table;
 
-static gint g_facility_encoding = 0; /* Default to QSIG */
+#define FACILITY_QSIG	0
+#define FACILITY_ETSI	1
+static gint g_facility_encoding = FACILITY_QSIG;
 
 void proto_reg_handoff_q932(void);
 /* Subdissectors */
@@ -243,8 +245,8 @@ dissect_q932_ni_ie(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tr
 }
 
 /*--- dissect_q932_ie -------------------------------------------------------*/
-static void
-dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   gint offset;
   proto_item *ti;
   proto_tree *ie_tree;
@@ -265,7 +267,7 @@ dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
   proto_tree_add_item(ie_tree, hf_q932_ie_len, tvb, offset + 1, 1, ENC_BIG_ENDIAN);
   offset += 2;
   if (tvb_reported_length_remaining(tvb, offset) <= 0)
-    return;
+    return offset;
   switch (ie_type) {
     case Q932_IE_FACILITY :
       dissect_q932_facility_ie(tvb, offset, pinfo, ie_tree, ie_len);
@@ -278,12 +280,13 @@ dissect_q932_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
         proto_tree_add_item(ie_tree, hf_q932_ie_data, tvb, offset, ie_len, ENC_NA);
       }
   }
+  return tvb_captured_length(tvb);
 }
 
 /*--- dissect_q932_apdu -----------------------------------------------------*/
-static void
-dissect_q932_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
-  call_dissector(q932_ros_handle, tvb, pinfo, tree);
+static int
+dissect_q932_apdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
+  return call_dissector(q932_ros_handle, tvb, pinfo, tree);
 }
 
 /*--- proto_register_q932 ---------------------------------------------------*/
@@ -327,8 +330,8 @@ void proto_register_q932(void) {
   expert_module_t* expert_q932;
 
   static const enum_val_t facility_encoding[] = {
-    {"Facility as QSIG", "Dissect facility as QSIG", 0},
-    {"Facility as ETSI", "Dissect facility as ETSI", 1},
+    {"Facility as QSIG", "Dissect facility as QSIG", FACILITY_QSIG},
+    {"Facility as ETSI", "Dissect facility as ETSI", FACILITY_ETSI},
     {NULL, NULL, -1}
   };
 
@@ -345,17 +348,17 @@ void proto_register_q932(void) {
   rose_ctx_init(&q932_rose_ctx);
 
   /* Register dissector tables */
-  q932_rose_ctx.arg_global_dissector_table = register_dissector_table("q932.ros.global.arg", "Q.932 Operation Argument (global opcode)", FT_STRING, BASE_NONE);
-  q932_rose_ctx.res_global_dissector_table = register_dissector_table("q932.ros.global.res", "Q.932 Operation Result (global opcode)", FT_STRING, BASE_NONE);
-  q932_rose_ctx.err_global_dissector_table = register_dissector_table("q932.ros.global.err", "Q.932 Error (global opcode)", FT_STRING, BASE_NONE);
+  q932_rose_ctx.arg_global_dissector_table = register_dissector_table("q932.ros.global.arg", "Q.932 Operation Argument (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.res_global_dissector_table = register_dissector_table("q932.ros.global.res", "Q.932 Operation Result (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.err_global_dissector_table = register_dissector_table("q932.ros.global.err", "Q.932 Error (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-  qsig_arg_local_dissector_table = register_dissector_table("q932.ros.local.arg", "Q.932 Operation Argument (local opcode)", FT_UINT32, BASE_HEX);
-  qsig_res_local_dissector_table = register_dissector_table("q932.ros.local.res", "Q.932 Operation Result (local opcode)", FT_UINT32, BASE_HEX);
-  qsig_err_local_dissector_table = register_dissector_table("q932.ros.local.err", "Q.932 Error (local opcode)", FT_UINT32, BASE_HEX);
+  qsig_arg_local_dissector_table = register_dissector_table("q932.ros.local.arg", "Q.932 Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_res_local_dissector_table = register_dissector_table("q932.ros.local.res", "Q.932 Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_err_local_dissector_table = register_dissector_table("q932.ros.local.err", "Q.932 Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-  etsi_arg_local_dissector_table = register_dissector_table("q932.ros.etsi.local.arg", "Q.932 ETSI Operation Argument (local opcode)", FT_UINT32, BASE_HEX);
-  etsi_res_local_dissector_table = register_dissector_table("q932.ros.etsi.local.res", "Q.932 ETSI Operation Result (local opcode)", FT_UINT32, BASE_HEX);
-  etsi_err_local_dissector_table = register_dissector_table("q932.ros.etsi.local.err", "Q.932 ETSI Error (local opcode)", FT_UINT32, BASE_HEX);
+  etsi_arg_local_dissector_table = register_dissector_table("q932.ros.etsi.local.arg", "Q.932 ETSI Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_res_local_dissector_table = register_dissector_table("q932.ros.etsi.local.res", "Q.932 ETSI Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_err_local_dissector_table = register_dissector_table("q932.ros.etsi.local.err", "Q.932 ETSI Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   q932_module = prefs_register_protocol(proto_q932, proto_reg_handoff_q932);
 
@@ -380,7 +383,7 @@ void proto_reg_handoff_q932(void) {
     q932_ros_handle = find_dissector("q932.ros");
   }
 
-  if(g_facility_encoding == 0){
+  if(g_facility_encoding == FACILITY_QSIG){
     q932_rose_ctx.arg_local_dissector_table = qsig_arg_local_dissector_table;
     q932_rose_ctx.res_local_dissector_table = qsig_res_local_dissector_table;
     q932_rose_ctx.err_local_dissector_table = qsig_err_local_dissector_table;

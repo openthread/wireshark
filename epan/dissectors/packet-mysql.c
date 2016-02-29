@@ -41,6 +41,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/strutil.h>
+#include <epan/proto_data.h>
 #include "packet-tcp.h"
 #include "packet-ssl-utils.h"
 
@@ -1004,7 +1005,7 @@ mysql_dissect_login(tvbuff_t *tvb, packet_info *pinfo, int offset,
 	if (!(conn_data->frame_start_ssl) && conn_data->clnt_caps & MYSQL_CAPS_SL) /* Next packet will be use SSL */
 	{
 		col_set_str(pinfo->cinfo, COL_INFO, "Response: SSL Handshake");
-		conn_data->frame_start_ssl = pinfo->fd->num;
+		conn_data->frame_start_ssl = pinfo->num;
 		ssl_starttls_ack(ssl_handle, pinfo, mysql_handle);
 	}
 	if (conn_data->clnt_caps & MYSQL_CAPS_CU) /* 4.1 protocol */
@@ -3198,14 +3199,13 @@ void proto_register_mysql(void)
 				       "Whether the MySQL dissector should display the SQL query string in the INFO column.",
 				       &mysql_showquery);
 
-	 new_register_dissector("mysql", dissect_mysql, proto_mysql);
+	mysql_handle = register_dissector("mysql", dissect_mysql, proto_mysql);
 }
 
 /* dissector registration */
 void proto_reg_handoff_mysql(void)
 {
 	ssl_handle = find_dissector("ssl");
-	mysql_handle = new_create_dissector_handle(dissect_mysql, proto_mysql);
 	dissector_add_uint("tcp.port", TCP_PORT_MySQL, mysql_handle);
 }
 

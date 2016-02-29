@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+// warning C4267: 'argument' : conversion from 'size_t' to 'int', possible loss of data
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4267)
+#endif
+
 #include "wireshark_application.h"
 
 #include <algorithm>
@@ -42,8 +48,10 @@
 #include "ui/util.h"
 
 #include "qt_ui_utils.h"
+#include "color_utils.h"
+#include "coloring_rules_dialog.h"
 
-#include "color_filters.h"
+#include "epan/color_filters.h"
 #include "log.h"
 #include "recent_file_status.h"
 
@@ -52,15 +60,17 @@
 #endif
 
 #include "ui/capture.h"
-#include "ui/filters.h"
+#include "filter_files.h"
 #include "ui/capture_globals.h"
 #include "ui/software_update.h"
 #include "ui/last_open_dir.h"
 #include "ui/recent_utils.h"
-#include <wsutil/utf8_entities.h>
+
+#include "wsutil/utf8_entities.h"
 
 #ifdef _WIN32
 #  include "ui/win32/console_win32.h"
+#  include "wsutil/file_util.h"
 #endif /* _WIN32 */
 
 #include <QAction>
@@ -75,10 +85,10 @@
 #include <QSocketNotifier>
 #include <QThread>
 #include <QUrl>
+#include <QColorDialog>
 
-#ifdef Q_OS_WIN
-#include <QDebug>
-#include <QLibrary>
+#ifdef _MSC_VER
+#pragma warning(pop)
 #endif
 
 WiresharkApplication *wsApp = NULL;
@@ -124,10 +134,10 @@ set_last_open_dir(const char *dirname)
 extern "C" void
 add_menu_recent_capture_file(const gchar *cf_name) {
     QString normalized_cf_name = QString::fromUtf8(cf_name);
-//    QDir cf_path;
+    QDir cf_path;
 
-//    cf_path.setPath(normalized_cf_name);
-//    normalized_cf_name = cf_path.absolutePath();
+    cf_path.setPath(normalized_cf_name);
+    normalized_cf_name = cf_path.absolutePath();
     normalized_cf_name = QDir::cleanPath(normalized_cf_name);
     normalized_cf_name = QDir::toNativeSeparators(normalized_cf_name);
 
@@ -292,6 +302,7 @@ void WiresharkApplication::setConfigurationProfile(const gchar *profile_name)
     char  *gdp_path, *dp_path;
     char  *rf_path;
     int    rf_open_errno;
+    gchar *err_msg = NULL;
 
     /* First check if profile exists */
     if (!profile_exists(profile_name, FALSE)) {
@@ -339,11 +350,8 @@ void WiresharkApplication::setConfigurationProfile(const gchar *profile_name)
     set_profile_name (profile_name);
     emit profileNameChanged(profile_name);
 
-    /* Reset current preferences and apply the new */
-    prefs_reset();
-//    menu_prefs_reset();
-
-    (void) readConfigurationFiles (&gdp_path, &dp_path);
+    /* Apply new preferences */
+    readConfigurationFiles (&gdp_path, &dp_path, true);
 
     if (!recent_read_profile_static(&rf_path, &rf_open_errno)) {
         simple_dialog(ESD_TYPE_WARN, ESD_BTN_OK,
@@ -356,18 +364,26 @@ void WiresharkApplication::setConfigurationProfile(const gchar *profile_name)
         set_last_open_dir(recent.gui_fileopen_remembered_dir);
     }
     timestamp_set_type (recent.gui_time_format);
+    timestamp_set_precision(recent.gui_time_precision);
     timestamp_set_seconds_type (recent.gui_seconds_format);
-    color_filters_enable(recent.packet_list_colorize);
+    packet_list_enable_color(recent.packet_list_colorize);
     tap_update_timer_.setInterval(prefs.tap_update_interval);
 
     prefs_to_capture_opts();
     prefs_apply_all();
+#ifdef HAVE_LIBPCAP
+    update_local_interfaces();
+#endif
 
-    emit preferencesChanged();
+    setMonospaceFont(prefs.gui_qt_font_name);
+
     emit columnsChanged();
+    emit preferencesChanged();
     emit recentFilesRead();
     emit filterExpressionsChanged();
-//    macros_post_update();
+    emit checkDisplayFilter();
+    emit captureFilterListChanged();
+    emit displayFilterListChanged();
 
     /* Enable all protocols and disable from the disabled list */
     proto_enable_all();
@@ -377,12 +393,18 @@ void WiresharkApplication::setConfigurationProfile(const gchar *profile_name)
     }
 
     /* Reload color filters */
-    color_filters_reload();
+    if (!color_filters_reload(&err_msg, color_filter_add_cb)) {
+        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+        g_free(err_msg);
+    }
 
-//    user_font_apply();
+    emit localInterfaceListChanged();
+    emit packetDissectionChanged();
+}
 
-    /* Update menus with new recent values */
-    //    menu_recent_read_finished();
+void WiresharkApplication::reloadLuaPluginsDelayed()
+{
+    QTimer::singleShot(0, this, SIGNAL(reloadLuaPlugins()));
 }
 
 const QString WiresharkApplication::windowTitleString(QStringList title_parts)
@@ -394,6 +416,38 @@ const QString WiresharkApplication::windowTitleString(QStringList title_parts)
     }
     title_parts.prepend(applicationName());
     return title_parts.join(window_title_separator_);
+}
+
+void WiresharkApplication::applyCustomColorsFromRecent()
+{
+    int i = 0;
+    bool ok;
+    for (GList *custom_color = recent.custom_colors; custom_color; custom_color = custom_color->next) {
+        QRgb rgb = QString((const char *)custom_color->data).toUInt(&ok, 16);
+        if (ok) {
+#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
+            QColorDialog::setCustomColor(i++, rgb);
+#else
+            QColorDialog::setCustomColor(i++, QColor(rgb));
+#endif
+        }
+    }
+}
+
+void WiresharkApplication::storeCustomColorsInRecent()
+{
+    if (QColorDialog::customCount()) {
+        prefs_clear_string_list(recent.custom_colors);
+        recent.custom_colors = NULL;
+        for (int i = 0; i < QColorDialog::customCount(); i++) {
+#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
+            QRgb rgb = QColorDialog::customColor(i);
+#else
+            QRgb rgb = QColorDialog::customColor(i).rgb();
+#endif
+            recent.custom_colors = g_list_append(recent.custom_colors, g_strdup_printf("%08x", rgb));
+        }
+    }
 }
 
 void WiresharkApplication::setLastOpenDir(const char *dir_name)
@@ -444,7 +498,7 @@ bool WiresharkApplication::event(QEvent *event)
 }
 
 void WiresharkApplication::clearRecentItems() {
-    qDeleteAll(recent_items_.begin(), recent_items_.end());
+    qDeleteAll(recent_items_);
     recent_items_.clear();
     emit updateRecentItemStatus(NULL, 0, false);
 }
@@ -459,9 +513,13 @@ void WiresharkApplication::captureFileReadStarted()
 void WiresharkApplication::cleanup()
 {
     software_update_cleanup();
+    storeCustomColorsInRecent();
     // Write the user's recent file(s) to disk.
     write_profile_recent();
     write_recent();
+
+    qDeleteAll(recent_items_);
+    recent_items_.clear();
 }
 
 void WiresharkApplication::itemStatusFinished(const QString filename, qint64 size, bool accessible) {
@@ -491,20 +549,13 @@ WiresharkApplication::WiresharkApplication(int &argc,  char **argv) :
     Q_INIT_RESOURCE(about);
     Q_INIT_RESOURCE(i18n);
     Q_INIT_RESOURCE(layout);
-    Q_INIT_RESOURCE(status);
     Q_INIT_RESOURCE(toolbar);
     Q_INIT_RESOURCE(wsicon);
     Q_INIT_RESOURCE(languages);
 
 #ifdef Q_OS_WIN
     /* RichEd20.DLL is needed for native file dialog filter entries. */
-    if (QLibrary::isLibrary("riched20.dll")) {
-        QLibrary riched20("riched20.dll");
-        riched20.load();
-        if (!riched20.isLoaded()) {
-            qDebug() << riched20.errorString();
-        }
-    }
+    ws_load_library("riched20.dll");
 #endif // Q_OS_WIN
 
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 1, 0))
@@ -644,6 +695,12 @@ void WiresharkApplication::emitAppSignal(AppSignal signal)
     switch (signal) {
     case ColumnsChanged:
         emit columnsChanged();
+        break;
+    case CaptureFilterListChanged:
+        emit captureFilterListChanged();
+        break;
+    case DisplayFilterListChanged:
+        emit displayFilterListChanged();
         break;
     case FilterExpressionsChanged:
         emit filterExpressionsChanged();
@@ -807,7 +864,7 @@ iface_mon_event_cb(const char *iface, int up)
          * We've been told that there's a new interface or that an old
          * interface is gone; reload the local interface list.
          */
-        scan_local_interfaces(main_window_update);
+        wsApp->refreshLocalInterfaces();
     }
 }
 
@@ -824,14 +881,6 @@ void WiresharkApplication::ifChangeEventsAvailable()
      * events are available, and call the callback for them.
      */
     iface_mon_event();
-
-    /*
-     * Now emit a signal to indicate that the list changed, so that all
-     * places displaying the list will get updated.
-     *
-     * XXX - only if it *did* change.
-     */
-    emit localInterfaceListChanged();
 #endif
 }
 
@@ -875,7 +924,7 @@ void WiresharkApplication::allSystemsGo()
 #endif
 }
 
-_e_prefs *WiresharkApplication::readConfigurationFiles(char **gdp_path, char **dp_path)
+_e_prefs *WiresharkApplication::readConfigurationFiles(char **gdp_path, char **dp_path, bool reset)
 {
     int                  gpf_open_errno, gpf_read_errno;
     int                  cf_open_errno, df_open_errno;
@@ -885,6 +934,11 @@ _e_prefs *WiresharkApplication::readConfigurationFiles(char **gdp_path, char **d
     char                *cf_path, *df_path;
     int                  pf_open_errno, pf_read_errno;
     e_prefs             *prefs_p;
+
+    if (reset) {
+        // reset preferences before reading
+        prefs_reset();
+    }
 
     /* load the decode as entries of this profile */
     load_decode_as_entries();
@@ -1030,9 +1084,19 @@ void WiresharkApplication::loadLanguage(const QString& newLanguage)
             .arg(gchar_free_to_qstring(get_persconffile_path("languages", FALSE))).arg(localeLanguage)))
         switchTranslator(wsApp->translator,
                 QString("wireshark_%1.qm").arg(localeLanguage), gchar_free_to_qstring(get_persconffile_path("languages", FALSE)));
+    if (QFile::exists(QString("%1/qt_%2.qm")
+            .arg(get_datafile_dir()).arg(localeLanguage))) {
+        switchTranslator(wsApp->translatorQt,
+                QString("qt_%1.qm").arg(localeLanguage), QString(get_datafile_dir()));
+    } else if (QFile::exists(QString("%1/qt_%2.qm")
+            .arg(get_datafile_dir()).arg(localeLanguage.left(localeLanguage.lastIndexOf('_'))))) {
+        switchTranslator(wsApp->translatorQt,
+                QString("qt_%1.qm").arg(localeLanguage.left(localeLanguage.lastIndexOf('_'))), QString(get_datafile_dir()));
+    } else {
     switchTranslator(wsApp->translatorQt,
             QString("qt_%1.qm").arg(localeLanguage),
             QLibraryInfo::location(QLibraryInfo::TranslationsPath));
+    }
 }
 
 /*

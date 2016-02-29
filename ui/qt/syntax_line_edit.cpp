@@ -26,6 +26,7 @@
 #include <epan/prefs.h>
 #include <epan/proto.h>
 #include <epan/dfilter/dfilter.h>
+#include <epan/column-info.h>
 
 #include "syntax_line_edit.h"
 
@@ -38,6 +39,10 @@
 #include <QStringListModel>
 #include <limits>
 
+// To do:
+// - Add indicator icons for syntax states to make things more clear for
+//   color blind people?
+
 const int max_completion_items_ = 20;
 
 SyntaxLineEdit::SyntaxLineEdit(QWidget *parent) :
@@ -45,6 +50,13 @@ SyntaxLineEdit::SyntaxLineEdit(QWidget *parent) :
     completer_(NULL),
     completion_model_(NULL)
 {
+    // Try to matche QLineEdit's placeholder text color (which sets the
+    // alpha channel to 50%, which doesn't work in style sheets).
+    // Setting the foreground color lets us avoid yet another background
+    // color preference and should hopefully make things easier to
+    // distinguish for color blind folk.
+    busy_fg_ = ColorUtils::alphaBlend(palette().text(), palette().base(), 0.5);
+
     setSyntaxState();
     setMaxLength(std::numeric_limits<quint32>::max());
 }
@@ -74,27 +86,41 @@ void SyntaxLineEdit::setSyntaxState(SyntaxState state) {
     syntax_state_ = state;
     state_style_sheet_ = QString(
             "SyntaxLineEdit[syntaxState=\"%1\"] {"
-            "  color: %4;"
-            "  background-color: %5;"
+            "  color: %5;"
+            "  background-color: %7;"
             "}"
 
             "SyntaxLineEdit[syntaxState=\"%2\"] {"
-            "  color: %4;"
-            "  background-color: %6;"
+            "  color: %5;"
+            "  background-color: %8;"
             "}"
 
             "SyntaxLineEdit[syntaxState=\"%3\"] {"
-            "  color: %4;"
-            "  background-color: %7;"
+            "  color: %5;"
+            "  background-color: %9;"
+            "}"
+
+            "SyntaxLineEdit[syntaxState=\"%4\"] {"
+            "  color: %10;"
+            "  background-color: %6;"
             "}"
             )
+
+            // CSS selectors
             .arg(Valid)
             .arg(Invalid)
             .arg(Deprecated)
-            .arg("palette(text)")   // Foreground
-            .arg(ColorUtils::fromColorT(&prefs.gui_text_valid).name())        // Valid
-            .arg(ColorUtils::fromColorT(&prefs.gui_text_invalid).name())      // Invalid
-            .arg(ColorUtils::fromColorT(&prefs.gui_text_deprecated).name())   // Deprecated
+            .arg(Busy)
+
+            // Normal foreground / background
+            .arg("palette(text)")
+            .arg("palette(base)")
+
+            // Special foreground / background
+            .arg(ColorUtils::fromColorT(&prefs.gui_text_valid).name())
+            .arg(ColorUtils::fromColorT(&prefs.gui_text_invalid).name())
+            .arg(ColorUtils::fromColorT(&prefs.gui_text_deprecated).name())
+            .arg(busy_fg_.name())
             ;
     setStyleSheet(style_sheet_);
 }
@@ -105,11 +131,6 @@ QString SyntaxLineEdit::syntaxErrorMessage() {
 
 QString SyntaxLineEdit::styleSheet() const {
     return style_sheet_;
-}
-
-QString SyntaxLineEdit::deprecatedToken()
-{
-    return deprecated_token_;
 }
 
 void SyntaxLineEdit::setStyleSheet(const QString &style_sheet) {
@@ -142,7 +163,6 @@ void SyntaxLineEdit::checkDisplayFilter(QString filter)
         return;
     }
 
-    deprecated_token_.clear();
     dfilter_t *dfp = NULL;
     gchar *err_msg;
     if (dfilter_compile(filter.toUtf8().constData(), &dfp, &err_msg)) {
@@ -153,7 +173,12 @@ void SyntaxLineEdit::checkDisplayFilter(QString filter)
         if (depr) {
             // You keep using that word. I do not think it means what you think it means.
             setSyntaxState(SyntaxLineEdit::Deprecated);
-            deprecated_token_ = (const char *) g_ptr_array_index(depr, 0);
+            /*
+             * We're being lazy and only printing the first "problem" token.
+             * Would it be better to print all of them?
+             */
+            syntax_error_message_ = tr("\"%1\" may have unexpected results (see the User's Guide)")
+                    .arg((const char *) g_ptr_array_index(depr, 0));
         } else {
             setSyntaxState(SyntaxLineEdit::Valid);
         }
@@ -178,6 +203,30 @@ void SyntaxLineEdit::checkFieldName(QString field)
     } else {
         checkDisplayFilter(field);
     }
+}
+
+void SyntaxLineEdit::checkCustomColumn(QString fields)
+{
+    if (fields.isEmpty()) {
+        setSyntaxState(SyntaxLineEdit::Empty);
+        return;
+    }
+
+    gchar **splitted_fields = g_regex_split_simple(COL_CUSTOM_PRIME_REGEX,
+                fields.toUtf8().constData(), G_REGEX_ANCHORED, G_REGEX_MATCH_ANCHORED);
+
+    for (guint i = 0; i < g_strv_length(splitted_fields); i++) {
+        if (splitted_fields[i] && *splitted_fields[i]) {
+            if (proto_check_field_name(splitted_fields[i]) != 0) {
+                setSyntaxState(SyntaxLineEdit::Invalid);
+                g_strfreev(splitted_fields);
+                return;
+            }
+        }
+    }
+    g_strfreev(splitted_fields);
+
+    checkDisplayFilter(fields);
 }
 
 void SyntaxLineEdit::checkInteger(QString number)
@@ -282,6 +331,7 @@ void SyntaxLineEdit::insertFieldCompletion(const QString &completion_text)
     QString new_text = text().replace(field_coords.x(), field_coords.y(), completion_text);
     setText(new_text);
     setCursorPosition(field_coords.x() + completion_text.length());
+    emit textEdited(new_text);
 }
 
 QPoint SyntaxLineEdit::getTokenUnderCursor()

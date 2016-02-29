@@ -317,6 +317,7 @@ static const value_string nds_tuned_tags[] = {
     {0, NULL }
 };
 
+#if 0
 static const value_string nds_scope_vals[] = {
     { 0, "Search Scope: 0x0000 - Examine base object only" },
     { 1, "Search Scope: 0x0001 - Search the immediate subordinates of the base object" },
@@ -324,6 +325,7 @@ static const value_string nds_scope_vals[] = {
     { 3, "Search Scope: 0x0003 - Search the base objects and all objects in its partition (NDS version 8 or higher)" },
     {0, NULL }
 };
+#endif
 
 static const value_string nds_tuned_item_tags[] = {
     { 0, "Single Item" },
@@ -1158,7 +1160,7 @@ static const value_string nds_reply_errors[] = {
     { 0xffffff0a, "(-246) No Property Delete Rights" },
     { 0xffffff09, "(-247) No Property Create Rights" },
     { 0xffffff08, "(-248) No Property Write Rights" },
-    { 0xffffff07, "(-249) No Propery Read Rights" },
+    { 0xffffff07, "(-249) No Property Read Rights" },
     { 0xffffff06, "(-250) Temp Remap" },
     { 0xffffff05, "(-251) Unknown Request/No Such Property" },
     { 0xffffff04, "(-252) Message Queue Full/Target Already Has Message/No Such Object" },
@@ -2898,7 +2900,7 @@ static void file_rights_expert_func(ptvcursor_t *ptvc, packet_info *pinfo, const
         if (request) {
             guint8 oaction = 0, path_count = 0;
             guint16 rights = 0;
-            gchar* filename = (gchar*)"";
+            gchar* filename = "";
 
             if (ncp_rec->func == 87) {
                 switch(ncp_rec->subfunc)
@@ -4388,7 +4390,7 @@ process_entry_info(proto_tree *it_tree, tvbuff_t *tvb, nds_val *values)
         ioffset = ioffset+values->vvalue;
         ioffset += align_4(tvb, ioffset);
     }
-    if (iter_flags & DSI_ENTRY_RDN) { /* Relative Distiguished Name */
+    if (iter_flags & DSI_ENTRY_RDN) { /* Relative Distinguished Name */
         values->vvalue = tvb_get_letohl(tvb, ioffset);         /* Length of string */
         ioffset = ioffset+4;
         values->vstring = get_string(tvb, ioffset, values->vvalue);
@@ -6150,8 +6152,8 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
 {
     guint32 string_len, str_length, buffer_offset;
     gint i;
-    guint16 c_char;
-    char *string_buf;
+    guint8 c_char;
+    wmem_strbuf_t *string_buf;
     gint length_remaining = 0;
 
     length_remaining = tvb_captured_length_remaining(tvb, offset);
@@ -6171,8 +6173,7 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
         THROW(ReportedBoundsError);
     }
 
-    string_buf = (char *)wmem_alloc(wmem_packet_scope(), 255);
-    string_buf[0] = '\0';
+    string_buf = wmem_strbuf_new(wmem_packet_scope(), NULL);
     offset++;
     buffer_offset = offset;
 
@@ -6193,38 +6194,38 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
                         if (c_char == 0x3f)
                         {
                             c_char = '?';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "Wildcard Question");
                         }
                         if (c_char == 0x2a)
                         {
                             c_char = '*';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "Wildcard Asterisk");
                         }
                         if (c_char == 0xbf)
                         {
                             c_char = '?';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "DOS Wildcard Question");
                         }
                         if (c_char == 0xaa)
                         {
                             c_char = '*';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "DOS Wildcard Asterisk");
                         }
                         if (c_char == 0xae)
                         {
                             c_char = '.';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "DOS Wildcard Period");
                         }
                     }
                     else
                     {
                         c_char = '.';
-                        string_buf[i] = (char) c_char;
+                        wmem_strbuf_append_c(string_buf, c_char);
                     }
                 }
                 if (c_char == 0xef)
@@ -6240,31 +6241,31 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
                         if (c_char == 0xbb)
                         {
                             c_char = '?';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "Wildcard Question");
                         }
                         if (c_char == 0xbc)
                         {
                             c_char = '*';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "Wildcard Asterisk");
                         }
                         if (c_char == 0xbd)
                         {
                             c_char = '?';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "DOS Wildcard Question");
                         }
                         if (c_char == 0xbe)
                         {
                             c_char = '*';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "DOS Wildcard Asterisk");
                         }
                         if (c_char == 0xbf)
                         {
                             c_char = '.';
-                            string_buf[i] = c_char & 0xff;
+                            wmem_strbuf_append_c(string_buf, c_char);
                             proto_tree_add_uint_format_value(ncp_tree, hf_search_modifier, tvb, buffer_offset-1, 2, c_char, "DOS Wildcard Period");
                         }
                     }
@@ -6275,7 +6276,7 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
                 if (c_char != 0x00)
                 {
                     c_char = '.';
-                    string_buf[i] = (char) c_char;
+                    wmem_strbuf_append_c(string_buf, c_char);
                 }
                 else
                 {
@@ -6287,7 +6288,7 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
         }
         else
         {
-            string_buf[i] = c_char & 0xff;
+            wmem_strbuf_append_c(string_buf, c_char);
         }
         buffer_offset++;
         length_remaining--;
@@ -6300,12 +6301,8 @@ dissect_ncp_8x20req(tvbuff_t *tvb, proto_tree *volatile ncp_tree, guint32 offset
             break;       /* If string is too long just return the first 1K. */
         }
     }
-    if (i < 0) {
-        i = 0;
-    }
-    string_buf[i+1] = '\0';
 
-    proto_tree_add_string(ncp_tree, hf_search_pattern, tvb, offset, string_len, string_buf);
+    proto_tree_add_string(ncp_tree, hf_search_pattern, tvb, offset, string_len, wmem_strbuf_get_str(string_buf));
 }
 
 static void
@@ -6740,12 +6737,12 @@ nds_defrag(tvbuff_t *tvb, packet_info *pinfo, guint32 nw_connection, guint8 sequ
     /* Has this already been dissected? */
     if (!pinfo->fd->flags.visited) {
         /* Find the conversation whence the request would have come. */
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          PT_NCP, nw_connection, nw_connection, 0);
         if (conversation != NULL) {
             /* find the record telling us the request made that caused
                this reply */
-            request_value = ncp_hash_lookup(conversation, sequence, pinfo->fd->num);
+            request_value = ncp_hash_lookup(conversation, sequence, pinfo->num);
             if (!request_value) {
                 dissect_ncp_reply(tvb, pinfo, nw_connection, sequence, type, tree, ncp_tap);
                 return;
@@ -6810,7 +6807,7 @@ nds_defrag(tvbuff_t *tvb, packet_info *pinfo, guint32 nw_connection, guint8 sequ
     }
 
     /* Now we process the fragments */
-    if (request_value->nds_frag || (request_value->nds_end_frag == pinfo->fd->num))
+    if (request_value->nds_frag || (request_value->nds_end_frag == pinfo->num))
     {
         /* Check to see of this is a fragment. If so then mark as a fragment. */
         if (frags[frag_count].nds_frag==0xffffffff) {
@@ -6911,7 +6908,7 @@ nds_defrag(tvbuff_t *tvb, packet_info *pinfo, guint32 nw_connection, guint8 sequ
                          * Only do this on the first dissection. After the first
                          * dissection we will just read the memory values.
                          */
-                        request_value->nds_end_frag = pinfo->fd->num;
+                        request_value->nds_end_frag = pinfo->num;
                         request_value->nds_request_verb = frags[frag_count].nds_frag_verb;
                         request_value->nds_version = frags[frag_count].nds_frag_version;
                         request_value->req_nds_flags = frags[frag_count].nds_frag_flags;
@@ -6968,7 +6965,7 @@ nds_defrag(tvbuff_t *tvb, packet_info *pinfo, guint32 nw_connection, guint8 sequ
         /* This is not any fragment packet */
         request_value->nds_frag = FALSE;
         /* Trap for retransmitted end fragment */
-        if (request_value->nds_end_frag < pinfo->fd->num) {
+        if (request_value->nds_end_frag < pinfo->num) {
             col_add_fstr(pinfo->cinfo, COL_INFO, "[Retransmitted end of NDS Fragment 0x%08x, see packet #%d for details.]", request_value->nds_frag_num, request_value->nds_end_frag);
         }
         else
@@ -7114,17 +7111,17 @@ dissect_ncp_request(tvbuff_t *tvb, packet_info *pinfo,
            to have all packets over the same connection treated
            as being part of a single conversation so that we can
            let the user select that conversation to be displayed.) */
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          PT_NCP, nw_connection, nw_connection, 0);
 
         if (conversation == NULL) {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+            conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                             PT_NCP, nw_connection, nw_connection, 0);
         }
-        request_value = ncp_hash_insert(conversation, sequence, ncp_rec, pinfo->fd->num);
-        request_value->req_frame_num = pinfo->fd->num;
-        request_value->req_frame_time = pinfo->fd->abs_ts;
+        request_value = ncp_hash_insert(conversation, sequence, ncp_rec, pinfo->num);
+        request_value->req_frame_num = pinfo->num;
+        request_value->req_frame_time = pinfo->abs_ts;
 
         /* If this is the first time we're examining the packet,
          * check to see if this NCP type uses a "request condition".
@@ -7273,12 +7270,12 @@ dissect_ncp_request(tvbuff_t *tvb, packet_info *pinfo,
 
         if (!request_value)
         {
-             conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+             conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                                  PT_NCP, nw_connection, nw_connection, 0);
              if (conversation != NULL) {
                  /* find the record telling us the request made that caused
                     this reply */
-                 request_value = ncp_hash_lookup(conversation, sequence, pinfo->fd->num);
+                 request_value = ncp_hash_lookup(conversation, sequence, pinfo->num);
               }
         }
         /* SecretStore packets are dessected in packet-ncp-sss.c */
@@ -7303,7 +7300,7 @@ dissect_ncp_request(tvbuff_t *tvb, packet_info *pinfo,
         }
         /* Need to parse for Novell specific wildcard values in Search Pattern, decode this ncp (89)/20 and (89)/03 req manually here. */
         if (ncp_rec->func == 0x59 && (ncp_rec->subfunc == 0x14 || ncp_rec->subfunc == 0x03)) {
-            if (ncp_rec->func == 0x59 && ncp_rec->subfunc == 0x03)
+            if (ncp_rec->subfunc == 0x03)
             {
                  dissect_ncp_8x20req(tvb, ncp_tree, 26, ncp_rec->func);
             }
@@ -7938,12 +7935,12 @@ dissect_ncp_reply(tvbuff_t *tvb, packet_info *pinfo,
 
     if (!pinfo->fd->flags.visited) {
         /* Find the conversation whence the request would have come. */
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          PT_NCP, nw_connection, nw_connection, 0);
         if (conversation != NULL) {
             /* find the record telling us the request made that caused
                this reply */
-            request_value = ncp_hash_lookup(conversation, sequence, pinfo->fd->num);
+            request_value = ncp_hash_lookup(conversation, sequence, pinfo->num);
             if (request_value) {
                 ncp_rec = request_value->ncp_rec;
             }
@@ -7958,13 +7955,13 @@ dissect_ncp_reply(tvbuff_t *tvb, packet_info *pinfo,
            the search again with 65535 to see if we can locate the
            proper request packet. */
         else {
-            conversation = find_conversation(pinfo->fd->num,
+            conversation = find_conversation(pinfo->num,
                                              &pinfo->src, &pinfo->dst, PT_NCP, 65535, 65535, 0);
             if (conversation != NULL) {
                 /* find the record telling us the request made
                    that caused this reply */
                 request_value = ncp_hash_lookup(conversation,
-                                                sequence, pinfo->fd->num);
+                                                sequence, pinfo->num);
                 if (request_value) {
                     ncp_rec = request_value->ncp_rec;
                 }
@@ -7972,13 +7969,13 @@ dissect_ncp_reply(tvbuff_t *tvb, packet_info *pinfo,
                                  (void*) request_value);
             }
             else {
-                conversation = find_conversation(pinfo->fd->num,
+                conversation = find_conversation(pinfo->num,
                                                  &pinfo->src, &pinfo->dst, PT_NCP, 0, 0, 0);
                 if (conversation != NULL) {
                     /* find the record telling us the request made
                        that caused this reply */
                     request_value = ncp_hash_lookup(conversation,
-                                                    sequence, pinfo->fd->num);
+                                                    sequence, pinfo->num);
                     if (request_value) {
                         ncp_rec = request_value->ncp_rec;
                     }
@@ -7992,12 +7989,12 @@ dissect_ncp_reply(tvbuff_t *tvb, packet_info *pinfo,
     }
     else {
         /*request_value = p_get_proto_data(wmem_file_scope(), pinfo, proto_ncp);*/
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          PT_NCP, nw_connection, nw_connection, 0);
         if (conversation != NULL) {
 
              request_value = ncp_hash_lookup(conversation,
-                               sequence, pinfo->fd->num);
+                               sequence, pinfo->num);
         }
         if (request_value) {
             ncp_rec = request_value->ncp_rec;
@@ -8069,7 +8066,7 @@ dissect_ncp_reply(tvbuff_t *tvb, packet_info *pinfo,
 
             proto_tree_add_uint(ncp_tree, hf_ncp_req_frame_num, tvb, 0, 0,
                                 request_value->req_frame_num);
-            nstime_delta(&ns, &pinfo->fd->abs_ts, &request_value->req_frame_time);
+            nstime_delta(&ns, &pinfo->abs_ts, &request_value->req_frame_time);
             proto_tree_add_time(ncp_tree, hf_ncp_req_frame_time, tvb, 0, 0, &ns);
         }
 
@@ -8198,7 +8195,7 @@ dissect_ncp_reply(tvbuff_t *tvb, packet_info *pinfo,
             if (ncp_rec->func == 0x17 && ncp_rec->subfunc == 0x1a) {
                 dissect_ncp_23_26_reply(tvb, ncp_tree);
             }
-            /* Process ncp 87/72 bytes transfered value. */
+            /* Process ncp 87/72 bytes transferred value. */
             if (ncp_rec->func == 0x57 && ncp_rec->subfunc == 0x48) {
                 dissect_ncp_87_72_reply(tvb, ncp_tree);
             }
@@ -8262,18 +8259,18 @@ dissect_nds_request(tvbuff_t *tvb, packet_info *pinfo,
        as being part of a single conversation so that we can
        let the user select that conversation to be displayed.) */
 
-    conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                      PT_NCP, nw_connection, nw_connection, 0);
     if (conversation == NULL) {
         /* It's not part of any conversation - create a new one. */
-        conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                         PT_NCP, nw_connection, nw_connection, 0);
     }
 
     if (!pinfo->fd->flags.visited) {
-        request_value = ncp_hash_insert(conversation, sequence, ncp_rec, pinfo->fd->num);
-        request_value->req_frame_num = pinfo->fd->num;
-        request_value->req_frame_time=pinfo->fd->abs_ts;
+        request_value = ncp_hash_insert(conversation, sequence, ncp_rec, pinfo->num);
+        request_value->req_frame_num = pinfo->num;
+        request_value->req_frame_time=pinfo->abs_ts;
 
         /* If this is the first time we're examining the packet,
          * check to see if this NCP type uses a "request condition".
@@ -8349,7 +8346,7 @@ dissect_nds_request(tvbuff_t *tvb, packet_info *pinfo,
 
     if (type == NCP_SERVICE_REQUEST) {
         memset(&temp_value, 0, sizeof(temp_value));
-        request_value = ncp_hash_lookup(conversation, sequence, pinfo->fd->num);
+        request_value = ncp_hash_lookup(conversation, sequence, pinfo->num);
 
         if (ncp_rec && ncp_rec->request_ptvc)
         {
@@ -9255,19 +9252,19 @@ dissect_ping_req(tvbuff_t *tvb, packet_info *pinfo,
            as being part of a single conversation so that we can
            let the user select that conversation to be displayed.) */
 
-        conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+        conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                          PT_NCP, nw_connection, nw_connection, 0);
 
         if (conversation == NULL)
         {
             /* It's not part of any conversation - create a new one. */
-            conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+            conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
                                             PT_NCP, nw_connection, nw_connection, 0);
         }
 
-        request_value = ncp_hash_insert(conversation, sequence, ncp_rec, pinfo->fd->num);
-        request_value->req_frame_num = pinfo->fd->num;
-        request_value->req_frame_time=pinfo->fd->abs_ts;
+        request_value = ncp_hash_insert(conversation, sequence, ncp_rec, pinfo->num);
+        request_value->req_frame_num = pinfo->num;
+        request_value->req_frame_time=pinfo->abs_ts;
 
         /* If this is the first time we're examining the packet,
          * check to see if this NCP type uses a "request condition".

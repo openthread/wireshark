@@ -23,10 +23,10 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wsutil/pint.h>
 #include <epan/addr_resolv.h>
 
-#include "packet-ap1394.h"
 #include <epan/etypes.h>
 
 void proto_register_ap1394(void);
@@ -43,14 +43,13 @@ static dissector_table_t ethertype_subdissector_table;
 
 static dissector_handle_t data_handle;
 
-void
-capture_ap1394(const guchar *pd, int offset, int len, packet_counts *ld)
+static gboolean
+capture_ap1394(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
   guint16    etype;
 
   if (!BYTES_ARE_IN_FRAME(offset, len, 18)) {
-    ld->other++;
-    return;
+    return FALSE;
   }
 
   /* Skip destination and source addresses */
@@ -58,11 +57,11 @@ capture_ap1394(const guchar *pd, int offset, int len, packet_counts *ld)
 
   etype = pntoh16(&pd[offset]);
   offset += 2;
-  capture_ethertype(etype, pd, offset, len, ld);
+  return try_capture_dissector("ethertype", etype, pd, offset, len, cpinfo, pseudo_header);
 }
 
-static void
-dissect_ap1394(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ap1394(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
   proto_tree *fh_tree = NULL;
@@ -72,10 +71,10 @@ dissect_ap1394(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "IP/IEEE1394");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  TVB_SET_ADDRESS(&pinfo->dl_src,   AT_EUI64, tvb, 8, 8);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-  TVB_SET_ADDRESS(&pinfo->dl_dst,   AT_EUI64, tvb, 0, 8);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
+  set_address_tvb(&pinfo->dl_src,   AT_EUI64, 8, tvb, 8);
+  copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+  set_address_tvb(&pinfo->dl_dst,   AT_EUI64, 8, tvb, 0);
+  copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 
   if (tree) {
     ti = proto_tree_add_protocol_format(tree, proto_ap1394, tvb, 0, 18,
@@ -90,7 +89,10 @@ dissect_ap1394(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   next_tvb = tvb_new_subset_remaining(tvb, 18);
   if (!dissector_try_uint(ethertype_subdissector_table, etype, next_tvb,
                 pinfo, tree))
-    call_dissector(data_handle, next_tvb, pinfo, tree);
+  {
+      call_dissector(data_handle, next_tvb, pinfo, tree);
+  }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -128,6 +130,7 @@ proto_reg_handoff_ap1394(void)
 
   ap1394_handle = create_dissector_handle(dissect_ap1394, proto_ap1394);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_APPLE_IP_OVER_IEEE1394, ap1394_handle);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_APPLE_IP_OVER_IEEE1394, capture_ap1394, proto_ap1394);
 }
 
 /*

@@ -26,6 +26,7 @@
 #include <epan/conversation.h>
 #include <epan/expert.h>
 #include <epan/prefs.h>
+#include <epan/proto_data.h>
 
 #include "packet-rrc.h"
 #include "packet-umts_fp.h"
@@ -259,7 +260,7 @@ static guint16 tree_add_common_dcch_dtch_fields(tvbuff_t *tvb, packet_info *pinf
     return bitoffs;
 }
 
-static void dissect_mac_fdd_pch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_pch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     proto_tree *pch_tree = NULL;
     proto_item *channel_type;
@@ -275,10 +276,11 @@ static void dissect_mac_fdd_pch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
         channel_type = proto_tree_add_uint(pch_tree, hf_mac_channel, tvb, 0, 0, MAC_PCCH);
         PROTO_ITEM_SET_GENERATED(channel_type);
     }
-    call_dissector(rlc_pcch_handle, tvb, pinfo, tree);
+    call_dissector_with_data(rlc_pcch_handle, tvb, pinfo, tree, data);
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     guint8         tctf;
     guint8         chan;
@@ -308,7 +310,7 @@ static void dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
     if (!macinf || !fpinf) {
         proto_tree_add_expert(rach_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
-        return;
+        return 1;
     }
 
     proto_tree_add_bits_item(rach_tree, hf_mac_rach_fdd_tctf, tvb, 0, 2, ENC_BIG_ENDIAN);
@@ -326,7 +328,7 @@ static void dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             PROTO_ITEM_SET_GENERATED(channel_type);
             next_tvb = tvb_new_octet_aligned(tvb, bitoffs, fpinf->chan_tf_size[chan] - bitoffs);
             add_new_data_source(pinfo, next_tvb, "Octet-Aligned CCCH Data");
-            call_dissector(rlc_ccch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ccch_handle, next_tvb, pinfo, tree, data);
             break;
         case TCTF_DCCH_DTCH_RACH_FDD:
             /*Set RLC Mode/MAC content based on the L-CHID derived from the C/T flag*/
@@ -341,7 +343,7 @@ static void dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                     PROTO_ITEM_SET_GENERATED(channel_type);
                     next_tvb = tvb_new_octet_aligned(tvb, bitoffs, fpinf->chan_tf_size[chan] - bitoffs);
                     add_new_data_source(pinfo, next_tvb, "Octet-Aligned DCCH Data");
-                    call_dissector(rlc_dcch_handle, next_tvb, pinfo, tree);
+                    call_dissector_with_data(rlc_dcch_handle, next_tvb, pinfo, tree, data);
                     break;
                 case MAC_CONTENT_PS_DTCH:
                     proto_item_append_text(ti, " (PS DTCH)");
@@ -349,7 +351,7 @@ static void dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                     PROTO_ITEM_SET_GENERATED(channel_type);
                     next_tvb = tvb_new_octet_aligned(tvb, bitoffs, fpinf->chan_tf_size[chan] - bitoffs);
                     add_new_data_source(pinfo, next_tvb, "Octet-Aligned DTCH Data");
-                    call_dissector(rlc_ps_dtch_handle, next_tvb, pinfo, tree);
+                    call_dissector_with_data(rlc_ps_dtch_handle, next_tvb, pinfo, tree, data);
                     break;
                 case MAC_CONTENT_CS_DTCH:
                     proto_item_append_text(ti, " (CS DTCH)");
@@ -364,9 +366,10 @@ static void dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             proto_item_append_text(ti, " (Unknown RACH TCTF)");
             expert_add_info_format(pinfo, NULL, &ei_mac_rach_tctf_unknown, "Unknown RACH TCTF");
     }
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     guint8         hdr, tctf;
     guint16        bitoffs   = 0;
@@ -400,7 +403,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 
     if (!macinf || !fpinf) {
         proto_tree_add_expert(fach_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
-        return;
+        return 1;
     }
 
     proto_tree_add_bits_item(fach_tree, hf_mac_fach_fdd_tctf, tvb, 0, tctf_len, ENC_BIG_ENDIAN);
@@ -417,7 +420,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             PROTO_ITEM_SET_GENERATED(channel_type);
             /* CCCH over FACH is always octet aligned */
             next_tvb = tvb_new_subset_remaining(tvb, 1);
-            call_dissector(rlc_ccch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ccch_handle, next_tvb, pinfo, tree, data);
             break;
         case TCTF_DCCH_DTCH_FACH_FDD:
 
@@ -433,7 +436,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                     PROTO_ITEM_SET_GENERATED(channel_type);
                     next_tvb = tvb_new_octet_aligned(tvb, bitoffs, fpinf->chan_tf_size[chan] - bitoffs);
                     add_new_data_source(pinfo, next_tvb, "Octet-Aligned DCCH Data");
-                    call_dissector(rlc_dcch_handle, next_tvb, pinfo, tree);
+                    call_dissector_with_data(rlc_dcch_handle, next_tvb, pinfo, tree, data);
                     break;
                 case MAC_CONTENT_PS_DTCH:
                     proto_item_append_text(ti, " (PS DTCH)");
@@ -441,7 +444,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                     PROTO_ITEM_SET_GENERATED(channel_type);
                     next_tvb = tvb_new_octet_aligned(tvb, bitoffs, fpinf->chan_tf_size[chan] - bitoffs);
                     add_new_data_source(pinfo, next_tvb, "Octet-Aligned DCCH Data");
-                    call_dissector(rlc_ps_dtch_handle, next_tvb, pinfo, tree);
+                    call_dissector_with_data(rlc_ps_dtch_handle, next_tvb, pinfo, tree, data);
                     break;
                 case MAC_CONTENT_CS_DTCH:
                     proto_item_append_text(ti, " (CS DTCH)");
@@ -459,7 +462,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             PROTO_ITEM_SET_GENERATED(channel_type);
             /* CTCH over FACH is always octet aligned */
             next_tvb = tvb_new_subset_remaining(tvb, 1);
-            call_dissector(rlc_ctch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ctch_handle, next_tvb, pinfo, tree, data);
             break;
         /* july 5: Added support for BCCH*/
         case TCTF_BCCH_FACH_FDD:
@@ -479,7 +482,7 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             }
             rrcinf->msgtype[fpinf->cur_tb] = RRC_MESSAGE_TYPE_BCCH_FACH;
 
-            call_dissector(rrc_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rrc_handle, next_tvb, pinfo, tree, data);
 
             break;
         case TCTF_MSCH_FACH_FDD:
@@ -492,9 +495,10 @@ static void dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             expert_add_info_format(pinfo, NULL, &ei_mac_unknown_content, " Unknown FACH Content");
             break;
     }
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     guint16        pos;
     guint8         bitoffs  = 0;
@@ -517,7 +521,7 @@ static void dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 
     if (!macinf || !fpinf) {
         proto_tree_add_expert(dch_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
-        return;
+        return 1;
     }
     pos = fpinf->cur_tb;
 
@@ -557,7 +561,7 @@ static void dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
             /*Transport channel printout*/
             channel_type = proto_tree_add_uint(dch_tree, hf_mac_trch_id, tvb, 0, 0, macinf->trchid[pos]);
             PROTO_ITEM_SET_GENERATED(channel_type);
-            call_dissector(rlc_dcch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_dcch_handle, next_tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_PS_DTCH:
             proto_item_append_text(ti, " (PS DTCH)");
@@ -571,7 +575,7 @@ static void dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 
             channel_type = proto_tree_add_uint(dch_tree, hf_mac_channel, tvb, 0, 0, MAC_DTCH);
             PROTO_ITEM_SET_GENERATED(channel_type);
-            call_dissector(rlc_ps_dtch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ps_dtch_handle, next_tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_CS_DTCH:
             proto_item_append_text(ti, " (CS DTCH)");
@@ -598,6 +602,7 @@ static void dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
             proto_item_append_text(ti, " (Unknown DCH Content)");
             expert_add_info_format(pinfo, NULL, &ei_mac_unknown_content, "Unknown DCH Content");
     }
+    return tvb_captured_length(tvb);
 }
 
 static void init_frag(tvbuff_t * tvb, body_parts * bp, guint length, guint offset, guint32 frame_num, guint16 tsn, guint8 type)
@@ -709,7 +714,7 @@ static tvbuff_t * add_to_tree(tvbuff_t * tvb, packet_info * pinfo, proto_tree * 
 {
     tvbuff_t * new_tvb = NULL;
 
-    if (sdu->frame_num == pinfo->fd->num) {
+    if (sdu->frame_num == pinfo->num) {
         mac_is_fragment * f = sdu->fragments;
         guint counter = 0;
         new_tvb = tvb_new_child_real_data(tvb, sdu->data, sdu->length, sdu->length);
@@ -807,13 +812,13 @@ static tvbuff_t * mac_is_add_fragment(tvbuff_t * tvb _U_, packet_info *pinfo, pr
         /* Middle segment */
         if (no_sdus == 1 && ss == 3) {
             guint head_length, tail_length;
-            init_frag(tvb, body_parts_array[tsn], maclength, offset, pinfo->fd->num, tsn, MAC_IS_MIDDLE);
+            init_frag(tvb, body_parts_array[tsn], maclength, offset, pinfo->num, tsn, MAC_IS_MIDDLE);
             tail_length = find_tail(body_parts_array, tsn);
             if (tail_length > 0) {
                 head_length = find_head(body_parts_array, &tsn);
                 if (head_length > 0) {
                     /* tsn is now TSN of head */
-                    return reassemble(tvb, body_parts_array, tsn, tail_length+head_length+maclength, &ch, pinfo->fd->num);
+                    return reassemble(tvb, body_parts_array, tsn, tail_length+head_length+maclength, &ch, pinfo->num);
                 }
             }
             /* XXX: haven't confirmed if case when middle segment comes last
@@ -822,20 +827,20 @@ static tvbuff_t * mac_is_add_fragment(tvbuff_t * tvb _U_, packet_info *pinfo, pr
         /* If first SDU is last segment of previous. A tail. */
         else if (sdu_no == 0 && (ss & 1) == 1) {
             guint length = maclength;
-            init_frag(tvb, body_parts_array[tsn], maclength, offset, pinfo->fd->num, tsn, MAC_IS_TAIL);
+            init_frag(tvb, body_parts_array[tsn], maclength, offset, pinfo->num, tsn, MAC_IS_TAIL);
             length += find_head(body_parts_array, &tsn);
             if (length > maclength) {
                 /* tsn is now TSN of head */
-                return reassemble(tvb, body_parts_array, tsn, length, &ch, pinfo->fd->num);
+                return reassemble(tvb, body_parts_array, tsn, length, &ch, pinfo->num);
             }
         }
         /* If last SDU is first segment of next. A head. */
         else if (sdu_no == no_sdus-1 && (ss & 2) == 2) {
             guint length = maclength;
-            init_frag(tvb, body_parts_array[tsn], maclength, offset, pinfo->fd->num, tsn, MAC_IS_HEAD);
+            init_frag(tvb, body_parts_array[tsn], maclength, offset, pinfo->num, tsn, MAC_IS_HEAD);
             length += find_tail(body_parts_array, tsn);
             if (length > maclength) {
-                return reassemble(tvb, body_parts_array, tsn, length, &ch, pinfo->fd->num);
+                return reassemble(tvb, body_parts_array, tsn, length, &ch, pinfo->num);
             }
         /* If our SDU is not fragmented. */
         } else {
@@ -847,21 +852,21 @@ static tvbuff_t * mac_is_add_fragment(tvbuff_t * tvb _U_, packet_info *pinfo, pr
         tvbuff_t * new_tvb = NULL;
         /* Middle segment */
         if (no_sdus == 1 && ss == 3) {
-            mac_is_sdu * sdu = get_sdu(pinfo->fd->num, tsn, MAC_IS_MIDDLE, &ch);
+            mac_is_sdu * sdu = get_sdu(pinfo->num, tsn, MAC_IS_MIDDLE, &ch);
             if (sdu) {
                 return add_to_tree(tvb, pinfo, tree, sdu, offset, maclength, MAC_IS_MIDDLE);
             }
         }
         /* If first SDU is last segment of previous. A tail. */
         else if (sdu_no == 0 && (ss & 1) == 1) {
-            mac_is_sdu * sdu = get_sdu(pinfo->fd->num, tsn, MAC_IS_TAIL, &ch);
+            mac_is_sdu * sdu = get_sdu(pinfo->num, tsn, MAC_IS_TAIL, &ch);
             if (sdu) {
                 return add_to_tree(tvb, pinfo, tree, sdu, offset, maclength, MAC_IS_TAIL);
             }
         }
         /* If last SDU is first segment of next. A head. */
         else if (sdu_no == no_sdus-1 && (ss & 2) == 2) {
-            mac_is_sdu * sdu = get_sdu(pinfo->fd->num, tsn, MAC_IS_HEAD, &ch);
+            mac_is_sdu * sdu = get_sdu(pinfo->num, tsn, MAC_IS_HEAD, &ch);
             if (sdu) {
                 return add_to_tree(tvb, pinfo, tree, sdu, offset, maclength, MAC_IS_HEAD);
             }
@@ -917,16 +922,16 @@ static void ss_interpretation(tvbuff_t * tvb, proto_tree * tree, guint8 ss, guin
     }
 }
 
-static void call_rlc(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, proto_item * ti, guint8 lchid)
+static void call_rlc(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, proto_item * ti, guint8 lchid, void *data)
 {
     switch (lchId_type_table[lchid]) {
         case MAC_CONTENT_DCCH:
             proto_item_append_text(ti, " (DCCH)");
-            call_dissector(rlc_dcch_handle, tvb, pinfo, tree);
+            call_dissector_with_data(rlc_dcch_handle, tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_PS_DTCH:
             proto_item_append_text(ti, " (PS DTCH)");
-            call_dissector(rlc_ps_dtch_handle, tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ps_dtch_handle, tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_CS_DTCH:
             proto_item_append_text(ti, " (CS DTCH)");
@@ -942,7 +947,7 @@ static void call_rlc(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, pro
 /*
  * Dissect a MAC-is PDU.
  */
-static void dissect_mac_fdd_edch_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_edch_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     guint sdu_no, subframe_bytes = 0, offset = 0;
     guint8 ss;
@@ -992,7 +997,7 @@ static void dissect_mac_fdd_edch_type2(tvbuff_t *tvb, packet_info *pinfo, proto_
 
         asm_tvb = mac_is_add_fragment(tvb, pinfo, macis_sdu_tree, lchid, p_fp_info->com_context_id, offset, ss, tsn, sdu_no, mac_is_info->number_of_mac_is_sdus, sdulength);
         if (asm_tvb != NULL) {
-            call_rlc(asm_tvb, pinfo, tree, ti, lchid);
+            call_rlc(asm_tvb, pinfo, tree, ti, lchid, data);
         }
 
         offset += sdulength;
@@ -1004,9 +1009,10 @@ static void dissect_mac_fdd_edch_type2(tvbuff_t *tvb, packet_info *pinfo, proto_
 
     proto_item_set_len(pi, 1+subframe_bytes);
     /*total_bytes += subframe_bytes;*/
+    return tvb_captured_length(tvb);
 }
 
-static void dissect_mac_fdd_edch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_edch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     proto_tree    *edch_tree = NULL;
     proto_item    *channel_type;
@@ -1025,7 +1031,7 @@ static void dissect_mac_fdd_edch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     macinf = (umts_mac_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0);
     if (!macinf|| !fpinf) {
         proto_tree_add_expert(edch_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
-        return;
+        return 1;
     }
 
     pos = fpinf->cur_tb;
@@ -1042,7 +1048,7 @@ static void dissect_mac_fdd_edch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             PROTO_ITEM_SET_GENERATED(channel_type);
 
 
-            call_dissector(rlc_dcch_handle, tvb, pinfo, tree);
+            call_dissector_with_data(rlc_dcch_handle, tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_PS_DTCH:
             proto_item_append_text(ti, " (PS DTCH)");
@@ -1054,7 +1060,7 @@ static void dissect_mac_fdd_edch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             channel_type = proto_tree_add_uint(edch_tree, hf_mac_channel, tvb, 0, 0, MAC_DTCH);
             PROTO_ITEM_SET_GENERATED(channel_type);
 
-            call_dissector(rlc_ps_dtch_handle, tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ps_dtch_handle, tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_CS_DTCH:
             proto_item_append_text(ti, " (CS DTCH)");
@@ -1065,11 +1071,12 @@ static void dissect_mac_fdd_edch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
             expert_add_info_format(pinfo, ti, &ei_mac_unknown_content, "Unknown EDCH Content");
             break;
     }
+    return tvb_captured_length(tvb);
 }
 /**
 * Dissect hsdsch_common channel.
 *
-* This will dissect hsdsch common channels, we handle this seperately
+* This will dissect hsdsch common channels, we handle this separately
 * since we might have to deal with MAC-ehs and or MAC-c headers
 * (in the MAC PDU).
 *
@@ -1135,7 +1142,7 @@ static void dissect_mac_fdd_hsdsch_common(tvbuff_t *tvb, packet_info *pinfo, pro
  * no re-alignment is necessary
  * If no C/T is present, the whole payload will be left-shifted by 4 bit
  */
-static void dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     proto_tree    *hsdsch_tree = NULL;
     proto_item    *channel_type;
@@ -1162,7 +1169,7 @@ static void dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
     if (!macinf) {
         proto_tree_add_expert(hsdsch_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
-        return;
+        return 1;
     }
     if (macinf->ctmux[pos]) {   /*The 4'st bits are padding*/
         proto_tree_add_bits_item(hsdsch_tree, hf_mac_ct, tvb, bitoffs, 4, ENC_BIG_ENDIAN);
@@ -1205,7 +1212,7 @@ static void dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
             /*Set the MACd-Flow ID*/
             channel_type = proto_tree_add_uint(hsdsch_tree, hf_mac_macdflowd_id, tvb, 0, 0, macinf->macdflow_id[pos]);
             PROTO_ITEM_SET_GENERATED(channel_type);
-            call_dissector(rlc_ccch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ccch_handle, next_tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_DCCH:
             proto_item_append_text(ti, " (DCCH)");
@@ -1230,7 +1237,7 @@ static void dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
             /*Set the MACd-Flow ID*/
             channel_type = proto_tree_add_uint(hsdsch_tree, hf_mac_macdflowd_id, tvb, 0, 0, macinf->macdflow_id[pos]);
             PROTO_ITEM_SET_GENERATED(channel_type);
-            call_dissector(rlc_dcch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_dcch_handle, next_tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_PS_DTCH:
             proto_item_append_text(ti, " (PS DTCH)");
@@ -1255,7 +1262,7 @@ static void dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
             channel_type = proto_tree_add_uint(hsdsch_tree, hf_mac_macdflowd_id, tvb, 0, 0, macinf->macdflow_id[pos]);
             PROTO_ITEM_SET_GENERATED(channel_type);
 
-            call_dissector(rlc_ps_dtch_handle, next_tvb, pinfo, tree);
+            call_dissector_with_data(rlc_ps_dtch_handle, next_tvb, pinfo, tree, data);
             break;
         case MAC_CONTENT_CS_DTCH:
             proto_item_append_text(ti, " (CS DTCH)");
@@ -1264,6 +1271,7 @@ static void dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree
             proto_item_append_text(ti, " (Unknown HSDSCH Content)");
            expert_add_info_format(pinfo, NULL, &ei_mac_unknown_content, "Unknown HSDSCH Content");
     }
+    return tvb_captured_length(tvb);
 }
 
 static void mac_is_sdus_hash_destroy(gpointer data)

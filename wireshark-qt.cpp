@@ -70,10 +70,13 @@
 #include <codecs/codecs.h>
 #endif
 
+#ifdef HAVE_EXTCAP
+#include <extcap.h>
+#endif
+
 /* general (not Qt specific) */
 #include "file.h"
-#include "color.h"
-#include "color_filters.h"
+#include "epan/color_filters.h"
 #include "log.h"
 
 #include "epan/rtd_table.h"
@@ -89,6 +92,8 @@
 #include "ui/util.h"
 
 #include "ui/qt/conversation_dialog.h"
+#include "ui/qt/color_utils.h"
+#include "ui/qt/coloring_rules_dialog.h"
 #include "ui/qt/endpoint_dialog.h"
 #include "ui/qt/main_window.h"
 #include "ui/qt/response_time_delay_dialog.h"
@@ -164,7 +169,7 @@ print_usage(gboolean for_help_option) {
         output = stdout;
         fprintf(output, "Wireshark %s\n"
                 "Interactively dump and analyze network traffic.\n"
-                "See http://www.wireshark.org for more information.\n",
+                "See https://www.wireshark.org for more information.\n",
                 get_ws_vcs_version_info());
     } else {
         output = stderr;
@@ -518,7 +523,7 @@ int main(int argc, char *argv[])
      * Attempt to get the pathname of the executable file.
      */
     /* init_progfile_dir_error = */ init_progfile_dir(ws_argv[0],
-        (void *) get_gui_compiled_info);
+        (int (*)(int, char **)) get_gui_compiled_info);
     g_log(NULL, G_LOG_LEVEL_DEBUG, "progfile_dir: %s", get_progfile_dir());
 
 #ifdef _WIN32
@@ -616,17 +621,15 @@ int main(int argc, char *argv[])
      */
     // XXX Should the remaining code be in WiresharkApplcation::WiresharkApplication?
 #define OPTSTRING OPTSTRING_CAPTURE_COMMON "C:g:Hh" "jJ:kK:lm:nN:o:P:r:R:St:u:vw:X:Y:z:"
-DIAG_OFF(cast-qual)
     static const struct option long_options[] = {
-        {(char *)"help", no_argument, NULL, 'h'},
-        {(char *)"read-file", required_argument, NULL, 'r' },
-        {(char *)"read-filter", required_argument, NULL, 'R' },
-        {(char *)"display-filter", required_argument, NULL, 'Y' },
-        {(char *)"version", no_argument, NULL, 'v'},
+        {"help", no_argument, NULL, 'h'},
+        {"read-file", required_argument, NULL, 'r' },
+        {"read-filter", required_argument, NULL, 'R' },
+        {"display-filter", required_argument, NULL, 'Y' },
+        {"version", no_argument, NULL, 'v'},
         LONGOPT_CAPTURE_COMMON
         {0, 0, 0, 0 }
     };
-DIAG_ON(cast-qual)
     static const char optstring[] = OPTSTRING;
 
     opterr = 0;
@@ -747,9 +750,6 @@ DIAG_ON(cast-qual)
         g_free(rf_path);
     }
 
-    /* Init the "Open file" dialog directory */
-    /* (do this after the path settings are processed) */
-
     /* Read the profile dependent (static part) of the recent file. */
     /* Only the static part of it will be read, as we don't have the gui now to fill the */
     /* recent lists which is done in the dynamic part. */
@@ -760,6 +760,7 @@ DIAG_ON(cast-qual)
                       rf_path, g_strerror(rf_open_errno));
         g_free(rf_path);
     }
+    wsApp->applyCustomColorsFromRecent();
 
     // Initialize our language
     read_language_prefs();
@@ -778,18 +779,6 @@ DIAG_ON(cast-qual)
 
     /* Init the "Open file" dialog directory */
     /* (do this after the path settings are processed) */
-
-    /* Read the profile dependent (static part) of the recent file. */
-    /* Only the static part of it will be read, as we don't have the gui now to fill the */
-    /* recent lists which is done in the dynamic part. */
-    /* We have to do this already here, so command line parameters can overwrite these values. */
-    if (!recent_read_profile_static(&rf_path, &rf_open_errno)) {
-      simple_dialog(ESD_TYPE_WARN, ESD_BTN_OK,
-            "Could not open recent file\n\"%s\": %s.",
-            rf_path, g_strerror(rf_open_errno));
-      g_free(rf_path);
-    }
-
     if (recent.gui_fileopen_remembered_dir &&
         test_for_directory(recent.gui_fileopen_remembered_dir) == EISDIR) {
       wsApp->setLastOpenDir(recent.gui_fileopen_remembered_dir);
@@ -819,7 +808,7 @@ DIAG_ON(cast-qual)
     /* Register all the plugin types we have. */
     epan_register_plugin_types(); /* Types known to libwireshark */
     wtap_register_plugin_types(); /* Types known to libwiretap */
-    codec_register_plugin_types(); /* Types known to libcodec */
+    codec_register_plugin_types(); /* Types known to libwscodecs */
 
     /* Scan for plugins.  This does *not* call their registration routines;
        that's done later. */
@@ -836,8 +825,11 @@ DIAG_ON(cast-qual)
        "-G" flag, as the "-G" flag dumps information registered by the
        dissectors, and we must do it before we read the preferences, in
        case any dissectors register preferences. */
-    epan_init(register_all_protocols,register_all_protocol_handoffs,
-              splash_update, NULL);
+    if (!epan_init(register_all_protocols,register_all_protocol_handoffs,
+                   splash_update, NULL)) {
+        SimpleDialog::displayQueuedMessages(main_w);
+        return 2;
+    }
 
     splash_update(RA_LISTENERS, NULL, NULL);
 
@@ -849,6 +841,10 @@ DIAG_ON(cast-qual)
             by stats_tree_stat.c and need to registered before that */
 #ifdef HAVE_PLUGINS
     register_all_plugin_tap_listeners();
+#endif
+
+#ifdef HAVE_EXTCAP
+    extcap_register_preferences();
 #endif
 
     register_all_tap_listeners();
@@ -864,7 +860,7 @@ DIAG_ON(cast-qual)
 
     splash_update(RA_PREFERENCES, NULL, NULL);
 
-    prefs_p = ws_app.readConfigurationFiles(&gdp_path, &dp_path);
+    prefs_p = ws_app.readConfigurationFiles(&gdp_path, &dp_path, false);
 
     /*
      * To reset the options parser, set optreset to 1 on platforms that
@@ -1175,7 +1171,7 @@ DIAG_ON(cast-qual)
     // XXX Is there a better place to set the timestamp format & precision?
     timestamp_set_type(recent.gui_time_format);
     timestamp_set_precision(recent.gui_time_precision);
-    timestamp_set_seconds_type(TS_SECONDS_DEFAULT);
+    timestamp_set_seconds_type (recent.gui_seconds_format);
 
 #ifdef HAVE_LIBPCAP
     fill_in_local_interfaces(main_window_update);
@@ -1343,6 +1339,8 @@ DIAG_ON(cast-qual)
 
     wsApp->setMonospaceFont(prefs.gui_qt_font_name);
 
+    /* For update of WindowTitle (When use gui.window_title preference) */
+    main_w->setWSWindowTitle();
 ////////
 
     /* Read the dynamic part of the recent file, as we have the gui now ready for
@@ -1354,16 +1352,20 @@ DIAG_ON(cast-qual)
         g_free(rf_path);
     }
 
-    color_filters_enable(recent.packet_list_colorize);
+    packet_list_enable_color(recent.packet_list_colorize);
 
     g_log(NULL, G_LOG_LEVEL_DEBUG, "FIX: fetch recent color settings");
-    color_filters_enable(TRUE);
+    packet_list_enable_color(TRUE);
 
 ////////
 
 
 ////////
-    color_filters_init();
+    gchar* err_msg = NULL;
+    if (!color_filters_init(&err_msg, color_filter_add_cb)) {
+        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
+        g_free(err_msg);
+    }
 
 ////////
 
@@ -1381,10 +1383,10 @@ DIAG_ON(cast-qual)
     SimpleDialog::displayQueuedMessages(main_w);
 
     /* User could specify filename, or display filter, or both */
+    if (!dfilter.isEmpty())
+        main_w->filterPackets(dfilter, false);
     if (!cf_name.isEmpty()) {
         if (main_w->openCaptureFile(cf_name, read_filter, in_file_type)) {
-            if (!dfilter.isEmpty())
-                main_w->filterPackets(dfilter, false);
 
             /* Open stat windows; we do so after creating the main window,
                to avoid Qt warnings, and after successfully opening the
@@ -1408,8 +1410,8 @@ DIAG_ON(cast-qual)
             if (global_capture_opts.save_file != NULL) {
                 /* Save the directory name for future file dialogs. */
                 /* (get_dirname overwrites filename) */
-                gchar *s = get_dirname(g_strdup(global_capture_opts.save_file));
-                set_last_open_dir(s);
+                gchar *s = g_strdup(global_capture_opts.save_file);
+                set_last_open_dir(get_dirname(s));
                 g_free(s);
             }
             /* "-k" was specified; start a capture. */
@@ -1422,7 +1424,7 @@ DIAG_ON(cast-qual)
             if (global_capture_opts.ifaces->len == 0)
                 collect_ifaces(&global_capture_opts);
             CaptureFile::globalCapFile()->window = main_w;
-            if (capture_start(&global_capture_opts, main_w->captureSession(), main_window_update)) {
+            if (capture_start(&global_capture_opts, main_w->captureSession(), main_w->captureInfoData(), main_window_update)) {
                 /* The capture started.  Open stat windows; we do so after creating
                    the main window, to avoid GTK warnings, and after successfully
                    opening the capture file, so we know we have something to compute

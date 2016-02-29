@@ -25,12 +25,12 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wsutil/pint.h>
 #include <epan/expert.h>
 #include "packet-ieee8023.h"
 #include "packet-ipx.h"
 #include "packet-llc.h"
-#include "packet-vlan.h"
 #include <epan/etypes.h>
 #include <epan/prefs.h>
 #include <epan/to_str.h>
@@ -98,23 +98,22 @@ static gint ett_vlan = -1;
 
 static expert_field ei_vlan_len = EI_INIT;
 
-void
-capture_vlan(const guchar *pd, int offset, int len, packet_counts *ld ) {
+static gboolean
+capture_vlan(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_ ) {
   guint16 encap_proto;
-  if ( !BYTES_ARE_IN_FRAME(offset,len,5) ) {
-    ld->other++;
-    return;
-  }
+  if ( !BYTES_ARE_IN_FRAME(offset,len,5) )
+    return FALSE;
+
   encap_proto = pntoh16( &pd[offset+2] );
   if ( encap_proto <= IEEE_802_3_MAX_LEN) {
     if ( pd[offset+4] == 0xff && pd[offset+5] == 0xff ) {
-      capture_ipx(ld);
+      return capture_ipx(pd,offset+4,len, cpinfo, pseudo_header);
     } else {
-      capture_llc(pd,offset+4,len,ld);
+      return capture_llc(pd,offset+4,len, cpinfo, pseudo_header);
     }
-  } else {
-    capture_ethertype(encap_proto, pd, offset+4, len, ld);
   }
+
+  return try_capture_dissector("ethertype", encap_proto, pd, offset+4, len, cpinfo, pseudo_header);
 }
 
 static void
@@ -134,19 +133,24 @@ columns_set_vlan(column_info *cinfo, guint16 tci)
   col_add_str(cinfo, COL_8021Q_VLAN_ID, id_str);
 }
 
-static void
-dissect_vlan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_vlan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
-  guint16 tci;
-  volatile guint16 encap_proto;
-  volatile gboolean is_802_2;
-  proto_tree *volatile vlan_tree;
+  guint16 tci, vlan_id;
+  guint16 encap_proto;
+  gboolean is_802_2;
+  proto_tree *vlan_tree;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "VLAN");
   col_clear(pinfo->cinfo, COL_INFO);
 
   tci = tvb_get_ntohs( tvb, 0 );
+  vlan_id = tci & 0xFFF;
+  /* Add the VLAN Id if it's the first one*/
+  if (pinfo->vlan_id == 0) {
+      pinfo->vlan_id = vlan_id;
+  }
 
   columns_set_vlan(pinfo->cinfo, tci);
 
@@ -157,7 +161,7 @@ dissect_vlan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     if (vlan_summary_in_tree) {
         proto_item_append_text(ti, ", PRI: %u, CFI: %u, ID: %u",
-                (tci >> 13), ((tci >> 12) & 1), (tci & 0xFFF));
+                (tci >> 13), ((tci >> 12) & 1), vlan_id);
     }
 
     vlan_tree = proto_item_add_subtree(ti, ett_vlan);
@@ -199,6 +203,7 @@ dissect_vlan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     call_dissector_with_data(ethertype_handle, tvb, pinfo, tree, &ethertype_data);
   }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -257,6 +262,8 @@ proto_reg_handoff_vlan(void)
   if (!prefs_initialized)
   {
     dissector_add_uint("ethertype", ETHERTYPE_VLAN, vlan_handle);
+    register_capture_dissector("ethertype", ETHERTYPE_VLAN, capture_vlan, hfi_vlan->id);
+
     prefs_initialized = TRUE;
   }
   else

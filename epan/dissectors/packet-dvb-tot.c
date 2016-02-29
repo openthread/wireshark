@@ -41,10 +41,9 @@ static gint ett_dvb_tot = -1;
 #define DVB_TOT_RESERVED_MASK                   0xF000
 #define DVB_TOT_DESCRIPTORS_LOOP_LENGTH_MASK    0x0FFF
 
-static void
-dissect_dvb_tot(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_dvb_tot(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
     guint       offset = 0;
     guint       descriptor_len;
 
@@ -77,6 +76,7 @@ dissect_dvb_tot(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     offset += packet_mpeg_sect_crc(tvb, pinfo, dvb_tot_tree, 0, offset);
     proto_item_set_len(ti, offset);
+    return tvb_captured_length(tvb);
 }
 
 

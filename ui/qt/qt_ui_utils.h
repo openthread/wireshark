@@ -37,6 +37,7 @@
 
 class QAction;
 class QFont;
+class QRect;
 
 #ifdef __cplusplus
 extern "C" {
@@ -185,6 +186,22 @@ bool qActionLessThan(const QAction *a1, const QAction *a2);
  */
 bool qStringCaseLessThan(const QString &s1, const QString &s2);
 
+/**
+ * Given the path to a file, open its containing folder in the desktop
+ * shell. Highlight the file if possible.
+ *
+ * @param file_path Path to the file.
+ */
+void desktop_show_in_folder(const QString file_path);
+
+/**
+ * Test to see if a rect is visible on screen.
+ *
+ * @param rect The rect to test, typically a "recent.gui_geometry_*" setting.
+ * @return true if the rect is completely enclosed by one of the display
+ * screens, false otherwise.
+ */
+bool rect_on_screen(const QRect &rect);
 #endif /* __QT_UI_UTILS__H__ */
 
 // XXX Add a routine to fetch the HWND corresponding to a widget using QPlatformIntegration

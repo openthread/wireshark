@@ -32,8 +32,7 @@
 #include "ui/packet_list_utils.h"
 #include "ui/recent.h"
 
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 #include "frame_tvbuff.h"
 
 #include "color_utils.h"
@@ -118,6 +117,7 @@ void PacketListModel::clear() {
     qDeleteAll(physical_rows_);
     physical_rows_.clear();
     visible_rows_.clear();
+    new_visible_rows_.clear();
     number_to_row_.clear();
     PacketListRecord::clearStringPool();
     endResetModel();
@@ -244,6 +244,12 @@ void PacketListModel::unsetAllFrameRefTime()
     dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
 }
 
+void PacketListModel::applyTimeShift()
+{
+    resetColumns();
+    dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+}
+
 void PacketListModel::setMaximiumRowHeight(int height)
 {
     max_row_height_ = height;
@@ -363,7 +369,7 @@ bool PacketListModel::recordLessThan(PacketListRecord *r1, PacketListRecord *r2)
             header_field_info *hfi;
 
             // Column comes from custom data
-            hfi = proto_registrar_get_byname(sort_cap_file_->cinfo.columns[sort_column_].col_custom_field);
+            hfi = proto_registrar_get_byname(sort_cap_file_->cinfo.columns[sort_column_].col_custom_fields);
 
             if (hfi == NULL) {
                 cmp_val = frame_data_compare(sort_cap_file_->epan, r1->frameData(), r2->frameData(), COL_NUMBER);
@@ -522,7 +528,7 @@ QVariant PacketListModel::data(const QModelIndex &d_index, int role) const
 }
 
 QVariant PacketListModel::headerData(int section, Qt::Orientation orientation,
-                               int role) const
+                                     int role) const
 {
     if (!cap_file_) return QVariant();
 
@@ -530,6 +536,13 @@ QVariant PacketListModel::headerData(int section, Qt::Orientation orientation,
         switch (role) {
         case Qt::DisplayRole:
             return get_column_title(section);
+        case Qt::ToolTipRole:
+        {
+            gchar *tooltip = get_column_tooltip(section);
+            QVariant data(tooltip);
+            g_free (tooltip);
+            return data;
+        }
         default:
             break;
         }

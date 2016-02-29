@@ -40,8 +40,8 @@ static gint ett_docsis_dsarsp = -1;
 extern value_string docsis_conf_code[];
 
 /* Dissection */
-static void
-dissect_dsarsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_dsarsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *dsarsp_tree = NULL;
@@ -71,6 +71,7 @@ dissect_dsarsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
     /* Call dissector for Appendix C TLV's */
     next_tvb = tvb_new_subset_remaining (tvb, 3);
     call_dissector (docsis_tlv_handle, next_tvb, pinfo, dsarsp_tree);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

@@ -126,8 +126,8 @@ redbackli_dissect_avp(guint8 avptype, guint8 avplen, tvbuff_t *tvb, gint offset,
 	return;
 }
 
-static void
-redbackli_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+redbackli_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint8		avptype, avplen;
 	gint		len, offset = 0;
@@ -164,6 +164,8 @@ redbackli_dissect(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	next_tvb = tvb_new_subset_remaining(tvb, offset);
 	call_dissector(ip_handle, next_tvb, pinfo, tree);
+
+	return tvb_captured_length(tvb);
 }
 
 
@@ -224,7 +226,7 @@ redbackli_dissect_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 	if (!(avpfound & (1<<RB_AVP_LIID)))
 		return FALSE;
 
-	redbackli_dissect(tvb, pinfo, tree);
+	redbackli_dissect(tvb, pinfo, tree, data);
 
 	return TRUE;
 }

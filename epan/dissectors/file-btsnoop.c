@@ -192,8 +192,8 @@ dissect_btsnoop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
 
         if (pref_dissect_next_layer) switch (datalink) {\
             case 1001: /* H1 */
-                pinfo->fd->num = frame_number;
-                pinfo->fd->abs_ts = timestamp;
+                pinfo->num = frame_number;
+                pinfo->abs_ts = timestamp;
 
                 pinfo->pseudo_header->bthci.sent = (flags & 0x01) ? FALSE : TRUE;
                 if (flags & 0x02) {
@@ -209,16 +209,16 @@ dissect_btsnoop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
                 call_dissector(hci_h1_handle, next_tvb, pinfo, payload_tree);
                 break;
             case 1002: /* H4 */
-                pinfo->fd->num = frame_number;
-                pinfo->fd->abs_ts = timestamp;
+                pinfo->num = frame_number;
+                pinfo->abs_ts = timestamp;
                 pinfo->p2p_dir = (flags & 0x01) ? P2P_DIR_RECV : P2P_DIR_SENT;
 
                 next_tvb = tvb_new_subset(tvb, offset, length, length);
                 call_dissector(hci_h4_handle, next_tvb, pinfo, payload_tree);
                 break;
             case 2001: /* Linux Monitor */
-                pinfo->fd->num = frame_number;
-                pinfo->fd->abs_ts = timestamp;
+                pinfo->num = frame_number;
+                pinfo->abs_ts = timestamp;
 
                 pinfo->pseudo_header->btmon.opcode = flags & 0xFFFF;
                 pinfo->pseudo_header->btmon.adapter_id = flags >> 16;
@@ -369,7 +369,7 @@ proto_register_btsnoop(void)
     proto_register_field_array(proto_btsnoop, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    btsnoop_handle = new_register_dissector("btsnoop", dissect_btsnoop, proto_btsnoop);
+    btsnoop_handle = register_dissector("btsnoop", dissect_btsnoop, proto_btsnoop);
 
     module = prefs_register_protocol(proto_btsnoop, NULL);
     prefs_register_static_text_preference(module, "version",

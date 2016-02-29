@@ -73,7 +73,7 @@ static expert_field ei_cnip_type_unknown = EI_INIT;
 static dissector_table_t cnip_dissector_table;
 static dissector_handle_t data_handle;
 
-static void dissect_cnip (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_cnip (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
    tvbuff_t *next_tvb;
    gint offset;
@@ -141,7 +141,7 @@ static void dissect_cnip (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    next_tvb = tvb_new_subset_remaining(tvb, offset);
    if (type == DATA_PACKET) {
       if (dissector_try_uint(cnip_dissector_table, pf_pcode, next_tvb, pinfo, tree))
-         return;
+         return tvb_captured_length(tvb);
    }
    else {
       expert_add_info_format(pinfo, cnip_tree, &ei_cnip_type_unknown,
@@ -149,6 +149,7 @@ static void dissect_cnip (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             val_to_str_const(type, type_tuple, "Unknown"), type);
    }
    call_dissector(data_handle, next_tvb, pinfo, tree);
+   return tvb_captured_length(tvb);
 }
 
 void proto_register_cnip(void)
@@ -234,7 +235,7 @@ void proto_register_cnip(void)
 
    /* Register table for subdissectors */
    cnip_dissector_table = register_dissector_table("cnip.protocol",
-         "CN/IP Protocol", FT_UINT8, BASE_DEC);
+         "CN/IP Protocol", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void proto_reg_handoff_cnip(void)

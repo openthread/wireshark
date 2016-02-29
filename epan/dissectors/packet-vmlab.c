@@ -71,10 +71,10 @@ static const value_string fragment_vals[] = {
     { 0, NULL }
 };
 
-static void
-dissect_vmlab(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_vmlab(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-    proto_tree*     volatile vmlab_tree;
+    proto_tree*     vmlab_tree;
     proto_item*     ti;
 
     guint32         offset=0;
@@ -83,7 +83,7 @@ dissect_vmlab(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     guint8          portgroup;
     ethertype_data_t ethertype_data;
 
-    volatile guint16 encap_proto;
+    guint16         encap_proto;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "VMLAB");
     col_clear(pinfo->cinfo, COL_INFO);
@@ -139,6 +139,7 @@ dissect_vmlab(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     ethertype_data.fcs_len = 0;
 
     call_dissector_with_data(ethertype_handle, tvb, pinfo, tree, &ethertype_data);
+    return tvb_captured_length(tvb);
 }
 
 void

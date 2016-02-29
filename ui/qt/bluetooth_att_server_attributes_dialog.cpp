@@ -40,44 +40,6 @@ static const int column_number_handle = 0;
 static const int column_number_uuid = 1;
 static const int column_number_uuid_name = 2;
 
-
-static const gchar *
-bt_print_uuid(bluetooth_uuid_t *uuid)
-{
-    if (uuid->bt_uuid) {
-        return val_to_str_ext_const(uuid->bt_uuid, &bluetooth_uuid_vals_ext, "Unknown");
-    } else {
-        guint i_uuid;
-
-        i_uuid = 0;
-        while (bluetooth_uuid_custom[i_uuid].name) {
-            if (bluetooth_uuid_custom[i_uuid].size != uuid->size) {
-                i_uuid += 1;
-                continue;
-            }
-
-            if (memcmp(uuid->data, bluetooth_uuid_custom[i_uuid].uuid, uuid->size) == 0) {
-                return wmem_strdup(wmem_packet_scope(), bluetooth_uuid_custom[i_uuid].name);
-            }
-
-            i_uuid += 1;
-        }
-
-        return bytes_to_str(wmem_packet_scope(), uuid->data, uuid->size);
-    }
-}
-
-
-static gchar *
-bt_print_numeric_uuid(bluetooth_uuid_t *uuid)
-{
-    if (uuid && uuid->size > 0)
-        return bytes_to_str(wmem_packet_scope(), uuid->data, uuid->size);
-
-    return NULL;
-}
-
-
 static gboolean
 btatt_handle_tap_packet(void *tapinfo_ptr, packet_info *pinfo, epan_dissect_t *edt, const void* data)
 {
@@ -103,7 +65,7 @@ BluetoothAttServerAttributesDialog::BluetoothAttServerAttributesDialog(QWidget &
     ui(new Ui::BluetoothAttServerAttributesDialog)
 {
     ui->setupUi(this);
-    resize(parent.width() * 4 / 5, parent.height() * 2 / 3);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 2 / 3);
 
     connect(ui->tableTreeWidget, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(tableContextMenu(const QPoint &)));
     connect(ui->interfaceComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(interfaceCurrentIndexChanged(int)));
@@ -202,7 +164,7 @@ void BluetoothAttServerAttributesDialog::on_actionCopy_Rows_triggered()
     clipboard->setText(copy);
 }
 
-void BluetoothAttServerAttributesDialog::tapReset(void *tapinfo_ptr )
+void BluetoothAttServerAttributesDialog::tapReset(void *tapinfo_ptr)
 {
     tapinfo_t *tapinfo = (tapinfo_t *) tapinfo_ptr;
     BluetoothAttServerAttributesDialog  *bluetooth_att_server_attributes_dialog = static_cast<BluetoothAttServerAttributesDialog *>(tapinfo->ui);
@@ -221,6 +183,9 @@ gboolean BluetoothAttServerAttributesDialog::tapPacket(void *tapinfo_ptr, packet
     QString                              uuid;
     QString                              uuid_name;
     gchar                               *addr = NULL;
+
+    if (dialog->file_closed_)
+        return FALSE;
 
     if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID) {
         gchar       *interface;
@@ -251,8 +216,8 @@ gboolean BluetoothAttServerAttributesDialog::tapPacket(void *tapinfo_ptr, packet
     }
 
     handle.sprintf("0x%04x", tap_handles->handle);
-    uuid.sprintf("0x%s", bt_print_numeric_uuid(&tap_handles->uuid));
-    uuid_name = QString(bt_print_uuid(&tap_handles->uuid));
+    uuid = QString(print_numeric_uuid(&tap_handles->uuid));
+    uuid_name = QString(print_uuid(&tap_handles->uuid));
 
     if (dialog->ui->removeDuplicatesCheckBox->checkState() == Qt::Checked) {
         QTreeWidgetItemIterator i_item(dialog->ui->tableTreeWidget);
@@ -272,7 +237,7 @@ gboolean BluetoothAttServerAttributesDialog::tapPacket(void *tapinfo_ptr, packet
     item->setText(column_number_handle, handle);
     item->setText(column_number_uuid, uuid);
     item->setText(column_number_uuid_name,  uuid_name);
-    item->setData(0, Qt::UserRole, qVariantFromValue(pinfo->fd->num));
+    item->setData(0, Qt::UserRole, qVariantFromValue(pinfo->num));
 
     for (int i = 0; i < dialog->ui->tableTreeWidget->columnCount(); i++) {
         dialog->ui->tableTreeWidget->resizeColumnToContents(i);
@@ -302,7 +267,7 @@ void BluetoothAttServerAttributesDialog::removeDuplicatesStateChanged(int)
 
 void BluetoothAttServerAttributesDialog::on_tableTreeWidget_itemActivated(QTreeWidgetItem *item, int)
 {
-    if (!cap_file_.isValid())
+    if (file_closed_)
         return;
 
     guint32 frame_number = item->data(0, Qt::UserRole).value<guint32>();

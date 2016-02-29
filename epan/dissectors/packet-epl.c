@@ -54,6 +54,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/reassemble.h>
+#include <epan/proto_data.h>
 
 void proto_register_epl(void);
 void proto_reg_handoff_epl(void);
@@ -1518,7 +1519,7 @@ static GHashTable *epl_duplication_table = NULL;
 static guint
 epl_duplication_hash(gconstpointer k)
 {
-	duplication_key *key = (duplication_key*)k;
+	const duplication_key *key = (const duplication_key*)k;
 	guint hash;
 
 	hash = ((key->src)<<24) | ((key->dest)<<16)|
@@ -1531,8 +1532,8 @@ epl_duplication_hash(gconstpointer k)
 static gint
 epl_duplication_equal(gconstpointer k1, gconstpointer k2)
 {
-	duplication_key *key1 = (duplication_key*)k1;
-	duplication_key *key2 = (duplication_key*)k2;
+	const duplication_key *key1 = (const duplication_key*)k1;
+	const duplication_key *key2 = (const duplication_key*)k2;
 	gint hash;
 
 	hash = (key1->src == key2->src)&&(key1->dest == key2->dest)&&
@@ -1579,20 +1580,15 @@ epl_duplication_insert(GHashTable* table, gpointer ptr, guint32 frame)
 {
 	duplication_data *data = NULL;
 	duplication_key *key = NULL;
-	gpointer *pkey = NULL;
+	gpointer pkey = NULL;
 	gpointer pdata;
 
 	/* check if the values are stored */
-	if(g_hash_table_lookup_extended(table,ptr,pkey,&pdata))
+	if(g_hash_table_lookup_extended(table,ptr,&pkey,&pdata))
 	{
-			/* it happened that pkey was NULL
-			to prevent a crash this if was created */
-			if(pkey != NULL)
-			{
-				data = (duplication_data *)pdata;
-				data->frame = frame;
-				g_hash_table_insert(table, pkey, data);
-			}
+		data = (duplication_data *)pdata;
+		data->frame = frame;
+		g_hash_table_insert(table, pkey, data);
 	}
 	/* insert the data struct into the table */
 	else
@@ -1663,6 +1659,29 @@ gboolean show_soc_flags = FALSE;
 
 /* Define the tap for epl */
 /*static gint epl_tap = -1;*/
+
+static guint16
+epl_get_sequence_nr(packet_info *pinfo)
+{
+	guint16 seqnum = 0x00;
+	gpointer data = NULL;
+
+	if ( ( data = p_get_proto_data ( wmem_file_scope(), pinfo, proto_epl, ETHERTYPE_EPL_V2 ) ) == NULL )
+		p_add_proto_data ( wmem_file_scope(), pinfo, proto_epl, ETHERTYPE_EPL_V2, GUINT_TO_POINTER((guint)seqnum) );
+	else
+		seqnum = GPOINTER_TO_UINT(data);
+
+	return seqnum;
+}
+
+static void
+epl_set_sequence_nr(packet_info *pinfo, guint16 seqnum)
+{
+	if ( p_get_proto_data ( wmem_file_scope(), pinfo, proto_epl, ETHERTYPE_EPL_V2 ) != NULL )
+		p_remove_proto_data( wmem_file_scope(), pinfo, proto_epl, ETHERTYPE_EPL_V2 );
+
+	p_add_proto_data ( wmem_file_scope(), pinfo, proto_epl, ETHERTYPE_EPL_V2, GUINT_TO_POINTER((guint)seqnum) );
+}
 
 static void
 elp_version( gchar *result, guint32 version )
@@ -2633,10 +2652,13 @@ dissect_epl_asnd_sres(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo, g
 gint
 dissect_epl_asnd_sdo(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo, gint offset)
 {
+	guint16 seqnum = 0x00;
 	offset = dissect_epl_sdo_sequence(epl_tree, tvb, pinfo, offset);
 
+	seqnum = epl_get_sequence_nr(pinfo);
+
 	/* if a frame is duplicated don't show the command layer */
-	if(pinfo->fd->subnum == 0x00 || show_cmd_layer_for_duplicated == TRUE )
+	if(seqnum == 0x00 || show_cmd_layer_for_duplicated == TRUE )
 	{
 		if (tvb_reported_length_remaining(tvb, offset) > 0)
 		{
@@ -2657,6 +2679,7 @@ dissect_epl_sdo_sequence(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo
 	guint8 duplication = 0x00;
 	gpointer key;
 	guint32 saved_frame;
+	guint16 seqnum = 0;
 
 	/* read buffer */
 	seq_recv = tvb_get_guint8(tvb, offset);
@@ -2673,7 +2696,7 @@ dissect_epl_sdo_sequence(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo
 	seq_send = seq_send >> EPL_ASND_SDO_SEQ_MASK;
 	epl_segmentation.send = seq_send;
 	/* get the current frame-number */
-	frame = pinfo->fd->num;
+	frame = pinfo->num;
 
 	/* Create a key */
 	key = epl_duplication_key(epl_segmentation.src,epl_segmentation.dest,seq_recv,seq_send);
@@ -2689,7 +2712,7 @@ dissect_epl_sdo_sequence(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo
 		/* remove all the keys of the specified src and dest address*/
 		epl_duplication_remove(epl_duplication_table,epl_segmentation.src,epl_segmentation.dest);
 		/* There is no cmd layer */
-		pinfo->fd->subnum = 0x02;
+		epl_set_sequence_nr(pinfo, 0x02);
 	}
 	/* if cooked/fuzzed capture*/
 	else if(seq_recv >= EPL_MAX_SEQUENCE || seq_send >= EPL_MAX_SEQUENCE
@@ -2712,7 +2735,7 @@ dissect_epl_sdo_sequence(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo
 			expert_add_info(pinfo, epl_tree, &ei_sendcon_value);
 		}
 		duplication = 0x00;
-		pinfo->fd->subnum = 0x00;
+		epl_set_sequence_nr(pinfo, 0x00);
 	}
 	else
 	{
@@ -2748,9 +2771,11 @@ dissect_epl_sdo_sequence(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo
 		}
 	}
 	/* if the frame is a duplicated frame */
-	if((duplication == 0x01 && pinfo->fd->subnum == 0x00)||(pinfo->fd->subnum == 0x01))
+	seqnum = epl_get_sequence_nr(pinfo);
+	if((duplication == 0x01 && seqnum == 0x00)||(seqnum == 0x01))
 	{
-		pinfo->fd->subnum = 0x01;
+		seqnum = 0x01;
+		epl_set_sequence_nr(pinfo, seqnum);
 		expert_add_info_format(pinfo, epl_tree, &ei_duplicated_frame,
 			"Duplication of Frame: %d ReceiveSequenceNumber: %d and SendSequenceNumber: %d ",
 			saved_frame,seq_recv,seq_send );
@@ -2954,7 +2979,7 @@ dissect_epl_sdo_command_write_by_index(proto_tree *epl_tree, tvbuff_t *tvb, pack
 	fragment_head *frag_msg = NULL;
 
 	/* get the current frame number */
-	frame = pinfo->fd->num;
+	frame = pinfo->num;
 
 	if (!response)
 	{   /* request */
@@ -3166,7 +3191,7 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 	gboolean lastentry = FALSE;
 	const gchar *index_str, *sub_str, *sub_index_str;
 	proto_item *psf_item;
-	proto_tree *psf_tree;
+	proto_tree *psf_tree, *psf_od_tree;
 
 
 	/* Offset is calculated simply by only applying EPL payload offset, not packet offset.
@@ -3227,7 +3252,7 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 				 *   - 1 byte for subindex
 				 *   - 1 byte for reserved and padding */
 
-				/* Guarding against readout of padding. Probaility is nearly zero, as
+				/* Guarding against readout of padding. Probability is nearly zero, as
 				 * padding was checked above, but to be sure, this remains here */
 				if ( (guint32)( padding + 8 ) >= datalength )
 					break;
@@ -3238,12 +3263,15 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 
 			dataoffset = offset + 4;
 
+			/* add object subtree */
+			psf_od_tree = proto_tree_add_subtree(epl_tree, tvb, offset+4, 4+size, 0, NULL , "OD");
+
 			if (segmented <= EPL_ASND_SDO_CMD_SEGMENTATION_INITIATE_TRANSFER)
 			{
 				/* get SDO index value */
 				idx = tvb_get_letohs(tvb, dataoffset);
 				/* add index item */
-				psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset+4, 2, ENC_LITTLE_ENDIAN);
+				psf_item = proto_tree_add_item(psf_od_tree, hf_epl_asnd_sdo_cmd_data_index, tvb, offset+4, 2, ENC_LITTLE_ENDIAN);
 				/* value to string */
 				index_str = rval_to_str_const(idx, sod_cmd_str, "unknown");
 				/* get index string value */
@@ -3282,8 +3310,11 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 
 				dataoffset += 2;
 
+				proto_item_append_text(psf_od_tree, " Idx: 0x%04X", idx);
+
 				/* get subindex offset */
 				subindex = tvb_get_guint8(tvb, dataoffset);
+				proto_item_append_text(psf_od_tree, " SubIdx: 0x%02X", subindex);
 				/* get subindex string */
 				sub_str = val_to_str_ext_const(idx, &sod_cmd_sub_str, "unknown");
 				/* get string value */
@@ -3319,7 +3350,7 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 				/* if the subindex has the value 0x00 */
 				else if(subindex == entries)
 				{
-					psf_item = proto_tree_add_item(epl_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
+					psf_item = proto_tree_add_item(psf_od_tree, hf_epl_asnd_sdo_cmd_data_subindex, tvb, dataoffset, 1, ENC_LITTLE_ENDIAN);
 					proto_item_append_text(psf_item, " (NumberOfEntries)");
 				}
 				/* subindex */
@@ -3341,10 +3372,14 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 
 
 				dataoffset += 1;
-				proto_tree_add_uint(epl_tree, hf_epl_asnd_sdo_cmd_data_padding, tvb, dataoffset, 1, padding);
+				proto_tree_add_uint(psf_od_tree, hf_epl_asnd_sdo_cmd_data_padding, tvb, dataoffset, 1, padding);
 				dataoffset += 1;
 				objectcnt++;
 			}
+
+			/* size of embedded data */
+			psf_item = proto_tree_add_uint_format(psf_od_tree, hf_epl_asnd_sdo_cmd_data_size, tvb, dataoffset, size, size, "Data size: %d byte", size);
+			PROTO_ITEM_SET_GENERATED(psf_item);
 
 			/* if the frame is a PDO Mapping and the subindex is bigger than 0x00 */
 			if((idx == EPL_SOD_PDO_TX_MAPP && subindex > entries) ||(idx == EPL_SOD_PDO_RX_MAPP && subindex > entries))
@@ -3366,7 +3401,7 @@ dissect_epl_sdo_command_write_multiple_by_index(proto_tree *epl_tree, tvbuff_t *
 			else
 			{
 				/* dissect the payload */
-				dissect_epl_payload ( epl_tree, tvb, pinfo, dataoffset, size, EPL_ASND);
+				dissect_epl_payload ( psf_od_tree, tvb, pinfo, dataoffset, size, EPL_ASND);
 			}
 
 			offset += datalength;
@@ -3398,7 +3433,7 @@ dissect_epl_sdo_command_read_by_index(proto_tree *epl_tree, tvbuff_t *tvb, packe
 	fragment_head *frag_msg = NULL;
 
 	/* get the current frame number */
-	frame = pinfo->fd->num;
+	frame = pinfo->num;
 
 	if (!response)
 	{   /* request */
@@ -4318,10 +4353,10 @@ proto_register_epl(void)
 	heur_epl_subdissector_list = register_heur_dissector_list("epl");
 	heur_epl_data_subdissector_list = register_heur_dissector_list("epl_data");
 	epl_asnd_dissector_table = register_dissector_table("epl.asnd",
-		"Manufacturer specific ASND service", FT_UINT8, BASE_DEC);
+		"Manufacturer specific ASND service", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	/* Registering protocol to be called by another dissector */
-	epl_handle = new_register_dissector("epl", dissect_epl, proto_epl);
+	epl_handle = register_dissector("epl", dissect_epl, proto_epl);
 
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_epl, hf, array_length(hf));
@@ -4349,7 +4384,7 @@ proto_register_epl(void)
 void
 proto_reg_handoff_epl(void)
 {
-	dissector_handle_t epl_udp_handle = new_create_dissector_handle( dissect_epludp, proto_epl );
+	dissector_handle_t epl_udp_handle = create_dissector_handle( dissect_epludp, proto_epl );
 
 	/* Store a pointer to the data_dissector */
 	if ( data_dissector == NULL )

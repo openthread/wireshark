@@ -32,6 +32,8 @@
 #include <epan/ipproto.h>
 #include <epan/strutil.h>
 
+#include <wsutil/str_util.h>
+
 #include "packet-tcp.h"
 
 #include "packet-ber.h"
@@ -158,7 +160,7 @@ static int dissect_idmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tr
 
     asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
-    conv = find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    conv = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
                               pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
     if (conv) {
         /* Found a conversation, also use index for the generated dst_ref */
@@ -203,7 +205,7 @@ static int dissect_idmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tr
                 tvb = process_reassembled_data (tvb, offset, pinfo,
                                                 "Reassembled IDMP", fd_head, &idmp_frag_items, NULL, tree);
                 offset = 0;
-            } else if (pinfo->fd->num != fd_head->reassembled_in) {
+            } else if (pinfo->num != fd_head->reassembled_in) {
                 /* Add a "Reassembled in" link if not reassembled in this frame */
                 proto_tree_add_uint (tree, hf_idmp_reassembled_in,
                                      tvb, 0, 0, fd_head->reassembled_in);
@@ -334,7 +336,7 @@ void proto_register_idmp(void)
     proto_register_field_array(proto_idmp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    new_register_dissector("idmp", dissect_idmp_tcp, proto_idmp);
+    register_dissector("idmp", dissect_idmp_tcp, proto_idmp);
 
     register_init_routine (&idmp_reassemble_init);
     register_cleanup_routine (&idmp_reassemble_cleanup);

@@ -40,8 +40,8 @@ extern value_string docsis_conf_code[];
 static gint ett_docsis_dsdrsp = -1;
 
 /* Dissection */
-static void
-dissect_dsdrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_dsdrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *dsdrsp_tree;
@@ -69,6 +69,7 @@ dissect_dsdrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
                            ENC_BIG_ENDIAN);
     }
 
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

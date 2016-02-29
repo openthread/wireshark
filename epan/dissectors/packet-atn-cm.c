@@ -677,7 +677,7 @@ dissect_atn_cm_heur(
     proto_tree *tree,
     void *data _U_)
 {
-    atn_conversation_t *atn_cv = NULL;
+    atn_conversation_t *volatile atn_cv = NULL;
     volatile gboolean is_atn_cm = FALSE;
     int type;
 
@@ -717,7 +717,7 @@ dissect_atn_cm_heur(
     if (is_atn_cm  == TRUE) {
         /* note: */
         /* all subsequent PDU's belonging to this conversation are considered CM */
-        /* if the first CM PDU has been decoded succesfully */
+        /* if the first CM PDU has been decoded successfully */
         /* (This is done in "atn-ulcs" by using "call_dissector_with_data()") */
 
         /* DT: dstref present, srcref is always zero */
@@ -971,7 +971,7 @@ void proto_register_atn_cm (void)
         ett,
         array_length(ett));
 
-    new_register_dissector(
+    register_dissector(
         "atn-cm",
         dissect_atn_cm,
         proto_atn_cm);

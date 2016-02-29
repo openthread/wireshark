@@ -34,6 +34,7 @@
 
 #include <QIcon>
 #include <QMenu>
+#include <QTextStream>
 
 class QComboBox;
 class QLineEdit;
@@ -83,6 +84,8 @@ public:
     QCPBars *bars() { return bars_; }
     double startOffset();
     int packetFromTime(double ts);
+    double getItemValue(int idx, const capture_file *cap_file) const;
+    int maxInterval () const { return cur_idx_; }
 
     void clearAllData();
 
@@ -103,7 +106,6 @@ signals:
     void requestRetap();
 
 private:
-    double getItemValue(int idx, capture_file *cap_file);
     // Callbacks for register_tap_listener
     static void tapReset(void *iog_ptr);
     static gboolean tapPacket(void *iog_ptr, packet_info *pinfo, epan_dissect_t *edt, const void *data);
@@ -187,9 +189,15 @@ private:
     bool need_recalc_; // Medium weight: recalculate values, then replot
     bool need_retap_; // Heavy weight: re-read packet data
     bool auto_axes_;
+    // Available colors
+    // XXX - Add custom
+    QList<QRgb> colors_;
+
 
 //    void fillGraph();
     void zoomAxes(bool in);
+    void zoomXAxis(bool in);
+    void zoomYAxis(bool in);
     void panAxes(int x_pixels, int y_pixels);
     QIcon graphColorIcon(int color_idx);
     void toggleTracerStyle(bool force_default = false);
@@ -198,6 +206,8 @@ private:
     QRectF getZoomRanges(QRect zoom_rect);
     void itemEditingFinished(QTreeWidgetItem *item);
     void loadProfileGraphs();
+    void makeCsv(QTextStream &stream) const;
+    bool saveCsv(const QString &file_name) const;
 
 private slots:
     void updateWidgets();
@@ -208,6 +218,7 @@ private slots:
     void activateLastItem();
     void resetAxes();
     void updateStatistics(void);
+    void copyAsCsvClicked();
 
     void on_intervalComboBox_currentIndexChanged(int index);
     void on_todCheckBox_toggled(bool checked);
@@ -225,7 +236,11 @@ private slots:
     void on_zoomRadioButton_toggled(bool checked);
     void on_actionReset_triggered();
     void on_actionZoomIn_triggered();
+    void on_actionZoomInX_triggered();
+    void on_actionZoomInY_triggered();
     void on_actionZoomOut_triggered();
+    void on_actionZoomOutX_triggered();
+    void on_actionZoomOutY_triggered();
     void on_actionMoveUp10_triggered();
     void on_actionMoveLeft10_triggered();
     void on_actionMoveRight10_triggered();

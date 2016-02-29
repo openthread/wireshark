@@ -160,7 +160,7 @@ void dissect_trailer(tvbuff_t *tvb, proto_tree *tree, int offset);
 void dissect_cid(tvbuff_t *tvb, proto_tree *tree, int offset);
 void proto_reg_handoff_vrt(void);
 
-static void dissect_vrt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_vrt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int     offset = 0;
     guint8  type;
@@ -258,6 +258,7 @@ static void dissect_vrt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             dissect_trailer(tvb, vrt_tree, offset);
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 void dissect_header(tvbuff_t *tvb, proto_tree *tree, int type, int offset)
@@ -408,7 +409,7 @@ proto_register_vrt(void)
         },
         { &hf_vrt_ts_frac_picosecond,
             { "Fractional timestamp (picoseconds)", "vrt.ts_frac_picosecond",
-            FT_DOUBLE, BASE_NONE,
+            FT_UINT64, BASE_DEC,
             NULL, 0x00,
             NULL, HFILL }
         },

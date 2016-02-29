@@ -40,11 +40,10 @@ static int hf_sipfrag_line = -1;
 static int ett_sipfrag = -1;
 
 void proto_reg_handoff_sipfrag(void);
-static void dissect_sipfrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 
 
 /* Main dissection function. */
-static void dissect_sipfrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_sipfrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree  *sipfrag_tree;
     proto_item  *ti;
@@ -91,6 +90,7 @@ static void dissect_sipfrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* Close off summary of sipfrag in info column */
     col_append_str(pinfo->cinfo, COL_INFO, (lines > 1) ? "...)" : ")");
+    return tvb_captured_length(tvb);
 }
 
 void proto_register_sipfrag(void)

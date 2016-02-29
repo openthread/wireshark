@@ -56,17 +56,21 @@ static int hf_isis_csnp_clv_type = -1;
 static int hf_isis_csnp_clv_length = -1;
 static int hf_isis_csnp_ip_authentication = -1;
 static int hf_isis_csnp_authentication = -1;
+static int hf_isis_csnp_instance_identifier = -1;
+static int hf_isis_csnp_supported_itid = -1;
 static gint ett_isis_csnp = -1;
 static gint ett_isis_csnp_clv_lsp_entries = -1;
 static gint ett_isis_csnp_lsp_entry = -1;
 static gint ett_isis_csnp_clv_authentication = -1;
 static gint ett_isis_csnp_clv_ip_authentication = -1;
+static gint ett_isis_csnp_clv_instance_identifier = -1;
 static gint ett_isis_csnp_clv_checksum = -1;
 static gint ett_isis_csnp_clv_unknown = -1;
 
 static expert_field ei_isis_csnp_short_packet = EI_INIT;
 static expert_field ei_isis_csnp_long_packet = EI_INIT;
 static expert_field ei_isis_csnp_authentication = EI_INIT;
+static expert_field ei_isis_csnp_clv_unknown = EI_INIT;
 
 /* psnp packets */
 static int hf_isis_psnp_pdu_length = -1;
@@ -84,6 +88,7 @@ static gint ett_isis_psnp_clv_unknown = -1;
 
 static expert_field ei_isis_psnp_short_packet = EI_INIT;
 static expert_field ei_isis_psnp_long_packet = EI_INIT;
+static expert_field ei_isis_psnp_clv_unknown = EI_INIT;
 
 static void
 dissect_snp_authentication_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, int offset,
@@ -198,7 +203,37 @@ dissect_snp_lsp_entries_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree,
 
 }
 
+/*
+ * Name: dissect_snp_instance_identifier_clv()
+ *
+ * Description:
+ *    Decode for a snp packets Instance Identifier clv.
+ *      Calls into the CLV common one.
+ *
+ * Input:
+ *    tvbuff_t * : tvbuffer for packet data
+ *    proto_tree * : proto tree to build on (may be null)
+ *    int : current offset into packet data
+ *    int : length of IDs in packet.
+ *    int : length of this clv
+ *
+ * Output:
+ *    void, will modify proto_tree if not null.
+ */
+static void
+dissect_snp_instance_identifier_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
+    proto_tree *tree, int offset, int id_length _U_, int length)
+{
+    isis_dissect_instance_identifier_clv(tree, pinfo, tvb, &ei_isis_csnp_short_packet, hf_isis_csnp_instance_identifier, hf_isis_csnp_supported_itid, offset, length);
+}
+
 static const isis_clv_handle_t clv_l1_csnp_opts[] = {
+    {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_csnp_clv_instance_identifier,
+        dissect_snp_instance_identifier_clv
+    },
     {
         ISIS_CLV_LSP_ENTRIES,
         "LSP entries",
@@ -230,6 +265,12 @@ static const isis_clv_handle_t clv_l1_csnp_opts[] = {
 
 static const isis_clv_handle_t clv_l2_csnp_opts[] = {
     {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_csnp_clv_instance_identifier,
+        dissect_snp_instance_identifier_clv
+    },
+    {
         ISIS_CLV_LSP_ENTRIES,
         "LSP entries",
         &ett_isis_csnp_clv_lsp_entries,
@@ -260,6 +301,12 @@ static const isis_clv_handle_t clv_l2_csnp_opts[] = {
 
 static const isis_clv_handle_t clv_l1_psnp_opts[] = {
     {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_csnp_clv_instance_identifier,
+        dissect_snp_instance_identifier_clv
+    },
+    {
         ISIS_CLV_LSP_ENTRIES,
         "LSP entries",
         &ett_isis_psnp_clv_lsp_entries,
@@ -289,6 +336,12 @@ static const isis_clv_handle_t clv_l1_psnp_opts[] = {
 };
 
 static const isis_clv_handle_t clv_l2_psnp_opts[] = {
+    {
+        ISIS_CLV_INSTANCE_IDENTIFIER,
+        "Instance Identifier",
+        &ett_isis_csnp_clv_instance_identifier,
+        dissect_snp_instance_identifier_clv
+    },
     {
         ISIS_CLV_LSP_ENTRIES,
         "LSP entries",
@@ -359,7 +412,7 @@ dissect_isis_csnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offse
     }
 
     isis_dissect_clvs(tvb, pinfo, csnp_tree, offset,
-            opts, &ei_isis_csnp_short_packet, len, id_length, ett_isis_csnp_clv_unknown, hf_isis_csnp_clv_type, hf_isis_csnp_clv_length );
+            opts, &ei_isis_csnp_short_packet, len, id_length, ett_isis_csnp_clv_unknown, hf_isis_csnp_clv_type, hf_isis_csnp_clv_length, ei_isis_csnp_clv_unknown);
 }
 
 
@@ -413,7 +466,7 @@ dissect_isis_psnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offse
     }
     /* Call into payload dissector */
     isis_dissect_clvs(tvb, pinfo, psnp_tree, offset,
-            opts, &ei_isis_psnp_short_packet, len, id_length, ett_isis_psnp_clv_unknown, hf_isis_psnp_clv_type, hf_isis_psnp_clv_length);
+            opts, &ei_isis_psnp_short_packet, len, id_length, ett_isis_psnp_clv_unknown, hf_isis_psnp_clv_type, hf_isis_psnp_clv_length, ei_isis_psnp_clv_unknown);
 }
 
 static int
@@ -477,6 +530,12 @@ proto_register_isis_csnp(void)
         { &hf_isis_csnp_authentication,
         { "Authentication",        "isis.csnp.authentication", FT_BYTES,
           BASE_NONE, NULL, 0x0, NULL, HFILL }},
+        { &hf_isis_csnp_instance_identifier,
+        { "Instance Identifier", "isis.csnp.iid", FT_UINT16,
+          BASE_DEC, NULL, 0x0, NULL, HFILL } },
+        { &hf_isis_csnp_supported_itid,
+        { "Supported ITID", "isis.csnp.supported_itid", FT_UINT16,
+           BASE_DEC, NULL, 0x0, NULL, HFILL }},
     };
 
     static gint *ett[] = {
@@ -485,6 +544,7 @@ proto_register_isis_csnp(void)
         &ett_isis_csnp_lsp_entry,
         &ett_isis_csnp_clv_authentication,
         &ett_isis_csnp_clv_ip_authentication,
+        &ett_isis_csnp_clv_instance_identifier,
         &ett_isis_csnp_clv_checksum,
         &ett_isis_csnp_clv_unknown,
     };
@@ -493,6 +553,7 @@ proto_register_isis_csnp(void)
         { &ei_isis_csnp_short_packet, { "isis.csnp.short_packet", PI_MALFORMED, PI_ERROR, "Short packet", EXPFILL }},
         { &ei_isis_csnp_long_packet, { "isis.csnp.long_packet", PI_MALFORMED, PI_ERROR, "Long packet", EXPFILL }},
         { &ei_isis_csnp_authentication, { "isis.csnp.authentication.unknown", PI_PROTOCOL, PI_WARN, "Unknown authentication type", EXPFILL }},
+        { &ei_isis_csnp_clv_unknown, { "isis.csnp.clv.unknown", PI_UNDECODED, PI_NOTE, "Unknown option", EXPFILL }},
     };
     expert_module_t* expert_isis_csnp;
 
@@ -508,8 +569,8 @@ proto_register_isis_csnp(void)
 void
 proto_reg_handoff_isis_csnp(void)
 {
-    dissector_add_uint("isis.type", ISIS_TYPE_L1_CSNP, new_create_dissector_handle(dissect_isis_l1_csnp, proto_isis_csnp));
-    dissector_add_uint("isis.type", ISIS_TYPE_L2_CSNP, new_create_dissector_handle(dissect_isis_l2_csnp, proto_isis_csnp));
+    dissector_add_uint("isis.type", ISIS_TYPE_L1_CSNP, create_dissector_handle(dissect_isis_l1_csnp, proto_isis_csnp));
+    dissector_add_uint("isis.type", ISIS_TYPE_L2_CSNP, create_dissector_handle(dissect_isis_l2_csnp, proto_isis_csnp));
 }
 
 void
@@ -545,6 +606,7 @@ proto_register_isis_psnp(void)
     static ei_register_info ei[] = {
         { &ei_isis_psnp_long_packet, { "isis.psnp.long_packet", PI_MALFORMED, PI_ERROR, "Long packet", EXPFILL }},
         { &ei_isis_psnp_short_packet, { "isis.psnp.short_packet", PI_MALFORMED, PI_ERROR, "Short packet", EXPFILL }},
+        { &ei_isis_psnp_clv_unknown, { "isis.psnp.clv.unknown", PI_UNDECODED, PI_NOTE, "Unknown option", EXPFILL }},
     };
     expert_module_t* expert_isis_psnp;
 
@@ -560,8 +622,8 @@ proto_register_isis_psnp(void)
 void
 proto_reg_handoff_isis_psnp(void)
 {
-    dissector_add_uint("isis.type", ISIS_TYPE_L1_PSNP, new_create_dissector_handle(dissect_isis_l1_psnp, proto_isis_psnp));
-    dissector_add_uint("isis.type", ISIS_TYPE_L2_PSNP, new_create_dissector_handle(dissect_isis_l2_psnp, proto_isis_psnp));
+    dissector_add_uint("isis.type", ISIS_TYPE_L1_PSNP, create_dissector_handle(dissect_isis_l1_psnp, proto_isis_psnp));
+    dissector_add_uint("isis.type", ISIS_TYPE_L2_PSNP, create_dissector_handle(dissect_isis_l2_psnp, proto_isis_psnp));
 }
 
 /*

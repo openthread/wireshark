@@ -114,8 +114,8 @@ dissect_mplstp_fm_tlv (tvbuff_t *tvb, proto_tree *tree)
 }
 
 /* Dissector for MPLS-TP LI protocol: RFC 6435 */
-static void
-dissect_mplstp_lock(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mplstp_lock(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *ti;
   proto_tree *lock_tree;
@@ -127,7 +127,7 @@ dissect_mplstp_lock(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   col_clear(pinfo->cinfo, COL_INFO);
 
   if (!tree)
-    return;
+    return tvb_captured_length(tvb);
 
   ti = proto_tree_add_item(tree, proto_mplstp_lock, tvb, 0, -1, ENC_NA);
 
@@ -151,13 +151,13 @@ dissect_mplstp_lock(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   next_tvb = tvb_new_subset_remaining (tvb, offset);
   dissect_bfd_mep (next_tvb, tree, proto_mplstp_lock);
 
-  return;
+  return tvb_captured_length(tvb);
 }
 
 
 /* Dissector for MPLS-TP FM protocol: RFC 6427 */
-static void
-dissect_mplstp_fm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mplstp_fm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
    proto_item *ti, *ti_flags;
    proto_tree *fm_tree, *fm_flags;
@@ -171,7 +171,7 @@ dissect_mplstp_fm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    tlv_len = tvb_get_guint8 (tvb, (offset + 4));
 
    if (!tree)
-     return;
+     return tvb_captured_length(tvb);
 
    ti = proto_tree_add_item(tree, proto_mplstp_fm, tvb, 0, (tlv_len + 5), ENC_NA);
    fm_tree = proto_item_add_subtree (ti, ett_mplstp_fm);
@@ -215,7 +215,7 @@ dissect_mplstp_fm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
        next_tvb = tvb_new_subset_remaining (tvb, offset);
        dissect_mplstp_fm_tlv (next_tvb, tree);
      }
-  return;
+   return tvb_captured_length(tvb);
 }
 
 void

@@ -42,8 +42,7 @@
 #include <epan/epan_dissect.h>
 #include <epan/column.h>
 
-#include "color.h"
-#include "color_filters.h"
+#include <epan/color_filters.h>
 #include "frame_tvbuff.h"
 
 #include "globals.h"
@@ -935,7 +934,7 @@ packet_list_compare_custom(gint sort_id, gint text_sort_id, PacketListRecord *a,
 {
 	header_field_info *hfi;
 
-	hfi = proto_registrar_get_byname(cfile.cinfo.columns[sort_id].col_custom_field);
+	hfi = proto_registrar_get_byname(cfile.cinfo.columns[sort_id].col_custom_fields);
 
 	if (hfi == NULL) {
 		return frame_data_compare(cfile.epan, a->fdata, b->fdata, COL_NUMBER);
@@ -1030,9 +1029,11 @@ packet_list_resort(PacketList *packet_list)
 	g_ptr_array_sort_with_data(packet_list->physical_rows,
 			  (GCompareDataFunc) packet_list_qsort_physical_compare_func,
 			  packet_list);
+	g_return_if_fail(packet_list->visible_rows != NULL);
 
 	/* let other objects know about the new order */
 	neworder = g_new0(gint, PACKET_LIST_RECORD_COUNT(packet_list->visible_rows));
+	g_assert(neworder);
 
 	for(phy_idx = 0, vis_idx = 0; phy_idx < PACKET_LIST_RECORD_COUNT(packet_list->physical_rows); ++phy_idx) {
 		record = PACKET_LIST_RECORD_GET(packet_list->physical_rows, phy_idx);
@@ -1151,8 +1152,10 @@ packet_list_dissect_and_cache_record(PacketList *packet_list, PacketListRecord *
 					  create_proto_tree,
 					  FALSE /* proto_tree_visible */);
 
-	if (dissect_color)
+	if (dissect_color) {
 		color_filters_prime_edt(&edt);
+		fdata->flags.need_colorize = 1;
+	}
 	if (dissect_columns)
 		col_custom_prime_edt(&edt, cinfo);
 
@@ -1161,9 +1164,6 @@ packet_list_dissect_and_cache_record(PacketList *packet_list, PacketListRecord *
 	 * attempt to recover from it.
 	 */
 	epan_dissect_run(&edt, cfile.cd_t, &phdr, frame_tvbuff_new_buffer(fdata, &buf), fdata, cinfo);
-
-	if (dissect_color)
-		fdata->color_filter = color_filters_colorize_packet(&edt);
 
 	if (dissect_columns) {
 		/* "Stringify" non frame_data vals */

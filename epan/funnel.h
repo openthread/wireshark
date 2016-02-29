@@ -91,7 +91,8 @@ typedef struct _funnel_ops_t {
     void (*set_filter)(funnel_ops_id_t *ops_id, const char* filter);
     void (*set_color_filter_slot)(guint8 flit_nr, const gchar* filter);
     gboolean (*open_file)(funnel_ops_id_t *ops_id, const char* fname, const char* filter, char** error);
-    void (*reload)(funnel_ops_id_t *ops_id);
+    void (*reload_packets)(funnel_ops_id_t *ops_id);
+    void (*reload_lua_plugins)(funnel_ops_id_t *ops_id);
     void (*apply_filter)(funnel_ops_id_t *ops_id);
 
     gboolean (*browser_open_url)(const gchar *url);
@@ -110,7 +111,7 @@ WS_DLL_PUBLIC void funnel_register_menu(const char *name,
                                  funnel_menu_callback callback,
                                  gpointer callback_data,
                                  gboolean retap);
-WS_DLL_PUBLIC void funnel_deregister_menus(void (*callback)(gpointer));
+void funnel_deregister_menus(void (*callback)(gpointer));
 
 typedef void (*funnel_registration_cb_t)(const char *name,
                                          register_stat_group_t group,

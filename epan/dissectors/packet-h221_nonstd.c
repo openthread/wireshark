@@ -51,8 +51,8 @@ const value_string ms_codec_vals[] = {
     {  0, NULL }
 };
 
-static void
-dissect_ms_nonstd(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
+static int
+dissect_ms_nonstd(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
     proto_item *it;
     proto_tree *tr;
@@ -96,6 +96,7 @@ dissect_ms_nonstd(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree)
 
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register all the bits needed with the filtering engine */

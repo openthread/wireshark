@@ -123,8 +123,8 @@ checksum_data(tvbuff_t *tvb, proto_tree *tree)
 
 
 /** Dissects an SIR packet. */
-static void
-dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root)
+static int
+dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root, void* data _U_)
 {
 	gint offset = 0;
 	gint bof_offset;
@@ -140,7 +140,7 @@ dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root)
 				pinfo->desegment_offset = offset;
 				pinfo->desegment_len = 1;
 			}
-			return;
+			return tvb_captured_length(tvb);
 		} else {
 			guint preamble_len = bof_offset - offset;
 			gint data_offset = bof_offset + 1;
@@ -171,6 +171,7 @@ dissect_sir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root)
 		}
 		offset = eof_offset + 1;
 	}
+    return tvb_captured_length(tvb);
 }
 
 

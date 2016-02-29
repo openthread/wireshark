@@ -36,8 +36,8 @@
 #include <epan/reassemble.h>
 #include <epan/address_types.h>
 #include <epan/to_str.h>
-#include <epan/to_str-int.h>
 #include <wiretap/wtap.h>
+#include <epan/capture_dissectors.h>
 #include "packet-atalk.h"
 #include "packet-afp.h"
 
@@ -73,6 +73,7 @@ static int hf_ddp_src_socket = -1;
 static int hf_ddp_type = -1;
 
 static dissector_handle_t ddp_handle;
+static dissector_handle_t ddp_short_handle;
 
 /* --------------------------------------
  * ATP protocol parameters
@@ -524,8 +525,8 @@ static int dissect_pascal_string(tvbuff_t *tvb, int offset, proto_tree *tree,
   return offset;
 }
 
-static void
-dissect_rtmp_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_rtmp_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   proto_tree *rtmp_tree;
   proto_item *ti;
   guint8      function;
@@ -544,10 +545,11 @@ dissect_rtmp_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
     proto_tree_add_uint(rtmp_tree, hf_rtmp_function, tvb, 0, 1, function);
   }
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_rtmp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_rtmp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   proto_tree *rtmp_tree;
   proto_item *ti;
   int         offset = 0;
@@ -629,10 +631,11 @@ dissect_rtmp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
       i++;
     }
   }
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_nbp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_nbp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   proto_tree *nbp_tree;
   proto_tree *nbp_info_tree;
   proto_item *ti, *info_item;
@@ -690,15 +693,15 @@ dissect_nbp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     }
   }
 
-  return;
+  return tvb_captured_length(tvb);
 }
 
 /* -----------------------------
    ATP protocol cf. inside appletalk chap. 9
    desegmentation from packet-ieee80211.c
 */
-static void
-dissect_atp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_atp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
   proto_tree      *atp_tree      = NULL;
   proto_item      *ti;
   proto_tree      *atp_info_tree;
@@ -818,7 +821,7 @@ dissect_atp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
   }
 
   if (aspinfo.release)
-    return;
+    return tvb_captured_length(tvb);
 
   save_fragmented = pinfo->fragmented;
 
@@ -854,7 +857,7 @@ dissect_atp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
       call_dissector_with_data(zip_atp_handle, new_tvb, pinfo, tree, &aspinfo);
     else {
       /* XXX need a conversation_get_dissector function ? */
-      if (!aspinfo.reply && !conversation->dissector_handle) {
+      if (!aspinfo.reply && !conversation_get_dissector(conversation, pinfo->num)) {
         dissector_handle_t sub;
 
         /* if it's a known ASP function call ASP dissector
@@ -887,7 +890,7 @@ dissect_atp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     call_dissector(data_handle, new_tvb, pinfo, tree);
   }
   pinfo->fragmented = save_fragmented;
-  return;
+  return tvb_captured_length(tvb);
 }
 
 /* -----------------------------
@@ -991,14 +994,7 @@ get_transaction(tvbuff_t *tvb, packet_info *pinfo, struct aspinfo *aspinfo)
   asp_request_val *request_val;
   guint8           fn;
 
-  conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
-                                   pinfo->srcport, pinfo->destport, 0);
-
-  if (conversation == NULL)
-  {
-    conversation = conversation_new(pinfo->fd->num, &pinfo->src, &pinfo->dst,
-                                    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
-  }
+  conversation = find_or_create_conversation(pinfo);
 
   request_key.conversation = conversation->index;
   memcpy(request_key.src, (!aspinfo->reply)?pinfo->src.data:pinfo->dst.data, 4);
@@ -1288,8 +1284,8 @@ dissect_atp_zip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
   return tvb_reported_length(tvb);
 }
 
-static void
-dissect_ddp_zip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ddp_zip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree *zip_tree = NULL;
   proto_item *ti;
@@ -1318,7 +1314,7 @@ dissect_ddp_zip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
               val_to_str_ext(fn, &zip_function_vals_ext, "Unknown ZIP function (%02x)"));
 
   if (!tree)
-    return;
+    return tvb_captured_length(tvb);
 
   ti = proto_tree_add_item(tree, proto_zip, tvb, 0, -1, ENC_NA);
   zip_tree = proto_item_add_subtree(ti, ett_zip);
@@ -1410,11 +1406,18 @@ dissect_ddp_zip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   default:
     break;
   }
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_ddp_short(tvbuff_t *tvb, packet_info *pinfo, guint8 dnode,
-                  guint8 snode, proto_tree *tree)
+typedef struct ddp_nodes
+{
+  guint8 dnode;
+  guint8 snode;
+
+} ddp_nodes_t;
+
+static int
+dissect_ddp_short(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
   guint16                len;
   guint8                 dport;
@@ -1425,6 +1428,7 @@ dissect_ddp_short(tvbuff_t *tvb, packet_info *pinfo, guint8 dnode,
   struct atalk_ddp_addr *src = wmem_new0(pinfo->pool, struct atalk_ddp_addr),
                         *dst = wmem_new0(pinfo->pool, struct atalk_ddp_addr);
   tvbuff_t              *new_tvb;
+  ddp_nodes_t           *ddp_node = (ddp_nodes_t*)data;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "DDP");
   col_clear(pinfo->cinfo, COL_INFO);
@@ -1446,13 +1450,13 @@ dissect_ddp_short(tvbuff_t *tvb, packet_info *pinfo, guint8 dnode,
   type = tvb_get_guint8(tvb, 4);
 
   src->net = 0;
-  src->node = snode;
+  src->node = ddp_node->snode;
   dst->net = 0;
-  dst->node = dnode;
-  SET_ADDRESS(&pinfo->net_src, atalk_address_type, sizeof(struct atalk_ddp_addr), src);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
-  SET_ADDRESS(&pinfo->net_dst, atalk_address_type, sizeof(struct atalk_ddp_addr), dst);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+  dst->node = ddp_node->dnode;
+  set_address(&pinfo->net_src, atalk_address_type, sizeof(struct atalk_ddp_addr), src);
+  copy_address_shallow(&pinfo->src, &pinfo->net_src);
+  set_address(&pinfo->net_dst, atalk_address_type, sizeof(struct atalk_ddp_addr), dst);
+  copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
   pinfo->ptype = PT_DDP;
   pinfo->destport = dport;
@@ -1475,10 +1479,12 @@ dissect_ddp_short(tvbuff_t *tvb, packet_info *pinfo, guint8 dnode,
 
   if (!dissector_try_uint(ddp_dissector_table, type, new_tvb, pinfo, tree))
     call_dissector(data_handle,new_tvb, pinfo, tree);
+
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_ddp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_ddp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   e_ddp                  ddp;
   proto_tree            *ddp_tree;
@@ -1500,10 +1506,10 @@ dissect_ddp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   src->node = ddp.snode;
   dst->net = ddp.dnet;
   dst->node = ddp.dnode;
-  SET_ADDRESS(&pinfo->net_src, atalk_address_type, sizeof(struct atalk_ddp_addr), src);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->net_src);
-  SET_ADDRESS(&pinfo->net_dst, atalk_address_type, sizeof(struct atalk_ddp_addr), dst);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->net_dst);
+  set_address(&pinfo->net_src, atalk_address_type, sizeof(struct atalk_ddp_addr), src);
+  copy_address_shallow(&pinfo->src, &pinfo->net_src);
+  set_address(&pinfo->net_dst, atalk_address_type, sizeof(struct atalk_ddp_addr), dst);
+  copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
   pinfo->ptype = PT_DDP;
   pinfo->destport = ddp.dport;
@@ -1550,7 +1556,10 @@ dissect_ddp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   new_tvb = tvb_new_subset_remaining(tvb, DDP_HEADER_SIZE);
 
   if (!dissector_try_uint(ddp_dissector_table, ddp.type, new_tvb, pinfo, tree))
+  {
     call_dissector(data_handle,new_tvb, pinfo, tree);
+  }
+  return tvb_captured_length(tvb);
 }
 
 static const value_string llap_type_vals[] = {
@@ -1564,17 +1573,18 @@ static const value_string llap_type_vals[] = {
 };
 static value_string_ext llap_type_vals_ext = VALUE_STRING_EXT_INIT(llap_type_vals);
 
-void
-capture_llap(packet_counts *ld)
+static gboolean
+capture_llap(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo _U_, const union wtap_pseudo_header *pseudo_header _U_)
 {
-  ld->other++;
+  /* XXX - get its own counter
+  counts->other++; */
+  return FALSE;
 }
 
-static void
-dissect_llap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_llap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-  guint8 dnode;
-  guint8 snode;
+  ddp_nodes_t ddp_node;
   guint8 type;
   proto_tree *llap_tree;
   proto_item *ti;
@@ -1586,11 +1596,11 @@ dissect_llap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   ti = proto_tree_add_item(tree, proto_llap, tvb, 0, 3, ENC_NA);
   llap_tree = proto_item_add_subtree(ti, ett_llap);
 
-  dnode = tvb_get_guint8(tvb, 0);
-  proto_tree_add_uint(llap_tree, hf_llap_dst, tvb, 0, 1, dnode);
+  ddp_node.dnode = tvb_get_guint8(tvb, 0);
+  proto_tree_add_uint(llap_tree, hf_llap_dst, tvb, 0, 1, ddp_node.dnode);
 
-  snode = tvb_get_guint8(tvb, 1);
-  proto_tree_add_uint(llap_tree, hf_llap_src, tvb, 1, 1, snode);
+  ddp_node.snode = tvb_get_guint8(tvb, 1);
+  proto_tree_add_uint(llap_tree, hf_llap_src, tvb, 1, 1, ddp_node.snode);
 
   type = tvb_get_guint8(tvb, 2);
   col_add_str(pinfo->cinfo, COL_INFO,
@@ -1601,18 +1611,16 @@ dissect_llap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
   switch (type) {
     case 0x01:
-      if (proto_is_protocol_enabled(find_protocol_by_id(proto_ddp))) {
-        pinfo->current_proto = "DDP";
-        dissect_ddp_short(new_tvb, pinfo, dnode, snode, tree);
-        return;
-      }
+      if (call_dissector_with_data(ddp_short_handle, new_tvb, pinfo, tree, &ddp_node))
+        return tvb_captured_length(tvb);
       break;
     case 0x02:
       if (call_dissector(ddp_handle, new_tvb, pinfo, tree))
-        return;
+        return tvb_captured_length(tvb);
       break;
   }
   call_dissector(data_handle,new_tvb, pinfo, tree);
+  return tvb_captured_length(tvb);
 }
 
 static void
@@ -2067,7 +2075,7 @@ proto_register_atalk(void)
 
   /* subdissector code */
   ddp_dissector_table = register_dissector_table("ddp.type", "DDP packet type",
-                                                 FT_UINT8, BASE_HEX);
+                                                 FT_UINT8, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   atalk_address_type = address_type_dissector_register("AT_ATALK", "Appletalk DDP", atalk_to_str, atalk_str_len, atalk_col_filter_str, atalk_len, NULL, NULL);
 }
@@ -2080,6 +2088,7 @@ proto_reg_handoff_atalk(void)
   dissector_handle_t zip_ddp_handle;
   dissector_handle_t rtmp_data_handle, llap_handle;
 
+  ddp_short_handle = create_dissector_handle(dissect_ddp_short, proto_ddp);
   ddp_handle = create_dissector_handle(dissect_ddp, proto_ddp);
   dissector_add_uint("ethertype", ETHERTYPE_ATALK, ddp_handle);
   dissector_add_uint("chdlc.protocol", ETHERTYPE_ATALK, ddp_handle);
@@ -2094,8 +2103,8 @@ proto_reg_handoff_atalk(void)
   atp_handle = create_dissector_handle(dissect_atp, proto_atp);
   dissector_add_uint("ddp.type", DDP_ATP, atp_handle);
 
-  asp_handle = new_create_dissector_handle(dissect_asp, proto_asp);
-  pap_handle = new_create_dissector_handle(dissect_pap, proto_pap);
+  asp_handle = create_dissector_handle(dissect_asp, proto_asp);
+  pap_handle = create_dissector_handle(dissect_pap, proto_pap);
 
   rtmp_request_handle = create_dissector_handle(dissect_rtmp_request, proto_rtmp);
   rtmp_data_handle    = create_dissector_handle(dissect_rtmp_data, proto_rtmp);
@@ -2105,10 +2114,11 @@ proto_reg_handoff_atalk(void)
   zip_ddp_handle = create_dissector_handle(dissect_ddp_zip, proto_zip);
   dissector_add_uint("ddp.type", DDP_ZIP, zip_ddp_handle);
 
-  zip_atp_handle = new_create_dissector_handle(dissect_atp_zip, proto_zip);
+  zip_atp_handle = create_dissector_handle(dissect_atp_zip, proto_zip);
 
   llap_handle = create_dissector_handle(dissect_llap, proto_llap);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_LOCALTALK, llap_handle);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_LOCALTALK, capture_llap, proto_llap);
 
   register_init_routine( atp_init);
   register_cleanup_routine( atp_cleanup);

@@ -25,6 +25,7 @@
 
 #include <epan/packet.h>
 #include <epan/exceptions.h>
+#include <wsutil/str_util.h>
 #include "packet-http.h"
 
 #define TCP_PORT_DAAP 3689
@@ -396,8 +397,8 @@ static gint ett_daap_sub = -1;
 /* Forward declarations */
 static void dissect_daap_one_tag(proto_tree *tree, tvbuff_t *tvb);
 
-static void
-dissect_daap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_daap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
    proto_item *ti;
    proto_tree *daap_tree;
@@ -414,7 +415,7 @@ dissect_daap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     */
    if (first_tag == daap_png) {
       call_dissector(png_handle, tvb, pinfo, tree);
-      return;
+      return tvb_captured_length(tvb);
    }
 
    /* This is done in two functions on purpose. If the tvb_get_xxx()
@@ -428,6 +429,7 @@ dissect_daap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    ti = proto_tree_add_item(tree, proto_daap, tvb, 0, -1, ENC_NA);
    daap_tree = proto_item_add_subtree(ti, ett_daap);
    dissect_daap_one_tag(daap_tree, tvb);
+   return tvb_captured_length(tvb);
 }
 
 static void

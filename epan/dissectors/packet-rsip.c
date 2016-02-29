@@ -141,7 +141,7 @@ static const value_string addr_type_vals[] = {
 	{ 1,	"IPv4" },
 	{ 2,	"IPv4 Netmask" },
 	{ 3,	"IPv6" },
-	{ 4,	"Fully Qualified Doman Name" },
+	{ 4,	"Fully Qualified Domain Name" },
 	{ 0,	NULL }
 };
 
@@ -800,7 +800,7 @@ rsip_message_query_request(tvbuff_t *tvb, proto_tree *rsip_tree,
 	   <Address Tuple> ::= <Indicator (address)>
 	                       <Address>
 
-	   <Netwrok Tuple> ::= <Indicator (network)>
+	   <Network Tuple> ::= <Indicator (network)>
 	                       <Address (network)>
 	                       <Address (netmask)>
 	*/
@@ -967,8 +967,8 @@ rsip_message_assign_response_rsipsec(tvbuff_t *tvb, proto_tree *rsip_tree,
 	return consumed;
 }
 
-static void
-dissect_rsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_rsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item	*ti;
 	proto_tree	*rsip_tree;
@@ -1060,6 +1060,7 @@ dissect_rsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			break;
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 
@@ -1116,7 +1117,7 @@ proto_register_rsip(void)
 			  NULL, HFILL }
 		},
 		{ &hf_rsip_parameter_address_ipv6,
-			{ "IPv6 Address",	"rsip.parameter.address",
+			{ "IPv6 Address",	"rsip.parameter.address.ipv6",
 			  FT_IPv6, BASE_NONE, NULL, 0x0,
 			  NULL, HFILL }
 		},

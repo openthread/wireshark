@@ -202,8 +202,8 @@ dissect_aruba_erm_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, in
 }
 
 
-static void
-dissect_aruba_erm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
 
@@ -219,12 +219,12 @@ dissect_aruba_erm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         call_dissector(data_handle, tvb, pinfo, tree);
     }
 
-
+    return tvb_captured_length(tvb);
 }
 
 
-static void
-dissect_aruba_erm_type0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm_type0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     tvbuff_t * next_tvb;
     int offset = 0;
@@ -239,10 +239,11 @@ dissect_aruba_erm_type0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* No way to determine if TX or RX packet... (TX = no FCS, RX = FCS...)*/
     call_dissector(wlan_withfcs_handle, next_tvb, pinfo, tree);
 
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_aruba_erm_type1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm_type1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
 
@@ -251,10 +252,11 @@ dissect_aruba_erm_type1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Say to PEEK dissector, it is a Aruba PEEK packet */
     call_dissector_with_data(peek_handle, tvb, pinfo, tree, GUINT_TO_POINTER(IS_ARUBA));
 
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_aruba_erm_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
 
@@ -264,10 +266,11 @@ dissect_aruba_erm_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_tree_add_expert(tree, pinfo, &ei_aruba_erm_airmagnet, tvb, offset, -1);
     call_dissector(data_handle, tvb, pinfo, tree);
 
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_aruba_erm_type3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm_type3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     tvbuff_t * next_tvb;
     int offset = 0;
@@ -282,13 +285,11 @@ dissect_aruba_erm_type3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     offset = dissect_aruba_erm_pcap(tvb, pinfo, aruba_erm_tree, offset);
 
+    memset(&phdr, 0, sizeof(phdr));
     phdr.decrypted = FALSE;
     phdr.datapad = FALSE;
     phdr.phy = PHDR_802_11_PHY_UNKNOWN;
-    phdr.presence_flags =
-        PHDR_802_11_HAS_DATA_RATE|
-        PHDR_802_11_HAS_CHANNEL|
-        PHDR_802_11_HAS_SIGNAL_PERCENT;
+    phdr.has_data_rate = TRUE;
     data_rate = tvb_get_ntohs(tvb, offset);
     phdr.data_rate = data_rate;
     proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_data_rate, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -301,10 +302,12 @@ dissect_aruba_erm_type3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += 2;
 
     proto_tree_add_item_ret_uint(aruba_erm_tree, hf_aruba_erm_channel, tvb, offset, 1, ENC_BIG_ENDIAN, &channel);
+    phdr.has_channel = TRUE;
     phdr.channel = channel;
     offset += 1;
 
     proto_tree_add_item_ret_uint(aruba_erm_tree, hf_aruba_erm_signal_strength, tvb, offset, 1, ENC_BIG_ENDIAN, &signal_strength);
+    phdr.has_signal_percent = TRUE;
     phdr.signal_percent = signal_strength;
     offset += 1;
 
@@ -317,10 +320,11 @@ dissect_aruba_erm_type3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         phdr.fcs_len = 4; /* We have an FCS */
     }
     call_dissector_with_data(wlan_radio_handle, next_tvb, pinfo, tree, &phdr);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_aruba_erm_type4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm_type4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
 
@@ -328,11 +332,12 @@ dissect_aruba_erm_type4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     call_dissector(ppi_handle, tvb, pinfo, tree);
 
+    return tvb_captured_length(tvb);
 }
 
 /* Type 5 is the same of type 1 but with Peek Header version = 2, named internaly Peekremote -ng */
-static void
-dissect_aruba_erm_type5(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_aruba_erm_type5(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
 
@@ -341,6 +346,7 @@ dissect_aruba_erm_type5(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Say to PEEK dissector, it is a Aruba PEEK  packet */
     call_dissector_with_data(peek_handle, tvb, pinfo, tree, GUINT_TO_POINTER(IS_ARUBA));
 
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -455,7 +461,7 @@ proto_register_aruba_erm(void)
 
     aruba_erm_subdissector_table = register_dissector_table(
         "aruba_erm.type", "Aruba ERM Type",
-        FT_UINT32, BASE_DEC);
+        FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     register_decode_as(&aruba_erm_payload_da);
 

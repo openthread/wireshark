@@ -184,7 +184,7 @@ void proto_register_alc(void)
 
     /* Register the protocol name and description */
     proto_rmt_alc = proto_register_protocol("Asynchronous Layered Coding", "ALC", "alc");
-    new_register_dissector("alc", dissect_alc, proto_rmt_alc);
+    register_dissector("alc", dissect_alc, proto_rmt_alc);
 
     /* Register the header fields and subtrees used */
     proto_register_field_array(proto_rmt_alc, hf_ptr, array_length(hf_ptr));
@@ -235,7 +235,7 @@ void proto_reg_handoff_alc(void)
     if (!preferences_initialized)
     {
         preferences_initialized = TRUE;
-        handle = new_create_dissector_handle(dissect_alc, proto_rmt_alc);
+        handle = create_dissector_handle(dissect_alc, proto_rmt_alc);
         dissector_add_for_decode_as("udp.port", handle);
         xml_handle = find_dissector("xml");
         rmt_lct_handle = find_dissector("rmt-lct");

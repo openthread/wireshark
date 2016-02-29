@@ -24,16 +24,7 @@
 
 #include "config.h"
 
-#ifdef HAVE_AIRPCAP
-
-#ifdef HAVE_LIBPCAP
 #include <glib.h>
-#include <gmodule.h>
-
-
-#include <wtap.h>
-#include <pcap.h>
-#endif
 
 #include <epan/crypt/airpdcap_ws.h>
 #include <epan/strutil.h>
@@ -816,7 +807,6 @@ free_airpcap_interface_list(GList *if_list)
 {
     g_list_foreach(if_list, free_airpcap_if_cb, NULL);
     g_list_free(if_list);
-    if_list = NULL;
 }
 
 /*
@@ -1138,7 +1128,6 @@ airpcap_if_info_free(airpcap_if_info_t *if_info)
         if (if_info != NULL)
         {
             g_free(if_info);
-            if_info = NULL;
         }
     }
 }
@@ -1246,7 +1235,6 @@ get_runtime_airpcap_version(GString *str)
     g_string_append_printf(str, "with AirPcap %d.%d.%d build %d", vmaj, vmin,
         vrev, build);
 }
-#endif /* HAVE_AIRPCAP */
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

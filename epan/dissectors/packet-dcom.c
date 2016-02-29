@@ -40,7 +40,7 @@
  * windows registry at: "HKEY_CLASSES_ROOT\Interface"
  *
  *
- * Ressources on the web:
+ * Resources on the web:
  *
  * "Understanding the DCOM Wire Protocol by Analyzing Network Data Packets"
  * http:// www.microsoft.com/msj/0398/dcom.htm
@@ -65,22 +65,12 @@
 
 #include "config.h"
 
-#ifdef HAVE_ARPA_INET_H
-#include <arpa/inet.h>
-#endif
-
-#ifdef HAVE_WINSOCK2_H
-#include <winsock2.h>
-#endif
-
 #include <string.h>
 
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/addr_resolv.h>
-#ifndef HAVE_INET_ATON
 #include <wsutil/inet_aton.h>
-#endif
 #include <epan/expert.h>
 #include <epan/prefs.h>
 #include "packet-dcerpc.h"
@@ -265,17 +255,17 @@ void dcom_interface_dump(void) {
 
 	for(machines = dcom_machines; machines != NULL; machines = g_list_next(machines)) {
 		machine = (dcom_machine_t *)machines->data;
-		g_warning("Machine(#%4u): IP:%s", machine->first_packet, address_to_str(wmem_packet_scope(), &machine->ip));
+		/*g_warning("Machine(#%4u): IP:%s", machine->first_packet, address_to_str(wmem_packet_scope(), &machine->ip));*/
 
 		for(objects = machine->objects; objects != NULL; objects = g_list_next(objects)) {
 			object = (dcom_object_t *)objects->data;
-			g_warning(" Object(#%4u): OID:0x%" G_GINT64_MODIFIER "x private:%p", object->first_packet, object->oid, object->private_data);
+			/*g_warning(" Object(#%4u): OID:0x%" G_GINT64_MODIFIER "x private:%p", object->first_packet, object->oid, object->private_data);*/
 
 			for(interfaces = object->interfaces; interfaces != NULL; interfaces = g_list_next(interfaces)) {
 				interf = (dcom_interface_t *)interfaces->data;
-				g_warning("  Interface(#%4u): iid:%s",
+				/*g_warning("  Interface(#%4u): iid:%s",
 					  interf->first_packet, guids_resolve_guid_to_str(&interf->iid));
-				g_warning("   ipid:%s", guids_resolve_guid_to_str(&interf->ipid));
+				g_warning("   ipid:%s", guids_resolve_guid_to_str(&interf->ipid));*/
 			}
 		}
 	}
@@ -320,12 +310,12 @@ dcom_interface_t *dcom_interface_new(packet_info *pinfo, const address *addr, e_
 	}
 
 	if(oxid == 0 || oid == 0) {
-		/*g_warning("interface_new#%u", pinfo->fd->num);*/
+		/*g_warning("interface_new#%u", pinfo->num);*/
 
 		interf = wmem_new(wmem_file_scope(), dcom_interface_t);
 		interf->parent = NULL;
 		interf->private_data = NULL;
-		interf->first_packet = pinfo->fd->num;
+		interf->first_packet = pinfo->num;
 		interf->iid = *iid;
 		interf->ipid = *ipid;
 
@@ -337,7 +327,7 @@ dcom_interface_t *dcom_interface_new(packet_info *pinfo, const address *addr, e_
 	dcom_iter = dcom_machines;
 	while(dcom_iter != NULL) {
 		machine = (dcom_machine_t *)dcom_iter->data;
-		if(CMP_ADDRESS(&machine->ip, addr) == 0) {
+		if(cmp_address(&machine->ip, addr) == 0) {
 			break;
 		}
 		dcom_iter = g_list_next(dcom_iter);
@@ -346,9 +336,9 @@ dcom_interface_t *dcom_interface_new(packet_info *pinfo, const address *addr, e_
 	/* create new machine if not found */
 	if(dcom_iter == NULL) {
 		machine = g_new(dcom_machine_t,1);
-		COPY_ADDRESS(&machine->ip, addr);
+		copy_address(&machine->ip, addr);
 		machine->objects = NULL;
-		machine->first_packet = pinfo->fd->num;
+		machine->first_packet = pinfo->num;
 		dcom_machines = g_list_append(dcom_machines, machine);
 	}
 
@@ -368,7 +358,7 @@ dcom_interface_t *dcom_interface_new(packet_info *pinfo, const address *addr, e_
 		object->parent = machine;
 		object->interfaces = NULL;
 		object->private_data = NULL;
-		object->first_packet = pinfo->fd->num;
+		object->first_packet = pinfo->num;
 		object->oid = oid;
 		object->oxid = oxid;
 
@@ -390,7 +380,7 @@ dcom_interface_t *dcom_interface_new(packet_info *pinfo, const address *addr, e_
 		interf = g_new(dcom_interface_t,1);
 		interf->parent = object;
 		interf->private_data = NULL;
-		interf->first_packet = pinfo->fd->num;
+		interf->first_packet = pinfo->num;
 		interf->iid = *iid;
 		interf->ipid = *ipid;
 
@@ -1725,12 +1715,10 @@ dissect_dcom_BSTR(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 {
 	guint32 u32MaxCount;
 	guint32 u32ArraySize;
-	guint32 u32StrStart;
+	gint strStart, subStart, realOffset;
 	proto_item *sub_item;
 	proto_tree *sub_tree;
-	guint32 u32SubStart;
 	guint32 u32ByteLength;
-	guint32	u32RealOffset;
 	gboolean isPrintable;
 
 	/* alignment of 4 needed */
@@ -1741,7 +1729,7 @@ dissect_dcom_BSTR(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 	/* add subtree item */
 	sub_item = proto_tree_add_string(tree, hfindex, tvb, offset, 0, "");
 	sub_tree = proto_item_add_subtree(sub_item, ett_dcom_lpwstr);
-	u32SubStart = offset;
+	subStart = offset;
 
 	offset = dissect_dcom_DWORD(tvb, offset, pinfo, sub_tree, di, drep,
 			hf_dcom_max_count, &u32MaxCount);
@@ -1750,21 +1738,26 @@ dissect_dcom_BSTR(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 	offset = dissect_dcom_dcerpc_array_size(tvb, offset, pinfo, sub_tree, di, drep,
 			&u32ArraySize);
 
-	u32RealOffset = offset + u32ArraySize*2;
+	if ((guint32)offset + u32ArraySize*2 > G_MAXINT)
+		return offset;
 
-	u32StrStart = offset;
+	realOffset = offset + u32ArraySize*2;
+
+	strStart = offset;
 	offset = dcom_tvb_get_nwstringz0(tvb, offset, u32ArraySize*2, pszStr, u32MaxStr, &isPrintable);
 
-	proto_tree_add_string(sub_tree, hfindex, tvb, u32StrStart, offset - u32StrStart, pszStr);
+	proto_tree_add_string(sub_tree, hfindex, tvb, strStart, offset - strStart, pszStr);
 
 	/* update subtree header */
 	proto_item_append_text(sub_item, "%s%s%s",
 	isPrintable ? "\"" : "", pszStr, isPrintable ? "\"" : "");
-	if ((int) (u32RealOffset - u32SubStart) <= 0)
-		THROW(ReportedBoundsError);
-	proto_item_set_len(sub_item, u32RealOffset - u32SubStart);
+	if (realOffset <= subStart) {
+		/* XXX - expert info */
+		return offset;
+	}
+	proto_item_set_len(sub_item, realOffset - subStart);
 
-	return u32RealOffset;
+	return realOffset;
 }
 
 
@@ -1840,8 +1833,8 @@ dissect_dcom_DUALSTRINGARRAY(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 					if(first_ip != curr_ip) {
 						address first_ip_addr, curr_ip_addr;
 
-						SET_ADDRESS(&first_ip_addr, AT_IPv4, 4, &first_ip);
-						SET_ADDRESS(&curr_ip_addr, AT_IPv4, 4, &curr_ip);
+						set_address(&first_ip_addr, AT_IPv4, 4, &first_ip);
+						set_address(&curr_ip_addr, AT_IPv4, 4, &curr_ip);
 						expert_add_info_format(pinfo, pi, &ei_dcom_dualstringarray_mult_ip,
 								       "DUALSTRINGARRAY: multiple IP's %s %s",
 								       address_to_str(wmem_packet_scope(), &first_ip_addr), address_to_str(wmem_packet_scope(), &curr_ip_addr));
@@ -2060,6 +2053,7 @@ dissect_dcom_OBJREF(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 	gchar ip[4];
 
 	memset(&ipid, 0, sizeof(ipid));
+	memset(ip, 0, sizeof(ip));
 
 	/* add subtree header */
 	sub_item = proto_tree_add_item(tree, hf_dcom_objref, tvb, offset, 0, ENC_NA);
@@ -2100,7 +2094,7 @@ dissect_dcom_OBJREF(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 		if(pinfo->net_src.type == AT_IPv4) {
 			address addr;
 
-			SET_ADDRESS(&addr, AT_IPv4, 4, ip);
+			set_address(&addr, AT_IPv4, 4, ip);
 			dcom_if = dcom_interface_new(pinfo,
 						     &addr,
 						     &iid, oxid, oid, &ipid);
@@ -2198,7 +2192,7 @@ static void dcom_cleanup(void) {
 					objects->data = NULL; /* for good measure */
 				}
 				g_list_free(machine->objects);
-				g_free((void*)machine->ip.data);
+				free_address(&machine->ip);
 				machine->objects = NULL; /* for good measure */
 			}
 

@@ -24,12 +24,13 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wiretap/wtap.h>
-#include "packet-arcnet.h"
 #include <epan/address_types.h>
 #include <epan/arcnet_pids.h>
-#include <epan/to_str-int.h>
+#include <epan/to_str.h>
 #include "packet-ip.h"
+#include "packet-arp.h"
 
 void proto_register_arcnet(void);
 void proto_reg_handoff_arcnet(void);
@@ -52,6 +53,9 @@ static int arcnet_address_type = -1;
 
 static dissector_table_t arcnet_dissector_table;
 static dissector_handle_t data_handle;
+
+/* Cache protocol for packet counting */
+static int proto_ipx = -1;
 
 static int arcnet_str_len(const address* addr _U_)
 {
@@ -81,23 +85,18 @@ static int arcnet_len(void)
   return 1;
 }
 
-void
-capture_arcnet (const guchar *pd, int len, packet_counts *ld,
-                gboolean has_offset, gboolean has_exception)
+static gboolean
+capture_arcnet_common(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_, gboolean has_exception)
 {
-  int offset = has_offset ? 4 : 2;
-
   if (!BYTES_ARE_IN_FRAME(offset, len, 1)) {
-    ld->other++;
-    return;
+    return FALSE;
   }
 
   switch (pd[offset]) {
 
   case ARCNET_PROTO_IP_1051:
     /* No fragmentation stuff in the header */
-    capture_ip(pd, offset + 1, len, ld);
-    break;
+    return capture_ip(pd, offset + 1, len, cpinfo, pseudo_header);
 
   case ARCNET_PROTO_IP_1201:
     /*
@@ -105,7 +104,7 @@ capture_arcnet (const guchar *pd, int len, packet_counts *ld,
      *
      * XXX - on at least some versions of NetBSD, it appears that we
      * might we get ARCNET frames, not reassembled packets; we should
-     * perhaps bump "ld->other" for all but the first frame of a packet.
+     * perhaps bump "counts->other" for all but the first frame of a packet.
      *
      * XXX - but on FreeBSD it appears that we get reassembled packets
      * on input (but apparently we get frames on output - or maybe
@@ -128,8 +127,7 @@ capture_arcnet (const guchar *pd, int len, packet_counts *ld,
      */
     offset++;
     if (!BYTES_ARE_IN_FRAME(offset, len, 1)) {
-      ld->other++;
-      return;
+      return FALSE;
     }
     if (has_exception && pd[offset] == 0xff) {
       /* This is an exception packet.  The flag value there is the
@@ -138,25 +136,36 @@ capture_arcnet (const guchar *pd, int len, packet_counts *ld,
          type appears after the padding. */
       offset += 4;
     }
-    capture_ip(pd, offset + 3, len, ld);
-    break;
+    return capture_ip(pd, offset + 3, len, cpinfo, pseudo_header);
 
   case ARCNET_PROTO_ARP_1051:
   case ARCNET_PROTO_ARP_1201:
     /*
      * XXX - do we have to worry about fragmentation for ARP?
      */
-    ld->arp++;
-    break;
+    return capture_arp(pd, offset + 1, len, cpinfo, pseudo_header);
 
   case ARCNET_PROTO_IPX:
-    ld->ipx++;
+    capture_dissector_increment_count(cpinfo, proto_ipx);
     break;
 
   default:
-    ld->other++;
-    break;
+    return FALSE;
   }
+
+  return TRUE;
+}
+
+static gboolean
+capture_arcnet (const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+{
+  return capture_arcnet_common(pd, 4, len, cpinfo, pseudo_header, FALSE);
+}
+
+static gboolean
+capture_arcnet_has_exception(const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+{
+  return capture_arcnet_common(pd, 2, len, cpinfo, pseudo_header, TRUE);
 }
 
 static void
@@ -175,10 +184,10 @@ dissect_arcnet_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
 
   src = tvb_get_guint8 (tvb, 0);
   dst = tvb_get_guint8 (tvb, 1);
-  TVB_SET_ADDRESS(&pinfo->dl_src,   arcnet_address_type, tvb, 0, 1);
-  COPY_ADDRESS_SHALLOW(&pinfo->src, &pinfo->dl_src);
-  TVB_SET_ADDRESS(&pinfo->dl_dst,   arcnet_address_type, tvb, 1, 1);
-  COPY_ADDRESS_SHALLOW(&pinfo->dst, &pinfo->dl_dst);
+  set_address_tvb(&pinfo->dl_src,   arcnet_address_type, 1, tvb, 0);
+  copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+  set_address_tvb(&pinfo->dl_dst,   arcnet_address_type, 1, tvb, 1);
+  copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
 
   ti = proto_tree_add_item (tree, proto_arcnet, tvb, 0, -1, ENC_NA);
 
@@ -283,10 +292,11 @@ dissect_arcnet_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
  * BSD-style ARCNET headers - they don't have the offset field from the
  * ARCNET hardware packet, but we might get an exception frame header.
  */
-static void
-dissect_arcnet (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_arcnet (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   dissect_arcnet_common (tvb, pinfo, tree, FALSE, TRUE);
+  return tvb_captured_length(tvb);
 }
 
 /*
@@ -294,10 +304,11 @@ dissect_arcnet (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
  * ARCNET hardware packet, but we should never see an exception frame
  * header.
  */
-static void
-dissect_arcnet_linux (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_arcnet_linux (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   dissect_arcnet_common (tvb, pinfo, tree, TRUE, FALSE);
+  return tvb_captured_length(tvb);
 }
 
 static const value_string arcnet_prot_id_vals[] = {
@@ -376,7 +387,7 @@ proto_register_arcnet (void)
 
   arcnet_dissector_table = register_dissector_table ("arcnet.protocol_id",
                                                      "ARCNET Protocol ID",
-                                                     FT_UINT8, BASE_HEX);
+                                                     FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 /* Register the protocol name and description */
   proto_arcnet = proto_register_protocol ("ARCNET", "ARCNET", "arcnet");
@@ -397,9 +408,13 @@ proto_reg_handoff_arcnet (void)
   arcnet_handle = create_dissector_handle (dissect_arcnet, proto_arcnet);
   dissector_add_uint ("wtap_encap", WTAP_ENCAP_ARCNET, arcnet_handle);
 
-  arcnet_linux_handle = create_dissector_handle (dissect_arcnet_linux,
-                                                 proto_arcnet);
+  arcnet_linux_handle = create_dissector_handle (dissect_arcnet_linux, proto_arcnet);
   dissector_add_uint ("wtap_encap", WTAP_ENCAP_ARCNET_LINUX, arcnet_linux_handle);
+
+  proto_ipx = proto_get_id_by_filter_name("ipx");
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_ARCNET_LINUX, capture_arcnet, proto_arcnet);
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_ARCNET, capture_arcnet_has_exception, proto_arcnet);
   data_handle = find_dissector ("data");
 }
 

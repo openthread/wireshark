@@ -196,7 +196,7 @@ get_packet_data(packet_info * pinfo)
 	}
 
 	/* check if packet has changed */
-	if (pinfo->fd->num != data->curr_frame_num) {
+	if (pinfo->num != data->curr_frame_num) {
 		data->curr_level = 0;
 		data->next_level = 0;
 	}
@@ -487,18 +487,18 @@ dissect_ipmi_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	/* check for the first invocation */
 	if (!data->curr_level) {
 		/* get current frame data */
-		data->curr_frame = get_frame_data(data, pinfo->fd->num);
-		data->curr_frame_num = pinfo->fd->num;
+		data->curr_frame = get_frame_data(data, pinfo->num);
+		data->curr_frame_num = pinfo->num;
 
 		/* copy frame timestamp */
-		memcpy(&data->curr_frame->ts, &pinfo->fd->abs_ts, sizeof(nstime_t));
+		memcpy(&data->curr_frame->ts, &pinfo->abs_ts, sizeof(nstime_t));
 
 		/* cache channel and direction */
 		data->curr_channel = ctx->hdr.channel;
 		data->curr_dir = ctx->hdr.dir;
 
 		/* remove requests which are too old */
-		remove_old_requests(data, &pinfo->fd->abs_ts);
+		remove_old_requests(data, &pinfo->abs_ts);
 	}
 
 	if (data->curr_level < MAX_NEST_LEVEL) {
@@ -577,7 +577,7 @@ dissect_ipmi_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 					PROTO_ITEM_SET_GENERATED(ti);
 
 					/* calculate delta time */
-					nstime_delta(&ns, &pinfo->fd->abs_ts,
+					nstime_delta(&ns, &pinfo->abs_ts,
 							&get_frame_data(data,
 									rs_data->matched_frame_num)->ts);
 
@@ -1280,7 +1280,9 @@ ipmi_fmt_channel(gchar *s, guint32 v)
 void
 ipmi_fmt_udpport(gchar *s, guint32 v)
 {
-	g_snprintf(s, ITEM_LABEL_LENGTH, "%s (%d)", udp_port_to_display(wmem_packet_scope(), v), v);
+	gchar* port_str = udp_port_to_display(NULL, v);
+	g_snprintf(s, ITEM_LABEL_LENGTH, "%s (%d)", port_str, v);
+	wmem_free(NULL, port_str);
 }
 
 void
@@ -1803,10 +1805,10 @@ proto_register_ipmi(void)
 		ipmi_netfn_setdesc(i, "OEM", 0);
 	}
 
-	new_register_dissector("ipmi", dissect_ipmi, proto_ipmi);
-	new_register_dissector("ipmb", dissect_ipmi, proto_ipmb);
-	new_register_dissector("kcs", dissect_kcs, proto_kcs);
-	new_register_dissector("tmode", dissect_tmode, proto_tmode);
+	register_dissector("ipmi", dissect_ipmi, proto_ipmi);
+	register_dissector("ipmb", dissect_ipmi, proto_ipmb);
+	register_dissector("kcs", dissect_kcs, proto_kcs);
+	register_dissector("tmode", dissect_tmode, proto_tmode);
 
 	data_dissector = find_dissector("data");
 
@@ -1832,7 +1834,7 @@ void proto_reg_handoff_ipmi(void)
 {
 	dissector_handle_t ipmi_handle;
 
-	ipmi_handle = new_create_dissector_handle( dissect_i2c_ipmi, proto_ipmi );
+	ipmi_handle = create_dissector_handle( dissect_i2c_ipmi, proto_ipmi );
 	dissector_add_for_decode_as("i2c.message", ipmi_handle );
 }
 

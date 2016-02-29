@@ -22,8 +22,9 @@
 #ifndef COMPILEDFILTEROUTPUT_H
 #define COMPILEDFILTEROUTPUT_H
 
+#include "geometry_state_dialog.h"
+
 #include <config.h>
-#include <QDialog>
 #include <QList>
 #include <QHash>
 #include <QListWidgetItem>
@@ -34,7 +35,7 @@ namespace Ui {
 class CompiledFilterOutput;
 }
 
-class CompiledFilterOutput : public QDialog
+class CompiledFilterOutput : public GeometryStateDialog
 {
     Q_OBJECT
 
@@ -65,10 +66,10 @@ private slots:
 //
 // Local variables:
 // c-basic-offset: 4
-// tab-width: 4
+// tab-width: 8
 // indent-tabs-mode: nil
 // End:
 //
-// vi: set shiftwidth=4 tabstop=4 expandtab:
-// :indentSize=4:tabSize=4:noTabs=true:
+// vi: set shiftwidth=4 tabstop=8 expandtab:
+// :indentSize=4:tabSize=8:noTabs=true:
 //

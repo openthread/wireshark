@@ -149,7 +149,7 @@ dissect_jmirror(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
 	/* Create a buffer pointer for the next dissector */
 	next_tvb = tvb_new_subset_remaining(tvb, offset);
 
-	/* Call the next dissector based on the heurstics and return the number of bytes dissected */
+	/* Call the next dissector based on the heuristics and return the number of bytes dissected */
 	return MIRROR_HDR_SZ + call_dissector(dissector_handle, next_tvb, pinfo, tree);
 
 }
@@ -205,7 +205,7 @@ proto_reg_handoff_jmirror(void)
 		/* heur_dissector_add("udp", dissect_jmirror, proto_jmirror); */
 
 		/* Create a dissector handle for the Jmirror protocol */
-		jmirror_handle = new_create_dissector_handle(dissect_jmirror, proto_jmirror);
+		jmirror_handle = create_dissector_handle(dissect_jmirror, proto_jmirror);
 
 		/* Create pointer to ipv4, ipv6, ppp and data dissectors */
 		ipv4_handle = find_dissector("ip");

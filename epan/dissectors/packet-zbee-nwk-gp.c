@@ -382,8 +382,8 @@ static const value_string zbee_nwk_gp_app_id_names[] = {
     XXX( /*FP*/ ZB_GP_CMD_ID_STEP_HUE_UP                              , 0x43, "Step Hue Up" ) \
     XXX( /*FP*/ ZB_GP_CMD_ID_STEP_HUW_DOWN                            , 0x44, "Step Hue Down" ) \
     XXX( /*F */ ZB_GP_CMD_ID_MOVE_SATURATION_STOP                     , 0x45, "Move Saturation Stop" ) \
-    XXX( /*FP*/ ZB_GP_CMD_ID_MOVE_SATUREATION_UP                      , 0x46, "Move Saturation Up" ) \
-    XXX( /*FP*/ ZB_GP_CMD_ID_MOVE_SATUREATION_DOWN                    , 0x47, "Move Saturation Down" ) \
+    XXX( /*FP*/ ZB_GP_CMD_ID_MOVE_SATURATION_UP                       , 0x46, "Move Saturation Up" ) \
+    XXX( /*FP*/ ZB_GP_CMD_ID_MOVE_SATURATION_DOWN                     , 0x47, "Move Saturation Down" ) \
     XXX( /*FP*/ ZB_GP_CMD_ID_STEP_SATURATION_UP                       , 0x48, "Step Saturation Up" ) \
     XXX( /*FP*/ ZB_GP_CMD_ID_STEP_SATURATION_DOWN                     , 0x49, "Step Saturation Down" ) \
     XXX( /*FP*/ ZB_GP_CMD_ID_MOVE_COLOR                               , 0x4A, "Move Color" ) \
@@ -547,20 +547,13 @@ uat_key_record_free_cb(void *r)
     }
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_gp_security_parse_key
- *  DESCRIPTION
- *      Parses a key string from left to right into a buffer with increasing (normal byte order) or decreasing (reverse
- *      byte order) address.
- *  PARAMETERS
- *      const gchar    *key_str    - pointer to the string
- *      guint8         *key_buf    - destination buffer in memory
- *      gboolean        byte_order - byte order
- *  RETURNS
- *      gboolean
- *---------------------------------------------------------------
- */
+/**
+ *Parses a key string from left to right into a buffer with increasing (normal byte order) or decreasing (reverse
+ *
+ *@param key_str pointer to the string
+ *@param key_buf destination buffer in memory
+ *@param byte_order byte order
+*/
 static gboolean
 zbee_gp_security_parse_key(const gchar *key_str, guint8 *key_buf, gboolean byte_order)
 {
@@ -637,21 +630,16 @@ uat_key_record_update_cb(void *r, char **err)
     return TRUE;
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_commissioning
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power commissioning.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power commissioning.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_commissioning(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -745,21 +733,16 @@ dissect_zbee_nwk_gp_cmd_commissioning(tvbuff_t *tvb, packet_info *pinfo _U_, pro
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_commissioning */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_channel_request
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power channel request.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power channel request.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_channel_request(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -776,21 +759,16 @@ dissect_zbee_nwk_gp_cmd_channel_request(tvbuff_t *tvb, packet_info *pinfo _U_, p
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_channel_request */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_channel_configuration
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power channel configuration.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power channel configuration.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_channel_configuration(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -807,21 +785,16 @@ dissect_zbee_nwk_gp_cmd_channel_configuration(tvbuff_t *tvb, packet_info *pinfo 
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_channel_configuration */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_attr_reporting
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power commands attrib reporting.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power commands attrib reporting.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_attr_reporting(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -842,21 +815,16 @@ dissect_zbee_nwk_gp_cmd_attr_reporting(tvbuff_t *tvb, packet_info *pinfo _U_, pr
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_attr_reporting */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_commissioning_reply
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power comissioning reply.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power commissioning reply.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_commissioning_reply(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -896,21 +864,16 @@ dissect_zbee_nwk_gp_cmd_commissioning_reply(tvbuff_t *tvb, packet_info *pinfo _U
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_commissioning_reply */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_move_color
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power Move Color.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power Move Color.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_move_color(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -922,21 +885,16 @@ dissect_zbee_nwk_gp_cmd_move_color(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_move_color */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_move_up_down
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power Move Up/Down.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power Move Up/Down.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_move_up_down(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -946,21 +904,16 @@ dissect_zbee_nwk_gp_cmd_move_up_down(tvbuff_t *tvb, packet_info *pinfo _U_, prot
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_move_up_down */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_step_color
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power Step Color.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power Step Color.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_step_color(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -977,21 +930,16 @@ dissect_zbee_nwk_gp_cmd_step_color(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_step_color */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd_step_up_down
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power Step Up/Down.
- *  PARAMETERS
- *      tvbuff_t *tvb                       - pointer to buffer containing raw packet.
- *      packet_into *pinfo                  - pointer to packet information fields.
- *      proto_tree *tree                    - pointer to data tree Wireshark uses to display packet.
- *      zbee_nwk_green_power_packet *packet - packet data.
- *      guint offset                        - current payload offset.
- *  RETURNS
- *      guint                               - payload processed offset.
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power Step Up/Down.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param packet packet data.
+ *@param offset current payload offset.
+ *@return payload processed offset.
+*/
 static guint
 dissect_zbee_nwk_gp_cmd_step_up_down(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     zbee_nwk_green_power_packet *packet _U_, guint offset)
@@ -1003,20 +951,15 @@ dissect_zbee_nwk_gp_cmd_step_up_down(tvbuff_t *tvb, packet_info *pinfo _U_, prot
     return offset;
 } /* dissect_zbee_nwk_gp_cmd_step_up_down */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp_cmd
- *  DESCRIPTION
- *      Dissector for ZigBee Green Power commands.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *      void *data          - raw packet private data.
- *  RETURNS
- *      guint               - payload processed offset
- *---------------------------------------------------------------
- */
+/**
+ *Dissector for ZigBee Green Power commands.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param data raw packet private data.
+ *@return payload processed offset
+*/
 static guint
 dissect_zbee_nwk_gp_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -1088,8 +1031,8 @@ dissect_zbee_nwk_gp_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
         case ZB_GP_CMD_ID_MOVE_DOWN_WITH_ON_OFF:
         case ZB_GP_CMD_ID_MOVE_HUE_UP:
         case ZB_GP_CMD_ID_MOVE_HUE_DOWN:
-        case ZB_GP_CMD_ID_MOVE_SATUREATION_UP:
-        case ZB_GP_CMD_ID_MOVE_SATUREATION_DOWN:
+        case ZB_GP_CMD_ID_MOVE_SATURATION_UP:
+        case ZB_GP_CMD_ID_MOVE_SATURATION_DOWN:
             offset = dissect_zbee_nwk_gp_cmd_move_up_down(tvb, pinfo, cmd_tree, packet, offset);
             break;
         case ZB_GP_CMD_ID_STEP_UP:
@@ -1152,18 +1095,12 @@ dissect_zbee_nwk_gp_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     return offset;
 } /* dissect_zbee_nwk_gp_cmd */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_sec_make_nonce
- *  DESCRIPTION
- *      Fills in ZigBee GP security nonce from the provided packet structure.
- *  PARAMETERS
- *      zbee_nwk_green_power_packet *packet - ZigBee NWK packet.
- *      gchar                       *nonce  - nonce buffer.
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Fills in ZigBee GP security nonce from the provided packet structure.
+ *
+ *@param packet ZigBee NWK packet.
+ *@param nonce nonce buffer.
+*/
 static void
 zbee_gp_make_nonce(zbee_nwk_green_power_packet *packet, gchar *nonce)
 {
@@ -1184,31 +1121,25 @@ zbee_gp_make_nonce(zbee_nwk_green_power_packet *packet, gchar *nonce)
     nonce[11] = (guint8)((packet->security_frame_counter) >> 24 & 0xff);
     if ((packet->application_id == ZBEE_NWK_GP_APP_ID_ZGP) && (packet->direction !=
         ZBEE_NWK_GP_FC_EXT_DIRECTION_FROM_ZGPD)) {
-        nonce[12] = 0xa3;
+        nonce[12] = (gchar)0xa3;
     } else {
-        nonce[12] = 0x05;
+        nonce[12] = (gchar)0x05;
     }
     /* TODO: implement if application_id == ZB_ZGP_APP_ID_0000. */
     /* TODO: implement if application_id != ZB_ZGP_APP_ID_0000. */
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      zbee_sec_decrypt_payload
- *  DESCRIPTION
- *      Creates a nonce and decrypts secured ZigBee GP payload.
- *  PARAMETERS
- *      zbee_nwk_green_power_packet *packet     - ZigBee NWK packet.
- *      const gchar                 *enc_buffer - encoded payload buffer.
- *      const gchar                 offset      - payload offset.
- *      guint8                      *dec_buffer - decoded payload buffer.
- *      guint                       payload_len - payload length.
- *      guint                       mic_len     - MIC length.
- *      guint8                      *key        - key.
- *  RETURNS
- *      gboolean
- *---------------------------------------------------------------
- */
+/**
+ *Creates a nonce and decrypts secured ZigBee GP payload.
+ *
+ *@param packet ZigBee NWK packet.
+ *@param enc_buffer encoded payload buffer.
+ *@param offset payload offset.
+ *@param dec_buffer decoded payload buffer.
+ *@param payload_len payload length.
+ *@param mic_len MIC length.
+ *@param key key.
+*/
 static gboolean
 zbee_gp_decrypt_payload(zbee_nwk_green_power_packet *packet, const gchar *enc_buffer, const gchar offset, guint8
     *dec_buffer, guint payload_len, guint mic_len, guint8 *key)
@@ -1225,20 +1156,14 @@ zbee_gp_decrypt_payload(zbee_nwk_green_power_packet *packet, const gchar *enc_bu
     return FALSE;
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_gp
- *  DESCRIPTION
- *      ZigBee NWK packet dissection routine for Green Power profile.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *      void *data          - raw packet private data.
- *  RETURNS
- *      int
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee NWK packet dissection routine for Green Power profile.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param data raw packet private data.
+*/
 static int
 dissect_zbee_nwk_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -1390,20 +1315,14 @@ dissect_zbee_nwk_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     return tvb_captured_length(tvb);
 } /* dissect_zbee_nwk_gp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      dissect_zbee_nwk_heur_gp
- *  DESCRIPTION
- *      Heuristic interpreter for the ZigBee Green Power dissectors.
- *  PARAMETERS
- *      tvbuff_t *tvb       - pointer to buffer containing raw packet.
- *      packet_into *pinfo  - pointer to packet information fields.
- *      proto_tree *tree    - pointer to data tree Wireshark uses to display packet.
- *      void *data          - raw packet private data.
- *  RETURNS
- *      Boolean value, whether it handles the packet or not.
- *---------------------------------------------------------------
- */
+/**
+ *Heuristic interpreter for the ZigBee Green Power dissectors.
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields.
+ *@param tree pointer to data tree Wireshark uses to display packet.
+ *@param data raw packet private data.
+*/
 static gboolean
 dissect_zbee_nwk_heur_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -1435,17 +1354,10 @@ dissect_zbee_nwk_heur_gp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     return FALSE;
 } /* dissect_zbee_nwk_heur_gp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      gp_init_zbee_security
- *  DESCRIPTION
- *      Init routine for the ZigBee GP profile security.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Init routine for the ZigBee GP profile security.
+ *
+*/
 static void
 gp_init_zbee_security(void)
 {
@@ -1484,17 +1396,10 @@ gp_cleanup_zbee_security(void)
     zbee_gp_keyring = NULL;
 }
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_register_zbee_nwk_gp
- *  DESCRIPTION
- *      ZigBee NWK GP protocol registration routine.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *ZigBee NWK GP protocol registration routine.
+ *
+*/
 void
 proto_register_zbee_nwk_gp(void)
 {
@@ -1781,20 +1686,13 @@ proto_register_zbee_nwk_gp(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Register the dissectors. */
-    new_register_dissector(ZBEE_PROTOABBREV_NWK_GP, dissect_zbee_nwk_gp, proto_zbee_nwk_gp);
+    register_dissector(ZBEE_PROTOABBREV_NWK_GP, dissect_zbee_nwk_gp, proto_zbee_nwk_gp);
 } /* proto_register_zbee_nwk_gp */
 
-/*FUNCTION:------------------------------------------------------
- *  NAME
- *      proto_reg_handoff_zbee_nwk_gp
- *  DESCRIPTION
- *      Registers the ZigBee dissector with Wireshark.
- *  PARAMETERS
- *      none
- *  RETURNS
- *      void
- *---------------------------------------------------------------
- */
+/**
+ *Registers the ZigBee dissector with Wireshark.
+ *
+*/
 void
 proto_reg_handoff_zbee_nwk_gp(void)
 {

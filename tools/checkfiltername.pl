@@ -342,6 +342,7 @@ sub is_proto_dup_whitelist {
 	if (($_[0] eq "browser") && (index($_[1], "browser_") >= 0)) {return 1;}
 	if (($_[0] eq "dlsw") && (index($_[1], "dlsw_version") >= 0)) {return 1;}
 	if (($_[0] eq "dns") && (index($_[1], "dnskey") >= 0)) {return 1;}
+	if (($_[0] eq "ecmp") && (index($_[1], "ecmp_") >= 0)) {return 1;}
 	if (($_[0] eq "exported_pdu") && (index($_[1], "exported_pdu") >= 0)) {return 1;}
 	if (($_[0] eq "fc") && (index($_[1], "fctl") >= 0)) {return 1;}
 	if (($_[0] eq "fcs") && (index($_[1], "fcsmask") >= 0)) {return 1;}
@@ -736,54 +737,54 @@ while (<>) {
 
 if ($totalerrorcount > 0) {
 	print "\n\nTOTAL ERRORS: $totalerrorcount";
+
+	if ($filecount > 1) {
+		print " ($errorfilecount files)\n";
+
+		print "NO FIELDS: " . scalar(@nofieldfilelist) . "\n";
+		print "AUTOMATED: " . (scalar(@asn1automatedfilelist) + scalar(@dcerpcautomatedfilelist) + scalar(@idl2wrsautomatedfilelist)) . "\n";
+		print "NO PROTOCOL: " . scalar(@noregprotocolfilelist) . "\n";
+
+		print "\nASN.1 AUTOMATED FILE LIST\n";
+		foreach (@asn1automatedfilelist) {
+			print $_;
+		}
+		print "\nDCE/RPC AUTOMATED FILE LIST\n";
+		foreach (@dcerpcautomatedfilelist) {
+			print $_;
+		}
+		print "\nIDL2WRS AUTOMATED FILE LIST\n";
+		foreach (@idl2wrsautomatedfilelist) {
+			print $_;
+		}
+		print "\n\"FILE MANIPULATION\" FILE LIST\n";
+		@uniquefilelist = grep{ not $unique{$_}++} @filemanipulationfilelist;
+		foreach (@uniquefilelist) {
+			print $_;
+		}
+		print "\nREMOVE PREFIX FILE LIST\n";
+		@uniquefilelist = grep{ not $unique{$_}++} @prefixfilelist;
+		foreach (@uniquefilelist) {
+			print $_;
+		}
+		print "\nNO PROTOCOL REGISTERED FILE LIST\n";
+		foreach (@noregprotocolfilelist) {
+			print $_;
+		}
+		print "\nNO FIELDS FILE LIST\n";
+		foreach (@nofieldfilelist) {
+			print $_;
+		}
+
+		print "\nPERIOD IN PROTO FILTER NAME FILE LIST\n";
+		foreach (@periodinfilternamefilelist) {
+			print $_;
+		}
+	} else {
+		print "\n";
+	}
+
+	exit(1); # exit 1 if ERROR
 }
-
-if ($filecount > 1) {
-	print " ($errorfilecount files)\n";
-
-	print "NO FIELDS: " . scalar(@nofieldfilelist) . "\n";
-	print "AUTOMATED: " . (scalar(@asn1automatedfilelist) + scalar(@dcerpcautomatedfilelist) + scalar(@idl2wrsautomatedfilelist)) . "\n";
-	print "NO PROTOCOL: " . scalar(@noregprotocolfilelist) . "\n";
-
-	print "\nASN.1 AUTOMATED FILE LIST\n";
-	foreach (@asn1automatedfilelist) {
-		print $_;
-	}
-	print "\nDCE/RPC AUTOMATED FILE LIST\n";
-	foreach (@dcerpcautomatedfilelist) {
-		print $_;
-	}
-	print "\nIDL2WRS AUTOMATED FILE LIST\n";
-	foreach (@idl2wrsautomatedfilelist) {
-		print $_;
-	}
-	print "\n\"FILE MANIPULATION\" FILE LIST\n";
-	@uniquefilelist = grep{ not $unique{$_}++} @filemanipulationfilelist;
-	foreach (@uniquefilelist) {
-		print $_;
-	}
-	print "\nREMOVE PREFIX FILE LIST\n";
-	@uniquefilelist = grep{ not $unique{$_}++} @prefixfilelist;
-	foreach (@uniquefilelist) {
-		print $_;
-	}
-	print "\nNO PROTOCOL REGISTERED FILE LIST\n";
-	foreach (@noregprotocolfilelist) {
-		print $_;
-	}
-	print "\nNO FIELDS FILE LIST\n";
-	foreach (@nofieldfilelist) {
-		print $_;
-	}
-
-	print "\nPERIOD IN PROTO FILTER NAME FILE LIST\n";
-	foreach (@periodinfilternamefilelist) {
-		print $_;
-	}
-}
-
-print "\n";
-
-exit (($totalerrorcount == 0) ? 0 : 1);   # exit 1 if ERROR
 
 __END__

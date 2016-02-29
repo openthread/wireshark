@@ -39,6 +39,11 @@
 #include <epan/prefs.h>
 #include <wsutil/type_util.h>
 
+void proto_register_nasdaq_itch(void);
+void proto_reg_handoff_nasdaq_itch(void);
+
+static dissector_handle_t nasdaq_itch_handle;
+
 /* Chi-X version */
 static gboolean nasdaq_itch_chi_x = TRUE;
 
@@ -261,8 +266,8 @@ executed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *nasdaq_itch_tree, int of
 }
 
 /* ---------------------------- */
-static void
-dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item  *ti;
   proto_tree  *nasdaq_itch_tree = NULL;
@@ -310,11 +315,11 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     switch (nasdaq_itch_type) {
     case 'T': /* seconds */
       /*offset =*/ time_stamp (tvb, nasdaq_itch_tree, hf_nasdaq_itch_second, offset, 5);
-      return;
+      return tvb_captured_length(tvb);
 
     case 'M': /* milliseconds */
       /*offset =*/ time_stamp (tvb, nasdaq_itch_tree, hf_nasdaq_itch_millisecond, offset, 3);
-      return;
+      return tvb_captured_length(tvb);
     }
   }
 
@@ -429,12 +434,10 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /*offset += 5-1;*/
     break;
   }
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
-
-void proto_register_nasdaq_itch(void);
-
 void
 proto_register_nasdaq_itch(void)
 {
@@ -586,7 +589,13 @@ proto_register_nasdaq_itch(void)
                                  "Whether the Nasdaq ITCH dissector should decode Chi X extensions.",
                                  &nasdaq_itch_chi_x);
 
-  register_dissector("nasdaq-itch", dissect_nasdaq_itch, proto_nasdaq_itch);
+  nasdaq_itch_handle = register_dissector("nasdaq-itch", dissect_nasdaq_itch, proto_nasdaq_itch);
+}
+
+void
+proto_reg_handoff_nasdaq_itch(void)
+{
+  dissector_add_for_decode_as("moldudp64.payload", nasdaq_itch_handle );
 }
 
 /*

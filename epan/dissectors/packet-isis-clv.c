@@ -93,6 +93,43 @@ isis_dissect_area_address_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *tv
     }
 }
 
+/*
+ * Name: isis_dissect_instance_identifier_clv()
+ *
+ *
+ * Input:
+ *    tvbuff_t * : tvbuffer for packet data
+ *    proto_tree * : protocol display tree to fill out.  May be NULL
+ *    int : offset into packet data where we are.
+ *    int : length of clv we are decoding
+ *
+ * Output:
+ *    void, but we will add to proto tree if !NULL.
+ */
+void
+isis_dissect_instance_identifier_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *tvb,
+        expert_field* expert, int hf_iid, int hf_supported_itid, int offset, int length)
+{
+
+    length--;
+    if (length<=0) {
+        proto_tree_add_expert_format(tree, pinfo, expert, tvb, offset, -1,
+            "short address (no length for payload)");
+        return;
+    }
+
+    proto_tree_add_item(tree, hf_iid, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    length -= 2;
+
+    while ( length > 0 ) {
+
+        proto_tree_add_item(tree, hf_supported_itid, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+        length -= 2;
+
+    }
+}
 
 /*
  * Name: isis_dissect_authentication_clv()
@@ -309,7 +346,7 @@ void
 isis_dissect_ipv6_int_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *tvb, expert_field* expert,
     int offset, int length, int tree_id)
 {
-    guint8 addr [16];
+    struct e_in6_addr addr;
 
     if ( length <= 0 ) {
         return;
@@ -321,9 +358,9 @@ isis_dissect_ipv6_int_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *tvb, e
                 "Short IPv6 interface address (%d vs 16)",length );
             return;
         }
-        tvb_memcpy(tvb, addr, offset, sizeof(addr));
+        tvb_get_ipv6(tvb, offset, &addr);
         if ( tree ) {
-            proto_tree_add_ipv6(tree, tree_id, tvb, offset, 16, addr);
+            proto_tree_add_ipv6(tree, tree_id, tvb, offset, 16, &addr);
         }
         offset += 16;
         length -= 16;
@@ -441,7 +478,7 @@ isis_dissect_nlpid_clv(tvbuff_t *tvb, proto_tree *tree, int hf_nlpid, int offset
 void
 isis_dissect_clvs(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, int offset,
     const isis_clv_handle_t *opts, expert_field* expert_short_len, int len, int id_length,
-    int unknown_tree_id _U_, int tree_type, int tree_length)
+    int unknown_tree_id _U_, int tree_type, int tree_length, expert_field ei_unknown)
 {
     guint8 code;
     guint8 length;
@@ -487,7 +524,8 @@ isis_dissect_clvs(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, int offse
                     code, length);
             proto_tree_add_item(clv_tree, tree_type, tvb, offset - 2, 1, ENC_BIG_ENDIAN);
             proto_tree_add_item(clv_tree, tree_length, tvb, offset - 1, 1, ENC_BIG_ENDIAN);
-            /* Add value with data display ? */
+            proto_tree_add_expert_format(clv_tree, pinfo, &ei_unknown, tvb, offset, length -2, "Dissector for IS-IS CLV (%d)"
+              " code not implemented, Contact Wireshark developers if you want this supported", code);
         }
         offset += length;
         len -= length;

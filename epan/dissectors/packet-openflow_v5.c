@@ -2050,12 +2050,12 @@ dissect_openflow_packet_in_v5(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree 
         /* save some state */
         save_writable = col_get_writable(pinfo->cinfo);
         save_in_error_pkt = pinfo->flags.in_error_pkt;
-        save_dl_src = pinfo->dl_src;
-        save_dl_dst = pinfo->dl_dst;
-        save_net_src = pinfo->net_src;
-        save_net_dst = pinfo->net_dst;
-        save_src = pinfo->src;
-        save_dst = pinfo->dst;
+        copy_address_shallow(&save_dl_src, &pinfo->dl_src);
+        copy_address_shallow(&save_dl_dst, &pinfo->dl_dst);
+        copy_address_shallow(&save_net_src, &pinfo->net_src);
+        copy_address_shallow(&save_net_dst, &pinfo->net_dst);
+        copy_address_shallow(&save_src, &pinfo->src);
+        copy_address_shallow(&save_dst, &pinfo->dst);
 
         /* dissect data */
         col_set_writable(pinfo->cinfo, FALSE);
@@ -2065,12 +2065,12 @@ dissect_openflow_packet_in_v5(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree 
         /* restore saved state */
         col_set_writable(pinfo->cinfo, save_writable);
         pinfo->flags.in_error_pkt = save_in_error_pkt;
-        pinfo->dl_src = save_dl_src;
-        pinfo->dl_dst = save_dl_dst;
-        pinfo->net_src = save_net_src;
-        pinfo->net_dst = save_net_dst;
-        pinfo->src = save_src;
-        pinfo->dst = save_dst;
+        copy_address_shallow(&pinfo->dl_src, &save_dl_src);
+        copy_address_shallow(&pinfo->dl_dst, &save_dl_dst);
+        copy_address_shallow(&pinfo->net_src, &save_net_src);
+        copy_address_shallow(&pinfo->net_dst, &save_net_dst);
+        copy_address_shallow(&pinfo->src, &save_src);
+        copy_address_shallow(&pinfo->dst, &save_dst);
     }
 }
 
@@ -2789,12 +2789,12 @@ dissect_openflow_packet_out_v5(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
         /* save some state */
         save_writable = col_get_writable(pinfo->cinfo);
         save_in_error_pkt = pinfo->flags.in_error_pkt;
-        save_dl_src = pinfo->dl_src;
-        save_dl_dst = pinfo->dl_dst;
-        save_net_src = pinfo->net_src;
-        save_net_dst = pinfo->net_dst;
-        save_src = pinfo->src;
-        save_dst = pinfo->dst;
+        copy_address_shallow(&save_dl_src, &pinfo->dl_src);
+        copy_address_shallow(&save_dl_dst, &pinfo->dl_dst);
+        copy_address_shallow(&save_net_src, &pinfo->net_src);
+        copy_address_shallow(&save_net_dst, &pinfo->net_dst);
+        copy_address_shallow(&save_src, &pinfo->src);
+        copy_address_shallow(&save_dst, &pinfo->dst);
 
         /* dissect data */
         col_set_writable(pinfo->cinfo, FALSE);
@@ -2804,12 +2804,12 @@ dissect_openflow_packet_out_v5(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
         /* restore saved state */
         col_set_writable(pinfo->cinfo, save_writable);
         pinfo->flags.in_error_pkt = save_in_error_pkt;
-        pinfo->dl_src = save_dl_src;
-        pinfo->dl_dst = save_dl_dst;
-        pinfo->net_src = save_net_src;
-        pinfo->net_dst = save_net_dst;
-        pinfo->src = save_src;
-        pinfo->dst = save_dst;
+        copy_address_shallow(&pinfo->dl_src, &save_dl_src);
+        copy_address_shallow(&pinfo->dl_dst, &save_dl_dst);
+        copy_address_shallow(&pinfo->net_src, &save_net_src);
+        copy_address_shallow(&pinfo->net_dst, &save_net_dst);
+        copy_address_shallow(&pinfo->src, &save_src);
+        copy_address_shallow(&pinfo->dst, &save_dst);
     }
 }
 
@@ -5209,6 +5209,7 @@ dissect_openflow_flow_update_v5(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
 
 
 
+#define OFPMPF_REPLY_MORE  1 << 0
 static void
 dissect_openflow_multipart_reply_v5(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint16 length)
 {
@@ -6031,52 +6032,52 @@ proto_register_openflow_v5(void)
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_etheraddr,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_etheraddr",
                FT_ETHER, BASE_NONE, NULL, 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_ethertype,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_ethertype",
                FT_UINT16, BASE_HEX, VALS(etype_vals), 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_vlan_present,
-            { "OFPVID_PRESENT", "openflow_v5.oxm.value",
+            { "OFPVID_PRESENT", "openflow_v5.oxm.value_vlan_present",
                FT_BOOLEAN, 16, NULL, OFPVID_PRESENT,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_vlan_vid,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_vlan_vid",
                FT_UINT16, BASE_DEC, NULL, 0x0fff,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_ipv4addr,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_ipv4addr",
                FT_IPv4, BASE_NONE, NULL, 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_ipv6addr,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_ipv6addr",
                FT_IPv6, BASE_NONE, NULL, 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_ipproto,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_ipproto",
                FT_UINT8, BASE_DEC|BASE_EXT_STRING, &ipproto_val_ext, 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_uint16,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_uint16",
                FT_UINT16, BASE_DEC, NULL, 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_uint24,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_uint24",
                FT_UINT24, BASE_DEC, NULL, 0x0,
                NULL, HFILL }
         },
         { &hf_openflow_v5_oxm_value_uint32,
-            { "Value", "openflow_v5.oxm.value",
+            { "Value", "openflow_v5.oxm.value_uint32",
                FT_UINT32, BASE_DEC, NULL, 0x0,
                NULL, HFILL }
         },
@@ -9171,8 +9172,8 @@ proto_register_openflow_v5(void)
                NULL, HFILL }
         },
         { &hf_openflow_v5_multipart_reply_flags_more,
-            { "OFPMPF_REQ_MORE", "openflow_v5.multipart_reply.flags.more",
-               FT_UINT16, BASE_HEX, NULL, OFPMPF_REQ_MORE,
+            { "OFPMPF_REPLY_MORE", "openflow_v5.multipart_reply.flags.more",
+               FT_UINT16, BASE_HEX, NULL, OFPMPF_REPLY_MORE,
                NULL, HFILL }
         },
         { &hf_openflow_v5_multipart_reply_pad,
@@ -9815,7 +9816,7 @@ proto_register_openflow_v5(void)
     proto_openflow_v5 = proto_register_protocol("OpenFlow 1.4",
             "openflow_v5", "openflow_v5");
 
-    new_register_dissector("openflow_v5", dissect_openflow_v5, proto_openflow_v5);
+    register_dissector("openflow_v5", dissect_openflow_v5, proto_openflow_v5);
 
     eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
 

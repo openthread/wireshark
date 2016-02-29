@@ -23,8 +23,14 @@
 
 /** @file
  *
- * capture info functions
+ * Capture info functions.
  *
+ */
+
+/*
+ * GTK+ only.
+ * If we add this to the Qt UI we should modernize the statistics we show.
+ * At the very least we should remove or hide IPX and VINES.
  */
 
 #ifndef __CAPTURE_INFO_H__
@@ -37,19 +43,12 @@
 extern "C" {
 #endif /* __cplusplus */
 
-/* open the info - init values (wtap, counts), create dialog */
-extern void capture_info_open(capture_session *cap_session);
+typedef struct {
+    GHashTable*       counts_hash; /* packet counters keyed by proto */
+    gint              other;      /* Packets not counted in the hash total */
+    gint              total;      /* Cache of total packets */
 
-/* new file arrived - (eventually close old wtap), open wtap */
-extern gboolean capture_info_new_file(const char *new_filename);
-
-/* new packets arrived - read from wtap, count */
-extern void capture_info_new_packets(int to_read);
-
-/* close the info - close wtap, destroy dialog */
-extern void capture_info_close(void);
-
-
+} packet_counts;
 
 /** Current Capture info. */
 typedef struct {
@@ -62,6 +61,23 @@ typedef struct {
     gint            new_packets;    /**< packets since last update */
 } capture_info;
 
+typedef struct _info_data {
+    packet_counts     counts;     /* Packet counting */
+    struct wtap*      wtap;       /* current wtap file */
+    capture_info      ui;         /* user interface data */
+} info_data_t;
+
+/* open the info - init values (wtap, counts), create dialog */
+extern void capture_info_open(capture_session *cap_session, info_data_t* cap_info);
+
+/* new file arrived - (eventually close old wtap), open wtap */
+extern gboolean capture_info_new_file(const char *new_filename, info_data_t* cap_info);
+
+/* new packets arrived - read from wtap, count */
+extern void capture_info_new_packets(int to_read, info_data_t* cap_info);
+
+/* close the info - close wtap, destroy dialog */
+extern void capture_info_close(info_data_t* cap_info);
 
 /** Create the capture info dialog */
 extern void

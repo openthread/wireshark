@@ -81,7 +81,7 @@ static proto_tree *init_raknet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 
 struct raknet_handler_entry {
     value_string vs;
-    new_dissector_t dissector_fp;
+    dissector_t dissector_fp;
 };
 
 static int
@@ -473,8 +473,8 @@ init_raknet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint *offset)
  * RakNet is just a dissector.  It is invoked by protocols whose applications
  * are built using the RakNet libs.
  */
-static void
-dissect_raknet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_raknet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint8 packet_id;
 
@@ -488,6 +488,7 @@ dissect_raknet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree_add_expert(tree, pinfo, &ei_raknet_uknown_id, tvb,
                 0, 1);
     }
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -644,7 +645,7 @@ proto_register_raknet(void)
 
     raknet_dissector_table =
         register_dissector_table("raknet.packet_id", "RakNet libs packet ids",
-                                 FT_UINT8, BASE_HEX);
+                                 FT_UINT8, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
     /*
      * Raknet subdissector for use by external protocols.
      */
@@ -659,7 +660,7 @@ proto_reg_handoff_raknet(void)
 
     for (i = 0; i < RAKNET_PACKET_ID_COUNT; i++) {
         raknet_handle_tmp =
-            new_create_dissector_handle(raknet_handler[i].dissector_fp,
+            create_dissector_handle(raknet_handler[i].dissector_fp,
                                         proto_raknet);
         dissector_add_uint("raknet.packet_id", raknet_handler[i].vs.value,
                            raknet_handle_tmp);

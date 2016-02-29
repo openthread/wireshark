@@ -34,8 +34,8 @@
 
 #include "config.h"
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <stdio.h>	/* for sscanf() */
+#include <stdlib.h>	/* for strtoul() */
 
 #include <epan/packet.h>
 #include <epan/prefs.h>
@@ -492,7 +492,7 @@ unicode_to_bytes(tvbuff_t *tvb, int offset, int length, gboolean endianness)
  * The third is the protocol: 6 for TCP, 17 for UDP, and 1000 for IPX.
  * Last is the IP address, in hex, of the interface that is registered (or, in the case of IPX, an IPX network number).
  *
- * OpenSLP supports multiple attribute replies so we need to parse the attribute name and then decode accourdingly.
+ * OpenSLP supports multiple attribute replies so we need to parse the attribute name and then decode accordingly.
  * We currently only parse the (non-utf8) attributes:
  * svcname
  * svcaddr
@@ -855,7 +855,7 @@ dissect_srvloc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         encoding = tvb_get_ntohs(tvb, offset + 8);
         proto_tree_add_item(srvloc_tree, hf_srvloc_encoding, tvb, offset + 8, 2, ENC_BIG_ENDIAN);
         proto_tree_add_item(srvloc_tree, hf_srvloc_transaction_id, tvb, offset + 10, 2, ENC_BIG_ENDIAN);
-        /* added echo of XID to info colomn by Greg Morris 0ct 14, 2005 */
+        /* added echo of XID to info column by Greg Morris 0ct 14, 2005 */
         col_append_fstr(pinfo->cinfo, COL_INFO, ", V1 Transaction ID - %u", tvb_get_ntohs(tvb, offset + 10));
 
         offset += 12;
@@ -1898,9 +1898,9 @@ void
 proto_reg_handoff_srvloc(void)
 {
     dissector_handle_t srvloc_handle, srvloc_tcp_handle;
-    srvloc_handle = new_create_dissector_handle(dissect_srvloc, proto_srvloc);
+    srvloc_handle = create_dissector_handle(dissect_srvloc, proto_srvloc);
     dissector_add_uint("udp.port", UDP_PORT_SRVLOC, srvloc_handle);
-    srvloc_tcp_handle = new_create_dissector_handle(dissect_srvloc_tcp,
+    srvloc_tcp_handle = create_dissector_handle(dissect_srvloc_tcp,
                                                 proto_srvloc);
     dissector_add_uint("tcp.port", TCP_PORT_SRVLOC, srvloc_tcp_handle);
 }

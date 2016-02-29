@@ -36,8 +36,8 @@ static int hf_docsis_uccrsp_upchid = -1;
 static gint ett_docsis_uccrsp = -1;
 
 /* Dissection */
-static void
-dissect_uccrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_uccrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *uccrsp_tree;
@@ -58,6 +58,8 @@ dissect_uccrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
       proto_tree_add_item (uccrsp_tree, hf_docsis_uccrsp_upchid, tvb, 0, 1,
                            ENC_BIG_ENDIAN);
     }
+
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

@@ -53,10 +53,7 @@ set(WIRESHARK_GTK_SRC
 	filter_utils.c
 	find_dlg.c
 	firewall_dlg.c
-	follow_ssl.c
 	follow_stream.c
-	follow_tcp.c
-	follow_udp.c
 	font_utils.c
 	goto_dlg.c
 	graph_analysis.c
@@ -219,7 +216,6 @@ set(WIRESHARK_TAP_SRC
 	sctp_chunk_stat.c
 	sctp_chunk_stat_dlg.c
 	sctp_stat_dlg.c
-	sip_stat.c
 	stats_tree_stat.c
 	tcp_graph.c
 	voip_calls_dlg.c
@@ -232,11 +228,11 @@ set(CLEAN_FILES
 	${WIRESHARK_TAP_SRC}
 )
 
-if (WERROR)
+if (WERROR_COMMON_FLAGS)
 	set_source_files_properties(
 		${CLEAN_FILES}
 		PROPERTIES
-		COMPILE_FLAGS "-Werror -Wno-error=deprecated-declarations"
+		COMPILE_FLAGS "${WERROR_COMMON_FLAGS} ${NO_ERROR_DEPRECATED_DECLARATIONS_COMPILE_FLAGS}"
 	)
 endif()
 
@@ -271,12 +267,47 @@ if(WIN32)
 endif()
 
 register_tap_files(wireshark-tap-register.c
-        taps
+	taps
 	${WIRESHARK_TAP_SRC}
 )
 
 if(WIN32)
 	set(PORTAUDIO_OBJ $<TARGET_OBJECTS:portaudio>)
+endif()
+
+find_file(GLIB_COMPILE_RESOURCES
+	glib-compile-resources${CMAKE_EXECUTABLE_SUFFIX}
+	HINTS
+		"${GLIB2_HINTS}/bin"
+)
+
+pkg_check_modules(GRESOURCE QUIET gio-2.0>=2.32 gdk-pixbuf-2.0>=2.26)
+
+macro(WIRESHARK_GRESOURCES _outputfile _resourcefile)
+	add_custom_command(
+		OUTPUT ${_outputfile}
+		COMMAND ${GLIB_COMPILE_RESOURCES} --sourcedir=${CMAKE_SOURCE_DIR} --target=${_outputfile} --generate --manual-register ${CMAKE_CURRENT_SOURCE_DIR}/${_resourcefile}
+		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${_resourcefile}
+		WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+	)
+endmacro(WIRESHARK_GRESOURCES)
+
+WIRESHARK_GRESOURCES(wireshark-gresources.h main.gresources.xml)
+
+WIRESHARK_GRESOURCES(wireshark-gresources.c main.gresources.xml)
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+if(GRESOURCE_FOUND AND NOT WIN32)
+	set(PIXBUF_SRC
+		wireshark-gresources.c
+		wireshark-gresources.h
+	)
+	add_definitions(-DHAVE_GDK_GRESOURCE)
+else()
+	set(PIXBUF_SRC
+		pixbuf-csource.c
+	)
 endif()
 
 add_library(gtkui STATIC
@@ -285,7 +316,21 @@ add_library(gtkui STATIC
 	${PLATFORM_UI_SRC}
 	${PORTAUDIO_OBJ}
 	wireshark-tap-register.c
+	${PIXBUF_SRC}
 )
 set_target_properties(gtkui PROPERTIES
 	LINK_FLAGS "${WS_LINK_FLAGS}"
 	FOLDER "UI")
+
+#
+# Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+#
+# Local variables:
+# c-basic-offset: 8
+# tab-width: 8
+# indent-tabs-mode: t
+# End:
+#
+# vi: set shiftwidth=8 tabstop=8 noexpandtab:
+# :indentSize=8:tabSize=8:noTabs=false:
+#

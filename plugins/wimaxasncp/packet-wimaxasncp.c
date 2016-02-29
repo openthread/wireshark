@@ -133,11 +133,12 @@ wimaxasncp_build_dict_t wimaxasncp_build_dict;
 
 static wimaxasncp_dict_tlv_t wimaxasncp_tlv_not_found =
 {
-    0, (char *)"Unknown", NULL, WIMAXASNCP_TLV_UNKNOWN, 0,
+    0, "Unknown", NULL, WIMAXASNCP_TLV_UNKNOWN, 0,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     NULL, NULL, NULL
 };
 
+static dissector_handle_t wimaxasncp_handle;
 static dissector_handle_t eap_handle;
 
 /* ------------------------------------------------------------------------- */
@@ -632,7 +633,7 @@ static void wimaxasncp_proto_tree_add_tlv_ipv6_value(
 
     proto_tree_add_ipv6_format(
         tree, hf_value,
-        tvb, offset, 16, (guint8 *)&ip,
+        tvb, offset, 16, &ip,
         "Value: %s", addr_res);
 
     proto_item_append_text(
@@ -822,7 +823,7 @@ static void wimaxasncp_dissect_tlv_value(
     {
         if (tree)
         {
-            const gchar  *s = tvb_get_string(wmem_packet_scope(), tvb, offset, length);
+            const gchar  *s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_ASCII);
 
             proto_tree_add_string_format(
                 tree, tlv_info->hf_value,
@@ -3404,7 +3405,7 @@ proto_register_wimaxasncp(void)
 
 
         /* Register this dissector by name */
-    new_register_dissector("wimaxasncp", dissect_wimaxasncp, proto_wimaxasncp);
+    wimaxasncp_handle = register_dissector("wimaxasncp", dissect_wimaxasncp, proto_wimaxasncp);
 
         /* Register preferences module (See Section 2.6 for more on
          * preferences) */
@@ -3460,20 +3461,10 @@ void
 proto_reg_handoff_wimaxasncp(void)
 {
     static gboolean           inited      = FALSE;
-    static dissector_handle_t wimaxasncp_handle;
     static int                currentPort = -1;
 
     if (!inited)
     {
-
-        /*  Use new_create_dissector_handle() to indicate that
-         *  dissect_wimaxasncp() returns the number of bytes it dissected (or
-         *  0 if it thinks the packet does not belong to WiMAX ASN Control
-         *  Plane).
-         */
-        wimaxasncp_handle = new_create_dissector_handle(
-             dissect_wimaxasncp,
-             proto_wimaxasncp);
 
         /* Find the EAP dissector */
         eap_handle = find_dissector("eap");

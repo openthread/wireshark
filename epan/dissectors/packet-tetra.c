@@ -58,7 +58,6 @@ static int proto_tetra = -1;
 static dissector_handle_t data_handle = NULL;
 
 static dissector_handle_t tetra_handle;
-static void dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 
 static int global_tetra_port = 7074;
 
@@ -407,7 +406,7 @@ static int hf_tetra_d_MM_Status = -1;             /* D_MM_STATUS */
 static int hf_tetra_d_MM_reserved5 = -1;          /* NULL */
 static int hf_tetra_d_MM_reserved6 = -1;          /* NULL */
 static int hf_tetra_d_MM_Function_Not_Support = -1;  /* NULL */
-static int hf_tetra_attach_detach_identifiet = -1;  /* T_attach_detach_identifiet */
+static int hf_tetra_attach_detach_identifier = -1;  /* T_attach_detach_identifier */
 static int hf_tetra_attach = -1;                  /* T_attach */
 static int hf_tetra_lifetime = -1;                /* INTEGER_0_3 */
 static int hf_tetra_class_of_usage = -1;          /* INTEGER_0_7 */
@@ -418,7 +417,7 @@ static int hf_tetra_gssi_01 = -1;                 /* OCTET_STRING_SIZE_3 */
 static int hf_tetra_gssi_extension = -1;          /* T_gssi_extension */
 static int hf_tetra_extension = -1;               /* OCTET_STRING_SIZE_3 */
 static int hf_tetra_vgssi = -1;                   /* OCTET_STRING_SIZE_3 */
-static int hf_tetra_attach_detach_identifiet_01 = -1;  /* T_attach_detach_identifiet_01 */
+static int hf_tetra_attach_detach_identifier_01 = -1;  /* T_attach_detach_identifier_01 */
 static int hf_tetra_attach_01 = -1;               /* T_attach_01 */
 static int hf_tetra_detach_01 = -1;               /* T_detach_01 */
 static int hf_tetra_detach_uplike = -1;           /* T_detach_uplike */
@@ -674,7 +673,7 @@ static int hf_tetra_type3_05 = -1;                /* T_type3_05 */
 static int hf_tetra_type3_elements_05 = -1;       /* T_type3_elements_05 */
 static int hf_tetra_called_party_sna = -1;        /* INTEGER_0_255 */
 static int hf_tetra_called_party_ssi = -1;        /* INTEGER_0_16777215 */
-static int hf_tetra_called_party_ssi_extention = -1;  /* T_called_party_ssi_extention */
+static int hf_tetra_called_party_ssi_extension = -1;  /* T_called_party_ssi_extension */
 static int hf_tetra_called_party_extention = -1;  /* INTEGER_0_16777215 */
 static int hf_tetra_data_01 = -1;                 /* T_data_01 */
 static int hf_tetra_element1 = -1;                /* Type1 */
@@ -684,7 +683,7 @@ static int hf_tetra_proprietary_element_owner_extension = -1;  /* BIT_STRING */
 static int hf_tetra_simplex_duplex_selection_06 = -1;  /* T_simplex_duplex_selection_05 */
 
 /*--- End of included file: packet-tetra-hf.c ---*/
-#line 83 "../../asn1/tetra/packet-tetra-template.c"
+#line 82 "../../asn1/tetra/packet-tetra-template.c"
 
 /* Initialize the subtree pointers */
 /* These are the ids of the subtrees that we may be creating */
@@ -794,13 +793,13 @@ static gint ett_tetra_D_RESTORE_FAIL = -1;
 static gint ett_tetra_U_MM_PDU = -1;
 static gint ett_tetra_D_MM_PDU = -1;
 static gint ett_tetra_GROUP_IDENTITY_DOWNLINK = -1;
-static gint ett_tetra_T_attach_detach_identifiet = -1;
+static gint ett_tetra_T_attach_detach_identifier = -1;
 static gint ett_tetra_T_attach = -1;
 static gint ett_tetra_T_detach = -1;
 static gint ett_tetra_T_address_type = -1;
 static gint ett_tetra_T_gssi_extension = -1;
 static gint ett_tetra_GROUP_IDENTITY_UPLINK = -1;
-static gint ett_tetra_T_attach_detach_identifiet_01 = -1;
+static gint ett_tetra_T_attach_detach_identifier_01 = -1;
 static gint ett_tetra_T_attach_01 = -1;
 static gint ett_tetra_T_detach_01 = -1;
 static gint ett_tetra_T_address_type_01 = -1;
@@ -961,7 +960,7 @@ static gint ett_tetra_T_type2_element_03 = -1;
 static gint ett_tetra_T_type3_05 = -1;
 static gint ett_tetra_T_type3_elements_05 = -1;
 static gint ett_tetra_Calling_party_address_type = -1;
-static gint ett_tetra_T_called_party_ssi_extention = -1;
+static gint ett_tetra_T_called_party_ssi_extension = -1;
 static gint ett_tetra_Proprietary = -1;
 static gint ett_tetra_T_data_01 = -1;
 static gint ett_tetra_Type1 = -1;
@@ -969,7 +968,7 @@ static gint ett_tetra_Type2 = -1;
 static gint ett_tetra_Modify_type = -1;
 
 /*--- End of included file: packet-tetra-ett.c ---*/
-#line 93 "../../asn1/tetra/packet-tetra-template.c"
+#line 92 "../../asn1/tetra/packet-tetra-template.c"
 
 static expert_field ei_tetra_channels_incorrect = EI_INIT;
 
@@ -2612,9 +2611,9 @@ dissect_tetra_T_attach_01(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U
 
 static const value_string tetra_T_detach_uplike_vals[] = {
   {   0, "unknow-gssi" },
-  {   1, "unvaild-cipher" },
+  {   1, "invalid-cipher" },
   {   2, "user-intitial" },
-  {   3, "reseverd" },
+  {   3, "reserved" },
   { 0, NULL }
 };
 
@@ -2642,22 +2641,22 @@ dissect_tetra_T_detach_01(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U
 }
 
 
-static const value_string tetra_T_attach_detach_identifiet_01_vals[] = {
+static const value_string tetra_T_attach_detach_identifier_01_vals[] = {
   {   0, "attach" },
   {   1, "detach" },
   { 0, NULL }
 };
 
-static const per_choice_t T_attach_detach_identifiet_01_choice[] = {
+static const per_choice_t T_attach_detach_identifier_01_choice[] = {
   {   0, &hf_tetra_attach_01     , ASN1_NO_EXTENSIONS     , dissect_tetra_T_attach_01 },
   {   1, &hf_tetra_detach_01     , ASN1_NO_EXTENSIONS     , dissect_tetra_T_detach_01 },
   { 0, NULL, 0, NULL }
 };
 
 static int
-dissect_tetra_T_attach_detach_identifiet_01(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+dissect_tetra_T_attach_detach_identifier_01(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
-                                 ett_tetra_T_attach_detach_identifiet_01, T_attach_detach_identifiet_01_choice,
+                                 ett_tetra_T_attach_detach_identifier_01, T_attach_detach_identifier_01_choice,
                                  NULL);
 
   return offset;
@@ -2704,7 +2703,7 @@ dissect_tetra_T_address_type_01(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *a
 
 
 static const per_sequence_t GROUP_IDENTITY_UPLINK_sequence[] = {
-  { &hf_tetra_attach_detach_identifiet_01, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_T_attach_detach_identifiet_01 },
+  { &hf_tetra_attach_detach_identifier_01, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_T_attach_detach_identifier_01 },
   { &hf_tetra_address_type_01, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_T_address_type_01 },
   { NULL, 0, 0, NULL }
 };
@@ -3460,16 +3459,16 @@ dissect_tetra_T_simple_duplex_selection(tvbuff_t *tvb _U_, int offset _U_, asn1_
 }
 
 
-static const per_sequence_t T_called_party_ssi_extention_sequence[] = {
+static const per_sequence_t T_called_party_ssi_extension_sequence[] = {
   { &hf_tetra_called_party_ssi, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_INTEGER_0_16777215 },
   { &hf_tetra_called_party_extention, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_INTEGER_0_16777215 },
   { NULL, 0, 0, NULL }
 };
 
 static int
-dissect_tetra_T_called_party_ssi_extention(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+dissect_tetra_T_called_party_ssi_extension(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
-                                   ett_tetra_T_called_party_ssi_extention, T_called_party_ssi_extention_sequence);
+                                   ett_tetra_T_called_party_ssi_extension, T_called_party_ssi_extension_sequence);
 
   return offset;
 }
@@ -3478,14 +3477,14 @@ dissect_tetra_T_called_party_ssi_extention(tvbuff_t *tvb _U_, int offset _U_, as
 static const value_string tetra_Calling_party_address_type_vals[] = {
   {   0, "called-party-sna" },
   {   1, "called-party-ssi" },
-  {   2, "called-party-ssi-extention" },
+  {   2, "called-party-ssi-extension" },
   { 0, NULL }
 };
 
 static const per_choice_t Calling_party_address_type_choice[] = {
   {   0, &hf_tetra_called_party_sna, ASN1_NO_EXTENSIONS     , dissect_tetra_INTEGER_0_255 },
   {   1, &hf_tetra_called_party_ssi, ASN1_NO_EXTENSIONS     , dissect_tetra_INTEGER_0_16777215 },
-  {   2, &hf_tetra_called_party_ssi_extention, ASN1_NO_EXTENSIONS     , dissect_tetra_T_called_party_ssi_extention },
+  {   2, &hf_tetra_called_party_ssi_extension, ASN1_NO_EXTENSIONS     , dissect_tetra_T_called_party_ssi_extension },
   { 0, NULL, 0, NULL }
 };
 
@@ -6194,22 +6193,22 @@ dissect_tetra_T_detach(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, 
 }
 
 
-static const value_string tetra_T_attach_detach_identifiet_vals[] = {
+static const value_string tetra_T_attach_detach_identifier_vals[] = {
   {   0, "attach" },
   {   1, "detach" },
   { 0, NULL }
 };
 
-static const per_choice_t T_attach_detach_identifiet_choice[] = {
+static const per_choice_t T_attach_detach_identifier_choice[] = {
   {   0, &hf_tetra_attach        , ASN1_NO_EXTENSIONS     , dissect_tetra_T_attach },
   {   1, &hf_tetra_detach        , ASN1_NO_EXTENSIONS     , dissect_tetra_T_detach },
   { 0, NULL, 0, NULL }
 };
 
 static int
-dissect_tetra_T_attach_detach_identifiet(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+dissect_tetra_T_attach_detach_identifier(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
-                                 ett_tetra_T_attach_detach_identifiet, T_attach_detach_identifiet_choice,
+                                 ett_tetra_T_attach_detach_identifier, T_attach_detach_identifier_choice,
                                  NULL);
 
   return offset;
@@ -6256,7 +6255,7 @@ dissect_tetra_T_address_type(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx
 
 
 static const per_sequence_t GROUP_IDENTITY_DOWNLINK_sequence[] = {
-  { &hf_tetra_attach_detach_identifiet, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_T_attach_detach_identifiet },
+  { &hf_tetra_attach_detach_identifier, ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_T_attach_detach_identifier },
   { &hf_tetra_address_type  , ASN1_NO_EXTENSIONS     , ASN1_NOT_OPTIONAL, dissect_tetra_T_address_type },
   { NULL, 0, 0, NULL }
 };
@@ -8815,7 +8814,7 @@ static int dissect_MAC_ACCESS_DEFINE_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _
 
 
 /*--- End of included file: packet-tetra-fn.c ---*/
-#line 97 "../../asn1/tetra/packet-tetra-template.c"
+#line 96 "../../asn1/tetra/packet-tetra-template.c"
 
 static const value_string channeltypenames[] = {
 	{ 0, "Reserved" },
@@ -9152,10 +9151,9 @@ static void dissect_tetra_UNITDATA_REQ(tvbuff_t *tvb, packet_info *pinfo, proto_
 	}
 }
 
-static void
-dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
 	proto_item *tetra_item = NULL;
 	proto_item *tetra_sub_item = NULL;
 	proto_tree *tetra_tree = NULL;
@@ -9268,6 +9266,7 @@ dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			break;
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void proto_reg_handoff_tetra(void)
@@ -10616,9 +10615,9 @@ void proto_register_tetra (void)
       { "d-MM-Function-Not-Support", "tetra.d_MM_Function_Not_Support_element",
         FT_NONE, BASE_NONE, NULL, 0,
         NULL, HFILL }},
-    { &hf_tetra_attach_detach_identifiet,
-      { "attach-detach-identifiet", "tetra.attach_detach_identifiet",
-        FT_UINT32, BASE_DEC, VALS(tetra_T_attach_detach_identifiet_vals), 0,
+    { &hf_tetra_attach_detach_identifier,
+      { "attach-detach-identifier", "tetra.attach_detach_identifier",
+        FT_UINT32, BASE_DEC, VALS(tetra_T_attach_detach_identifier_vals), 0,
         NULL, HFILL }},
     { &hf_tetra_attach,
       { "attach", "tetra.attach_element",
@@ -10660,10 +10659,10 @@ void proto_register_tetra (void)
       { "vgssi", "tetra.vgssi",
         FT_BYTES, BASE_NONE, NULL, 0,
         "OCTET_STRING_SIZE_3", HFILL }},
-    { &hf_tetra_attach_detach_identifiet_01,
-      { "attach-detach-identifiet", "tetra.attach_detach_identifiet",
-        FT_UINT32, BASE_DEC, VALS(tetra_T_attach_detach_identifiet_01_vals), 0,
-        "T_attach_detach_identifiet_01", HFILL }},
+    { &hf_tetra_attach_detach_identifier_01,
+      { "attach-detach-identifier", "tetra.attach_detach_identifier",
+        FT_UINT32, BASE_DEC, VALS(tetra_T_attach_detach_identifier_01_vals), 0,
+        "T_attach_detach_identifier_01", HFILL }},
     { &hf_tetra_attach_01,
       { "attach", "tetra.attach_element",
         FT_NONE, BASE_NONE, NULL, 0,
@@ -11684,8 +11683,8 @@ void proto_register_tetra (void)
       { "called-party-ssi", "tetra.called_party_ssi",
         FT_UINT32, BASE_DEC, NULL, 0,
         "INTEGER_0_16777215", HFILL }},
-    { &hf_tetra_called_party_ssi_extention,
-      { "called-party-ssi-extention", "tetra.called_party_ssi_extention_element",
+    { &hf_tetra_called_party_ssi_extension,
+      { "called-party-ssi-extension", "tetra.called_party_ssi_extension_element",
         FT_NONE, BASE_NONE, NULL, 0,
         NULL, HFILL }},
     { &hf_tetra_called_party_extention,
@@ -11718,7 +11717,7 @@ void proto_register_tetra (void)
         "T_simplex_duplex_selection_05", HFILL }},
 
 /*--- End of included file: packet-tetra-hfarr.c ---*/
-#line 627 "../../asn1/tetra/packet-tetra-template.c"
+#line 626 "../../asn1/tetra/packet-tetra-template.c"
  	};
 
 	/* List of subtrees */
@@ -11828,13 +11827,13 @@ void proto_register_tetra (void)
     &ett_tetra_U_MM_PDU,
     &ett_tetra_D_MM_PDU,
     &ett_tetra_GROUP_IDENTITY_DOWNLINK,
-    &ett_tetra_T_attach_detach_identifiet,
+    &ett_tetra_T_attach_detach_identifier,
     &ett_tetra_T_attach,
     &ett_tetra_T_detach,
     &ett_tetra_T_address_type,
     &ett_tetra_T_gssi_extension,
     &ett_tetra_GROUP_IDENTITY_UPLINK,
-    &ett_tetra_T_attach_detach_identifiet_01,
+    &ett_tetra_T_attach_detach_identifier_01,
     &ett_tetra_T_attach_01,
     &ett_tetra_T_detach_01,
     &ett_tetra_T_address_type_01,
@@ -11995,7 +11994,7 @@ void proto_register_tetra (void)
     &ett_tetra_T_type3_05,
     &ett_tetra_T_type3_elements_05,
     &ett_tetra_Calling_party_address_type,
-    &ett_tetra_T_called_party_ssi_extention,
+    &ett_tetra_T_called_party_ssi_extension,
     &ett_tetra_Proprietary,
     &ett_tetra_T_data_01,
     &ett_tetra_Type1,
@@ -12003,7 +12002,7 @@ void proto_register_tetra (void)
     &ett_tetra_Modify_type,
 
 /*--- End of included file: packet-tetra-ettarr.c ---*/
-#line 637 "../../asn1/tetra/packet-tetra-template.c"
+#line 636 "../../asn1/tetra/packet-tetra-template.c"
 	};
 
 	static ei_register_info ei[] = {

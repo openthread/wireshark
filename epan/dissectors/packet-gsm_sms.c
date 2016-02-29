@@ -166,6 +166,11 @@ static gint hf_gsm_sms_tp_command_type = -1;
 static gint hf_gsm_sms_tp_message_number = -1;
 static gint hf_gsm_sms_tp_command_data = -1;
 static gint hf_gsm_sms_tp_command_data_length = -1;
+static gint hf_gsm_sms_msg_ind_type_and_stor = -1;
+static gint hf_gsm_sms_msg_profile_id = -1;
+static gint hf_gsm_sms_ext_msg_ind_type = -1;
+static gint hf_gsm_sms_msg_ind_type = -1;
+static gint hf_gsm_sms_msg_count = -1;
 static gint hf_gsm_sms_destination_port8 = -1;
 static gint hf_gsm_sms_originator_port8 = -1;
 static gint hf_gsm_sms_destination_port16 = -1;
@@ -738,6 +743,7 @@ dis_field_dcs(tvbuff_t *tvb, proto_tree *tree, guint32 offset, guint8 oct,
             break;
         case 0x02:
             default_3_bits = TRUE;
+            *ucs2 = TRUE;
             break;
         case 0x03:
             default_data = TRUE;
@@ -1271,7 +1277,47 @@ dis_iei_csm8(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, guint32 offset
 
 }
 
-/* TODO 9.2.3.24.2 Special SMS Message Indication */
+/* 9.2.3.24.2 Special SMS Message Indication */
+static const true_false_string gsm_sms_msg_type_and_stor_value = {
+    "Store message after updating indication",
+    "Discard message after updating indication"
+};
+
+static const value_string gsm_sms_profile_id_vals[] = {
+    { 0, "Profile ID 1" },
+    { 1, "Profile ID 2" },
+    { 2, "Profile ID 3" },
+    { 3, "Profile ID 4" },
+    { 0, NULL },
+};
+
+static const range_string gsm_sms_ext_msg_ind_type_vals[] = {
+  { 0, 0, "No extended message indication type" },
+  { 1, 1, "Video Message Waiting" },
+  { 2, 7, "Reserved" },
+  { 0, 0, NULL }
+};
+
+static const value_string gsm_sms_msg_ind_type_vals[] = {
+    { 0, "Voice Message Waiting" },
+    { 1, "Fax Message Waiting" },
+    { 2, "Electronic Mail Message Waiting" },
+    { 3, "Extended Message Type Waiting" },
+    { 0, NULL },
+};
+
+static void
+dis_iei_spe_sms_msg_ind(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, guint32 offset,
+                        guint8 length, gsm_sms_udh_fields_t *p_udh_fields _U_)
+{
+    EXACT_DATA_CHECK(length, 2);
+
+    proto_tree_add_item(tree, hf_gsm_sms_msg_ind_type_and_stor, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_gsm_sms_msg_profile_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_gsm_sms_ext_msg_ind_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_gsm_sms_msg_ind_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_gsm_sms_msg_count, tvb, offset+1, 1, ENC_BIG_ENDIAN);
+}
 
 /* 9.2.3.24.3 */
 static const range_string gsm_sms_8bit_port_values[] = {
@@ -1636,6 +1682,9 @@ dis_field_ud_iei(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, guint32 of
             case 0x00:
                 iei_fcn = dis_iei_csm8;
                 break;
+            case 0x01:
+                iei_fcn = dis_iei_spe_sms_msg_ind;
+                break;
             case 0x04:
                 iei_fcn = dis_iei_apa_8bit;
                 break;
@@ -1782,15 +1831,12 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
     tvbuff_t          *sm_tvb = NULL;
     fragment_head     *fd_sm = NULL;
     guint8             fill_bits;
-    guint32            total_sms_len, len_sms, length_ucs2, i;
-    gchar             *utf8_text = NULL;
-    gchar              save_byte = 0, save_byte2 = 0;
+    guint32            total_sms_len, i;
 
     gboolean    reassembled     = FALSE;
     guint32     reassembled_in  = 0;
     gboolean    is_fragmented   = FALSE;
     gboolean    save_fragmented = FALSE, try_gsm_sms_ud_reassemble = FALSE;
-    guint32     num_labels;
 
     sm_fragment_params *p_frag_params;
     gsm_sms_udh_fields_t        udh_fields;
@@ -1842,9 +1888,9 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
 
         sm_tvb = process_reassembled_data(tvb, offset, pinfo,
                                           "Reassembled Short Message", fd_sm, &sm_frag_items,
-                                          NULL, tree);
+                                          NULL, subtree);
 
-        if(reassembled && pinfo->fd->num == reassembled_in)
+        if(reassembled && pinfo->num == reassembled_in)
         {
             /* Reassembled */
             col_append_str (pinfo->cinfo, COL_INFO,
@@ -1881,7 +1927,7 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
             /* Per 3GPP 31.111 chapter 6.4.10: */
             /* It shall use the SMS default 7-bit coded alphabet */
             /* as defined in TS 23.038 with bit 8 set to 0 */
-            if(!(reassembled && pinfo->fd->num == reassembled_in))
+            if(!(reassembled && pinfo->num == reassembled_in))
             {
                 proto_tree_add_item(subtree, hf_gsm_sms_text, tvb, offset, length, ENC_ASCII|ENC_NA);
             }
@@ -1903,7 +1949,7 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
         }
         else if (seven_bit)
         {
-            if(!(reassembled && pinfo->fd->num == reassembled_in))
+            if(!(reassembled && pinfo->num == reassembled_in))
             {
                 /* Show unassembled SMS */
                 proto_tree_add_ts_23_038_7bits_item(subtree, hf_gsm_sms_text, tvb, (offset<<3)+fill_bits,
@@ -1933,13 +1979,16 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
         }
         else if (eight_bit)
         {
-            /* proto_tree_add_format_text(subtree, tvb, offset, length); */
-            if (! dissector_try_uint(gsm_sms_dissector_tbl, udh_fields.port_src, sm_tvb, pinfo, subtree))
-            {
-                if (! dissector_try_uint(gsm_sms_dissector_tbl, udh_fields.port_dst,sm_tvb, pinfo, subtree))
+            if (!is_fragmented || (reassembled && pinfo->num == reassembled_in)) {
+                if (! dissector_try_uint(gsm_sms_dissector_tbl, udh_fields.port_src, sm_tvb, pinfo, subtree))
                 {
-                    proto_tree_add_item(subtree, hf_gsm_sms_body, tvb, offset, length, ENC_NA);
+                    if (! dissector_try_uint(gsm_sms_dissector_tbl, udh_fields.port_dst,sm_tvb, pinfo, subtree))
+                    {
+                        proto_tree_add_item(subtree, hf_gsm_sms_body, tvb, offset, length, ENC_NA);
+                    }
                 }
+            } else {
+                proto_tree_add_item(subtree, hf_gsm_sms_body, tvb, offset, length, ENC_NA);
             }
         }
         else if (ucs2)
@@ -1947,7 +1996,7 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
             {
                 guint rep_len = tvb_reported_length(sm_tvb);
 
-                if (!(reassembled && pinfo->fd->num == reassembled_in))
+                if (!(reassembled && pinfo->num == reassembled_in))
                 {
                     /* Show unreassembled SMS */
                     proto_tree_add_item(subtree, hf_gsm_sms_text, sm_tvb,
@@ -1956,37 +2005,19 @@ dis_field_ud(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
                     /*  Show reassembled SMS.  We show each fragment separately
                      *  so that the text doesn't get truncated when we add it to
                      *  the tree.
-                     *
-                     *  XXX - careful with splitting UTF-8 chunks; should
-                     *  we be adding each fragment as a UCS-2 string?
                      */
-                    utf8_text = tvb_get_string_enc(wmem_packet_scope(), sm_tvb, 0, rep_len, ENC_UCS_2|ENC_BIG_ENDIAN);
-                    len_sms = (int)strlen(utf8_text);
-                    num_labels = len_sms / MAX_SMS_FRAG_LEN;
-                    num_labels += (len_sms % MAX_SMS_FRAG_LEN) ? 1 : 0;
-                    for(i = 0; i < num_labels;i++) {
-                        if(i * MAX_SMS_FRAG_LEN < len_sms) {
-                            /* set '\0' to byte number 134 text_node MAX size*/
-                            save_byte =  utf8_text[i * MAX_SMS_FRAG_LEN];
-                            save_byte2 =  utf8_text[i * MAX_SMS_FRAG_LEN + 1];
-                            if(i > 0)
-                            {
-                                utf8_text[i * MAX_SMS_FRAG_LEN] = '\0';
-                                utf8_text[i * MAX_SMS_FRAG_LEN + 1] = '\0';
-                            }
+                    total_sms_len = 0;
+                    for(i = 0 ; i < udh_fields.frags; i++)
+                    {
+                        p_frag_params = (sm_fragment_params*)g_hash_table_lookup(g_sm_fragment_params_table,
+                                                                GUINT_TO_POINTER((guint)((udh_fields.sm_id<<16)|i)));
 
-                            length_ucs2 = MAX_SMS_FRAG_LEN;
-                        } else
-                            length_ucs2 = len_sms % MAX_SMS_FRAG_LEN;
+                        if (p_frag_params) {
+                            proto_tree_add_item(subtree, hf_gsm_sms_text, sm_tvb, total_sms_len,
+                                (p_frag_params->udl > SMS_MAX_MESSAGE_SIZE ? SMS_MAX_MESSAGE_SIZE : p_frag_params->udl),
+                                ENC_UCS_2|ENC_BIG_ENDIAN);
 
-                        proto_tree_add_string(subtree, hf_gsm_sms_text, sm_tvb,
-                                              i * MAX_SMS_FRAG_LEN, length_ucs2,
-                                              &utf8_text[i * MAX_SMS_FRAG_LEN]);
-
-                        /* return the save byte to utf8 buffer*/
-                        if(i * MAX_SMS_FRAG_LEN < len_sms) {
-                            utf8_text[i * MAX_SMS_FRAG_LEN] = save_byte;
-                            utf8_text[i * MAX_SMS_FRAG_LEN + 1] = save_byte2;
+                            total_sms_len += p_frag_params->length;
                         }
                     }
                 }
@@ -2725,22 +2756,22 @@ proto_register_gsm_sms(void)
             },
             { &hf_gsm_sms_tp_oa,
               { "TP-OA Digits", "gsm_sms.tp-oa",
-                FT_STRING, BASE_NONE, NULL, 0x00,
+                FT_STRING, STR_UNICODE, NULL, 0x00,
                 "TP-Originating-Address Digits", HFILL }
             },
             { &hf_gsm_sms_tp_da,
               { "TP-DA Digits", "gsm_sms.tp-da",
-                FT_STRING, BASE_NONE, NULL, 0x00,
+                FT_STRING, STR_UNICODE, NULL, 0x00,
                 "TP-Destination-Address Digits", HFILL }
             },
             { &hf_gsm_sms_tp_ra,
               { "TP-RA Digits", "gsm_sms.tp-ra",
-                FT_STRING, BASE_NONE, NULL, 0x00,
+                FT_STRING, STR_UNICODE, NULL, 0x00,
                 "TP-Recipient-Address Digits", HFILL }
             },
             { &hf_gsm_sms_tp_digits,
               { "Digits", "gsm_sms.tp-digits",
-                FT_STRING, BASE_NONE, NULL, 0x00,
+                FT_STRING, STR_UNICODE, NULL, 0x00,
                 "TP (Unknown) Digits", HFILL }
             },
             { &hf_gsm_sms_tp_pid,
@@ -3023,6 +3054,31 @@ proto_register_gsm_sms(void)
                 FT_UINT8, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
             },
+            { &hf_gsm_sms_msg_ind_type_and_stor,
+              { "Message Indication type and Storage", "gsm_sms.msg_ind_type_and_stor",
+                FT_BOOLEAN, 8, TFS(&gsm_sms_msg_type_and_stor_value), 0x80,
+                NULL, HFILL }
+            },
+            { &hf_gsm_sms_msg_profile_id,
+              { "Multiple Subscriber Profile", "gsm_sms.profile_id",
+                FT_UINT8, BASE_DEC, VALS(gsm_sms_profile_id_vals), 0x60,
+                NULL, HFILL }
+            },
+            { &hf_gsm_sms_ext_msg_ind_type,
+              { "Extended Message Indication Type", "gsm_sms.ext_msg_ind_type",
+                FT_UINT8, BASE_DEC|BASE_RANGE_STRING, RVALS(gsm_sms_ext_msg_ind_type_vals), 0x1c,
+                NULL, HFILL }
+            },
+            { &hf_gsm_sms_msg_ind_type,
+              { "Message Indication Type", "gsm_sms.msg_ind_type",
+                FT_UINT8, BASE_DEC, VALS(gsm_sms_msg_ind_type_vals), 0x03,
+                NULL, HFILL }
+            },
+            { &hf_gsm_sms_msg_count,
+              { "Message Count", "gsm_sms.msg_count",
+                FT_UINT8, BASE_DEC, NULL, 0x0,
+                NULL, HFILL }
+            },
             { &hf_gsm_sms_destination_port8,
               { "Destination port", "gsm_sms.destination_port",
                 FT_UINT8, BASE_DEC|BASE_RANGE_STRING, RVALS(gsm_sms_8bit_port_values), 0x0,
@@ -3274,7 +3330,7 @@ proto_register_gsm_sms(void)
     expert_register_field_array(expert_gsm_sms, ei, array_length(ei));
 
     gsm_sms_dissector_tbl = register_dissector_table("gsm_sms.udh.port",
-        "GSM SMS port IE in UDH", FT_UINT16, BASE_DEC);
+        "GSM SMS port IE in UDH", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     gsm_sms_module = prefs_register_protocol (proto_gsm_sms, NULL);
 
@@ -3285,7 +3341,7 @@ proto_register_gsm_sms(void)
                                     "Whether the dissector should reassemble SMS spanning multiple packets",
                                     &reassemble_sms);
 
-    new_register_dissector("gsm_sms", dissect_gsm_sms, proto_gsm_sms);
+    register_dissector("gsm_sms", dissect_gsm_sms, proto_gsm_sms);
 
     /* GSM SMS UD dissector initialization routines */
     register_init_routine (gsm_sms_defragment_init);

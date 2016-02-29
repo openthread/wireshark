@@ -432,6 +432,17 @@ static gboolean logcat_text_dump_text(wtap_dumper *wdh,
 
     switch (wdh->encap) {
     case WTAP_ENCAP_WIRESHARK_UPPER_PDU:
+        {
+            gint skipped_length;
+
+            skipped_length = logcat_exported_pdu_length(pd);
+            pd += skipped_length;
+
+            if (!wtap_dump_file_write(wdh, (const gchar*) pd, phdr->caplen - skipped_length, err)) {
+                return FALSE;
+            }
+        }
+        break;
     case WTAP_ENCAP_LOGCAT:
         /* Skip EXPORTED_PDU*/
         if (wdh->encap == WTAP_ENCAP_WIRESHARK_UPPER_PDU) {
@@ -548,7 +559,6 @@ static gboolean logcat_text_dump_open(wtap_dumper *wdh, guint dump_type, int *er
 
     wdh->priv = dumper;
     wdh->subtype_write = logcat_text_dump_text;
-    wdh->subtype_close = NULL;
 
     return TRUE;
 }

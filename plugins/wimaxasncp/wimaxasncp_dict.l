@@ -9,9 +9,14 @@
 %option nounput
 
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
+
+/*
+ * We want to stop processing when we get to the end of the input.
+ */
+%option noyywrap
 
 /*
  * The language we're scanning is case-insensitive.
@@ -35,8 +40,6 @@
 	/*
 	 ** wimaxasncp_dict.h
 	 ** WIMAXASNCP Dictionary Import Routines
-	 **
-	 ** $Id$
 	 **
 	 ** (c) 2007, Luis E. Garcia Ontanon <luis@ontanon.org>
 	 ** (c) 2007, Stephen Croll <stephen.d.croll@gmail.com>
@@ -271,7 +274,7 @@ since_attr since=\042
 	for (e = ents.next; e; e = e->next) {
 		if (strcmp(e->name,yytext) == 0) {
 			yyin = wimaxasncp_dict_open(sys_dir,e->file);
-			D(("entity: %s filename: %s yyin: %p\n",e->name,e->file,yyin));
+			D(("entity: %s filename: %s yyin: %p\n",e->name,e->file,(void*)yyin));
 			if (!yyin) {
 				yyterminate();
 			} else {
@@ -295,7 +298,7 @@ since_attr since=\042
 	if (!yyin) yyterminate();
 
 	fclose(yyin);
-	D(("closing: %p %i\n",yyin,include_stack_ptr));
+	D(("closing: %p %i\n",(void*)yyin,include_stack_ptr));
 
 	if ( --include_stack_ptr < 0 ) {
 		D(("DONE READING\n"));
@@ -597,7 +600,7 @@ static FILE *wimaxasncp_dict_open(
 
 	fh = ws_fopen(fname,"r");
 
-	D(("fname: %s fh: %p\n",fname,fh));
+	D(("fname: %s fh: %p\n",fname,(void*)fh));
 
 	g_free(fname);
 
@@ -727,17 +730,6 @@ void wimaxasncp_dict_print(FILE *fh, wimaxasncp_dict_t *d) {
 					e->code);
 		}
 	}
-}
-
-/*
- * We want to stop processing when we get to the end of the input.
- * (%option noyywrap is not used because if used then
- * some flex versions (eg: 2.5.35) generate code which causes
- * warnings by the Windows VC compiler).
- */
-
-int yywrap(void) {
-    return 1;
 }
 
 #ifdef TEST_WIMAXASNCP_DICT_STANDALONE

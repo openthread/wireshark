@@ -29,6 +29,7 @@
 #include "frame_data.h"
 #include "packet_info.h"
 #include "column-utils.h"
+#include "guid-utils.h"
 #include "tfs.h"
 #include "ws_symbol_export.h"
 
@@ -55,28 +56,9 @@ struct epan_range;
 	((guint)(offset) + (guint)(len) > (guint)(offset) && \
 	 (guint)(offset) + (guint)(len) <= (guint)(captured_len))
 
-/* To pass one of two strings, singular or plural */
-#define plurality(d,s,p) ((d) == 1 ? (s) : (p))
-
-typedef struct _packet_counts {
-  gint           sctp;
-  gint           tcp;
-  gint           udp;
-  gint           icmp;
-  gint           ospf;
-  gint           gre;
-  gint           netbios;
-  gint           ipx;
-  gint           vines;
-  gint           other;
-  gint           total;
-  gint           arp;
-  gint           i2c_event;
-  gint           i2c_data;
-} packet_counts;
-
-/** Number of packet counts. */
-#define PACKET_COUNTS_SIZE sizeof(packet_counts) / sizeof (gint)
+typedef struct _capture_packet_info {
+    GHashTable *counts;
+} capture_packet_info_t;
 
 extern void packet_init(void);
 extern void packet_cache_proto_handles(void);
@@ -93,11 +75,6 @@ struct dissector_table;
 typedef struct dissector_table *dissector_table_t;
 
 /*
- * Dissector that returns nothing.
- */
-typedef void (*dissector_t)(tvbuff_t *, packet_info *, proto_tree *);
-
-/*
  * Dissector that returns:
  *
  *	The amount of data in the protocol's PDU, if it was able to
@@ -109,7 +86,7 @@ typedef void (*dissector_t)(tvbuff_t *, packet_info *, proto_tree *);
  *	we need more data (e.g., from subsequent TCP segments) to
  *	dissect the entire PDU.
  */
-typedef int (*new_dissector_t)(tvbuff_t *, packet_info *, proto_tree *, void *);
+typedef int (*dissector_t)(tvbuff_t *, packet_info *, proto_tree *, void *);
 
 /** Type of a heuristic dissector, used in heur_dissector_add().
  *
@@ -125,6 +102,11 @@ typedef enum {
     HEURISTIC_DISABLE,
     HEURISTIC_ENABLE
 } heuristic_enable_e;
+
+typedef enum {
+    DISSECTOR_TABLE_ALLOW_DUPLICATE,
+    DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE
+} dissector_table_allow_e;
 
 typedef void (*DATFunc) (const gchar *table_name, ftenum_t selector_type,
     gpointer key, gpointer value, gpointer user_data);
@@ -204,17 +186,17 @@ WS_DLL_PUBLIC void dissector_all_tables_foreach_table (DATFunc_table func,
  * case-sensitive)
  */
 WS_DLL_PUBLIC dissector_table_t register_dissector_table(const char *name,
-    const char *ui_name, const ftenum_t type, const int param);
+    const char *ui_name, const ftenum_t type, const int param, dissector_table_allow_e allow_dup);
 
 /*
  * Similar to register_dissector_table, but with a "custom" hash function
  * to store subdissectors.
  */
 WS_DLL_PUBLIC dissector_table_t register_custom_dissector_table(const char *name,
-    const char *ui_name, GHashFunc hash_func, GEqualFunc key_equal_func);
+    const char *ui_name, GHashFunc hash_func, GEqualFunc key_equal_func, dissector_table_allow_e allow_dup);
 
 /** Deregister the dissector table by table name. */
-WS_DLL_PUBLIC void deregister_dissector_table(const char *name);
+void deregister_dissector_table(const char *name);
 
 /* Find a dissector table by table name. */
 WS_DLL_PUBLIC dissector_table_t find_dissector_table(const char *name);
@@ -235,7 +217,7 @@ WS_DLL_PUBLIC int get_dissector_table_param(const char *name);
 WS_DLL_PUBLIC void dissector_dump_dissector_tables(void);
 
 /* Add an entry to a uint dissector table. */
-WS_DLL_PUBLIC void dissector_add_uint(const char *abbrev, const guint32 pattern,
+WS_DLL_PUBLIC void dissector_add_uint(const char *name, const guint32 pattern,
     dissector_handle_t handle);
 
 /* Add an range of entries to a uint dissector table. */
@@ -350,7 +332,39 @@ WS_DLL_PUBLIC void dissector_add_custom_table_handle(const char *name, void *pat
  */
 WS_DLL_PUBLIC dissector_handle_t dissector_get_custom_table_handle(
     dissector_table_t sub_dissectors, void *key);
+/* Key for GUID dissector tables.  This is based off of DCE/RPC needs
+   so some dissector tables may not need the ver portion of the hash
+ */
+typedef struct _guid_key {
+    e_guid_t guid;
+    guint16 ver;
+} guid_key;
 
+/* Add an entry to a guid dissector table. */
+WS_DLL_PUBLIC void dissector_add_guid(const char *name, guid_key* guid_val,
+    dissector_handle_t handle);
+
+/* Look for a given value in a given guid dissector table and, if found,
+   call the dissector with the arguments supplied, and return TRUE,
+   otherwise return FALSE. */
+WS_DLL_PUBLIC int dissector_try_guid(dissector_table_t sub_dissectors,
+    guid_key* guid_val, tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
+
+/* Look for a given value in a given guid dissector table and, if found,
+   call the dissector with the arguments supplied, and return TRUE,
+   otherwise return FALSE. */
+WS_DLL_PUBLIC int dissector_try_guid_new(dissector_table_t sub_dissectors,
+    guid_key* guid_val, tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, const gboolean add_proto_name, void *data);
+
+/** Look for a given value in a given guid dissector table and, if found,
+ * return the current dissector handle for that value.
+ *
+ * @param[in] sub_dissectors Dissector table to search.
+ * @param[in] guid_val Value to match, e.g. the GUID number for the GUID dissector.
+ * @return The matching dissector handle on success, NULL if no match is found.
+ */
+WS_DLL_PUBLIC dissector_handle_t dissector_get_guid_handle(
+    dissector_table_t const sub_dissectors, guid_key* guid_val);
 
 /* Add a handle to the list of handles that *could* be used with this
    table.  That list is used by the "Decode As"/"-d" code in the UI. */
@@ -367,6 +381,10 @@ WS_DLL_PUBLIC GSList *dissector_table_get_dissector_handles(dissector_table_t di
 /** Get a dissector table's type
  */
 WS_DLL_PUBLIC ftenum_t dissector_table_get_type(dissector_table_t dissector_table);
+
+/** Get a dissector table's ability to allow duplicate protocols
+ */
+WS_DLL_PUBLIC dissector_table_allow_e dissector_table_get_proto_allowed(dissector_table_t dissector_table);
 
 /* List of "heuristic" dissectors (which get handed a packet, look at it,
    and either recognize it as being for their protocol, dissect it, and
@@ -476,14 +494,11 @@ WS_DLL_PUBLIC void heur_dissector_add(const char *name, heur_dissector_t dissect
  */
 WS_DLL_PUBLIC void heur_dissector_delete(const char *name, heur_dissector_t dissector, const int proto);
 
-/** Register a dissector. */
+/** Register a new dissector. */
 WS_DLL_PUBLIC dissector_handle_t register_dissector(const char *name, dissector_t dissector, const int proto);
 
-/** Register a new dissector. */
-WS_DLL_PUBLIC dissector_handle_t new_register_dissector(const char *name, new_dissector_t dissector, const int proto);
-
 /** Deregister a dissector. */
-WS_DLL_PUBLIC void deregister_dissector(const char *name);
+void deregister_dissector(const char *name);
 
 /** Get the long name of the protocol for a dissector handle. */
 extern const char *dissector_handle_get_long_name(const dissector_handle_t handle);
@@ -506,13 +521,8 @@ WS_DLL_PUBLIC const char *dissector_handle_get_dissector_name(const dissector_ha
 /** Create an anonymous handle for a dissector. */
 WS_DLL_PUBLIC dissector_handle_t create_dissector_handle(dissector_t dissector,
     const int proto);
-WS_DLL_PUBLIC dissector_handle_t new_create_dissector_handle(new_dissector_t dissector,
-    const int proto);
-WS_DLL_PUBLIC dissector_handle_t new_create_dissector_handle_with_name(new_dissector_t dissector,
+WS_DLL_PUBLIC dissector_handle_t create_dissector_handle_with_name(dissector_t dissector,
     const int proto, const char* name);
-
-/** Destroy an anonymous handle for a dissector. */
-WS_DLL_PUBLIC void destroy_dissector_handle(dissector_handle_t handle);
 
 /** Call a dissector through a handle and if no dissector was found
  * pass it over to the "data" dissector instead.
@@ -652,7 +662,17 @@ typedef struct frame_data_s
 {
     int file_type_subtype;
     const gchar  *pkt_comment; /**< NULL if not available */
+    struct epan_dissect *color_edt; /** Used strictly for "coloring rules" */
+
 } frame_data_t;
+
+/* Structure passed to the file dissector */
+typedef struct file_data_s
+{
+    const gchar  *pkt_comment; /**< NULL if not available */
+    struct epan_dissect *color_edt; /** Used strictly for "coloring rules" */
+
+} file_data_t;
 
 /*
  * Dissectors should never modify the record data.
@@ -668,9 +688,6 @@ extern void dissect_file(struct epan_dissect *edt,
     struct wtap_pkthdr *phdr, tvbuff_t *tvb,
     frame_data *fd, column_info *cinfo);
 
-/* These functions are in packet-ethertype.c */
-extern void capture_ethertype(guint16 etype, const guchar *pd, int offset,
-		int len, packet_counts *ld);
 /* Structure passed to the ethertype dissector */
 typedef struct ethertype_data_s
 {
@@ -698,7 +715,7 @@ WS_DLL_PUBLIC void dissector_dump_heur_decodes(void);
  * dissector has been called.
  */
 WS_DLL_PUBLIC void register_postdissector(dissector_handle_t);
-WS_DLL_PUBLIC void deregister_postdissector(dissector_handle_t handle);
+void deregister_postdissector(dissector_handle_t handle);
 
 extern gboolean have_postdissector(void);
 extern void call_all_postdissectors(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);

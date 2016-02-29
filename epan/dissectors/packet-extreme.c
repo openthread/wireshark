@@ -948,8 +948,8 @@ dissect_unknown_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, p
 		ENC_NA);
 }
 
-static void
-dissect_edp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_edp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *edp_tree;
@@ -1073,7 +1073,7 @@ dissect_edp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		case EDP_TYPE_ESRP: /* Extreme Standby Router Protocol */
 			dissect_esrp_tlv(tvb, pinfo, offset, tlv_length, edp_tree);
 			break;
-		case EDP_TYPE_EAPS: /* Ethernet Automatic Protection Swtiching */
+		case EDP_TYPE_EAPS: /* Ethernet Automatic Protection Switching */
 			dissect_eaps_tlv(tvb, pinfo, offset, tlv_length, edp_tree);
 			break;
 		case EDP_TYPE_ESL: /* EAPS shared link */
@@ -1092,6 +1092,7 @@ dissect_edp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		offset += tlv_length;
 	}
 
+	return tvb_captured_length(tvb);
 }
 
 void

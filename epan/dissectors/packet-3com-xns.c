@@ -61,8 +61,8 @@ static dissector_handle_t data_handle;
  * but with random stuff that appears neither to be XNS nor Retix
  * spanning tree.
  */
-static void
-dissect_3com_xns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_3com_xns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *subtree;
 	proto_tree *ti;
@@ -88,6 +88,7 @@ dissect_3com_xns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		    type, next_tvb, pinfo, tree))
 			call_dissector(data_handle, next_tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

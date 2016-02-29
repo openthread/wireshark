@@ -144,7 +144,7 @@ typedef enum {
   MIP_NATT_TUNNEL_DATA = 4,
   MIP_REGISTRATION_REVOCATION = 7,
   MIP_REGISTRATION_REVOCATION_ACK = 15,
-  MIP_HANDOFF_REQEST = 16,
+  MIP_HANDOFF_REQUEST = 16,
   MIP_HANDOFF_REPLY = 17,
   MIP_REGIONAL_REG_REQ = 18,
   MIP_REGIONAL_REG_REP = 19,
@@ -159,7 +159,7 @@ static const value_string mip_types[] = {
   {MIP_NATT_TUNNEL_DATA,                "NAT Traversal Tunnel Data"},
   {MIP_REGISTRATION_REVOCATION,         "Registration Revocation"},
   {MIP_REGISTRATION_REVOCATION_ACK,     "Registration Revocation Acknowledgement"},
-  {MIP_HANDOFF_REQEST,                  "NAT Traversal Tunnel Data"},
+  {MIP_HANDOFF_REQUEST,                 "NAT Traversal Tunnel Data"},
   {MIP_HANDOFF_REPLY,                   "NAT Traversal Tunnel Data"},
   {MIP_REGIONAL_REG_REQ,                "NAT Traversal Tunnel Data"},
   {MIP_REGIONAL_REG_REP,                "NAT Traversal Tunnel Data"},
@@ -463,7 +463,7 @@ dissect_mip_priv_ext_3gpp2(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
   offset+=2;
 
   switch(type){
-  case 16: /* PPP Link Indicato  X.S0011-003-C v1.0 */
+  case 16: /* PPP Link Indicator  X.S0011-003-C v1.0 */
     proto_tree_add_item(tree, hf_mip_nvse_3gpp2_type16_value, tvb, offset, 2, ENC_BIG_ENDIAN);
     break;
   case 17: /* DNS server IP address X.S0011-002-C v3.0*/
@@ -512,9 +512,6 @@ dissect_mip_extensions( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info
   guint16       cvse_3gpp2_type;
   int           cvse_local_offset= 0;
   int           nvse_local_offset= 0;
-
-  /* None of this really matters if we don't have a tree */
-  if (!tree) return;
 
   /* Add our tree, if we have extensions */
   exts_tree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_mip_exts, NULL, "Extensions");
@@ -780,8 +777,8 @@ dissect_mip_extensions( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info
 } /* dissect_mip_extensions */
 
 /* Code to actually dissect the packets */
-static void
-dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   /* Set up structures we will need to add the protocol subtree and manage it */
   proto_item    *ti;
@@ -1000,10 +997,10 @@ dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     break;
   } /* End switch */
 
-  if (tree) {
-    if (tvb_reported_length_remaining(tvb, offset) > 0)
-      dissect_mip_extensions(tvb, offset, mip_tree, pinfo);
-  }
+  if (tvb_reported_length_remaining(tvb, offset) > 0)
+    dissect_mip_extensions(tvb, offset, mip_tree, pinfo);
+
+  return tvb_captured_length(tvb);
 } /* dissect_mip */
 
 /* Register the protocol with Wireshark */
@@ -1474,7 +1471,7 @@ void proto_register_mip(void)
   expert_register_field_array(expert_mip, ei, array_length(ei));
 
   mip_nvse_ext_dissector_table = register_dissector_table("mip.nvse_ext",
-    "MIP Normal Vendor/Organization Specific Extension", FT_UINT32, BASE_DEC);
+    "MIP Normal Vendor/Organization Specific Extension", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 }
 
 void
@@ -1488,7 +1485,7 @@ proto_reg_handoff_mip(void)
 
   /* Register as dissector for 3GPP2 NVSE */
   dissector_add_uint("mip.nvse_ext", VENDOR_THE3GPP2,
-    new_create_dissector_handle(dissect_mip_priv_ext_3gpp2, proto_mip));
+    create_dissector_handle(dissect_mip_priv_ext_3gpp2, proto_mip));
 }
 
 /*

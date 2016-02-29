@@ -6105,8 +6105,8 @@ decode_system_journal( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, 
  * external decoders.  Afterwards the journal-section is decoded.
  */
 
-static void
-dissect_rtp_midi( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree )
+static int
+dissect_rtp_midi( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_ )
 {
 	proto_item		*ti;
 	proto_tree		*rtp_midi_tree;
@@ -6188,8 +6188,7 @@ dissect_rtp_midi( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree )
 				/* Decode a MIDI-command - if 0 is returned something went wrong */
 				consumed = decodemidi( tvb, pinfo, rtp_midi_commands_tree, cmd_count, offset, cmd_len, &runningstatus, &rsoffset );
 				if ( -1 == consumed ) {
-					THROW( ReportedBoundsError );
-					return;
+					return offset;
 				}
 
 				/* seek to next delta-time and set remaining length */
@@ -6235,8 +6234,7 @@ dissect_rtp_midi( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree )
 			consumed = decode_system_journal( tvb, pinfo, rtp_midi_journal_tree, offset );
 
 			if ( -1 == consumed ) {
-				THROW( ReportedBoundsError );
-				return;
+				return offset;
 			}
 
 			/* seek to optional channel-journals-section */
@@ -6255,8 +6253,7 @@ dissect_rtp_midi( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree )
 				consumed = decode_channel_journal( tvb, pinfo, rtp_midi_chanjournals_tree, offset );
 
 				if ( -1 == consumed ) {
-					THROW( ReportedBoundsError );
-					return;
+					return offset;
 				}
 
 				/* seek to next channel-journal */
@@ -6265,6 +6262,7 @@ dissect_rtp_midi( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree )
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 

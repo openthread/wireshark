@@ -38,6 +38,7 @@ set(NSIS_FILES
 	servicelib.nsh
 	AdditionalTasksPage.ini
 	WinPcapPage.ini
+	USBPcapPage.ini
 	${NSIS_GENERATED_FILES}
 	PARENT_SCOPE
 )
@@ -72,8 +73,10 @@ file(TO_NATIVE_PATH "${GLIB2_DLL_DIR}/../.." _wireshark_lib_dir)
 set(WIRESHARK_LIB_DIR "${_wireshark_lib_dir}")
 
 # Must match ${WIRESHARK_LIB_DIR}/WinPcap_X_Y_Z.exe
-set(WINPCAP_PACKAGE_VERSION 4_1_3)
+set(WINPCAP_PACKAGE_VERSION ${WINPCAP_VERSION})
 string(REPLACE "_" "." PCAP_DISPLAY_VERSION "${WINPCAP_PACKAGE_VERSION}")
+
+set(USBPCAP_DISPLAY_VERSION "1.1.0.0-g794bf26")
 
 set(PRODUCT_VERSION ${PROJECT_MAJOR_VERSION}.${PROJECT_MINOR_VERSION}.${PROJECT_PATCH_VERSION}.${PROJECT_BUILD_VERSION})
 # XXX Shouldn't this reflect the API / ABI version?
@@ -97,18 +100,6 @@ endif()
 
 if(BUILD_wireshark_gtk AND GTK_FOUND)
 	set (GTK_DIR "\${STAGING_DIR}")
-endif()
-
-# CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS will likely give us a list of DLL
-# paths containing spaces. We'll assume that they're all in the same
-# directory and use it to create something that's easier to pass to
-# NSIS.
-set(MSVCR_DLL)
-list(GET CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS 0 _msvcr_dll)
-if(_msvcr_dll)
-	get_filename_component(_msvcr_dir ${_msvcr_dll} DIRECTORY)
-	set(MSVCR_DLL "${_msvcr_dir}/*.*")
-	file(TO_NATIVE_PATH "${MSVCR_DLL}" MSVCR_DLL)
 endif()
 
 # This *should* be compatible with the way we currently do things.

@@ -51,10 +51,9 @@ static const value_string mpeg_ca_cur_next_vals[] = {
 
 };
 
-static void
-dissect_mpeg_ca(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mpeg_ca(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
     guint offset = 0, length = 0;
 
     proto_item *ti;
@@ -88,6 +87,7 @@ dissect_mpeg_ca(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += packet_mpeg_sect_crc(tvb, pinfo, mpeg_ca_tree, 0, offset);
 
     proto_item_set_len(ti, offset);
+    return tvb_captured_length(tvb);
 }
 
 

@@ -1319,7 +1319,7 @@ extern void alcap_tree_from_bearer_key(proto_tree* tree, tvbuff_t* tvb, packet_i
 
 #define GET_MSG_TYPE(id) ( array_length(msg_types) <= id ? &(msg_types[0]) : &(msg_types[id]) )
 
-static void dissect_alcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int dissect_alcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
     proto_tree *alcap_tree = NULL;
     alcap_message_info_t* msg_info = wmem_new0(wmem_packet_scope(), alcap_message_info_t);
     int len = tvb_reported_length(tvb);
@@ -1456,10 +1456,10 @@ static void dissect_alcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
                 break;
         }
 
-        if (leg != NULL && ( (! leg->msgs) || leg->msgs->last->framenum < pinfo->fd->num ) ) {
+        if (leg != NULL && ( (! leg->msgs) || leg->msgs->last->framenum < pinfo->num ) ) {
             alcap_msg_data_t* msg = wmem_new(wmem_file_scope(), alcap_msg_data_t);
             msg->msg_type = msg_info->msg_type;
-            msg->framenum = pinfo->fd->num;
+            msg->framenum = pinfo->num;
             msg->next = NULL;
             msg->last = NULL;
 
@@ -1475,6 +1475,7 @@ static void dissect_alcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
         if (tree && leg) alcap_leg_tree(alcap_tree,tvb,pinfo,leg);
     }
+    return tvb_captured_length(tvb);
 }
 
 void
@@ -1502,7 +1503,7 @@ proto_register_alcap(void)
     { &hf_alcap_compat_pass_on_sni,
       { "Pass-On SNI", "alcap.compat.pass.sni",
         FT_UINT8, BASE_DEC, VALS(send_notification), 0x40,
-        "Send Notificaation Indicator", HFILL }
+        "Send Notification Indicator", HFILL }
     },
     { &hf_alcap_compat_pass_on_ii,
       { "Pass-On II", "alcap.compat.pass.ii",
@@ -1512,7 +1513,7 @@ proto_register_alcap(void)
     { &hf_alcap_compat_general_sni,
       { "General SNI", "alcap.compat.general.sni",
         FT_UINT8, BASE_DEC, VALS(send_notification), 0x04,
-        "Send Notificaation Indicator", HFILL }
+        "Send Notification Indicator", HFILL }
     },
     { &hf_alcap_compat_general_ii,
       { "General II", "alcap.compat.general.ii",

@@ -1330,7 +1330,7 @@ void proto_register_s5066dts (void)
         proto_register_subtree_array(ett, array_length(ett));
         expert_s5066dts = expert_register_protocol(proto_s5066dts);
         expert_register_field_array(expert_s5066dts, ei, array_length(ei));
-        new_register_dissector(DISSECTOR_NAME, dissect_s5066dts_tcp, proto_s5066dts);
+        register_dissector(DISSECTOR_NAME, dissect_s5066dts_tcp, proto_s5066dts);
     }
 
     s5066dts_module = prefs_register_protocol(proto_s5066dts, proto_reg_handoff_s5066dts);
@@ -1355,9 +1355,9 @@ void proto_reg_handoff_s5066dts(void)
     static int currentPort;
 
     if (!initialized) {
-        s5066dts_handle = new_create_dissector_handle(dissect_s5066dts_raw, proto_s5066dts);
+        s5066dts_handle = create_dissector_handle(dissect_s5066dts_raw, proto_s5066dts);
         dissector_add_uint("wtap_encap", WTAP_ENCAP_STANAG_5066_D_PDU, s5066dts_handle);
-        s5066dts_over_tcp_handle = new_create_dissector_handle(dissect_s5066dts_tcp, proto_s5066dts);
+        s5066dts_over_tcp_handle = create_dissector_handle(dissect_s5066dts_tcp, proto_s5066dts);
         initialized = TRUE;
     }
     else {

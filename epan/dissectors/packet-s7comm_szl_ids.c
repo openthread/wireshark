@@ -146,7 +146,7 @@ static const value_string szl_id_partlist_ex_names[] = {
     { 0x0781,                               "Startup information of all OBs of one priority class before processing" },
     { 0x0782,                               "Startup events of all OBs of one priority class before processing" },
     { 0x07a0,                               "All entries of the test and installation function" },
-    { 0x0822,                               "Data records of all interrupts of one class and for which the ccorresponding interrupt OB is loaded, class specified by index" },
+    { 0x0822,                               "Data records of all interrupts of one class and for which the corresponding interrupt OB is loaded, class specified by index" },
     { 0x0881,                               "Startup information of all OBs before processing" },
     { 0x0882,                               "Startup events of all OBs before processing" },
     { 0x08a0,                               "All entries due to operating statuses" },
@@ -4010,11 +4010,13 @@ s7comm_decode_ud_cpu_szl_subfunc(tvbuff_t *tvb,
                  * it's not possible to decode this and following telegrams without knowing the previous requests.
                  */
                 tbytes = 0;
-                if ((list_count * list_len) > (len - 8)) {
-                    list_count = (len - 8) / list_len;
-                    /* remind the number of trailing bytes */
-                    if (list_count > 0) {
-                        tbytes = (len - 8) % list_count;
+                if (list_len > 0) {
+                    if ((list_count * list_len) > (len - 8)) {
+                        list_count = (len - 8) / list_len;
+                        /* remind the number of trailing bytes */
+                        if (list_count > 0) {
+                            tbytes = (len - 8) % list_count;
+                        }
                     }
                 }
                 offset += 2;
@@ -4045,6 +4047,23 @@ s7comm_decode_ud_cpu_szl_subfunc(tvbuff_t *tvb,
                                     offset = s7comm_decode_szl_id_0111_idx_0001(tvb, szl_item_tree, offset);
                                     szl_decoded = TRUE;
                                 }
+                                break;
+                            case 0x00a0:
+                            case 0x01a0:
+                            case 0x04a0:
+                            case 0x05a0:
+                            case 0x06a0:
+                            case 0x07a0:
+                            case 0x08a0:
+                            case 0x09a0:
+                            case 0x0aa0:
+                            case 0x0ba0:
+                            case 0x0ca0:
+                            case 0x0da0:
+                            case 0x0ea0:
+                                /* the data structure is the same as used when CPU is sending online such messages */
+                                offset = s7comm_decode_ud_cpu_diagnostic_message(tvb, pinfo, FALSE, szl_item_tree, offset);
+                                szl_decoded = TRUE;
                                 break;
                             case 0x0131:
                                 if (idx == 0x0001) {

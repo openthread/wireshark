@@ -28,9 +28,6 @@
  */
 
 #include "config.h"
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include <glib.h>
 
@@ -75,9 +72,9 @@ mcast_stream_info_cmp(gconstpointer aa, gconstpointer bb)
         return 0;
     if (a==NULL || b==NULL)
         return 1;
-    if (ADDRESSES_EQUAL(&(a->src_addr), &(b->src_addr))
+    if (addresses_equal(&(a->src_addr), &(b->src_addr))
         && (a->src_port == b->src_port)
-        && ADDRESSES_EQUAL(&(a->dest_addr), &(b->dest_addr))
+        && addresses_equal(&(a->dest_addr), &(b->dest_addr))
         && (a->dest_port == b->dest_port))
         return 0;
     else
@@ -121,7 +118,7 @@ mcaststream_reset_cb(void *ti_ptr)
     mcaststream_tapinfo_t *tapinfo = (mcaststream_tapinfo_t *)ti_ptr;
     if (tapinfo) {
         if (tapinfo->tap_reset) {
-           tapinfo->tap_reset(ti_ptr);
+           tapinfo->tap_reset(tapinfo);
         }
         mcaststream_reset(tapinfo);
     }
@@ -137,7 +134,7 @@ mcaststream_draw(void *ti_ptr)
     g_signal_emit_by_name(top_level, "signal_mcaststream_update");
 */
     if (tapinfo && tapinfo->tap_draw) {
-        tapinfo->tap_draw(ti_ptr);
+        tapinfo->tap_draw(tapinfo);
     }
     return;
 }
@@ -178,9 +175,9 @@ mcaststream_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
     }
 
     /* gather infos on the stream this packet is part of */
-    COPY_ADDRESS(&(tmp_strinfo.src_addr), &(pinfo->net_src));
+    copy_address(&(tmp_strinfo.src_addr), &(pinfo->net_src));
     tmp_strinfo.src_port = pinfo->srcport;
-    COPY_ADDRESS(&(tmp_strinfo.dest_addr), &(pinfo->net_dst));
+    copy_address(&(tmp_strinfo.dest_addr), &(pinfo->net_dst));
     tmp_strinfo.dest_port = pinfo->destport;
 
     /* check whether we already have a stream with these parameters in the list */
@@ -201,8 +198,8 @@ mcaststream_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
             pinfo->srcport, address_to_display(NULL, &(pinfo->dst)), pinfo->destport);*/
         tmp_strinfo.npackets = 0;
         tmp_strinfo.apackets = 0;
-        tmp_strinfo.first_frame_num = pinfo->fd->num;
-        tmp_strinfo.start_abs = pinfo->fd->abs_ts;
+        tmp_strinfo.first_frame_num = pinfo->num;
+        tmp_strinfo.start_abs = pinfo->abs_ts;
         tmp_strinfo.start_rel = pinfo->rel_ts;
         tmp_strinfo.vlan_id = 0;
 

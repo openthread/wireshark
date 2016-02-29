@@ -263,8 +263,8 @@ dissect_unknown_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, p
 	proto_tree_add_item(unknown_tree, hf_fdp_unknown_data, tvb, offset, length, ENC_NA);
 }
 
-static void
-dissect_fdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_fdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *fdp_tree = NULL;
@@ -333,6 +333,7 @@ dissect_fdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		}
 
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

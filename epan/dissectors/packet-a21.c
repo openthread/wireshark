@@ -632,8 +632,8 @@ dissect_a21_ie_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *top_tree, p
 }
 
 
-static void
-dissect_a21(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_a21(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint8 message_type;
 	int offset = 0;
@@ -673,7 +673,7 @@ dissect_a21(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	dissect_a21_ie_common(tvb, pinfo, tree, a21_tree, offset,  message_type);
 
-
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_a21(void)

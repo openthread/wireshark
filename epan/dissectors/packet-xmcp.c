@@ -885,7 +885,7 @@ dissect_xmcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
       xmcp_trans = wmem_new(wmem_file_scope(), xmcp_transaction_t);
       xmcp_trans->request_frame = 0;
       xmcp_trans->response_frame = 0;
-      xmcp_trans->request_time = pinfo->fd->abs_ts;
+      xmcp_trans->request_time = pinfo->abs_ts;
       xmcp_trans->request_is_keepalive = FALSE;
       wmem_tree_insert32_array(xmcp_conv_info->transaction_pdus,
                              transaction_id_key, (void *)xmcp_trans);
@@ -895,12 +895,12 @@ dissect_xmcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
   if (!pinfo->fd->flags.visited) {
     if (xmcp_msg_type_class == XMCP_CLASS_REQUEST) {
       if (xmcp_trans->request_frame == 0) {
-        xmcp_trans->request_frame = pinfo->fd->num;
-        xmcp_trans->request_time = pinfo->fd->abs_ts;
+        xmcp_trans->request_frame = pinfo->num;
+        xmcp_trans->request_time = pinfo->abs_ts;
       }
     } else if (xmcp_msg_type_class != XMCP_CLASS_RESERVED) {
       if (xmcp_trans->response_frame == 0) {
-        xmcp_trans->response_frame = pinfo->fd->num;
+        xmcp_trans->response_frame = pinfo->num;
       }
     }
   }
@@ -964,7 +964,7 @@ dissect_xmcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
                                xmcp_trans->request_frame);
       PROTO_ITEM_SET_GENERATED(ti);
 
-      nstime_delta(&ns, &pinfo->fd->abs_ts, &xmcp_trans->request_time);
+      nstime_delta(&ns, &pinfo->abs_ts, &xmcp_trans->request_time);
       ti = proto_tree_add_time(xmcp_tree, hf_xmcp_time, tvb, 0, 0, &ns);
       PROTO_ITEM_SET_GENERATED(ti);
     } else {
@@ -1369,7 +1369,7 @@ proto_reg_handoff_xmcp(void)
   static guint xmcp_tcp_port;
 
   if (!xmcp_prefs_initialized) {
-    xmcp_tcp_handle = new_create_dissector_handle(dissect_xmcp_tcp, proto_xmcp);
+    xmcp_tcp_handle = create_dissector_handle(dissect_xmcp_tcp, proto_xmcp);
     heur_dissector_add("tcp", dissect_xmcp_heur, "XMCP over TCP", "xmcp_tcp", proto_xmcp, HEURISTIC_ENABLE);
     media_type_dissector_table = find_dissector_table("media_type");
     xmcp_prefs_initialized = TRUE;

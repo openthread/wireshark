@@ -98,8 +98,8 @@ static gpointer can_value(packet_info *pinfo _U_)
 	return 0;
 }
 
-static void
-dissect_socketcan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_socketcan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *can_tree;
 	proto_item *ti;
@@ -156,6 +156,7 @@ dissect_socketcan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	{
 		call_dissector(data_handle, next_tvb, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -228,12 +229,13 @@ proto_register_socketcan(void)
 		"CAN",				/* short name */
 		"can"				/* abbrev     */
 		);
+	register_dissector("can", dissect_socketcan, proto_can);
 
 	proto_register_field_array(proto_can, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
 	subdissector_table = register_dissector_table("can.subdissector",
-		"CAN next level dissector", FT_UINT32, BASE_HEX);
+		"CAN next level dissector", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	can_module = prefs_register_protocol(proto_can, NULL);
 

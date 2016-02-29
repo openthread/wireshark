@@ -83,6 +83,7 @@
 #include <epan/conversation.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 #include "packet-x11.h" /* This contains the extern for the X11 value_string_ext
 			 * "x11_keysym_vals_source_ext" that VNC uses. */
 
@@ -456,12 +457,10 @@ typedef enum {
 	VNC_SESSION_STATE_NORMAL_TRAFFIC
 } vnc_session_state_e;
 
-typedef enum {
-	VNC_FENCE_BLOCK_BEFORE = 0x00000001,
-	VNC_FENCE_BLOCK_AFTER  = 0x00000002,
-	VNC_FENCE_SYNC_NEXT    = 0x00000004,
-	VNC_FENCE_REQUEST      = 0x80000000
-} vnc_fence_flags_e;
+#define VNC_FENCE_BLOCK_BEFORE   0x00000001
+#define VNC_FENCE_BLOCK_AFTER    0x00000002
+#define VNC_FENCE_SYNC_NEXT      0x00000004
+#define VNC_FENCE_REQUEST        0x80000000
 
 /* This structure will be tied to each conversation. */
 typedef struct {
@@ -920,8 +919,8 @@ guint8 vnc_depth;
 static dissector_handle_t vnc_handle;
 
 /* Code to dissect the packets */
-static void
-dissect_vnc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_vnc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	gboolean ret;
 	gint     offset = 0;
@@ -967,7 +966,7 @@ dissect_vnc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	vnc_set_depth(pinfo, vnc_depth);
 
 	if (ret) {
-		return;  /* We're in a "startup" state; Cannot yet do "normal" processing */
+		return tvb_captured_length(tvb);  /* We're in a "startup" state; Cannot yet do "normal" processing */
 	}
 
 	if(DEST_PORT_VNC || per_conversation_info->server_port == pinfo->destport) {
@@ -976,6 +975,7 @@ dissect_vnc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	else {
 		vnc_server_to_client(tvb, pinfo, &offset, vnc_tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Returns the new offset after processing the 4-byte vendor string */
@@ -1077,12 +1077,12 @@ static gboolean test_vnc_protocol(tvbuff_t *tvb, packet_info *pinfo,
 	conversation_t *conversation;
 
 	if (vnc_is_client_or_server_version_message(tvb, NULL, NULL)) {
-		conversation = conversation_new(pinfo->fd->num, &pinfo->src,
+		conversation = conversation_new(pinfo->num, &pinfo->src,
 						&pinfo->dst, pinfo->ptype,
 						pinfo->srcport,
 						pinfo->destport, 0);
 		conversation_set_dissector(conversation, vnc_handle);
-		dissect_vnc(tvb, pinfo, tree);
+		dissect_vnc(tvb, pinfo, tree, data);
 		return TRUE;
 	}
 	return FALSE;

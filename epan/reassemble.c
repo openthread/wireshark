@@ -29,6 +29,8 @@
 #include <epan/reassemble.h>
 #include <epan/tvbuff-int.h>
 
+#include <wsutil/str_util.h>
+
 /*
  * Functions for reassembly tables where the endpoint addresses, and a
  * fragment ID, are used as the key.
@@ -77,8 +79,8 @@ fragment_addresses_equal(gconstpointer k1, gconstpointer k2)
 	 * the comparison of addresses.
 	 */
 	return (key1->id == key2->id) &&
-	       (ADDRESSES_EQUAL(&key1->src, &key2->src)) &&
-	       (ADDRESSES_EQUAL(&key1->dst, &key2->dst));
+	       (addresses_equal(&key1->src, &key2->src)) &&
+	       (addresses_equal(&key1->dst, &key2->dst));
 }
 
 /*
@@ -95,8 +97,8 @@ fragment_addresses_temporary_key(const packet_info *pinfo, const guint32 id,
 	/*
 	 * Do a shallow copy of the addresses.
 	 */
-	key->src = pinfo->src;
-	key->dst = pinfo->dst;
+	copy_address_shallow(&key->src, &pinfo->src);
+	copy_address_shallow(&key->dst, &pinfo->dst);
 	key->id = id;
 
 	return (gpointer)key;
@@ -115,8 +117,8 @@ fragment_addresses_persistent_key(const packet_info *pinfo, const guint32 id,
 	/*
 	 * Do a deep copy of the addresses.
 	 */
-	COPY_ADDRESS(&key->src, &pinfo->src);
-	COPY_ADDRESS(&key->dst, &pinfo->dst);
+	copy_address(&key->src, &pinfo->src);
+	copy_address(&key->dst, &pinfo->dst);
 	key->id = id;
 
 	return (gpointer)key;
@@ -140,8 +142,8 @@ fragment_addresses_free_persistent_key(gpointer ptr)
 		/*
 		 * Free up the copies of the addresses from the old key.
 		 */
-		g_free((gpointer)key->src.data);
-		g_free((gpointer)key->dst.data);
+		free_address(&key->src);
+		free_address(&key->dst);
 
 		g_slice_free(fragment_addresses_key, key);
 	}
@@ -209,8 +211,8 @@ fragment_addresses_ports_equal(gconstpointer k1, gconstpointer k2)
 	 * the comparison of addresses and ports.
 	 */
 	return (key1->id == key2->id) &&
-	       (ADDRESSES_EQUAL(&key1->src_addr, &key2->src_addr)) &&
-	       (ADDRESSES_EQUAL(&key1->dst_addr, &key2->dst_addr)) &&
+	       (addresses_equal(&key1->src_addr, &key2->src_addr)) &&
+	       (addresses_equal(&key1->dst_addr, &key2->dst_addr)) &&
 	       (key1->src_port == key2->src_port) &&
 	       (key1->dst_port == key2->dst_port);
 }
@@ -229,8 +231,8 @@ fragment_addresses_ports_temporary_key(const packet_info *pinfo, const guint32 i
 	/*
 	 * Do a shallow copy of the addresses.
 	 */
-	key->src_addr = pinfo->src;
-	key->dst_addr = pinfo->dst;
+	copy_address_shallow(&key->src_addr, &pinfo->src);
+	copy_address_shallow(&key->dst_addr, &pinfo->dst);
 	key->src_port = pinfo->srcport;
 	key->dst_port = pinfo->destport;
 	key->id = id;
@@ -251,8 +253,8 @@ fragment_addresses_ports_persistent_key(const packet_info *pinfo,
 	/*
 	 * Do a deep copy of the addresses.
 	 */
-	COPY_ADDRESS(&key->src_addr, &pinfo->src);
-	COPY_ADDRESS(&key->dst_addr, &pinfo->dst);
+	copy_address(&key->src_addr, &pinfo->src);
+	copy_address(&key->dst_addr, &pinfo->dst);
 	key->src_port = pinfo->srcport;
 	key->dst_port = pinfo->destport;
 	key->id = id;
@@ -278,8 +280,8 @@ fragment_addresses_ports_free_persistent_key(gpointer ptr)
 		/*
 		 * Free up the copies of the addresses from the old key.
 		 */
-		g_free((gpointer)key->src_addr.data);
-		g_free((gpointer)key->dst_addr.data);
+		free_address(&key->src_addr);
+		free_address(&key->dst_addr);
 
 		g_slice_free(fragment_addresses_ports_key, key);
 	}
@@ -319,6 +321,12 @@ reassembled_hash(gconstpointer k)
 	const reassembled_key* key = (const reassembled_key*) k;
 
 	return key->frame;
+}
+
+static void
+reassembled_key_free(gpointer ptr)
+{
+	g_slice_free(reassembled_key, (reassembled_key *)ptr);
 }
 
 /*
@@ -368,7 +376,7 @@ static fragment_head *new_head(const guint32 flags)
  * to which the value refers and also the key itself.
  */
 static gboolean
-free_all_reassembled_fragments(gpointer key_arg, gpointer value,
+free_all_reassembled_fragments(gpointer key_arg _U_, gpointer value,
 				   gpointer user_data)
 {
 	GPtrArray *allocated_fragments = (GPtrArray *) user_data;
@@ -389,8 +397,6 @@ free_all_reassembled_fragments(gpointer key_arg, gpointer value,
 			fd_head->flags = FD_VISITED_FREE;
 		}
 	}
-
-	g_slice_free(reassembled_key, (reassembled_key *)key_arg);
 
 	return TRUE;
 }
@@ -454,8 +460,8 @@ reassembly_table_init(reassembly_table *table,
 		g_ptr_array_free(allocated_fragments, TRUE);
 	} else {
 		/* The fragment table does not exist. Create it */
-		table->reassembled_table = g_hash_table_new(reassembled_hash,
-		    reassembled_equal);
+		table->reassembled_table = g_hash_table_new_full(reassembled_hash,
+		    reassembled_equal, reassembled_key_free, NULL);
 	}
 }
 
@@ -636,7 +642,7 @@ fragment_get_reassembled_id(reassembly_table *table, const packet_info *pinfo,
 	reassembled_key key;
 
 	/* create key to search hash with */
-	key.frame = pinfo->fd->num;
+	key.frame = pinfo->num;
 	key.id = id;
 	fd_head = (fragment_head *)g_hash_table_lookup(table->reassembled_table, &key);
 
@@ -802,7 +808,7 @@ fragment_reassembled(reassembly_table *table, fragment_head *fd_head,
 		 * table; just hash it using the current frame number.
 		 */
 		new_key = g_slice_new(reassembled_key);
-		new_key->frame = pinfo->fd->num;
+		new_key->frame = pinfo->num;
 		new_key->id = id;
 		g_hash_table_insert(table->reassembled_table, new_key, fd_head);
 	} else {
@@ -818,7 +824,7 @@ fragment_reassembled(reassembly_table *table, fragment_head *fd_head,
 		}
 	}
 	fd_head->flags |= FD_DEFRAGMENTED;
-	fd_head->reassembled_in = pinfo->fd->num;
+	fd_head->reassembled_in = pinfo->num;
 	fd_head->reas_in_layer_num = pinfo->curr_layer_num;
 }
 
@@ -872,7 +878,7 @@ fragment_add_work(fragment_head *fd_head, tvbuff_t *tvb, const int offset,
 	fd = g_slice_new(fragment_item);
 	fd->next = NULL;
 	fd->flags = 0;
-	fd->frame = pinfo->fd->num;
+	fd->frame = pinfo->num;
 	fd->offset = frag_offset;
 	fd->fragment_nr_offset = 0; /* will only be used with sequence */
 	fd->len  = frag_data_len;
@@ -1190,7 +1196,7 @@ fragment_add_work(fragment_head *fd_head, tvbuff_t *tvb, const int offset,
 	/* mark this packet as defragmented.
 	   allows us to skip any trailing fragments */
 	fd_head->flags |= FD_DEFRAGMENTED;
-	fd_head->reassembled_in=pinfo->fd->num;
+	fd_head->reassembled_in=pinfo->num;
 	fd_head->reas_in_layer_num = pinfo->curr_layer_num;
 
 	/* we don't throw until here to avoid leaking old_data and others */
@@ -1213,7 +1219,13 @@ fragment_add_common(reassembly_table *table, tvbuff_t *tvb, const int offset,
 	gboolean already_added;
 
 
-	/* dissector shouldn't give us garbage tvb info */
+	/*
+	 * Dissector shouldn't give us garbage tvb info.
+	 *
+	 * XXX - should this code take responsibility for preventing
+	 * reassembly if data is missing due to the packets being
+	 * sliced, rather than leaving it up to dissectors?
+	 */
 	DISSECTOR_ASSERT(tvb_bytes_exist(tvb, offset, frag_data_len));
 
 	fd_head = lookup_fd_head(table, pinfo, id, data, NULL);
@@ -1223,7 +1235,7 @@ fragment_add_common(reassembly_table *table, tvbuff_t *tvb, const int offset,
 	/* leave it here for future debugging sessions */
 	if(strcmp(pinfo->current_proto, "DCERPC") == 0) {
 		printf("proto:%s num:%u id:%u offset:%u len:%u more:%u visited:%u\n",
-			pinfo->current_proto, pinfo->fd->num, id, frag_offset, frag_data_len, more_frags, pinfo->fd->flags.visited);
+			pinfo->current_proto, pinfo->num, id, frag_offset, frag_data_len, more_frags, pinfo->fd->flags.visited);
 		if(fd_head != NULL) {
 			for(fd_item=fd_head->next;fd_item;fd_item=fd_item->next){
 				printf("fd_frame:%u fd_offset:%u len:%u datalen:%u\n",
@@ -1258,7 +1270,7 @@ fragment_add_common(reassembly_table *table, tvbuff_t *tvb, const int offset,
 			 * reassembly; if this frame is later than that
 			 * frame, we know it hasn't been added yet.
 			 */
-			if (pinfo->fd->num <= fd_head->frame) {
+			if (pinfo->num <= fd_head->frame) {
 				already_added = FALSE;
 				/*
 				 * The first item in the reassembly list
@@ -1268,7 +1280,7 @@ fragment_add_common(reassembly_table *table, tvbuff_t *tvb, const int offset,
 				 */
 				for (fd_item = fd_head->next; fd_item;
 				    fd_item = fd_item->next) {
-					if (pinfo->fd->num == fd_item->frame &&
+					if (pinfo->num == fd_item->frame &&
 					    frag_offset == fd_item->offset) {
 						already_added = TRUE;
 						break;
@@ -1317,7 +1329,7 @@ fragment_add_common(reassembly_table *table, tvbuff_t *tvb, const int offset,
 			 * Is it later in the capture than all of the
 			 * fragments in the reassembly?
 			 */
-			if (pinfo->fd->num > fd_head->frame) {
+			if (pinfo->num > fd_head->frame) {
 				/*
 				 * Yes, so report this as a problem,
 				 * possibly a retransmission.
@@ -1425,7 +1437,7 @@ fragment_add_check(reassembly_table *table, tvbuff_t *tvb, const int offset,
 	 * of reassembled packets.
 	 */
 	if (pinfo->fd->flags.visited) {
-		reass_key.frame = pinfo->fd->num;
+		reass_key.frame = pinfo->num;
 		reass_key.id = id;
 		return (fragment_head *)g_hash_table_lookup(table->reassembled_table, &reass_key);
 	}
@@ -1542,7 +1554,7 @@ fragment_defragment_and_free (fragment_head *fd_head, const packet_info *pinfo)
 	 * allows us to skip any trailing fragments.
 	 */
 	fd_head->flags |= FD_DEFRAGMENTED;
-	fd_head->reassembled_in=pinfo->fd->num;
+	fd_head->reassembled_in=pinfo->num;
 	fd_head->reas_in_layer_num = pinfo->curr_layer_num;
 }
 
@@ -1609,7 +1621,7 @@ fragment_add_seq_work(fragment_head *fd_head, tvbuff_t *tvb, const int offset,
 	fd = g_slice_new(fragment_item);
 	fd->next = NULL;
 	fd->flags = 0;
-	fd->frame = pinfo->fd->num;
+	fd->frame = pinfo->num;
 	fd->offset = frag_number_work;
 	fd->len  = frag_data_len;
 	fd->tvb_data = NULL;
@@ -1849,7 +1861,7 @@ fragment_add_seq_common(reassembly_table *table, tvbuff_t *tvb,
 			 */
 			if (orig_keyp != NULL)
 				*orig_keyp = NULL;
-			fd_head->reassembled_in=pinfo->fd->num;
+			fd_head->reassembled_in=pinfo->num;
 			fd_head->reas_in_layer_num = pinfo->curr_layer_num;
 			return fd_head;
 		}
@@ -1948,11 +1960,11 @@ fragment_add_seq(reassembly_table *table, tvbuff_t *tvb, const int offset,
  * This function assumes frag_number being a block sequence number.
  * The bsn for the first block is 0.
  *
- * If "no_frag_number" is TRUE, it uses the next expected fragment number
+ * If REASSEMBLE_FLAGS_NO_FRAG_NUMBER, it uses the next expected fragment number
  * as the fragment number if there is a reassembly in progress, otherwise
  * it uses 0.
  *
- * If "no_frag_number" is FALSE, it uses the "frag_number" argument as
+ * If not REASSEMBLE_FLAGS_NO_FRAG_NUMBER, it uses the "frag_number" argument as
  * the fragment number.
  *
  * If this is the first fragment seen for this datagram, a new
@@ -1992,7 +2004,7 @@ fragment_add_seq_check_work(reassembly_table *table, tvbuff_t *tvb,
 	 * If so, look for it in the table of reassembled packets.
 	 */
 	if (pinfo->fd->flags.visited) {
-		reass_key.frame = pinfo->fd->num;
+		reass_key.frame = pinfo->num;
 		reass_key.id = id;
 		return (fragment_head *)g_hash_table_lookup(table->reassembled_table, &reass_key);
 	}
@@ -2065,6 +2077,8 @@ fragment_add_seq_next(reassembly_table *table, tvbuff_t *tvb, const int offset,
 		      const void *data, const guint32 frag_data_len,
 		      const gboolean more_frags)
 {
+	/* Use a dummy frag_number (0), it is ignored since
+	 * REASSEMBLE_FLAGS_NO_FRAG_NUMBER is set. */
 	return fragment_add_seq_check_work(table, tvb, offset, pinfo, id, data,
 					   0, frag_data_len, more_frags,
 					   REASSEMBLE_FLAGS_NO_FRAG_NUMBER);
@@ -2117,7 +2131,7 @@ fragment_end_seq_next(reassembly_table *table, const packet_info *pinfo,
 	 * If so, look for it in the table of reassembled packets.
 	 */
 	if (pinfo->fd->flags.visited) {
-		reass_key.frame = pinfo->fd->num;
+		reass_key.frame = pinfo->num;
 		reass_key.id = id;
 		return (fragment_head *)g_hash_table_lookup(table->reassembled_table, &reass_key);
 	}
@@ -2147,7 +2161,7 @@ fragment_end_seq_next(reassembly_table *table, const packet_info *pinfo,
 		fragment_reassembled(table, fd_head, pinfo, id);
 		if (fd_head->next != NULL) {
 			new_key = g_slice_new(reassembled_key);
-			new_key->frame = pinfo->fd->num;
+			new_key->frame = pinfo->num;
 			new_key->id = id;
 			g_hash_table_insert(table->reassembled_table, new_key, fd_head);
 		}
@@ -2176,7 +2190,7 @@ process_reassembled_data(tvbuff_t *tvb, const int offset, packet_info *pinfo,
 	gboolean update_col_info;
 	proto_item *frag_tree_item;
 
-	if (fd_head != NULL && pinfo->fd->num == fd_head->reassembled_in && pinfo->curr_layer_num == fd_head->reas_in_layer_num) {
+	if (fd_head != NULL && pinfo->num == fd_head->reassembled_in && pinfo->curr_layer_num == fd_head->reas_in_layer_num) {
 		/*
 		 * OK, we've reassembled this.
 		 * Is this something that's been reassembled from more

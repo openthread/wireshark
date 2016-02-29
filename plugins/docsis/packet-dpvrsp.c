@@ -44,8 +44,8 @@ static int hf_docsis_dpvrsp_ts_end = -1;
 static gint ett_docsis_dpvrsp = -1;
 
 /* Dissection */
-static void
-dissect_dpvrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_dpvrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *dpvrsp_tree = NULL;
@@ -84,6 +84,7 @@ dissect_dpvrsp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
       proto_tree_add_item (dpvrsp_tree, hf_docsis_dpvrsp_ts_end, tvb,
                            16, 4, ENC_BIG_ENDIAN);
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

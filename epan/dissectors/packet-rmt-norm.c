@@ -44,6 +44,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/proto_data.h>
 #include "packet-rmt-common.h"
 
 void proto_register_norm(void);
@@ -975,7 +976,7 @@ void proto_reg_handoff_norm(void)
 {
     static dissector_handle_t handle;
 
-    handle = new_create_dissector_handle(dissect_norm, proto_rmt_norm);
+    handle = create_dissector_handle(dissect_norm, proto_rmt_norm);
     dissector_add_for_decode_as("udp.port", handle);
     heur_dissector_add("udp", dissect_norm_heur, "NORM over UDP", "rmt_norm_udp", proto_rmt_norm, HEURISTIC_DISABLE);
 

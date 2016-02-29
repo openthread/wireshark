@@ -90,7 +90,7 @@ static gint ett_svhdx_tunnel_file_info_response = -1;
 static const value_string rsvd_operation_code_vals[] = {
         { 1, "RSVD_TUNNEL_GET_FILE_INFO" },
         { 2, "RSVD_TUNNEL_SCSI" },
-        { 3, "RSVD_TUNNEL_CHECK_CONNECTON_STATUS" },
+        { 3, "RSVD_TUNNEL_CHECK_CONNECTION_STATUS" },
         { 4, "RSVD_TUNNEL_SRB_STATUS" },
         { 5, "RSVD_TUNNEL_GET_DISK_INFO" },
         { 6, "RSVD_TUNNEL_VALIDATE_DISK" },
@@ -139,11 +139,11 @@ get_itl_nexus(packet_info *pinfo)
 {
     itl_nexus_t *itl = NULL;
 
-    if (!(itl = (itl_nexus_t *)wmem_tree_lookup32_le(rsvd_conv_data->itl, pinfo->fd->num))) {
+    if (!(itl = (itl_nexus_t *)wmem_tree_lookup32_le(rsvd_conv_data->itl, pinfo->num))) {
         itl = wmem_new(wmem_file_scope(), itl_nexus_t);
         itl->cmdset = 0xff;
         itl->conversation = rsvd_conv_data->conversation;
-        wmem_tree_insert32(rsvd_conv_data->itl, pinfo->fd->num, itl);
+        wmem_tree_insert32(rsvd_conv_data->itl, pinfo->num, itl);
     }
 
     return itl;
@@ -210,7 +210,7 @@ dissect_RSVD_TUNNEL_SCSI(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *pare
 
         *key_copy = request_id;
         rsvd_conv_data->task = wmem_new(wmem_file_scope(), rsvd_task_data_t);
-        rsvd_conv_data->task->request_frame=pinfo->fd->num;
+        rsvd_conv_data->task->request_frame=pinfo->num;
         rsvd_conv_data->task->response_frame=0;
         rsvd_conv_data->task->itlq = NULL;
         wmem_map_insert(rsvd_conv_data->tasks, (const void *)key_copy,
@@ -282,7 +282,7 @@ dissect_RSVD_TUNNEL_SCSI(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *pare
         if (rsvd_conv_data->task && !rsvd_conv_data->task->itlq) {
             rsvd_conv_data->task->itlq = wmem_new(wmem_file_scope(),
                                                   itlq_nexus_t);
-            rsvd_conv_data->task->itlq->first_exchange_frame = pinfo->fd->num;
+            rsvd_conv_data->task->itlq->first_exchange_frame = pinfo->num;
             rsvd_conv_data->task->itlq->last_exchange_frame = 0;
             rsvd_conv_data->task->itlq->lun = 0xffff;
             rsvd_conv_data->task->itlq->scsi_opcode = 0xffff;
@@ -291,7 +291,7 @@ dissect_RSVD_TUNNEL_SCSI(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *pare
             rsvd_conv_data->task->itlq->bidir_data_length = 0;
             rsvd_conv_data->task->itlq->flags = 0;
             rsvd_conv_data->task->itlq->alloc_len = 0;
-            rsvd_conv_data->task->itlq->fc_time = pinfo->fd->abs_ts;
+            rsvd_conv_data->task->itlq->fc_time = pinfo->abs_ts;
             rsvd_conv_data->task->itlq->extra_data = NULL;
         }
         if (rsvd_conv_data->task && rsvd_conv_data->task->itlq) {
@@ -830,7 +830,7 @@ proto_register_rsvd(void)
     proto_rsvd = proto_register_protocol("Remote Shared Virtual Disk",
             "RSVD", "rsvd");
 
-    new_register_dissector("rsvd", dissect_rsvd, proto_rsvd);
+    register_dissector("rsvd", dissect_rsvd, proto_rsvd);
     proto_register_field_array(proto_rsvd, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 }

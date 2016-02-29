@@ -85,7 +85,7 @@ MACRO( ASCIIDOC2DOCBOOK _asciidocsource _conf_files _src_files _built_deps )
 
     TO_A2X_COMPATIBLE_PATH ( ${CMAKE_CURRENT_SOURCE_DIR}/${_asciidocsource} _a2x_asciidocsource )
 
-    ADD_CUSTOM_COMMAND(
+    add_custom_command(
         OUTPUT
             ${_output_xml}
         # XXX - Output to a specific directory, e.g. wsdg_generated_src
@@ -107,6 +107,10 @@ MACRO( ASCIIDOC2DOCBOOK _asciidocsource _conf_files _src_files _built_deps )
             ${_src_deps}
             ${${_built_deps}}
     )
+    add_custom_target(generate_${_output_xml} DEPENDS ${_output_xml})
+    unset(_src_deps)
+    unset(_conf_deps)
+    unset(_conf_opts_list)
 ENDMACRO()
 
 MACRO( ASCIIDOC2HTML _output _asciidocsource _conf_files )
@@ -149,6 +153,8 @@ MACRO( ASCIIDOC2HTML _output _asciidocsource _conf_files )
             ${_conf_deps}
             ${_otherdependencies}
     )
+    unset(_conf_deps)
+    unset(_conf_opts_list)
 ENDMACRO()
 
 MACRO( ASCIIDOC2TXT _output _asciidocsource _conf_files )
@@ -196,6 +202,8 @@ MACRO( ASCIIDOC2TXT _output _asciidocsource _conf_files )
             ${_asciidocsource}
             ${_conf_deps}
     )
+    unset(_conf_deps)
+    unset(_conf_opts_list)
 ENDMACRO()
 
 # news: release-notes.txt
@@ -241,4 +249,6 @@ MACRO( ASCIIDOC2PDF _output _asciidocsource _conf_files _paper )
             ${_conf_deps}
             ${_otherdependencies}
     )
+    unset(_conf_deps)
+    unset(_conf_opts_list)
 ENDMACRO()

@@ -20,11 +20,9 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 include Makefile.common
-include ../Makefile.am.inc
+include $(top_srcdir)/Makefile.am.inc
 
-if HAVE_WARNINGS_AS_ERRORS
-AM_CLEAN_CFLAGS = -Werror
-endif
+AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) $(GLIB_CFLAGS)
 
 noinst_LIBRARIES = libcapchild.a
 
@@ -42,13 +40,7 @@ libcapchild_a_SOURCES = \
 	$(CAPCHILD_SRC) \
 	$(noinst_HEADERS)
 
-libcapchild_a_CFLAGS = $(AM_CLEAN_CFLAGS)
-
 libcapchild_a_DEPENDENCIES =
-
-# Common headers
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/wiretap $(LIBGCRYPT_CFLAGS) $(LIBGNUTLS_CFLAGS) $(PORTAUDIO_INCLUDES)
-
 
 doxygen:
 if HAVE_DOXYGEN

@@ -87,8 +87,8 @@ dissect_pw_status_tlv (tvbuff_t *tvb, proto_tree *tree, gint offset)
 }
 
 /* Dissector for PW OAM protocol: RFC 6478 */
-static void
-dissect_pw_oam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pw_oam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item  *ti = NULL, *ti_flags = NULL;
   proto_tree  *pw_oam_tree = NULL, *pw_oam_flags = NULL;
@@ -100,7 +100,7 @@ dissect_pw_oam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   col_clear(pinfo->cinfo, COL_INFO);
 
   if (!tree)
-    return;
+    return tvb_captured_length(tvb);
 
   ti = proto_tree_add_item(tree, proto_pw_oam, tvb, 0, -1, ENC_NA);
 
@@ -139,7 +139,7 @@ dissect_pw_oam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         break;
     }
 
-  return;
+  return tvb_captured_length(tvb);
 }
 
 void

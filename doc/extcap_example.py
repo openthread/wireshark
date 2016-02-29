@@ -31,7 +31,7 @@ the extcap folder, with the following content:
 
 -------
 @echo off
-<Path to python interpreter> <Path to script file> $*
+<Path to python interpreter> <Path to script file> %*
 -------
 
 Windows is not able to execute Python scripts directly, which also goes for all
@@ -73,10 +73,15 @@ def extcap_config(interface):
 	args = []
 	values = []
 
-	args.append ( (0, '--delay', 'Time delay', 'Time delay between packages', 'integer', '{range=1,15}') )
-	args.append ( (1, '--message', 'Message', 'Package message content', 'string', '') )
-	args.append ( (2, '--verify', 'Verify', 'Verify package content', 'boolflag', '') )
+	args.append ( (0, '--delay', 'Time delay', 'Time delay between packages', 'integer', '{range=1,15}{default=5}') )
+	args.append ( (1, '--message', 'Message', 'Package message content', 'string', '{required=true}') )
+	args.append ( (2, '--verify', 'Verify', 'Verify package content', 'boolflag', '{default=yes}') )
 	args.append ( (3, '--remote', 'Remote Channel', 'Remote Channel Selector', 'selector', ''))
+	args.append ( (4, '--fake_ip', 'Fake IP Address', 'Use this ip address as sender', 'string', '{save=false}{validation=\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b}'))
+	args.append ( (5, '--ltest', 'Long Test', 'Long Test Value', 'long', '{default=123123123123123123}'))
+	args.append ( (6, '--d1test', 'Double 1 Test', 'Long Test Value', 'double', '{default=123.456}'))
+	args.append ( (7, '--d2test', 'Double 2 Test', 'Long Test Value', 'double', '{default= 123,456}'))
+	args.append ( (8, '--password', 'Password', 'Package message password', 'password', '') )
 
 	values.append ( (3, "if1", "Remote1", "true" ) )
 	values.append ( (3, "if2", "Remote2", "false" ) )
@@ -89,6 +94,7 @@ def extcap_config(interface):
 
 
 def extcap_interfaces():
+	print ("extcap {version=1.0}")
 	print ("interface {value=example1}{display=Example interface usage for extcap}")
 
 def extcap_dlts(interface):
@@ -140,7 +146,7 @@ def ip_checksum(iph):
 	csum = csum & 0xFFFF ^ 0xFFFF
 	return csum
 
-def pcap_fake_package ( message ):
+def pcap_fake_package ( message, fake_ip ):
 
 	pcap = bytearray()
 	#length = 14 bytes [ eth ] + 20 bytes [ ip ] + messagelength
@@ -172,13 +178,16 @@ def pcap_fake_package ( message ):
 	pcap = append_bytes(pcap, struct.pack('b', int ( '40', 16) ))
 	pcap = append_bytes(pcap, struct.pack('B', 0xFE )) # Protocol (2 = unspecified)
 	pcap = append_bytes(pcap, struct.pack('<H', int ( '0000', 16) )) # Checksum
-	pcap = append_bytes(pcap, struct.pack('>L', int ( '7F000001', 16) )) # Source IP
+
+	parts = fake_ip.split('.')
+	ipadr = (int(parts[0]) << 24) + (int(parts[1]) << 16) + (int(parts[2]) << 8) + int(parts[3])
+	pcap = append_bytes(pcap, struct.pack('>L', ipadr )) # Source IP
 	pcap = append_bytes(pcap, struct.pack('>L', int ( '7F000001', 16) )) # Dest IP
 
 	pcap = append_bytes(pcap, message)
 	return pcap
 
-def extcap_capture(interface, fifo, delay, verify, message, remote):
+def extcap_capture(interface, fifo, delay, verify, message, remote, fake_ip):
 	global doExit
 
 	signal.signal(signal.SIGINT, signalHandler)
@@ -198,7 +207,7 @@ def extcap_capture(interface, fifo, delay, verify, message, remote):
 	while doExit == False:
 		out = str( "%s|%04X%s|%s" % ( remote.strip(), len(message), message, verify ) )
 		try:
-			fh.write (pcap_fake_package(out))
+			fh.write (pcap_fake_package(out, fake_ip))
 			time.sleep(tdelay)
 		except IOError:
 			doExit = True
@@ -208,7 +217,7 @@ def extcap_capture(interface, fifo, delay, verify, message, remote):
 ####
 
 def usage():
-	print ( "Usage: %s <--extcap-interfaces | --extcap-dlts | --extcap-interface | --extcap-config | --capture | --fifo>" % sys.argv[0] )
+	print ( "Usage: %s <--extcap-interfaces | --extcap-dlts | --extcap-interface | --extcap-config | --capture | --extcap-capture-filter | --fifo>" % sys.argv[0] )
 
 if __name__ == '__main__':
 	interface = ""
@@ -216,6 +225,7 @@ if __name__ == '__main__':
 	# Capture options
 	delay = 0
 	message = ""
+	fake_ip = ""
 
 	parser = argparse.ArgumentParser(
 		prog="Extcap Example",
@@ -228,6 +238,7 @@ if __name__ == '__main__':
 	parser.add_argument("--extcap-interface", help="Provide the interface to capture from")
 	parser.add_argument("--extcap-dlts", help="Provide a list of dlts for the given interface", action="store_true")
 	parser.add_argument("--extcap-config", help="Provide a list of configurations for the given interface", action="store_true")
+	parser.add_argument("--extcap-capture-filter", help="Used together with capture to provide a capture filter")
 	parser.add_argument("--fifo", help="Use together with capture to provide the fifo to dump data to")
 
 	# Interface Arguments
@@ -235,6 +246,7 @@ if __name__ == '__main__':
 	parser.add_argument("--delay", help="Demonstrates an integer variable", type=int, default=0, choices=[0, 1, 2, 3, 4, 5] )
 	parser.add_argument("--remote", help="Demonstrates a selector choice", default="if1", choices=["if1", "if2"] )
 	parser.add_argument("--message", help="Demonstrates string variable", nargs='?', default="" )
+	parser.add_argument("--fake_ip", help="Add a fake sender IP adress", nargs='?', default="127.0.0.1" )
 
 	args, unknown = parser.parse_known_args()
 	if ( len(sys.argv) <= 1 ):
@@ -259,6 +271,10 @@ if __name__ == '__main__':
 	if ( args.message == None or len(args.message) == 0 ):
 		message = "Extcap Test"
 
+	fake_ip = args.fake_ip
+	if ( args.fake_ip == None or len(args.fake_ip) < 7 or len(args.fake_ip.split('.')) != 4 ):
+		fake_ip = "127.0.0.1"
+
 	if args.extcap_config:
 		extcap_config(interface)
 	elif args.extcap_dlts:
@@ -266,7 +282,7 @@ if __name__ == '__main__':
 	elif args.capture:
 		if args.fifo is None:
 			sys.exit(ERROR_FIFO)
-		extcap_capture(interface, args.fifo, args.delay, args.verify, message, args.remote)
+		extcap_capture(interface, args.fifo, args.delay, args.verify, message, args.remote, fake_ip)
 	else:
 		usage()
 		sys.exit(ERROR_USAGE)

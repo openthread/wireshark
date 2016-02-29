@@ -37,6 +37,10 @@
 
 #ifdef HAVE_EXTCAP
 
+/* As boolean flags will be allowed any form of yes, true or any number != 0 (or starting with 0)
+ * The regex will be matched case-insensitive, so only the lower-case is defined here. */
+#define EXTCAP_BOOLEAN_REGEX "^.*([yt1-9])"
+
 /* Prefix for the pipe interfaces */
 #define EXTCAP_PIPE_PREFIX "wireshark_extcap"
 
@@ -46,19 +50,34 @@
 #define EXTCAP_ARGUMENT_LIST_DLTS               "--extcap-dlts"
 
 #define EXTCAP_ARGUMENT_RUN_CAPTURE             "--capture"
+#define EXTCAP_ARGUMENT_CAPTURE_FILTER          "--extcap-capture-filter"
 #define EXTCAP_ARGUMENT_RUN_PIPE                "--fifo"
+
+typedef struct _extcap_info {
+    gchar * basename;
+    gchar * full_path;
+    gchar * version;
+} extcap_info;
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
+/* Registers preferences for all interfaces */
+void
+extcap_register_preferences(void);
+
 /* try to get if capabilities from extcap */
 if_capabilities_t *
 extcap_get_if_dlts(const gchar * ifname, char ** err_str);
 
-/* get a list of all capture interfaces */
+/* append a list of all extcap capture interfaces to the specified list */
 GList *
-extcap_interface_list(char **err_str);
+append_extcap_interface_list(GList *list, char **err_str);
+
+/* get a list of all available extcap tools */
+GHashTable *
+extcap_tools_list(void);
 
 /* returns the configuration for the given interface name, or an
  * empty list, if no configuration has been found */
@@ -66,7 +85,10 @@ GList *
 extcap_get_if_configuration(const char * ifname);
 
 gboolean
-extcap_has_configuration(const char * ifname);
+extcap_has_configuration(const char * ifname, gboolean is_required);
+
+/* converts an extcap setting to its equivalent preference key */
+gchar * extcap_settings_key(const gchar * ifname, const gchar * setting);
 
 #ifdef WIN32
 HANDLE
@@ -74,7 +96,7 @@ extcap_get_win32_handle();
 #endif
 
 gboolean
-extcaps_init_initerfaces(capture_options * capture_opts);
+extcap_init_interfaces(capture_options * capture_opts);
 
 gboolean
 extcap_create_pipe(char ** fifo);

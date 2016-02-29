@@ -571,7 +571,7 @@ proto_register_rmt_lct(void)
             NULL, HFILL }
         },
         { &hf_tsi48,
-          { "Transport Session Identifier", "rmt-lct.tsi",
+          { "Transport Session Identifier", "rmt-lct.tsi64",
             FT_UINT64, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
@@ -591,12 +591,12 @@ proto_register_rmt_lct(void)
             NULL, HFILL }
         },
         { &hf_toi48,
-          { "Transport Object Identifier", "rmt-lct.toi",
+          { "Transport Object Identifier", "rmt-lct.toi64",
             FT_UINT64, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_toi64,
-          { "Transport Object Identifier (up to 64 bits)", "rmt-lct.toi",
+          { "Transport Object Identifier (up to 64 bits)", "rmt-lct.toi64",
             FT_UINT64, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
@@ -693,7 +693,7 @@ proto_register_rmt_lct(void)
 
     /* Register the protocol name and description */
     proto_rmt_lct = proto_register_protocol("Layered Coding Transport", "RMT-LCT", "rmt-lct");
-    new_register_dissector("rmt-lct", dissect_lct, proto_rmt_lct);
+    register_dissector("rmt-lct", dissect_lct, proto_rmt_lct);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_rmt_lct, hf, array_length(hf));

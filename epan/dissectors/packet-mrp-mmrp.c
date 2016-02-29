@@ -215,9 +215,8 @@ dissect_mmrp_three_packed_event(proto_tree *vect_attr_tree, tvbuff_t *tvb, guint
  *
  * main dissect function that calls the other functions listed above as necessary
  */
-static void
-dissect_mmrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
-{
+static int
+dissect_mmrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
     /* Set up structures needed to add the protocol subtrees and manage them */
     proto_item *ti, *msg_ti, *attr_list_ti, *vect_attr_ti;
     proto_tree *mmrp_tree, *msg_tree, *attr_list_tree, *vect_attr_tree;
@@ -310,7 +309,7 @@ dissect_mmrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 dissect_mmrp_common2(vect_attr_tree, tvb, msg_offset + vect_offset);
 
                 if (attribute_type == MMRP_ATTRIBUTE_TYPE_MAC) {
-                    /* MMRP FirstValue is a Mac Adress*/
+                    /* MMRP FirstValue is a Mac Address*/
                     proto_tree_add_item(vect_attr_tree, hf_mmrp_first_value, tvb,
                                         MMRP_FIRST_VALUE_GROUP_OFFSET + msg_offset + vect_offset,
                                         attribute_length, ENC_NA);
@@ -321,7 +320,7 @@ dissect_mmrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
                 }
                 else if (attribute_type == MMRP_ATTRIBUTE_TYPE_SERVICE) {
-                    /* MMRP Service Requierment*/
+                    /* MMRP Service Requirement*/
                     proto_tree_add_item(vect_attr_tree, hf_mmrp_first_value, tvb,
                                         MMRP_FIRST_VALUE_GROUP_OFFSET + msg_offset + vect_offset,
                                         attribute_length, ENC_NA);
@@ -344,6 +343,7 @@ dissect_mmrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
         proto_tree_add_item(mmrp_tree, hf_mmrp_end_mark, tvb, offset+2, 2, ENC_BIG_ENDIAN); /* Message EndMark */
     }
+    return tvb_captured_length(tvb);
 }
 
 

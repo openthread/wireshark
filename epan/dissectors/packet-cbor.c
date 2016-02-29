@@ -71,6 +71,8 @@ static expert_field ei_cbor_invalid_minor_type  = EI_INIT;
 static expert_field ei_cbor_invalid_element     = EI_INIT;
 static expert_field ei_cbor_too_long_length     = EI_INIT;
 
+static dissector_handle_t cbor_handle;
+
 #define CBOR_TYPE_USIGNED_INT   0
 #define CBOR_TYPE_NEGATIVE_INT  1
 #define CBOR_TYPE_BYTE_STRING   2
@@ -696,8 +698,8 @@ dissect_cbor_main_type(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cbor_tree,
 	return NULL;
 }
 
-static void
-dissect_cbor(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_cbor(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
 	gint        offset = 0;
 	proto_item *cbor_root;
@@ -706,6 +708,8 @@ dissect_cbor(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
 	cbor_root = proto_tree_add_item(parent_tree, proto_cbor, tvb, offset, -1, ENC_NA);
 	cbor_tree = proto_item_add_subtree(cbor_root, ett_cbor);
 	dissect_cbor_main_type(tvb, pinfo, cbor_tree, &offset);
+
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -851,15 +855,12 @@ proto_register_cbor(void)
 	expert_cbor = expert_register_protocol(proto_cbor);
 	expert_register_field_array(expert_cbor, ei, array_length(ei));
 
-	register_dissector("cbor", dissect_cbor, proto_cbor);
+	cbor_handle = register_dissector("cbor", dissect_cbor, proto_cbor);
 }
 
 void
 proto_reg_handoff_cbor(void)
 {
-	static dissector_handle_t cbor_handle;
-
-	cbor_handle = create_dissector_handle(dissect_cbor, proto_cbor);
 	dissector_add_string("media_type", "application/cbor", cbor_handle); /* RFC 7049 */
 }
 

@@ -193,7 +193,7 @@ dissect_websocket_data_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   http_conv_t        *http_conv = NULL;
 
   /* try to find a dissector which accepts the data. */
-  conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+  conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
   if (conv) {
     http_conv = (http_conv_t *)conversation_get_proto_data(conv, proto_http);
 
@@ -534,14 +534,14 @@ proto_register_websocket(void)
   heur_subdissector_list = register_heur_dissector_list("ws");
 
   port_subdissector_table = register_dissector_table("ws.port",
-      "TCP port for protocols using WebSocket", FT_UINT16, BASE_DEC);
+      "TCP port for protocols using WebSocket", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   proto_register_field_array(proto_websocket, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_websocket = expert_register_protocol(proto_websocket);
   expert_register_field_array(expert_websocket, ei, array_length(ei));
 
-  new_register_dissector("websocket", dissect_websocket, proto_websocket);
+  register_dissector("websocket", dissect_websocket, proto_websocket);
 
   websocket_module = prefs_register_protocol(proto_websocket, proto_reg_handoff_websocket);
 

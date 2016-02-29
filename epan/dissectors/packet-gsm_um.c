@@ -110,8 +110,8 @@ decode_arfcn(guint16 arfcn, const char **band, guint *uplink, guint *downlink)
 }
 
 
-static void
-dissect_gsm_um(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_gsm_um(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *gsm_um_tree = NULL;
 	proto_item *ti;
@@ -227,6 +227,7 @@ dissect_gsm_um(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			call_dissector(data_handle, tvb, pinfo, tree);
 			break;
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

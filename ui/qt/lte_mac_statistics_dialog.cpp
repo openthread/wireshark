@@ -35,9 +35,6 @@
 #include "qt_ui_utils.h"
 #include "wireshark_application.h"
 
-// To do:
-// - Tidy up common stats. Use HTML tables to line up counters?
-// - Add missing controls (RACH, SR checkboxes)
 
 // Whole-UE headings.
 enum {
@@ -125,19 +122,34 @@ public:
         lcids[lcid] += value;
     }
 
-    // TODO: not currently used. Delete?
-    void update(const mac_lte_tap_info *) {
-    }
-
-    // TODO: when SR and RACH checkboxes added, check state and add to expression.
-    const QString filterExpression() {
+    // Generate expression for this UE and direction, also filter for SRs and RACH if indicated.
+    const QString filterExpression(bool showSR, bool showRACH) {
         int direction = (type() == mac_dlsch_packet_count_row_type) ||
                         (type() == mac_dlsch_byte_count_row_type);
-        // Create an expression to match with all traffic for this UE, but only in the
-        // direction of this row.
-        QString filter_expr =
-            QString("mac-lte.ueid==%1 && mac-lte.rnti==%2 && mac-lte.direction==%3").
-                arg(ueid_).arg(rnti_).arg(direction);
+
+        QString filter_expr;
+
+        if (showSR) {
+            filter_expr = QString("(mac-lte.sr-req and mac-lte.ueid == %1) or (").arg(ueid_);
+        }
+
+        if (showRACH) {
+            filter_expr += QString("(mac-lte.rar or (mac-lte.preamble-sent and mac-lte.ueid == %1)) or (").arg(ueid_);
+        }
+
+        // Main expression matching this UE and direction
+        filter_expr += QString("mac-lte.ueid==%1 && mac-lte.rnti==%2 && mac-lte.direction==%3").
+                              arg(ueid_).arg(rnti_).arg(direction);
+
+        // Close () if open because of SR
+        if (showSR) {
+            filter_expr += QString(")");
+        }
+        // Close () if open because of RACH
+        if (showRACH) {
+            filter_expr += QString(")");
+        }
+
         return filter_expr;
     }
 
@@ -178,7 +190,7 @@ public:
         setText(col_type_, type_ == C_RNTI ? QObject::tr("C-RNTI") : QObject::tr("SPS-RNTI"));
         setText(col_ueid_, QString::number(ueid_));
 
-        // TODO: OK to do this here?
+        // Add UL/DL packet/byte count subitems.
         addDetails();
     }
 
@@ -191,7 +203,6 @@ public:
 
     // Update this UE according to the tap info
     void update(const mac_lte_tap_info *mlt_info) {
-        // Update stats for this UE.
 
         // Uplink.
         if (mlt_info->direction == DIRECTION_UPLINK) {
@@ -218,7 +229,7 @@ public:
             ul_raw_bytes_ += mlt_info->raw_length;
             ul_padding_bytes_ += mlt_info->padding_bytes;
 
-            // N.B. Not going to support predefined data in Qt version.
+            // N.B. Not going to support predefined data in Qt version..
             if (!mlt_info->isPredefinedData) {
                 for (int n=0; n < 11; n++) {
                     // Update UL child items
@@ -262,7 +273,7 @@ public:
             dl_raw_bytes_ += mlt_info->raw_length;
             dl_padding_bytes_ += mlt_info->padding_bytes;
 
-            // N.B. Not going to support predefined data in Qt version.
+            // N.B. Not going to support predefined data in Qt version..
             if (!mlt_info->isPredefinedData) {
                 for (int n=0; n < 11; n++) {
                     // Update DL child items
@@ -295,7 +306,7 @@ public:
                                (((double)stop_time->nsecs - (double)start_time->nsecs) / 1000000);
 
             // Only really meaningful if have a few frames spread over time...
-            //   For now at least avoid dividing by something very close to 0.0
+            // For now at least avoid dividing by something very close to 0.0
             if (elapsed_ms < 2.0) {
                return 0.0f;
             }
@@ -306,6 +317,7 @@ public:
         }
     }
 
+    // Draw this UE.
     void draw() {
         // Fixed fields (rnti, type, ueid) won't change during lifetime of UE entry.
 
@@ -338,7 +350,7 @@ public:
         setText(col_dl_crc_failed_, QString::number(dl_crc_failed_));
         setText(col_dl_retx_, QString::number(dl_retx_));
 
-        // Draw child items with channel counts.
+        // Draw child items with per-channel counts.
         ul_frames_item_->draw();
         ul_bytes_item_->draw();
         dl_frames_item_->draw();
@@ -366,11 +378,30 @@ public:
         return QTreeWidgetItem::operator< (other);
     }
 
-    // TODO: when SR and RACH checkboxes added, check state and add to expression.
-    const QString filterExpression() {
-        // Create an expression to match with all traffic for this UE.
-        QString filter_expr =
-            QString("mac-lte.ueid==%1 && mac-lte.rnti==%2").arg(ueid_).arg(rnti_);
+    // Generate expression for this UE, also filter for SRs and RACH if indicated.
+    const QString filterExpression(bool showSR, bool showRACH) {
+        QString filter_expr;
+
+        if (showSR) {
+            filter_expr = QString("(mac-lte.sr-req and mac-lte.ueid == %1) or (").arg(ueid_);
+        }
+
+        if (showRACH) {
+            filter_expr += QString("(mac-lte.rar or (mac-lte.preamble-sent and mac-lte.ueid == %1)) or (").arg(ueid_);
+        }
+
+        // Main expression matching this UE
+        filter_expr += QString("mac-lte.ueid==%1 && mac-lte.rnti==%2").arg(ueid_).arg(rnti_);
+
+        // Close () if open because of SR
+        if (showSR) {
+            filter_expr += QString(")");
+        }
+        // Close () if open because of RACH
+        if (showRACH) {
+            filter_expr += QString(")");
+        }
+
         return filter_expr;
     }
 
@@ -435,15 +466,17 @@ static const QStringList mac_channel_counts_labels = QStringList()
 // Constructor.
 LteMacStatisticsDialog::LteMacStatisticsDialog(QWidget &parent, CaptureFile &cf, const char *filter) :
     TapParameterDialog(parent, cf, HELP_STATS_LTE_MAC_TRAFFIC_DIALOG),
-    commonStatsCurrent(false)
+    commonStatsCurrent_(false)
 {
     setWindowSubtitle(tr("LTE Mac Statistics"));
+    loadGeometry(parent.width() * 1, parent.height() * 3 / 4, "LTEMacStatisticsDialog");
 
     clearCommonStats();
 
     // Create common_stats_grid to appear just above the filter area.
     int statstree_layout_idx = verticalLayout()->indexOf(filterLayout()->widget());
     QGridLayout *common_stats_grid = new QGridLayout();
+    // Insert into the vertical layout
     verticalLayout()->insertLayout(statstree_layout_idx, common_stats_grid);
     int one_em = fontMetrics().height();
     common_stats_grid->setColumnMinimumWidth(2, one_em * 2);
@@ -451,17 +484,29 @@ LteMacStatisticsDialog::LteMacStatisticsDialog(QWidget &parent, CaptureFile &cf,
     common_stats_grid->setColumnMinimumWidth(5, one_em * 2);
     common_stats_grid->setColumnStretch(5, 1);
 
-
     // Create statistics label.
-    commonStatsLabel = new QLabel(this);
-    commonStatsLabel ->setObjectName("statisticsLabel");
-    commonStatsLabel ->setTextFormat(Qt::RichText);
-    commonStatsLabel ->setTextInteractionFlags(Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse);
-    common_stats_grid->addWidget(commonStatsLabel);
+    commonStatsLabel_ = new QLabel(this);
+    commonStatsLabel_->setObjectName("statisticsLabel");
+    commonStatsLabel_->setTextFormat(Qt::RichText);
+    commonStatsLabel_->setTextInteractionFlags(Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse);
+    common_stats_grid->addWidget(commonStatsLabel_);
 
 
-    // XXX Use recent settings instead
-    resize(parent.width() * 1, parent.height() * 3 / 4);
+    // Create a grid for filtering-related widgetsto also appear in layout.
+    int filter_controls_layout_idx = verticalLayout()->indexOf(filterLayout()->widget());
+    QGridLayout *filter_controls_grid = new QGridLayout();
+    // Insert into the vertical layout
+    verticalLayout()->insertLayout(filter_controls_layout_idx, filter_controls_grid);
+    filter_controls_grid->setColumnMinimumWidth(2, one_em * 2);
+    filter_controls_grid->setColumnStretch(2, 1);
+    filter_controls_grid->setColumnMinimumWidth(5, one_em * 2);
+    filter_controls_grid->setColumnStretch(5, 1);
+
+    // Add individual controls into the grid
+    showSRFilterCheckBox_ = new QCheckBox(tr("Include SR frames in filter"));
+    filter_controls_grid->addWidget(showSRFilterCheckBox_);
+    showRACHFilterCheckBox_ = new QCheckBox(tr("Include RACH frames in filter"));
+    filter_controls_grid->addWidget(showRACHFilterCheckBox_);
 
     // Will set whole-UE headings originally.
     updateHeaderLabels();
@@ -539,29 +584,29 @@ LteMacStatisticsDialog::~LteMacStatisticsDialog()
 // Update system/common counters, and redraw if changed.
 void LteMacStatisticsDialog::updateCommonStats(const mac_lte_tap_info *tap_info)
 {
-    common_stats.all_frames++;
+    commonStats_.all_frames++;
 
     // For common channels, just update global counters
     switch (tap_info->rntiType) {
         case P_RNTI:
-            common_stats.pch_frames++;
-            common_stats.pch_bytes += tap_info->single_number_of_bytes;
-            common_stats.pch_paging_ids += tap_info->number_of_paging_ids;
-            commonStatsCurrent = false;
+            commonStats_.pch_frames++;
+            commonStats_.pch_bytes += tap_info->single_number_of_bytes;
+            commonStats_.pch_paging_ids += tap_info->number_of_paging_ids;
+            commonStatsCurrent_ = false;
             break;
         case SI_RNTI:
-            common_stats.sib_frames++;
-            common_stats.sib_bytes += tap_info->single_number_of_bytes;
-            commonStatsCurrent = false;
+            commonStats_.sib_frames++;
+            commonStats_.sib_bytes += tap_info->single_number_of_bytes;
+            commonStatsCurrent_ = false;
             break;
         case NO_RNTI:
-            common_stats.mib_frames++;
-            commonStatsCurrent = false;
+            commonStats_.mib_frames++;
+            commonStatsCurrent_ = false;
             break;
         case RA_RNTI:
-            common_stats.rar_frames++;
-            common_stats.rar_entries += tap_info->number_of_rars;
-            commonStatsCurrent = false;
+            commonStats_.rar_frames++;
+            commonStats_.rar_entries += tap_info->number_of_rars;
+            commonStatsCurrent_ = false;
             break;
         case C_RNTI:
         case SPS_RNTI:
@@ -576,42 +621,53 @@ void LteMacStatisticsDialog::updateCommonStats(const mac_lte_tap_info *tap_info)
     // Check max UEs/tti counter
     switch (tap_info->direction) {
         case DIRECTION_UPLINK:
-            if (tap_info->ueInTTI > common_stats.max_ul_ues_in_tti) {
-                common_stats.max_ul_ues_in_tti = tap_info->ueInTTI;
-                commonStatsCurrent = false;
+            if (tap_info->ueInTTI > commonStats_.max_ul_ues_in_tti) {
+                commonStats_.max_ul_ues_in_tti = tap_info->ueInTTI;
+                commonStatsCurrent_ = false;
             }
             break;
         case DIRECTION_DOWNLINK:
-            if (tap_info->ueInTTI > common_stats.max_dl_ues_in_tti) {
-                common_stats.max_dl_ues_in_tti = tap_info->ueInTTI;
-                commonStatsCurrent = false;
+            if (tap_info->ueInTTI > commonStats_.max_dl_ues_in_tti) {
+                commonStats_.max_dl_ues_in_tti = tap_info->ueInTTI;
+                commonStatsCurrent_ = false;
             }
             break;
     }
+}
 
-    if (!commonStatsCurrent) {
+// Draw current common statistics by regenerating label with current values.
+void LteMacStatisticsDialog::drawCommonStats()
+{
+    if (!commonStatsCurrent_) {
         QString stats_tables = "<html><head></head><body>\n";
-        stats_tables += QString("<p><b>System:</b> Max UL UEs/TTI=%1       ").arg(common_stats.max_ul_ues_in_tti);
-        stats_tables += QString("Max DL UEs/TTI=%1\n").arg(common_stats.max_dl_ues_in_tti);
+        stats_tables += QString("<table>\n");
+        stats_tables += QString("<tr><th align=\"left\">System</th> <td align=\"left\"> Max UL UEs/TTI=%1</td>").arg(commonStats_.max_ul_ues_in_tti);
+        stats_tables += QString("<td align=\"left\">Max DL UEs/TTI=%1</td></tr>\n").arg(commonStats_.max_dl_ues_in_tti);
 
-        stats_tables += QString("<p><b>System broadcast:</b> MIBs=%1       ").arg(common_stats.mib_frames);
-        stats_tables += QString("SIBs=%1 (%2 bytes)      ").arg(common_stats.sib_frames).arg(common_stats.sib_bytes);
-        stats_tables += QString("<p><b>RACH:</b> RARs=%1 frames (%2 RARs)      ").arg(common_stats.rar_frames).arg(common_stats.rar_entries);
-        stats_tables += QString("<p><b>Paging:</b> PCH=%1 (%2 bytes, %3 IDs)      ").
-               arg(common_stats.pch_frames).
-               arg(common_stats.pch_bytes).
-               arg(common_stats.pch_paging_ids);
+        stats_tables += QString("<tr><th align=\"left\">System broadcast</th><td align=\"left\">MIBs=%1</td>").arg(commonStats_.mib_frames);
+        stats_tables += QString("<td align=\"left\">SIBs=%1 (%2 bytes)</td></tr>\n").arg(commonStats_.sib_frames).arg(commonStats_.sib_bytes);
+
+        stats_tables += QString("<tr><th align=\"left\">RACH</th><td align=\"left\">RARs=%1 frames (%2 RARs)</td></tr>\n").
+                                   arg(commonStats_.rar_frames).
+                                   arg(commonStats_.rar_entries);
+
+        stats_tables += QString("<tr><th align=\"left\">Paging</th><td align=\"left\">PCH=%1 (%2 bytes, %3 IDs)</td></tr>\n").
+               arg(commonStats_.pch_frames).
+               arg(commonStats_.pch_bytes).
+               arg(commonStats_.pch_paging_ids);
+
+        stats_tables += QString("</table>\n");
         stats_tables += "</body>\n";
 
-        commonStatsLabel->setText(stats_tables);
+        commonStatsLabel_->setText(stats_tables);
 
-        commonStatsCurrent = true;
+        commonStatsCurrent_ = true;
     }
 }
 
 void LteMacStatisticsDialog::clearCommonStats()
 {
-    memset(&common_stats, 0, sizeof(common_stats));
+    memset(&commonStats_, 0, sizeof(commonStats_));
 }
 
 void LteMacStatisticsDialog::tapReset(void *ws_dlg_ptr)
@@ -675,7 +731,7 @@ gboolean LteMacStatisticsDialog::tapPacket(void *ws_dlg_ptr, struct _packet_info
 // Return total number of frames tapped.
 unsigned LteMacStatisticsDialog::getFrameCount()
 {
-    return common_stats.all_frames;
+    return commonStats_.all_frames;
 }
 
 void LteMacStatisticsDialog::tapDraw(void *ws_dlg_ptr)
@@ -699,6 +755,8 @@ void LteMacStatisticsDialog::tapDraw(void *ws_dlg_ptr)
         mac_ue_ti->draw();
     }
 
+    ws_dlg->drawCommonStats();
+
     // Update title
     ws_dlg->setWindowSubtitle(QString("LTE Mac Statistics (%1 UEs, %2 frames)").
                                   arg(ws_dlg->statsTreeWidget()->topLevelItemCount()).arg(ws_dlg->getFrameCount()));
@@ -707,15 +765,18 @@ void LteMacStatisticsDialog::tapDraw(void *ws_dlg_ptr)
 const QString LteMacStatisticsDialog::filterExpression()
 {
     QString filter_expr;
+
     if (statsTreeWidget()->selectedItems().count() > 0) {
         QTreeWidgetItem *ti = statsTreeWidget()->selectedItems()[0];
 
         if (ti->type() == mac_whole_ue_row_type_) {
             MacUETreeWidgetItem *mac_ue_ti = static_cast<MacUETreeWidgetItem*>(ti);
-            filter_expr = mac_ue_ti->filterExpression();
+            filter_expr = mac_ue_ti->filterExpression(showSRFilterCheckBox_->checkState() > Qt::Unchecked,
+                                                      showRACHFilterCheckBox_->checkState() > Qt::Unchecked);
         } else {
             MacULDLTreeWidgetItem *mac_channels_ti = static_cast<MacULDLTreeWidgetItem*>(ti);
-            filter_expr = mac_channels_ti->filterExpression();
+            filter_expr = mac_channels_ti->filterExpression(showSRFilterCheckBox_->checkState() > Qt::Unchecked,
+                                                            showRACHFilterCheckBox_->checkState() > Qt::Unchecked);
         }
     }
     return filter_expr;
@@ -767,6 +828,8 @@ void LteMacStatisticsDialog::captureFileClosing()
 {
     remove_tap_listener(this);
     updateWidgets();
+
+    WiresharkDialog::captureFileClosing();
 }
 
 // Stat command + args

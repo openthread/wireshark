@@ -83,8 +83,8 @@ static gint ett_hpteam = -1;
  * packets received by the machine.
  */
 
-static void
-dissect_hpteam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_hpteam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "HP NIC Team");
@@ -98,6 +98,7 @@ dissect_hpteam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		hpteam_tree = proto_item_add_subtree(hpteam_item, ett_hpteam);
 		proto_tree_add_item(hpteam_tree, hf_hpteam, tvb, 0, -1, ENC_NA);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void proto_register_hpteam(void)

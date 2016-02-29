@@ -51,8 +51,11 @@
 void proto_register_ansi_tcap(void);
 void proto_reg_handoff_ansi_tcap(void);
 
-/* Preferences defaults */
-gint ansi_tcap_response_matching_type = 0;
+/* Preference settings */
+#define ANSI_TCAP_TID_ONLY            0
+#define ANSI_TCAP_TID_AND_SOURCE      1
+#define ANSI_TCAP_TID_SOURCE_AND_DEST 2
+static gint ansi_tcap_response_matching_type = ANSI_TCAP_TID_ONLY;
 
 /* Initialize the protocol and registered fields */
 static int proto_ansi_tcap = -1;
@@ -122,7 +125,7 @@ static int hf_ansi_tcap_paramSequence = -1;       /* T_paramSequence */
 static int hf_ansi_tcap_paramSet = -1;            /* T_paramSet */
 
 /*--- End of included file: packet-ansi_tcap-hf.c ---*/
-#line 62 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
+#line 65 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_tcap = -1;
@@ -170,7 +173,7 @@ static gint ett_ansi_tcap_T_paramSequence = -1;
 static gint ett_ansi_tcap_T_paramSet = -1;
 
 /*--- End of included file: packet-ansi_tcap-ett.c ---*/
-#line 83 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
+#line 86 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
 
 #define MAX_SSN 254
 
@@ -221,8 +224,6 @@ static const value_string ansi_tcap_national_op_code_family_vals[] = {
   {  0x7f, "Reserved" },
   { 0, NULL }
 };
-
-static void dissect_ansi_tcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree);
 
 /*
 static dissector_handle_t tcap_handle = NULL;
@@ -288,12 +289,13 @@ save_invoke_data(packet_info *pinfo, proto_tree *tree _U_, tvbuff_t *tvb _U_){
           /* Only do this once XXX I hope it's the right thing to do */
           /* The hash string needs to contain src and dest to distiguish differnt flows */
           switch(ansi_tcap_response_matching_type){
-                        case 0:
+                        case ANSI_TCAP_TID_ONLY:
                                 buf = wmem_strdup(wmem_packet_scope(), ansi_tcap_private.TransactionID_str);
                                 break;
-                        case 1:
+                        case ANSI_TCAP_TID_AND_SOURCE:
                                 buf = wmem_strdup_printf(wmem_packet_scope(), "%s%s",ansi_tcap_private.TransactionID_str,src);
                                 break;
+                        case ANSI_TCAP_TID_SOURCE_AND_DEST:
                         default:
                                 buf = wmem_strdup_printf(wmem_packet_scope(), "%s%s%s",ansi_tcap_private.TransactionID_str,src,dst);
                                 break;
@@ -336,12 +338,13 @@ find_saved_invokedata(packet_info *pinfo, proto_tree *tree _U_, tvbuff_t *tvb _U
   buf[0] = '\0';
   /* Reverse order to invoke */
   switch(ansi_tcap_response_matching_type){
-        case 0:
+        case ANSI_TCAP_TID_ONLY:
                 g_snprintf(buf,MAX_TID_STR_LEN,"%s",ansi_tcap_private.TransactionID_str);
                 break;
-        case 1:
+        case ANSI_TCAP_TID_AND_SOURCE:
                 g_snprintf(buf,MAX_TID_STR_LEN,"%s%s",ansi_tcap_private.TransactionID_str,dst);
                 break;
+        case ANSI_TCAP_TID_SOURCE_AND_DEST:
         default:
                 g_snprintf(buf,MAX_TID_STR_LEN,"%s%s%s",ansi_tcap_private.TransactionID_str,dst,src);
                 break;
@@ -1407,13 +1410,13 @@ dissect_ansi_tcap_PackageType(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int 
 
 
 /*--- End of included file: packet-ansi_tcap-fn.c ---*/
-#line 350 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
+#line 353 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
 
 
 
 
-static void
-dissect_ansi_tcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static int
+dissect_ansi_tcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
     proto_item          *item=NULL;
     proto_tree          *tree=NULL;
@@ -1473,6 +1476,7 @@ dissect_ansi_tcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
                 }
         }
 #endif
+    return tvb_captured_length(tvb);
 }
 
 
@@ -1751,7 +1755,7 @@ proto_register_ansi_tcap(void)
         NULL, HFILL }},
 
 /*--- End of included file: packet-ansi_tcap-hfarr.c ---*/
-#line 485 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
+#line 489 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
     };
 
 /* Setup protocol subtree array */
@@ -1789,7 +1793,7 @@ proto_register_ansi_tcap(void)
     &ett_ansi_tcap_T_paramSet,
 
 /*--- End of included file: packet-ansi_tcap-ettarr.c ---*/
-#line 496 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
+#line 500 "../../asn1/ansi_tcap/packet-ansi_tcap-template.c"
     };
 
     static ei_register_info ei[] = {
@@ -1799,18 +1803,18 @@ proto_register_ansi_tcap(void)
     expert_module_t* expert_ansi_tcap;
 
     static const enum_val_t ansi_tcap_response_matching_type_values[] = {
-        {"Only Transaction ID will be used in Invoke/response matching",                        "Transaction ID only", 0},
-        {"Transaction ID and Source will be used in Invoke/response matching",                  "Transaction ID and Source", 1},
-        {"Transaction ID Source and Destination will be used in Invoke/response matching",      "Transaction ID Source and Destination", 2},
+        {"Only Transaction ID will be used in Invoke/response matching",                        "Transaction ID only", ANSI_TCAP_TID_ONLY},
+        {"Transaction ID and Source will be used in Invoke/response matching",                  "Transaction ID and Source", ANSI_TCAP_TID_AND_SOURCE},
+        {"Transaction ID Source and Destination will be used in Invoke/response matching",      "Transaction ID Source and Destination", ANSI_TCAP_TID_SOURCE_AND_DEST},
         {NULL, NULL, -1}
     };
 
 /* Register the protocol name and description */
     proto_ansi_tcap = proto_register_protocol(PNAME, PSNAME, PFNAME);
-        register_dissector("ansi_tcap", dissect_ansi_tcap, proto_ansi_tcap);
+    register_dissector("ansi_tcap", dissect_ansi_tcap, proto_ansi_tcap);
 
    /* Note the high bit should be masked off when registering in this table (0x7fff)*/
-   ansi_tcap_national_opcode_table = register_dissector_table("ansi_tcap.nat.opcode", "ANSI TCAP National Opcodes", FT_UINT16, BASE_DEC);
+   ansi_tcap_national_opcode_table = register_dissector_table("ansi_tcap.nat.opcode", "ANSI TCAP National Opcodes", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_ansi_tcap, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -1821,7 +1825,7 @@ proto_register_ansi_tcap(void)
 
     prefs_register_enum_preference(ansi_tcap_module, "transaction.matchtype",
                                    "Type of matching invoke/response",
-                                   "Type of matching invoke/response, risk of missmatch if loose matching choosen",
+                                   "Type of matching invoke/response, risk of mismatch if loose matching chosen",
                                    &ansi_tcap_response_matching_type, ansi_tcap_response_matching_type_values, FALSE);
 
     register_init_routine(&ansi_tcap_init);

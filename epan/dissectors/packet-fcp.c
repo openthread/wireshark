@@ -25,6 +25,7 @@
 
 #include <epan/packet.h>
 #include <epan/conversation.h>
+#include <epan/proto_data.h>
 #include "packet-scsi.h"
 #include "packet-fc.h"
 #include "packet-fcp.h"
@@ -346,9 +347,9 @@ dissect_fcp_cmnd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, pro
     request_data = (fcp_request_data_t*)wmem_map_lookup(fcp_conv_data->luns, GUINT_TO_POINTER((guint)lun));
     if (!request_data) {
         request_data = wmem_new(wmem_file_scope(), fcp_request_data_t);
-        request_data->request_frame = pinfo->fd->num;
+        request_data->request_frame = pinfo->num;
         request_data->response_frame = 0;
-        request_data->request_time = pinfo->fd->abs_ts;
+        request_data->request_time = pinfo->abs_ts;
 
         request_data->itlq = wmem_new(wmem_file_scope(), itlq_nexus_t);
         request_data->itlq->first_exchange_frame=0;
@@ -358,7 +359,7 @@ dissect_fcp_cmnd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, pro
         request_data->itlq->task_flags=0;
         request_data->itlq->data_length=0;
         request_data->itlq->bidir_data_length=0;
-        request_data->itlq->fc_time=pinfo->fd->abs_ts;
+        request_data->itlq->fc_time=pinfo->abs_ts;
         request_data->itlq->flags=0;
         request_data->itlq->alloc_len=0;
         request_data->itlq->extra_data=NULL;
@@ -369,11 +370,11 @@ dissect_fcp_cmnd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, pro
     /* populate the exchange struct */
     if(!pinfo->fd->flags.visited){
         if(fchdr->fctl&FC_FCTL_EXCHANGE_FIRST){
-            request_data->itlq->first_exchange_frame=pinfo->fd->num;
-            request_data->itlq->fc_time = pinfo->fd->abs_ts;
+            request_data->itlq->first_exchange_frame=pinfo->num;
+            request_data->itlq->fc_time = pinfo->abs_ts;
         }
         if(fchdr->fctl&FC_FCTL_EXCHANGE_LAST){
-            request_data->itlq->last_exchange_frame=pinfo->fd->num;
+            request_data->itlq->last_exchange_frame=pinfo->num;
         }
     }
 
@@ -482,16 +483,16 @@ dissect_fcp_rsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, prot
 
     /* Save the response frame */
     if (request_data != NULL) {
-        request_data->response_frame = pinfo->fd->num;
+        request_data->response_frame = pinfo->num;
 
         /* populate the exchange struct */
         if(!pinfo->fd->flags.visited){
             if(fchdr->fctl&FC_FCTL_EXCHANGE_FIRST){
-                request_data->itlq->first_exchange_frame=pinfo->fd->num;
-                request_data->itlq->fc_time = pinfo->fd->abs_ts;
+                request_data->itlq->first_exchange_frame=pinfo->num;
+                request_data->itlq->fc_time = pinfo->abs_ts;
             }
             if(fchdr->fctl&FC_FCTL_EXCHANGE_LAST){
-                request_data->itlq->last_exchange_frame=pinfo->fd->num;
+                request_data->itlq->last_exchange_frame=pinfo->num;
             }
         }
     } else {
@@ -661,7 +662,7 @@ dissect_fcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
                                             fcp_iu_val, "Unknown 0x%02x"));
     fcp_tree = proto_item_add_subtree(ti, ett_fcp);
 
-    fc_conv = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+    fc_conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                      pinfo->ptype, pinfo->srcport,
                      pinfo->destport, 0);
     if (fc_conv != NULL) {
@@ -700,7 +701,7 @@ dissect_fcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             /* only put the response time in the actual response frame */
             if (r_ctl == FCP_IU_RSP) {
                 nstime_t delta_ts;
-                nstime_delta(&delta_ts, &pinfo->fd->abs_ts, &request_data->request_time);
+                nstime_delta(&delta_ts, &pinfo->abs_ts, &request_data->request_time);
                 it = proto_tree_add_time(ti, hf_fcp_time, tvb, 0, 0, &delta_ts);
                 PROTO_ITEM_SET_GENERATED(it);
             }
@@ -983,7 +984,7 @@ proto_reg_handoff_fcp(void)
 {
     dissector_handle_t fcp_handle;
 
-    fcp_handle = new_create_dissector_handle(dissect_fcp, proto_fcp);
+    fcp_handle = create_dissector_handle(dissect_fcp, proto_fcp);
     dissector_add_uint("fc.ftype", FC_FTYPE_SCSI, fcp_handle);
 
     data_handle = find_dissector("data");

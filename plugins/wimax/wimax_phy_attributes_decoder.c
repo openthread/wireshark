@@ -77,7 +77,7 @@ static gint hf_phy_attributes_subchannel = -1;
 
 
 
-static void dissect_wimax_phy_attributes_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_wimax_phy_attributes_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint offset = 0;
 	guint tvb_len;
@@ -120,6 +120,7 @@ static void dissect_wimax_phy_attributes_decoder(tvbuff_t *tvb, packet_info *pin
 			proto_tree_add_item(phy_tree, hf_phy_attributes_subchannel, tvb, offset++, 1, ENC_BIG_ENDIAN);
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Register Wimax PDU Burst Physical Attributes Protocol */

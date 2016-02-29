@@ -23,12 +23,7 @@
  */
 
 #include "config.h"
-#ifdef HAVE_ARPA_INET_H
-    #include <arpa/inet.h>
-#endif
-#if HAVE_WINSOCK2_H
-    #include <winsock2.h>
-#endif
+
 #include <epan/packet.h>
 #include <epan/address.h>
 #include <epan/strutil.h>
@@ -38,9 +33,7 @@
 #include <epan/expert.h>
 #include <epan/uat.h>
 #include <epan/to_str.h>
-#ifndef HAVE_INET_ATON
-    #include <wsutil/inet_aton.h>
-#endif
+#include <wsutil/inet_aton.h>
 #include <wsutil/pint.h>
 #include "packet-lbm.h"
 #include "packet-lbtru.h"
@@ -226,7 +219,7 @@ static void lbtrdma_transport_build_key(guint32 * key_value, wmem_tree_key_t * k
 {
     guint32 val;
 
-    memcpy((void *) &val, (void *) transport->source_address.data, sizeof(guint32));
+    memcpy(&val, transport->source_address.data, sizeof(guint32));
     key_value[LBTRDMA_KEY_ELEMENT_SOURCE_ADDRESS] = val;
     key_value[LBTRDMA_KEY_ELEMENT_SESSION_ID] = transport->session_id;
     key_value[LBTRDMA_KEY_ELEMENT_PORT] = (guint32) transport->port;
@@ -244,7 +237,7 @@ static lbtrdma_transport_t * lbtrdma_transport_find(const address * source_addre
     wmem_tree_key_t tkey[2];
 
     memset((void *)&key, 0, sizeof(lbtrdma_transport_t));
-    COPY_ADDRESS_SHALLOW(&(key.source_address), source_address);
+    copy_address_shallow(&(key.source_address), source_address);
     key.session_id = session_id;
     key.port = port;
     lbtrdma_transport_build_key(keyval, tkey, &key);
@@ -264,7 +257,7 @@ static lbtrdma_transport_t * lbtrdma_transport_add(const address * source_addres
         return (entry);
     }
     entry = wmem_new(wmem_file_scope(), lbtrdma_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->source_address), source_address);
+    copy_address_wmem(wmem_file_scope(), &(entry->source_address), source_address);
     entry->session_id = session_id;
     entry->port = port;
     entry->channel = lbm_channel_assign(LBM_CHANNEL_TRANSPORT_LBTRDMA);
@@ -3937,7 +3930,7 @@ static int dissect_lbmr_tir_transport(tvbuff_t * tvb, int offset, lbm_uint8_t tr
                     session_id = 0;
                     len += L_LBMR_TIR_TCP_T;
                 }
-                lbttcp_transport = lbttcp_transport_add(&(pinfo->src), port, session_id, pinfo->fd->num);
+                lbttcp_transport = lbttcp_transport_add(&(pinfo->src), port, session_id, pinfo->num);
                 channel = lbttcp_transport->channel;
                 add_contents_tir(contents, topic_name, lbttcp_transport_source_string(&(pinfo->src), port, session_id), topic_index);
             }
@@ -3954,7 +3947,7 @@ static int dissect_lbmr_tir_transport(tvbuff_t * tvb, int offset, lbm_uint8_t tr
 
                 lbtrm_item = proto_tree_add_item(tree, hf_lbmr_tir_lbtrm, tvb, offset, (gint)transport_len, ENC_NA);
                 lbtrm_tree = proto_item_add_subtree(lbtrm_item, ett_lbmr_tir_lbtrm);
-                TVB_SET_ADDRESS(&multicast_group, AT_IPv4, tvb, offset + O_LBMR_TIR_LBTRM_T_MCAST_ADDR, L_LBMR_TIR_LBTRM_T_MCAST_ADDR);
+                set_address_tvb(&multicast_group, AT_IPv4, L_LBMR_TIR_LBTRM_T_MCAST_ADDR, tvb, offset + O_LBMR_TIR_LBTRM_T_MCAST_ADDR);
                 session_id = tvb_get_ntohl(tvb, offset + O_LBMR_TIR_LBTRM_T_SESSION_ID);
                 udp_dest_port = tvb_get_ntohs(tvb, offset + O_LBMR_TIR_LBTRM_T_UDP_DEST_PORT);
                 src_ucast_port = tvb_get_ntohs(tvb, offset + O_LBMR_TIR_LBTRM_T_SRC_UCAST_PORT);
@@ -3963,7 +3956,7 @@ static int dissect_lbmr_tir_transport(tvbuff_t * tvb, int offset, lbm_uint8_t tr
                 proto_tree_add_item(lbtrm_tree, hf_lbmr_tir_lbtrm_session_id, tvb, offset + O_LBMR_TIR_LBTRM_T_SESSION_ID, L_LBMR_TIR_LBTRM_T_SESSION_ID, ENC_BIG_ENDIAN);
                 proto_tree_add_item(lbtrm_tree, hf_lbmr_tir_lbtrm_udp_dest_port, tvb, offset + O_LBMR_TIR_LBTRM_T_UDP_DEST_PORT, L_LBMR_TIR_LBTRM_T_UDP_DEST_PORT, ENC_BIG_ENDIAN);
                 proto_tree_add_item(lbtrm_tree, hf_lbmr_tir_lbtrm_src_ucast_port, tvb, offset + O_LBMR_TIR_LBTRM_T_SRC_UCAST_PORT, L_LBMR_TIR_LBTRM_T_SRC_UCAST_PORT, ENC_BIG_ENDIAN);
-                lbtrm_transport = lbtrm_transport_add(&(pinfo->src), src_ucast_port, session_id, &multicast_group, udp_dest_port, pinfo->fd->num);
+                lbtrm_transport = lbtrm_transport_add(&(pinfo->src), src_ucast_port, session_id, &multicast_group, udp_dest_port, pinfo->num);
                 channel = lbtrm_transport->channel;
                 add_contents_tir(contents, topic_name, lbtrm_transport_source_string(&(pinfo->src), src_ucast_port, session_id, &multicast_group, udp_dest_port), topic_index);
                 len += L_LBMR_TIR_LBTRM_T;
@@ -4005,7 +3998,7 @@ static int dissect_lbmr_tir_transport(tvbuff_t * tvb, int offset, lbm_uint8_t tr
                     proto_tree_add_item(lbtru_tree, hf_lbmr_tir_lbtru_port, tvb, offset + O_LBMR_TIR_LBTRU_T_PORT, L_LBMR_TIR_LBTRU_T_PORT, ENC_BIG_ENDIAN);
                     len += L_LBMR_TIR_LBTRU_T;
                 }
-                lbtru_transport = lbtru_transport_add(&(pinfo->src), port, session_id, pinfo->fd->num);
+                lbtru_transport = lbtru_transport_add(&(pinfo->src), port, session_id, pinfo->num);
                 channel = lbtru_transport->channel;
                 add_contents_tir(contents, topic_name, lbtru_transport_source_string(&(pinfo->src), port, session_id), topic_index);
             }
@@ -4054,7 +4047,7 @@ static int dissect_lbmr_tir_transport(tvbuff_t * tvb, int offset, lbm_uint8_t tr
                     expert_add_info_format(pinfo, transport_len_item, &ei_lbmr_analysis_length_incorrect, "Wrong transport length for LBMR TIR LBTRDMA info");
                     return (0);
                 }
-                TVB_SET_ADDRESS(&source_addr, AT_IPv4, tvb, offset + O_LBMR_TIR_LBTRDMA_T_IP, L_LBMR_TIR_LBTRDMA_T_IP);
+                set_address_tvb(&source_addr, AT_IPv4, L_LBMR_TIR_LBTRDMA_T_IP, tvb, offset + O_LBMR_TIR_LBTRDMA_T_IP);
                 session_id = tvb_get_ntohl(tvb, offset + O_LBMR_TIR_LBTRDMA_T_SESSION_ID);
                 port = tvb_get_ntohs(tvb, offset + O_LBMR_TIR_LBTRDMA_T_PORT);
                 proto_tree_add_item(lbtrdma_tree, hf_lbmr_tir_lbtrdma_ip, tvb, offset + O_LBMR_TIR_LBTRDMA_T_IP, L_LBMR_TIR_LBTRDMA_T_IP, ENC_BIG_ENDIAN);
@@ -6691,7 +6684,7 @@ void proto_reg_handoff_lbmr(void)
 
     if (!already_registered)
     {
-        lbmr_dissector_handle = new_create_dissector_handle(dissect_lbmr, proto_lbmr);
+        lbmr_dissector_handle = create_dissector_handle(dissect_lbmr, proto_lbmr);
         dissector_add_for_decode_as("udp.port", lbmr_dissector_handle);
         heur_dissector_add("udp", test_lbmr_packet, "LBM Topic Resolution over UDP", "lbmr_udp", proto_lbmr, HEURISTIC_ENABLE);
     }

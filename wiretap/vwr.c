@@ -1025,22 +1025,19 @@ static gboolean vwr_read_s1_W_rec(vwr_t *vwr, struct wtap_pkthdr *phdr,
         sig_ts = 0;
 
     /*
-     * We also copy over 16 bytes of PLCP header + 1 byte of L1P for user
+     * Fill up the per-packet header.
+     *
+     * We also zero out 16 bytes PLCP header and 1 byte of L1P for user
      * position.
      *
      * XXX - for S1, do we even have that?  The current Veriwave dissector
      * just blindly assumes there's a 17-byte blob before the 802.11
-     * header.
-     */
-    actual_octets = actual_octets + 17;
-
-    /*
-     * Fill up the per-packet header.
+     * header, which is why we fill in those extra zero bytes.
      *
      * We include the length of the metadata headers in the packet lengths.
      */
-    phdr->len = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + actual_octets;
-    phdr->caplen = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + actual_octets;
+    phdr->len = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + 1 + 16 + actual_octets;
+    phdr->caplen = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + 1 + 16 + actual_octets;
 
     phdr->ts.secs   = (time_t)s_sec;
     phdr->ts.nsecs  = (int)(s_usec * 1000);
@@ -1148,7 +1145,12 @@ static gboolean vwr_read_s1_W_rec(vwr_t *vwr, struct wtap_pkthdr *phdr,
     phtolel(&data_ptr[bytes_written], errors);
     bytes_written += 4;
 
-    /* No VHT, no VHT NDP flag, so just zero. */
+    /*
+     * No VHT, no VHT NDP flag, so just zero.
+     *
+     * XXX - is this supposed to be the RX L1 info, i.e. the "1 byte of L1P
+     * for user position"?
+     */
     data_ptr[bytes_written] = 0;
     bytes_written += 1;
 
@@ -1454,22 +1456,19 @@ static gboolean vwr_read_s2_s3_W_rec(vwr_t *vwr, struct wtap_pkthdr *phdr,
     }
 
     /*
+     * Fill up the per-packet header.
+     *
      * We also copy over 16 bytes of PLCP header + 1 byte of L1P for user
      * position.
      *
      * XXX - for S2, we don't have 16 bytes of PLCP header; do we have
      * the 1 byte of L1P?  The current Veriwave dissector just blindly
      * assumes there's a 17-byte blob before the 802.11 header.
-     */
-    actual_octets = actual_octets + 17;
-
-    /*
-     * Fill up the per-packet header.
      *
      * We include the length of the metadata headers in the packet lengths.
      */
-    phdr->len = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + actual_octets;
-    phdr->caplen = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + actual_octets;
+    phdr->len = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + 1 + 16 + actual_octets;
+    phdr->caplen = STATS_COMMON_FIELDS_LEN + EXT_WLAN_FIELDS_LEN + 1 + 16 + actual_octets;
 
     phdr->ts.secs   = (time_t)s_sec;
     phdr->ts.nsecs  = (int)(s_usec * 1000);
@@ -2211,7 +2210,7 @@ int find_signature(const guint8 *m_ptr, int rec_size, int pay_off, guint32 flow_
     /*  flow ID and sequence number at the appropriate offsets.                             */
     for (tgt = pay_off; tgt < (rec_size); tgt++) {
         if (m_ptr[tgt] == 0xdd) {                       /* found magic byte? check fields */
-            if (m_ptr[tgt + 15] == 0xe2) {
+            if ((tgt + 15 < rec_size) && (m_ptr[tgt + 15] == 0xe2)) {
                 if (m_ptr[tgt + 4] != flow_seq)
                     continue;
 
@@ -2222,7 +2221,7 @@ int find_signature(const guint8 *m_ptr, int rec_size, int pay_off, guint32 flow_
 
                 return (tgt);
             }
-            else
+            else if (tgt + SIG_FSQ_OFF < rec_size)
             {                                               /* out which one... */
                 if (m_ptr[tgt + SIG_FSQ_OFF] != flow_seq)   /* check sequence number */
                     continue;                               /* if failed, keep scanning */
@@ -2260,33 +2259,37 @@ guint64 get_signature_ts(const guint8 *m_ptr,int sig_off)
 static float getRate( guint8 plcpType, guint8 mcsIndex, guint16 rflags, guint8 nss )
 {
     /* Rate conversion data */
-    float canonical_rate_legacy[]  = {1.0f, 2.0f, 5.5f, 11.0f, 6.0f, 9.0f, 12.0f, 18.0f, 24.0f, 36.0f, 48.0f, 54.0f};
+    static const float canonical_rate_legacy[]  = {1.0f, 2.0f, 5.5f, 11.0f, 6.0f, 9.0f, 12.0f, 18.0f, 24.0f, 36.0f, 48.0f, 54.0f};
 
-    int   canonical_ndbps_20_ht[]  = {26, 52, 78, 104, 156, 208, 234, 260};
-    int   canonical_ndbps_40_ht[]  = {54, 108, 162, 216, 324, 432, 486, 540};
+    static const int   canonical_ndbps_20_ht[8]  = {26, 52, 78, 104, 156, 208, 234, 260};
+    static const int   canonical_ndbps_40_ht[8]  = {54, 108, 162, 216, 324, 432, 486, 540};
 
-    int   canonical_ndbps_20_vht[] = {26,52, 78, 104, 156, 208, 234, 260, 312};
-    int   canonical_ndbps_40_vht[] = {54, 108, 162, 216, 324, 432, 486, 540, 648, 720};
-    int   canonical_ndbps_80_vht[] = {117, 234, 351, 468, 702, 936, 1053, 1170, 1404, 1560};
+    static const int   canonical_ndbps_20_vht[] = {26, 52, 78, 104, 156, 208, 234, 260, 312};
+    static const int   canonical_ndbps_40_vht[] = {54, 108, 162, 216, 324, 432, 486, 540, 648, 720};
+    static const int   canonical_ndbps_80_vht[] = {117, 234, 351, 468, 702, 936, 1053, 1170, 1404, 1560};
 
-    int   ndbps;
     float symbol_tx_time, bitrate  = 0.0f;
 
     if (plcpType == 0)
-        bitrate =  canonical_rate_legacy[mcsIndex];
+    {
+        if (mcsIndex < G_N_ELEMENTS(canonical_rate_legacy))
+            bitrate =  canonical_rate_legacy[mcsIndex];
+    }
     else if (plcpType == 1 || plcpType == 2)
     {
+        int   ndbps;
+
         if ( rflags & FLAGS_CHAN_SHORTGI)
             symbol_tx_time = 3.6f;
         else
             symbol_tx_time = 4.0f;
 
         if ( rflags & FLAGS_CHAN_40MHZ )
-            ndbps = canonical_ndbps_40_ht[ mcsIndex - 8*(int)(mcsIndex/8) ];
+            ndbps = canonical_ndbps_40_ht[mcsIndex & 0x07];
         else
-            ndbps = canonical_ndbps_20_ht[ mcsIndex - 8*(int)(mcsIndex/8) ];
+            ndbps = canonical_ndbps_20_ht[mcsIndex & 0x07];
 
-        bitrate = ( ndbps * (((int)(mcsIndex/8) + 1) )) / symbol_tx_time;
+        bitrate = ( ndbps * (((int)(mcsIndex >> 3) + 1) )) / symbol_tx_time;
     }
     else
     {
@@ -2295,8 +2298,8 @@ static float getRate( guint8 plcpType, guint8 mcsIndex, guint16 rflags, guint8 n
         else
             symbol_tx_time = 4.0f;
 
-    /* Check for the out of range mcsIndex.  Should never happen, but if mcs index is greater than 9 assume 9 is the value */
-    if (mcsIndex > 9) mcsIndex = 9;
+        /* Check for the out of range mcsIndex.  Should never happen, but if mcs index is greater than 9 assume 9 is the value */
+        if (mcsIndex > 9) mcsIndex = 9;
         if ( rflags & FLAGS_CHAN_40MHZ )
             bitrate = (canonical_ndbps_40_vht[ mcsIndex ] * nss) / symbol_tx_time;
         else if (rflags & FLAGS_CHAN_80MHZ )

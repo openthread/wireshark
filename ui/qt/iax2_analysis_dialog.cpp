@@ -81,7 +81,7 @@ public:
     Iax2AnalysisTreeWidgetItem(QTreeWidget *tree, tap_iax2_stat_t *statinfo, packet_info *pinfo) :
         QTreeWidgetItem(tree, iax2_analysis_type_)
     {
-        frame_num_ = pinfo->fd->num;
+        frame_num_ = pinfo->num;
         pkt_len_ = pinfo->fd->pkt_len;
         flags_ = statinfo->flags;
         if (flags_ & STAT_FLAG_FIRST) {
@@ -212,10 +212,9 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     port_dst_rev_(0)
 {
     ui->setupUi(this);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 4 / 5);
     setWindowSubtitle(tr("IAX2 Stream Analysis"));
 
-    // XXX Use recent settings instead
-    resize(parent.width() * 4 / 5, parent.height() * 4 / 5);
     ui->progressFrame->hide();
 
     stream_ctx_menu_.addAction(ui->actionGoToPacket);
@@ -260,11 +259,11 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
 
     for (int i = 0; i < num_graphs_; i++) {
         QCPGraph *graph = ui->streamGraph->addGraph();
-        graph->setPen(QPen(ColorUtils::graph_colors_[i]));
+        graph->setPen(QPen(ColorUtils::graphColor(i)));
         graph->setName(graph_cbs[i]->text());
         graphs_ << graph;
         graph_cbs[i]->setChecked(true);
-        graph_cbs[i]->setIcon(StockIcon::colorIcon(ColorUtils::graph_colors_[i], QPalette::Text));
+        graph_cbs[i]->setIcon(StockIcon::colorIcon(ColorUtils::graphColor(i), QPalette::Text));
     }
     ui->streamGraph->xAxis->setLabel("Arrival Time");
     ui->streamGraph->yAxis->setLabel("Value (ms)");
@@ -297,14 +296,21 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     save_menu->addAction(ui->actionSaveGraph);
     ui->buttonBox->button(QDialogButtonBox::Save)->setMenu(save_menu);
 
-    const gchar *filter_text = "iax2 && (ip || ipv6)";
+#if 0
+    /* Only accept Voice or MiniPacket packets */
+    const gchar filter_text[] = "iax2.call && (ip || ipv6)";
+#else
+    const gchar filter_text[] = "iax2 && (ip || ipv6)";
+#endif
     dfilter_t *sfcode;
     gchar *err_msg;
 
+    /* Try to compile the filter. */
     if (!dfilter_compile(filter_text, &sfcode, &err_msg)) {
-        QMessageBox::warning(this, tr("No IAX2 packets found"), QString("%1").arg(err_msg));
+        err_str_ = QString(err_msg);
         g_free(err_msg);
-        close();
+        updateWidgets();
+        return;
     }
 
     if (!cap_file_.capFile() || !cap_file_.capFile()->current_frame) close();
@@ -332,27 +338,16 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     dfilter_free(sfcode);
 
     /* ok, it is a IAX2 frame, so let's get the ip and port values */
-    COPY_ADDRESS(&(src_fwd_), &(edt.pi.src));
-    COPY_ADDRESS(&(dst_fwd_), &(edt.pi.dst));
+    copy_address(&(src_fwd_), &(edt.pi.src));
+    copy_address(&(dst_fwd_), &(edt.pi.dst));
     port_src_fwd_ = edt.pi.srcport;
     port_dst_fwd_ = edt.pi.destport;
 
     /* assume the inverse ip/port combination for the reverse direction */
-    COPY_ADDRESS(&(src_rev_), &(edt.pi.dst));
-    COPY_ADDRESS(&(dst_rev_), &(edt.pi.src));
+    copy_address(&(src_rev_), &(edt.pi.dst));
+    copy_address(&(dst_rev_), &(edt.pi.src));
     port_src_rev_ = edt.pi.destport;
     port_dst_rev_ = edt.pi.srcport;
-
-#if 0
-    /* check if it is Voice or MiniPacket */
-    bool ok;
-    getIntFromProtoTree(edt.tree, "iax2", "iax2.call", &ok);
-    if (!ok) {
-        err_str_ = tr("Please select an IAX2 packet.");
-        updateWidgets();
-        return;
-    }
-#endif
 
 #ifdef IAX2_RTP_STREAM_CHECK
     rtpstream_tapinfot tapinfo;
@@ -371,18 +366,18 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     for (GList *strinfo_list = g_list_first(tapinfo.strinfo_list); strinfo_list; strinfo_list = g_list_next(strinfo_list)) {
         rtp_stream_info_t * strinfo = (rtp_stream_info_t*)(strinfo_list->data);
                  << address_to_qstring(&strinfo->dest_addr) << address_to_qstring(&src_rev_) << address_to_qstring(&dst_rev_);
-        if (ADDRESSES_EQUAL(&(strinfo->src_addr), &(src_fwd_))
+        if (addresses_equal(&(strinfo->src_addr), &(src_fwd_))
             && (strinfo->src_port == port_src_fwd_)
-            && (ADDRESSES_EQUAL(&(strinfo->dest_addr), &(dst_fwd_)))
+            && (addresses_equal(&(strinfo->dest_addr), &(dst_fwd_)))
             && (strinfo->dest_port == port_dst_fwd_))
         {
             ++num_streams;
             filtered_list = g_list_prepend(filtered_list, strinfo);
         }
 
-        if (ADDRESSES_EQUAL(&(strinfo->src_addr), &(src_rev_))
+        if (addresses_equal(&(strinfo->src_addr), &(src_rev_))
             && (strinfo->src_port == port_src_rev_)
-            && (ADDRESSES_EQUAL(&(strinfo->dest_addr), &(dst_rev_)))
+            && (addresses_equal(&(strinfo->dest_addr), &(dst_rev_)))
             && (strinfo->dest_port == port_dst_rev_))
         {
             ++num_streams;
@@ -460,6 +455,8 @@ void Iax2AnalysisDialog::updateWidgets()
     hint.prepend("<small><i>");
     hint.append("</i></small>");
     ui->hintLabel->setText(hint);
+
+    WiresharkDialog::updateWidgets();
 }
 
 void Iax2AnalysisDialog::on_actionGoToPacket_triggered()
@@ -630,17 +627,17 @@ gboolean Iax2AnalysisDialog::tapPacket(void *tapinfoptr, packet_info *pinfo, str
         return FALSE;
 
     /* is it the forward direction?  */
-    else if ((CMP_ADDRESS(&(iax2_analysis_dialog->src_fwd_), &(pinfo->src)) == 0)
+    else if ((cmp_address(&(iax2_analysis_dialog->src_fwd_), &(pinfo->src)) == 0)
          && (iax2_analysis_dialog->port_src_fwd_ == pinfo->srcport)
-         && (CMP_ADDRESS(&(iax2_analysis_dialog->dst_fwd_), &(pinfo->dst)) == 0)
+         && (cmp_address(&(iax2_analysis_dialog->dst_fwd_), &(pinfo->dst)) == 0)
          && (iax2_analysis_dialog->port_dst_fwd_ == pinfo->destport))  {
 
         iax2_analysis_dialog->addPacket(true, pinfo, iax2info);
     }
     /* is it the reversed direction? */
-    else if ((CMP_ADDRESS(&(iax2_analysis_dialog->src_rev_), &(pinfo->src)) == 0)
+    else if ((cmp_address(&(iax2_analysis_dialog->src_rev_), &(pinfo->src)) == 0)
          && (iax2_analysis_dialog->port_src_rev_ == pinfo->srcport)
-         && (CMP_ADDRESS(&(iax2_analysis_dialog->dst_rev_), &(pinfo->dst)) == 0)
+         && (cmp_address(&(iax2_analysis_dialog->dst_rev_), &(pinfo->dst)) == 0)
          && (iax2_analysis_dialog->port_dst_rev_ == pinfo->destport))  {
 
         iax2_analysis_dialog->addPacket(false, pinfo, iax2info);
@@ -692,7 +689,7 @@ void Iax2AnalysisDialog::addPacket(bool forward, packet_info *pinfo, const struc
         iax2_packet_analyse(&fwd_statinfo_, pinfo, iax2info);
         new Iax2AnalysisTreeWidgetItem(ui->forwardTreeWidget, &fwd_statinfo_, pinfo);
 
-        fwd_time_vals_.append((fwd_statinfo_.time - fwd_statinfo_.start_time));
+        fwd_time_vals_.append((fwd_statinfo_.time));
         fwd_jitter_vals_.append(fwd_statinfo_.jitter * 1000);
         fwd_diff_vals_.append(fwd_statinfo_.diff * 1000);
 
@@ -701,7 +698,7 @@ void Iax2AnalysisDialog::addPacket(bool forward, packet_info *pinfo, const struc
         iax2_packet_analyse(&rev_statinfo_, pinfo, iax2info);
         new Iax2AnalysisTreeWidgetItem(ui->reverseTreeWidget, &rev_statinfo_, pinfo);
 
-        rev_time_vals_.append((rev_statinfo_.time - rev_statinfo_.start_time));
+        rev_time_vals_.append((rev_statinfo_.time));
         rev_jitter_vals_.append(rev_statinfo_.jitter * 1000);
         rev_diff_vals_.append(rev_statinfo_.diff * 1000);
 
@@ -1204,77 +1201,6 @@ void Iax2AnalysisDialog::saveCsv(Iax2AnalysisDialog::StreamDirection direction)
         }
     }
 }
-
-#if 0
-// Adapted from iax2_analysis.c:process_node
-guint32 Iax2AnalysisDialog::processNode(proto_node *ptree_node, header_field_info *hfinformation, const gchar *proto_field, bool *ok)
-{
-    field_info        *finfo;
-    proto_node        *proto_sibling_node;
-    header_field_info *hfssrc;
-    ipv4_addr         *ipv4;
-
-    finfo = PNODE_FINFO(ptree_node);
-
-    /* Caller passed top of the protocol tree. Expected child node */
-    g_assert(finfo);
-
-    if (hfinformation == (finfo->hfinfo)) {
-        hfssrc = proto_registrar_get_byname(proto_field);
-        if (hfssrc == NULL) {
-            return 0;
-        }
-        for (ptree_node = ptree_node->first_child;
-             ptree_node != NULL;
-             ptree_node = ptree_node->next) {
-            finfo = PNODE_FINFO(ptree_node);
-            if (hfssrc == finfo->hfinfo) {
-                guint32 result;
-                if (hfinformation->type == FT_IPv4) {
-                    ipv4 = (ipv4_addr *)fvalue_get(&finfo->value);
-                    result = ipv4_get_net_order_addr(ipv4);
-                } else {
-                    result = fvalue_get_uinteger(&finfo->value);
-                }
-                if (ok) *ok = true;
-                return result;
-            }
-        }
-        if (!ptree_node) {
-            return 0;
-        }
-    }
-
-    proto_sibling_node = ptree_node->next;
-
-    if (proto_sibling_node) {
-        return processNode(proto_sibling_node, hfinformation, proto_field, ok);
-    } else {
-        return 0;
-    }
-}
-
-// Adapted from iax2_analysis.c:get_int_value_from_proto_tree
-guint32 Iax2AnalysisDialog::getIntFromProtoTree(proto_tree *protocol_tree, const gchar *proto_name, const gchar *proto_field, bool *ok)
-{
-    proto_node *ptree_node;
-    header_field_info *hfinformation;
-
-    if (ok) *ok = false;
-
-    hfinformation = proto_registrar_get_byname(proto_name);
-    if (hfinformation == NULL) {
-        return 0;
-    }
-
-    ptree_node = ((proto_node *)protocol_tree)->first_child;
-    if (!ptree_node) {
-        return 0;
-    }
-
-    return processNode(ptree_node, hfinformation, proto_field, ok);
-}
-#endif
 
 bool Iax2AnalysisDialog::eventFilter(QObject *, QEvent *event)
 {

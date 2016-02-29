@@ -1787,15 +1787,15 @@ static const value_string q933_codeset_vals[] = {
 	{ 0x00, NULL },
 };
 
-static void
-dissect_q933(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_q933(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int		offset = 0;
 	proto_tree	*q933_tree = NULL;
 	proto_item	*ti;
 	proto_tree	*ie_tree = NULL;
 	guint8		call_ref_len;
-	guint8		call_ref[15];
+	guint8		call_ref[16];
 	guint8		message_type;
 	guint8		info_element;
 	guint16		info_element_len;
@@ -2033,6 +2033,7 @@ dissect_q933(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		offset += 1 + 1 + info_element_len;
 		codeset = locked_codeset;
 	}
+	return tvb_captured_length(tvb);
 }
 
 void

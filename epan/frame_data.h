@@ -27,7 +27,6 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#include <epan/tvbuff.h>
 #include <wsutil/nstime.h>
 #include <wsutil/ws_diag_control.h>
 #include "ws_symbol_export.h"
@@ -36,7 +35,6 @@ struct _packet_info;
 struct epan_session;
 struct wtap_pkthdr;
 
-#define PINFO_FD_NUM(pinfo)       ((pinfo)->fd->num)
 #define PINFO_FD_VISITED(pinfo)   ((pinfo)->fd->flags.visited)
 
 /** @file
@@ -61,6 +59,7 @@ typedef enum {
 /** The frame number is the ordinal number of the frame in the capture, so
    it's 1-origin.  In various contexts, 0 as a frame number means "frame
    number unknown". */
+struct _color_filter; /* Forward */
 DIAG_OFF(pedantic)
 typedef struct _frame_data {
   GSList      *pfd;          /**< Per frame proto data */
@@ -70,11 +69,11 @@ typedef struct _frame_data {
   guint32      cum_bytes;    /**< Cumulative bytes into the capture */
   gint64       file_off;     /**< File offset */
   guint16      subnum;       /**< subframe number, for protocols that require this */
-  gint16       lnk_t;        /**< Per-packet encapsulation/data-link type */
   struct {
     unsigned int passed_dfilter : 1; /**< 1 = display, 0 = no display */
     unsigned int dependent_of_displayed : 1; /**< 1 if a displayed frame depends on this frame */
-    packet_char_enc encoding    : 1; /**< Character encoding (ASCII, EBCDIC...) */
+    /* Do NOT use packet_char_enc enum here: MSVC compiler does not handle an enum in a bit field properly */
+    unsigned int encoding       : 1; /**< Character encoding (ASCII, EBCDIC...) */
     unsigned int visited        : 1; /**< Has this packet been visited yet? 1=Yes,0=No*/
     unsigned int marked         : 1; /**< 1 = marked by user, 0 = normal */
     unsigned int ref_time       : 1; /**< 1 = marked as a reference time frame, 0 = normal */
@@ -82,10 +81,11 @@ typedef struct _frame_data {
     unsigned int has_ts         : 1; /**< 1 = has time stamp, 0 = no time stamp */
     unsigned int has_phdr_comment : 1; /** 1 = there's comment for this packet */
     unsigned int has_user_comment : 1; /** 1 = user set (also deleted) comment for this packet */
+    unsigned int need_colorize  : 1; /**< 1 = need to (re-)calculate packet color */
   } flags;
   gint16       tsprec;       /**< Time stamp precision */
 
-  const void *color_filter;  /**< Per-packet matching color_filter_t object */
+  const struct _color_filter *color_filter;  /**< Per-packet matching color_filter_t object */
 
   nstime_t     abs_ts;       /**< Absolute timestamp */
   nstime_t     shift_offset; /**< How much the abs_tm of the frame is shifted */
@@ -93,12 +93,6 @@ typedef struct _frame_data {
   guint32      prev_dis_num; /**< Previous displayed frame (0 if first one) */
 } frame_data;
 DIAG_ON(pedantic)
-
-/* Utility routines used by packet*.c */
-WS_DLL_PUBLIC void p_add_proto_data(wmem_allocator_t *scope, struct _packet_info* pinfo, int proto, guint32 key, void *proto_data);
-WS_DLL_PUBLIC void *p_get_proto_data(wmem_allocator_t *scope, struct _packet_info* pinfo, int proto, guint32 key);
-WS_DLL_PUBLIC void p_remove_proto_data(wmem_allocator_t *scope, struct _packet_info* pinfo, int proto, guint32 key);
-gchar *p_get_proto_name_and_key(wmem_allocator_t *scope, struct _packet_info* pinfo, guint pfd_index);
 
 /** compare two frame_datas */
 WS_DLL_PUBLIC gint frame_data_compare(const struct epan_session *epan, const frame_data *fdata1, const frame_data *fdata2, int field);

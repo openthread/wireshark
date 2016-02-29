@@ -24,6 +24,8 @@
 
 #include "tap_parameter_dialog.h"
 
+#include <QCheckBox>
+
 class LteRlcStatisticsDialog : public TapParameterDialog
 {
     Q_OBJECT
@@ -37,7 +39,21 @@ public:
 
 protected:
 
+signals:
+    void launchRLCGraph(bool channelKnown,
+                        guint16 ueid, guint8 rlcMode,
+                        guint16 channelType, guint16 channelId,
+                        guint8 direction);
+
 private:
+    // Extra controls needed for this dialog.
+    QCheckBox *useRLCFramesFromMacCheckBox_;
+    QCheckBox *showSRFilterCheckBox_;
+    QCheckBox *showRACHFilterCheckBox_;
+    QPushButton *launchULGraph_;
+    QPushButton *launchDLGraph_;
+
+    CaptureFile &cf_;
     int packet_count_;
 
     // Callbacks for register_tap_listener
@@ -45,12 +61,19 @@ private:
     static gboolean tapPacket(void *ws_dlg_ptr, struct _packet_info *, struct epan_dissect *, const void *rlc_lte_tap_info_ptr);
     static void tapDraw(void *ws_dlg_ptr);
 
+    void updateHeaderLabels();
+
     virtual const QString filterExpression();
 
 private slots:
     virtual void fillTree();
-    void updateHeaderLabels();
+    void updateItemSelectionChanged();
+
     void captureFileClosing();
+
+    void useRLCFramesFromMacCheckBoxToggled(bool state);
+    void launchULGraphButtonClicked();
+    void launchDLGraphButtonClicked();
 };
 
 #endif // __LTE_RLC_STATISTICS_DIALOG_H__

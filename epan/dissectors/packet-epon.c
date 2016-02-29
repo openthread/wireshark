@@ -54,7 +54,7 @@ static expert_field ei_epon_dpoe_bad = EI_INIT;
 static expert_field ei_epon_dpoe_encrypted_data = EI_INIT;
 static expert_field ei_epon_checksum_bad = EI_INIT;
 
-static dissector_handle_t eth_handle;
+static dissector_handle_t eth_maybefcs_handle;
 
 static gint ett_epon = -1;
 static gint ett_epon_sec = -1;
@@ -195,7 +195,11 @@ dissect_epon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     col_append_str(pinfo->cinfo, COL_INFO, " [ENCRYPTED]");
   } else {
     next_tvb = tvb_new_subset_remaining(tvb, 6+offset);
-    call_dissector(eth_handle, next_tvb, pinfo, tree);
+    /*
+     * XXX - is it guaranteed whether the capture will, or won't, have
+     * an FCS?
+     */
+    call_dissector(eth_maybefcs_handle, next_tvb, pinfo, tree);
   }
 
   return tvb_captured_length(tvb);
@@ -264,7 +268,7 @@ proto_register_epon(void)
     },
     { &ei_epon_dpoe_bad,
       { "epon.dpoe.expert", PI_MALFORMED, PI_ERROR,
-        "DPoE security byte must be 0x55 if encrypton is disabled.", EXPFILL }
+        "DPoE security byte must be 0x55 if encryption is disabled.", EXPFILL }
     },
     { &ei_epon_dpoe_encrypted_data,
       { "epon.dpoe.encrypted.expert", PI_UNDECODED, PI_NOTE,
@@ -288,10 +292,10 @@ proto_reg_handoff_epon(void)
 {
   dissector_handle_t epon_handle;
 
-  epon_handle = new_create_dissector_handle(dissect_epon, proto_epon);
+  epon_handle = create_dissector_handle(dissect_epon, proto_epon);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_EPON, epon_handle);
 
-  eth_handle = find_dissector("eth");
+  eth_maybefcs_handle = find_dissector("eth_maybefcs");
 }
 
 /*

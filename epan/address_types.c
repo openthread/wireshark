@@ -21,18 +21,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_NETINET_IN_H
-# include <netinet/in.h>        /* needed for <arpa/inet.h> on some platforms */
-#endif
-
-#ifdef HAVE_ARPA_INET_H
-#include <arpa/inet.h>
-#endif
-
-#ifdef HAVE_SYS_SOCKET_H
-#include <sys/socket.h>         /* needed to define AF_ values on UNIX */
-#endif
-
 #include <string.h>     /* for memcmp */
 #include "packet.h"
 #include "address_types.h"
@@ -41,7 +29,7 @@
 #include "addr_resolv.h"
 #include "wsutil/pint.h"
 #include "wsutil/str_util.h"
-#include "wsutil/inet_v6defs.h"
+#include "wsutil/inet_addr.h"
 
 #include <epan/dissectors/packet-mtp3.h>
 
@@ -599,7 +587,7 @@ ib_addr_to_str( const address *addr, gchar *buf, int buf_len){
         #define PREAMBLE_STR_LEN ((int)(sizeof("GID: ") - 1))
         g_strlcpy(buf, "GID: ", buf_len);
         if (buf_len < PREAMBLE_STR_LEN ||
-                inet_ntop(AF_INET6, addr->data, buf + PREAMBLE_STR_LEN,
+                ws_inet_ntop6(addr->data, buf + PREAMBLE_STR_LEN,
                           buf_len - PREAMBLE_STR_LEN) == NULL ) /* Returns NULL if no space and does not touch buf */
             g_strlcpy(buf, BUF_TOO_SMALL_ERR, buf_len); /* Let the unexpected value alert user */
     } else {    /* this is a LID (16 bits) */
@@ -961,7 +949,7 @@ address_to_name(const address *addr)
     }
 }
 
-const gchar *
+gchar *
 address_to_display(wmem_allocator_t *allocator, const address *addr)
 {
     gchar *str = NULL;
@@ -1097,7 +1085,7 @@ tvb_address_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int type, const gint 
         return NULL;
     }
 
-    TVB_SET_ADDRESS(&addr, type, tvb, offset, at->addr_fixed_len());
+    set_address_tvb(&addr, type, at->addr_fixed_len(), tvb, offset);
 
     return address_to_str(scope, &addr);
 }
@@ -1106,7 +1094,7 @@ gchar* tvb_address_var_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, address_ty
 {
     address addr;
 
-    TVB_SET_ADDRESS(&addr, type, tvb, offset, length);
+    set_address_tvb(&addr, type, length, tvb, offset);
 
     return address_to_str(scope, &addr);
 }
@@ -1132,7 +1120,7 @@ tvb_address_with_resolution_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int t
         return NULL;
     }
 
-    TVB_SET_ADDRESS(&addr, type, tvb, offset, at->addr_fixed_len());
+    set_address_tvb(&addr, type, at->addr_fixed_len(), tvb, offset);
 
     return address_with_resolution_to_str(scope, &addr);
 }

@@ -1384,7 +1384,7 @@ static const value_string vals_tn5250_dckf_function_code[] = {
 /* 15.27.4.3 READ TEXT SCREEN Command */
 
 static const range_string vals_tn5250_rts_partition[] = {
-  { 0x00, 0x00, "Valid Parition ID" },
+  { 0x00, 0x00, "Valid Partition ID" },
   { 0x01, 0xFF, "Invalid Partition ID" },
   { 0,  0,      NULL}
 };
@@ -5114,8 +5114,8 @@ dissect_inbound_stream(proto_tree *tn5250_tree, packet_info *pinfo, tvbuff_t *tv
   return (offset - start);
 }
 
-static void
-dissect_tn5250(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tn5250(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree   *tn5250_tree;
   proto_item   *ti;
@@ -5124,10 +5124,8 @@ dissect_tn5250(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   tn5250_conv_info_t *tn5250_info = NULL;
   int sna_flag;
 
-  pinfo->fd->flags.encoding = PACKET_CHAR_ENC_CHAR_EBCDIC;
-
   /* Do we have a conversation for this connection? */
-  conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                    pinfo->ptype, pinfo->srcport,
                                    pinfo->destport, 0);
   if (conversation != NULL) {
@@ -5136,7 +5134,9 @@ dissect_tn5250(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   }
 
   if (!tn5250_info)
-    return;
+    return 0;
+
+  pinfo->fd->flags.encoding = PACKET_CHAR_ENC_CHAR_EBCDIC;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "TN5250");
 
@@ -5161,6 +5161,7 @@ dissect_tn5250(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
   }
 
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -5180,9 +5181,9 @@ add_tn5250_conversation(packet_info *pinfo, int tn5250e)
      * it to the list of information structures.
      */
     tn5250_info = wmem_new(wmem_file_scope(), tn5250_conv_info_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(tn5250_info->outbound_addr),&(pinfo->dst));
+    copy_address_wmem(wmem_file_scope(), &(tn5250_info->outbound_addr),&(pinfo->dst));
     tn5250_info->outbound_port = pinfo->destport;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(tn5250_info->inbound_addr),&(pinfo->src));
+    copy_address_wmem(wmem_file_scope(), &(tn5250_info->inbound_addr),&(pinfo->src));
     tn5250_info->inbound_port = pinfo->srcport;
     conversation_add_proto_data(conversation, proto_tn5250, tn5250_info);
     tn5250_info->next = tn5250_info_items;
@@ -5202,7 +5203,7 @@ find_tn5250_conversation(packet_info *pinfo)
   /*
    * Do we have a conversation for this connection?
    */
-  conversation = find_conversation(pinfo->fd->num, &pinfo->src, &pinfo->dst,
+  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
                                    pinfo->ptype, pinfo->srcport,
                                    pinfo->destport, 0);
 

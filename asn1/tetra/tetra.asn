@@ -1643,7 +1643,7 @@ TYPE3-IDENTIFIER ::= ENUMERATED
 
 GROUP-IDENTITY-DOWNLINK ::= SEQUENCE
 {
-  attach-detach-identifiet CHOICE{
+  attach-detach-identifier CHOICE{
      attach SEQUENCE{
             lifetime INTEGER(0..3),
             class-of-usage INTEGER(0..7)
@@ -1666,16 +1666,16 @@ GROUP-IDENTITY-DOWNLINK ::= SEQUENCE
 
 GROUP-IDENTITY-UPLINK ::= SEQUENCE
 {
-    attach-detach-identifiet CHOICE{
+    attach-detach-identifier CHOICE{
      attach SEQUENCE{
             class-of-usage INTEGER(0..7)
              },
      detach SEQUENCE{
          detach-uplike ENUMERATED{
                unknow-gssi(0),
-               unvaild-cipher(1),
+               invalid-cipher(1),
                user-intitial(2),
-               reseverd(3)
+               reserved(3)
                }
             }
    },
@@ -2290,9 +2290,13 @@ CALLMODE ::= ENUMERATED
 Calling-party-address-type ::= CHOICE {
 	called-party-sna [0] INTEGER ( 0..255 ),
 	called-party-ssi [1] INTEGER ( 0..16777215 ),
-	called-party-ssi-extention [2] SEQUENCE {
+	-- WS modification: fix misspelling
+	called-party-ssi-extension [2] SEQUENCE {
+	-- End WS modification
 	called-party-ssi INTEGER ( 0..16777215 ),
+	-- WS modification: fix misspelling
 	called-party-extention INTEGER ( 0..16777215 )
+	-- End WS modification
   }
 }
 

@@ -85,7 +85,7 @@ void gcp_init(void) {
 
 gcp_msg_t* gcp_msg(packet_info* pinfo, int o, gboolean keep_persistent_data) {
     gcp_msg_t* m;
-    guint32 framenum = (guint32)pinfo->fd->num;
+    guint32 framenum = (guint32)pinfo->num;
     guint32 offset = (guint32)o;
     address* src = &(pinfo->src);
     address* dst = &(pinfo->dst);
@@ -108,7 +108,7 @@ gcp_msg_t* gcp_msg(packet_info* pinfo, int o, gboolean keep_persistent_data) {
         } else {
             m = wmem_new(wmem_file_scope(), gcp_msg_t);
             m->framenum = framenum;
-            m->time = pinfo->fd->abs_ts;
+            m->time = pinfo->abs_ts;
             m->trxs = NULL;
             m->committed = FALSE;
 
@@ -121,7 +121,7 @@ gcp_msg_t* gcp_msg(packet_info* pinfo, int o, gboolean keep_persistent_data) {
         m->committed = FALSE;
     }
 
-    if (CMP_ADDRESS(src, dst) < 0)  {
+    if (cmp_address(src, dst) < 0)  {
         lo_addr = src;
         hi_addr = dst;
     } else {

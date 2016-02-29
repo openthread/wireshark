@@ -27,8 +27,7 @@
 #include <glib.h>
 
 #include "syntax_line_edit.h"
-
-#include <QDialog>
+#include "geometry_state_dialog.h"
 
 class QComboBox;
 class QPushButton;
@@ -40,7 +39,7 @@ namespace Ui {
 class UatDialog;
 }
 
-class UatDialog : public QDialog
+class UatDialog : public GeometryStateDialog
 {
     Q_OBJECT
 
@@ -86,6 +85,7 @@ private:
     void activateLastItem();
     void applyChanges();
     void addRecord(bool copy_from_current = false);
+    const QByteArray unhexbytes(const QString input, QString &err);
 };
 
 #endif // UAT_DIALOG_H

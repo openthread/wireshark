@@ -28,6 +28,7 @@
 #include <epan/packet.h>
 #include <epan/conversation.h>
 #include <epan/prefs.h>
+#include <epan/proto_data.h>
 
 #include "packet-xmpp.h"
 #include "packet-xmpp-core.h"
@@ -373,8 +374,8 @@ static dissector_handle_t xmpp_handle;
 
 static dissector_handle_t xml_handle;
 
-static void
-dissect_xmpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int
+dissect_xmpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
 
     xml_frame_t *xml_frame;
     xml_frame_t *xml_dissector_frame;
@@ -416,7 +417,7 @@ dissect_xmpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
             if ((indx >= 0) && (last_char != '>'))
             {
                 pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
-                return;
+                return tvb_captured_length(tvb);
             }
         }
     }
@@ -436,7 +437,7 @@ dissect_xmpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     {
         col_append_str(pinfo->cinfo, COL_INFO, "(XML dissector disabled, can't dissect XMPP)");
         expert_add_info(pinfo, xmpp_item, &ei_xmpp_xml_disabled);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     /*if stream end occurs then return*/
@@ -444,18 +445,18 @@ dissect_xmpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
     {
         if(xmpp_tree)
             xmpp_proto_tree_hide_first_child(xmpp_tree);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     xml_dissector_frame = (xml_frame_t *)p_get_proto_data(pinfo->pool, pinfo, proto_xml, 0);
     if(xml_dissector_frame == NULL)
-        return;
+        return tvb_captured_length(tvb);
 
     /*data from XML dissector*/
     xml_frame = xml_dissector_frame->first_child;
 
     if(!xml_frame)
-        return;
+        return tvb_captured_length(tvb);
 
     if (!xmpp_info) {
         xmpp_info = wmem_new(wmem_file_scope(), xmpp_conv_info_t);
@@ -544,6 +545,7 @@ dissect_xmpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
         xmpp_element_t_tree_free(packet);
         xml_frame = xml_frame->next_sibling;
     }
+    return tvb_captured_length(tvb);
 }
 
 
@@ -940,27 +942,27 @@ proto_register_xmpp(void) {
         { &hf_xmpp_jingle_cont_desc_enc,
           {
               "ENCRYPTION", "xmpp.jingle.content.description.encryption", FT_NONE, BASE_NONE, NULL, 0x0,
-              "iq jingle content descryption encryption", HFILL
+              "iq jingle content description encryption", HFILL
           }},
         { &hf_xmpp_jingle_cont_desc_enc_zrtp_hash,
           {
               "ZRTP-HASH", "xmpp.jingle.content.description.encryption.zrtp-hash", FT_NONE, BASE_NONE, NULL, 0x0,
-              "iq jingle content descryption encryption zrtp-hash", HFILL
+              "iq jingle content description encryption zrtp-hash", HFILL
           }},
         { &hf_xmpp_jingle_cont_desc_enc_crypto,
           {
               "CRYPTO", "xmpp.jingle.content.description.encryption.crypto", FT_NONE, BASE_NONE, NULL, 0x0,
-              "iq jingle content descryption encryption crypto", HFILL
+              "iq jingle content description encryption crypto", HFILL
           }},
         { &hf_xmpp_jingle_cont_desc_bandwidth,
           {
               "BANDWIDTH", "xmpp.jingle.content.description.bandwidth", FT_NONE, BASE_NONE, NULL, 0x0,
-              "iq jingle content descryption bandwidth", HFILL
+              "iq jingle content description bandwidth", HFILL
           }},
         { &hf_xmpp_jingle_cont_desc_rtp_hdr,
           {
               "RTP-HDREXT", "xmpp.jingle.content.description.rtp-hdrext", FT_NONE, BASE_NONE, NULL, 0x0,
-              "iq jingle content descryption rtp-hdrext", HFILL
+              "iq jingle content description rtp-hdrext", HFILL
           }},
         { &hf_xmpp_jingle_reason,
           {
@@ -1459,7 +1461,7 @@ proto_register_xmpp(void) {
 
     xmpp_module = prefs_register_protocol(proto_xmpp, NULL);
     prefs_register_bool_preference(xmpp_module, "desegment",
-                                   "Reasemble XMPP messages",
+                                   "Reassemble XMPP messages",
                                    "Whether the XMPP dissector should reassemble messages. "
                                    "To use this option, you must also enable"
                                    " \"Allow subdissectors to reassemble TCP streams\""

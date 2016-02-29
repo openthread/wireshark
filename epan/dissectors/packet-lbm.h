@@ -94,14 +94,13 @@
 #endif
 #include <stddef.h>
 
+#include <wsutil/inet_aton.h>
+
 typedef guint8 lbm_uint8_t;
 typedef guint16 lbm_uint16_t;
 typedef guint32 lbm_uint32_t;
 typedef guint64 lbm_uint64_t;
 #define SIZEOF(TYPE, MEMBER) (gint)(sizeof(((TYPE *)0)->MEMBER))
-#ifndef offsetof
-#define offsetof(type, member)  ((size_t)(&((type *)0)->member))
-#endif
 #define OFFSETOF(TYPE, MEMBER) (gint)(offsetof(TYPE, MEMBER))
 #define STRINGIZE(a) #a
 #define MAKESTRING(a) STRINGIZE(a)
@@ -130,7 +129,7 @@ typedef guint64 lbm_uint64_t;
         inet_aton(new_buf, &addr); \
         (((rec_t*)rec)->field_name ## _val_h) = g_ntohl(addr.s_addr); \
     } \
-    static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* u1 _U_, const void* u2 _U_) \
+    static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* u1 _U_, const void* u2 _U_) \
     {\
         if (((rec_t*)rec)->field_name ) \
         { \
@@ -173,7 +172,7 @@ typedef guint64 lbm_uint64_t;
         inet_aton(new_buf, &addr); \
         (((rec_t*)rec)->field_name ## _val_h) = g_ntohl(addr.s_addr); \
     } \
-    static void basename ## _ ## field_name ## _tostr_cb(void* rec, const char** out_ptr, unsigned* out_len, const void* u1 _U_, const void* u2 _U_) \
+    static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* u1 _U_, const void* u2 _U_) \
     {\
         if (((rec_t*)rec)->field_name ) \
         { \
@@ -436,10 +435,10 @@ void lbm_topic_add(guint64 channel, guint32 topic_index, const char * name);
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

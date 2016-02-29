@@ -71,7 +71,7 @@ static const value_string ccsrl_ls_vals[] = {
 
 /*****************************************************************************/
 
-static void dissect_ccsrl(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int dissect_ccsrl(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
     proto_item *ccsrl_item;
     proto_tree *ccsrl_tree=NULL;
@@ -92,6 +92,7 @@ static void dissect_ccsrl(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree
     */
     next_tvb = tvb_new_subset_remaining(tvb, 1);
     call_dissector( h245dg_handle, next_tvb, pinfo, ccsrl_tree );
+    return tvb_captured_length(tvb);
 }
 
 static void dissect_srp_command(tvbuff_t * tvb, packet_info * pinfo, proto_tree * srp_tree)
@@ -111,7 +112,7 @@ static void dissect_srp_command(tvbuff_t * tvb, packet_info * pinfo, proto_tree 
     call_dissector(ccsrl_handle, next_tvb, pinfo, srp_tree );
 }
 
-static void dissect_srp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int dissect_srp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
     proto_item *srp_item = NULL;
     proto_tree *srp_tree = NULL;
@@ -167,6 +168,7 @@ static void dissect_srp (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
         }
     }
 
+    return tvb_captured_length(tvb);
 }
 
 void proto_register_ccsrl (void)

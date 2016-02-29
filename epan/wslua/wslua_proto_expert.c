@@ -54,7 +54,8 @@ WSLUA_CONSTRUCTOR ProtoExpert_new(lua_State* L) {
                                              `expert.group.REQUEST_CODE`, `expert.group.UNDECODED`,
                                              `expert.group.REASSEMBLE`, `expert.group.MALFORMED`,
                                              `expert.group.DEBUG`, `expert.group.PROTOCOL`,
-                                             `expert.group.SECURITY`, or `expert.group.COMMENTS_GROUP`. */
+                                             `expert.group.SECURITY`, `expert.group.COMMENTS_GROUP`
+                                             or `expert.group.DECRYPTION`. */
 #define WSLUA_ARG_ProtoExpert_new_SEVERITY 4 /* Expert severity type: one of:
                                                 `expert.severity.COMMENT`, `expert.severity.CHAT`,
                                                 `expert.severity.NOTE`, `expert.severity.WARN`,
@@ -66,11 +67,57 @@ WSLUA_CONSTRUCTOR ProtoExpert_new(lua_State* L) {
     int group         = (int)luaL_checkinteger(L, WSLUA_ARG_ProtoExpert_new_GROUP);
     int severity      = (int)luaL_checkinteger(L, WSLUA_ARG_ProtoExpert_new_SEVERITY);
 
+    if (!abbr[0]) {
+        luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_ABBR, "Empty field name abbrev");
+        return 0;
+    }
+
+    if (proto_check_field_name(abbr)) {
+        luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_ABBR, "Invalid char in abbrev");
+        return 0;
+    }
+
+    if (proto_registrar_get_byname(abbr)) {
+        luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_ABBR, "This abbrev already exists");
+        return 0;
+    }
+
+    switch (group) {
+    case PI_CHECKSUM:
+    case PI_SEQUENCE:
+    case PI_RESPONSE_CODE:
+    case PI_REQUEST_CODE:
+    case PI_UNDECODED:
+    case PI_REASSEMBLE:
+    case PI_MALFORMED:
+    case PI_DEBUG:
+    case PI_PROTOCOL:
+    case PI_SECURITY:
+    case PI_COMMENTS_GROUP:
+    case PI_DECRYPTION:
+        break;
+    default:
+        luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_GROUP, "Group must be one of expert.group.*");
+        return 0;
+    }
+
+    switch (severity) {
+    case PI_COMMENT:
+    case PI_CHAT:
+    case PI_NOTE:
+    case PI_WARN:
+    case PI_ERROR:
+        break;
+    default:
+        luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_SEVERITY, "Severity must be one of expert.severity.*");
+        return 0;
+    }
+
     pe = g_new(wslua_expert_field_t,1);
 
     pe->ids.ei   = EI_INIT_EI;
     pe->ids.hf   = EI_INIT_HF;
-    pe->abbrev     = g_strdup(abbr);
+    pe->abbrev   = g_strdup(abbr);
     pe->text     = g_strdup(text);
     pe->group    = group;
     pe->severity = severity;
@@ -101,8 +148,6 @@ static int ProtoExpert__gc(lua_State* L) {
 
     if (pe->ids.hf == -2) {
         /* Only free unregistered and deregistered ProtoExpert */
-        g_free((gchar *)pe->abbrev);
-        g_free((gchar *)pe->text);
         g_free(pe);
     }
 

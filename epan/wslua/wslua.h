@@ -170,6 +170,7 @@ typedef struct _wslua_pref_t {
                          option menu or combo box in
                          the preferences tab */
       } enum_info;            /**< for PREF_ENUM */
+      gchar* default_s;       /**< default value for value.s */
     } info;                    /**< display/text file information */
 
     struct _wslua_pref_t* next;
@@ -522,7 +523,7 @@ extern int wslua_set__index(lua_State *L);
         return 0; \
     } \
     /* silly little trick so we can add a semicolon after this macro */ \
-    static int C##_set_##field(lua_State*)
+    typedef void __dummy##C##_set_##field
 
 #define WSLUA_ATTRIBUTE_GET(C,name,block) \
     static int C##_get_##name (lua_State* L) { \
@@ -531,7 +532,7 @@ extern int wslua_set__index(lua_State *L);
         return 1; \
     } \
     /* silly little trick so we can add a semicolon after this macro */ \
-    static int C##_get_##name(lua_State*)
+    typedef void __dummy##C##_get_##name
 
 #define WSLUA_ATTRIBUTE_NAMED_BOOLEAN_GETTER(C,name,member) \
     WSLUA_ATTRIBUTE_GET(C,name,{lua_pushboolean(L, obj->member );})
@@ -553,6 +554,12 @@ extern int wslua_set__index(lua_State *L);
 #define WSLUA_ATTRIBUTE_STRING_GETTER(C,member) \
     WSLUA_ATTRIBUTE_NAMED_STRING_GETTER(C,member,member)
 
+#define WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(C,name,member,option) \
+    WSLUA_ATTRIBUTE_GET(C,name, { \
+        char* str;  \
+        wtap_optionblock_get_option_string(obj->member, option, &str); \
+        lua_pushstring(L,str); /* this pushes nil if obj->member is null */ \
+    })
 
 #define WSLUA_ATTRIBUTE_SET(C,name,block) \
     static int C##_set_##name (lua_State* L) { \
@@ -561,7 +568,7 @@ extern int wslua_set__index(lua_State *L);
         return 0; \
     } \
     /* silly little trick so we can add a semicolon after this macro */ \
-    static int C##_set_##name(lua_State*)
+    typedef void __dummy##C##_set_##name
 
 #define WSLUA_ATTRIBUTE_NAMED_BOOLEAN_SETTER(C,name,member) \
     WSLUA_ATTRIBUTE_SET(C,name, { \
@@ -597,10 +604,25 @@ extern int wslua_set__index(lua_State *L);
         return 0; \
     } \
     /* silly little trick so we can add a semicolon after this macro */ \
-    static int C##_set_##field(lua_State*)
+    typedef void __dummy##C##_set_##field
 
 #define WSLUA_ATTRIBUTE_STRING_SETTER(C,field,need_free) \
     WSLUA_ATTRIBUTE_NAMED_STRING_SETTER(C,field,field,need_free)
+
+#define WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(C,field,member,option) \
+    static int C##_set_##field (lua_State* L) { \
+        C obj = check##C (L,1); \
+        gchar* s = NULL; \
+        if (lua_isstring(L,-1) || lua_isnil(L,-1)) { \
+            s = g_strdup(lua_tostring(L,-1)); \
+        } else { \
+            return luaL_error(L, "%s's attribute `%s' must be a string or nil", #C , #field ); \
+        } \
+        wtap_optionblock_set_option_string(obj->member, option, s); \
+        return 0; \
+    } \
+    /* silly little trick so we can add a semicolon after this macro */ \
+    typedef void __dummy##C##_set_##field
 
 #define WSLUA_ERROR(name,error) { luaL_error(L, "%s%s", #name ": " ,error); }
 #define WSLUA_ARG_ERROR(name,attr,error) { luaL_argerror(L,WSLUA_ARG_ ## name ## _ ## attr, #name  ": " error); }
@@ -709,6 +731,7 @@ extern void wslua_prefs_changed(void);
 extern void proto_register_lua(void);
 extern GString* lua_register_all_taps(void);
 extern void wslua_prime_dfilter(epan_dissect_t *edt);
+extern gboolean wslua_has_field_extractors(void);
 extern void lua_prime_all_fields(proto_tree* tree);
 
 extern int Proto_commit(lua_State* L);

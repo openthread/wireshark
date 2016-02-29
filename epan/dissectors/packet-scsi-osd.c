@@ -1294,10 +1294,10 @@ dissect_osd_partition_id(packet_info *pinfo, tvbuff_t *tvb, int offset,
             wmem_tree_insert32_array(lun_info->partitions, &pikey[0], part_info);
         }
         if (is_created) {
-            part_info->created_in = pinfo->fd->num;
+            part_info->created_in = pinfo->num;
         }
         if (is_removed) {
-            part_info->removed_in = pinfo->fd->num;
+            part_info->removed_in = pinfo->num;
         }
         if (item) {
             partition_tree = proto_item_add_subtree(item, ett_osd_partition);
@@ -3363,7 +3363,7 @@ dissect_osd_opcode(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         svcaction = tvb_get_ntohs(tvb, offset);
         if (cdata && cdata->itlq) {
             /* We must store the service action for this itlq
-             * so we can indentify what the data contains
+             * so we can identify what the data contains
              */
             if ((!pinfo->fd->flags.visited) || (!cdata->itlq->extra_data)) {
                 scsi_osd_extra_data_t *extra_data;

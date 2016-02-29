@@ -441,7 +441,13 @@ decode_show_destroy_cb (GtkWidget *win _U_, gpointer user_data _U_)
 static void
 decode_show_save_cb (GtkWidget *win _U_, gpointer user_data _U_)
 {
-    save_decode_as_entries();
+    gchar* err = NULL;
+
+    if (save_decode_as_entries(&err) < 0)
+    {
+        simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err);
+        g_free(err);
+    }
 }
 
 /* add a single binding to the Show list */
@@ -685,7 +691,7 @@ decode_simple (GtkWidget *notebook_pg)
         if (add_reset_list) {
             selector_type = g_new(guint,1);
             *selector_type = GPOINTER_TO_UINT(value_ptr);
-            decode_build_reset_list(g_strdup(table_name), FT_UINT32, selector_type, NULL, NULL);
+            decode_build_reset_list(table_name, FT_UINT32, selector_type, NULL, NULL);
         }
     }
 
@@ -1327,8 +1333,7 @@ decode_add_notebook (GtkWidget *format_hb)
             entry = (decode_as_t *)list_entry->data;
             if (!strcmp(proto_name, entry->name))
             {
-                if ((find_dissector_table(entry->table_name) != NULL) ||
-                    (!strcmp(proto_name, "dcerpc")))
+                if (find_dissector_table(entry->table_name) != NULL)
                 {
                     page = decode_add_simple_page(entry);
                     label = gtk_label_new(entry->title);

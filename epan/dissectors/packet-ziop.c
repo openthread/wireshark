@@ -322,14 +322,14 @@ proto_register_ziop (void)
   expert_ziop = expert_register_protocol(proto_ziop);
   expert_register_field_array(expert_ziop, ei, array_length(ei));
 
-  new_register_dissector("ziop", dissect_ziop, proto_ziop);
+  register_dissector("ziop", dissect_ziop, proto_ziop);
 }
 
 
 void
 proto_reg_handoff_ziop (void)
 {
-  ziop_tcp_handle = new_create_dissector_handle(dissect_ziop_tcp, proto_ziop);
+  ziop_tcp_handle = create_dissector_handle(dissect_ziop_tcp, proto_ziop);
   dissector_add_for_decode_as("udp.port", ziop_tcp_handle);
 
   heur_dissector_add("tcp", dissect_ziop_heur, "ZIOP over TCP", "ziop_tcp", proto_ziop, HEURISTIC_ENABLE);

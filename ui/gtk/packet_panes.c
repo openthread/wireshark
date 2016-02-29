@@ -25,14 +25,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #if GTK_CHECK_VERSION(3,0,0)
@@ -56,6 +48,7 @@
 #include "ui/ui_util.h"
 
 #include <wsutil/file_util.h>
+#include <wsutil/str_util.h>
 
 #include "ui/gtk/keys.h"
 #include "ui/gtk/color_utils.h"
@@ -1006,7 +999,7 @@ packet_hex_print(GtkWidget *bv, const guint8 *pd, frame_data *fd,
     /* stig: it should be done only for bitview... */
     if (recent.gui_bytes_view != BYTES_BITS)
         bmask = 0x00;
-    packet_hex_update(bv, pd, len, bstart, bend, bmask, bmask_le, astart, aend, pstart, pend, fd->flags.encoding);
+    packet_hex_update(bv, pd, len, bstart, bend, bmask, bmask_le, astart, aend, pstart, pend, (packet_char_enc)fd->flags.encoding);
 }
 
 void
@@ -1047,7 +1040,7 @@ packet_hex_editor_print(GtkWidget *bv, const guint8 *pd, frame_data *fd, int off
     g_object_set_data(G_OBJECT(bv), E_BYTE_VIEW_PROTO_START_KEY, GINT_TO_POINTER(pstart));
     g_object_set_data(G_OBJECT(bv), E_BYTE_VIEW_PROTO_END_KEY, GINT_TO_POINTER(pend));
 
-    packet_hex_update(bv, pd, len, bstart, bend, bmask, bmask_le, astart, aend, pstart, pend, fd->flags.encoding);
+    packet_hex_update(bv, pd, len, bstart, bend, bmask, bmask_le, astart, aend, pstart, pend, (packet_char_enc)fd->flags.encoding);
 }
 
 /*
@@ -1153,14 +1146,6 @@ void proto_draw_colors_init(void)
     if(colors_ok) {
         return;
     }
-#if 0
-    /* Allocating collor isn't necessary? */
-    get_color(&expert_color_chat);
-    get_color(&expert_color_note);
-    get_color(&expert_color_warn);
-    get_color(&expert_color_error);
-    get_color(&expert_color_foreground);
-#endif
     expert_color_comment_str = gdk_color_to_string(&expert_color_comment);
     expert_color_chat_str = gdk_color_to_string(&expert_color_chat);
     expert_color_note_str = gdk_color_to_string(&expert_color_note);
@@ -1168,9 +1153,6 @@ void proto_draw_colors_init(void)
     expert_color_error_str = gdk_color_to_string(&expert_color_error);
     expert_color_foreground_str = gdk_color_to_string(&expert_color_foreground);
 
-#if 0
-    get_color(&hidden_proto_item);
-#endif
     colors_ok = TRUE;
 }
 
@@ -1437,7 +1419,7 @@ proto_tree_draw(proto_tree *protocol_tree, GtkWidget *tree_view)
 }
 
 void
-select_bytes_view (GtkWidget *w _U_, gpointer data _U_, gint view)
+select_bytes_view (GtkWidget *w _U_, gpointer data _U_, bytes_view_type view)
 {
     if (recent.gui_bytes_view != view) {
         recent.gui_bytes_view = view;

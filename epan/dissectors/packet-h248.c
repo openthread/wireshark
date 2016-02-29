@@ -5342,12 +5342,13 @@ dissect_h248_SigParameterV1(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int of
 /*--- End of included file: packet-h248-fn.c ---*/
 #line 1418 "../../asn1/h248/packet-h248-template.c"
 
-static void dissect_h248_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
+static int dissect_h248_tpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
     dissect_tpkt_encap(tvb, pinfo, tree, h248_desegment, h248_handle);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_h248(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_h248(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *h248_item;
     asn1_ctx_t asn1_ctx;
@@ -5379,7 +5380,7 @@ dissect_h248(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             }
             if(megaco_handle){
                 call_dissector(megaco_handle, tvb, pinfo, tree);
-                return;
+                return tvb_captured_length(tvb);
             }
         }
         {
@@ -5389,7 +5390,7 @@ dissect_h248(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             hidden_item = proto_tree_add_uint(tree, hf_248_magic_num, tvb, offset, 4, magic_num);
             PROTO_ITEM_SET_HIDDEN(hidden_item);
             if( dissector_try_uint(subdissector_table, magic_num, tvb, pinfo, tree) ) {
-                return;
+                return tvb_captured_length(tvb);
             }
         }
     }
@@ -5404,6 +5405,7 @@ dissect_h248(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     dissect_h248_MegacoMessage(FALSE, tvb, 0, &asn1_ctx, h248_tree, -1);
 
+    return tvb_captured_length(tvb);
 }
 
 /*--- proto_register_h248 ----------------------------------------------*/
@@ -5491,7 +5493,7 @@ void proto_register_h248(void) {
             FT_STRING, BASE_NONE, NULL, 0,
             "h248.IA5String", HFILL }},
         { &hf_h248_context_id64,
-          { "contextId", "h248.contextId",
+          { "contextId", "h248.contextId64",
             FT_UINT64, BASE_HEX, NULL, 0,
             "Context ID", HFILL }},
         { &hf_h248_transactionId64,
@@ -6762,7 +6764,7 @@ void proto_register_h248(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-h248-hfarr.c ---*/
-#line 1583 "../../asn1/h248/packet-h248-template.c"
+#line 1585 "../../asn1/h248/packet-h248-template.c"
 
         GCP_HF_ARR_ELEMS("h248",h248_arrel)
 
@@ -6928,7 +6930,7 @@ void proto_register_h248(void) {
     &ett_h248_SigParameterV1,
 
 /*--- End of included file: packet-h248-ettarr.c ---*/
-#line 1601 "../../asn1/h248/packet-h248-template.c"
+#line 1603 "../../asn1/h248/packet-h248-template.c"
     };
 
     static ei_register_info ei[] = {
@@ -6952,12 +6954,12 @@ void proto_register_h248(void) {
     expert_h248 = expert_register_protocol(proto_h248);
     expert_register_field_array(expert_h248, ei, array_length(ei));
 
-    subdissector_table = register_dissector_table("h248.magic_num", "H248 Magic Num", FT_UINT32, BASE_HEX);
+    subdissector_table = register_dissector_table("h248.magic_num", "H248 Magic Num", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     h248_module = prefs_register_protocol(proto_h248, proto_reg_handoff_h248);
     prefs_register_bool_preference(h248_module, "ctx_info",
                                    "Track Context",
-                                   "Mantain relationships between transactions and contexts and display an extra tree showing context data",
+                                   "Maintain relationships between transactions and contexts and display an extra tree showing context data",
                                    &keep_persistent_data);
     prefs_register_uint_preference(h248_module, "udp_port",
                                    "UDP port",

@@ -37,13 +37,15 @@
 #include <string.h>
 #include <math.h>
 
-#include "epan/packet_info.h"
+#include <glib.h>
+
+#include <epan/packet_info.h>
 #include <epan/in_cksum.h>
 #include <epan/packet.h>
 #include <epan/tap.h>
 #include <epan/stat_tap_ui.h>
 #include <epan/dissectors/packet-ip.h>
-#include "epan/timestats.h"
+#include <epan/timestats.h>
 
 
 /* For checksum */
@@ -117,8 +119,8 @@ comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 
 	/* so this get filled, usually with the first frame */
 	if (cs->eth_dst.len == 0) {
-		cs->eth_dst = pinfo->dl_dst;
-		cs->eth_src = pinfo->dl_src;
+		copy_address_shallow(&cs->eth_dst, &pinfo->dl_dst);
+		copy_address_shallow(&cs->eth_src, &pinfo->dl_src);
 	}
 
 	/* Set up the fields of the pseudo-header and create checksum */
@@ -140,15 +142,15 @@ comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 	fInfo->fp->partner = NULL;
 	fInfo->fp->count = 1;
 	fInfo->fp->cksum = computed_cksum;
-	fInfo->num = pinfo->fd->num;
+	fInfo->num = pinfo->num;
 	fInfo->id = ci->ip_id;
 	fInfo->ip_ttl = ci->ip_ttl;
-	fInfo->dl_dst = pinfo->dl_dst;
-	fInfo->abs_ts = pinfo->fd->abs_ts;
+	copy_address_shallow(&fInfo->dl_dst, &pinfo->dl_dst);
+	fInfo->abs_ts = pinfo->abs_ts;
 	/* clean memory */
 	nstime_set_zero(&fInfo->zebra_time);
 	nstime_set_zero(&fInfo->fp->predecessor_time);
-	g_hash_table_insert(cs->packet_set, GINT_TO_POINTER(pinfo->fd->num), fInfo);
+	g_hash_table_insert(cs->packet_set, GINT_TO_POINTER(pinfo->num), fInfo);
 
 	return 1;
 }
@@ -175,7 +177,7 @@ call_foreach_count_ip_id(gpointer key _U_, gpointer value, gpointer arg)
 	/* we only need one value out of pinfo we use a temp one */
 	packet_info *pinfo = (packet_info*)g_malloc(sizeof(packet_info));
 	pinfo->fd = (frame_data*)g_malloc(sizeof(frame_data));
-	pinfo->fd->num = fInfo->num;
+	pinfo->num = fInfo->num;
 
 	fInfoTemp = (frame_info *)g_hash_table_lookup(cs->ip_id_set, GINT_TO_POINTER((gint)fInfo->id));
 	if (fInfoTemp == NULL) {
@@ -253,7 +255,7 @@ call_foreach_new_order(gpointer key _U_, gpointer value, gpointer arg)
 	fInfoTemp = (frame_info *)g_hash_table_lookup(cs->nr_set, GINT_TO_POINTER((gint)fInfo->id));
 	if (fInfoTemp == NULL) {
 		if (TTL_method == FALSE) {
-			if ((ADDRESSES_EQUAL(&cs->eth_dst, &fInfo->dl_dst)) || (ADDRESSES_EQUAL(&cs->eth_src, &fInfo->dl_dst))) {
+			if ((addresses_equal(&cs->eth_dst, &fInfo->dl_dst)) || (addresses_equal(&cs->eth_src, &fInfo->dl_dst))) {
 				g_hash_table_insert(cs->nr_set, GINT_TO_POINTER((gint)fInfo->id), fInfo);
 				fInfo->zebra_time = cs->zebra_time;
 				cs->zebra_time.nsecs = cs->zebra_time.nsecs + MERGED_FILES;
@@ -278,7 +280,7 @@ call_foreach_new_order(gpointer key _U_, gpointer value, gpointer arg)
 		}
 	} else {
 		if (TTL_method == FALSE) {
-			if (((ADDRESSES_EQUAL(&cs->eth_dst, &fInfo->dl_dst)) || (ADDRESSES_EQUAL(&cs->eth_src, &fInfo->dl_dst))) && (!fmod(fInfoTemp->zebra_time.nsecs, MERGED_FILES))) {
+			if (((addresses_equal(&cs->eth_dst, &fInfo->dl_dst)) || (addresses_equal(&cs->eth_src, &fInfo->dl_dst))) && (!fmod(fInfoTemp->zebra_time.nsecs, MERGED_FILES))) {
 				fInfo->zebra_time.nsecs = fInfoTemp->zebra_time.nsecs;
 			} else {
 				fInfo->zebra_time.nsecs = fInfoTemp->zebra_time.nsecs+1;

@@ -51,7 +51,7 @@ static expert_field ei_ros_undecoded = EI_INIT;
 /* Subdissectors */
 static dissector_handle_t data_handle = NULL;
 
-/* Gloabl variables */
+/* Global variables */
 static rose_ctx_t *rose_ctx_tmp;
 
 static guint32 problem_val;
@@ -100,7 +100,7 @@ void proto_register_q932_ros(void) {
   expert_q932_ros = expert_register_protocol(proto_q932_ros);
   expert_register_field_array(expert_q932_ros, ei, array_length(ei));
 
-  new_register_dissector(PFNAME, dissect_q932_ros, proto_q932_ros);
+  register_dissector(PFNAME, dissect_q932_ros, proto_q932_ros);
 }
 
 /*--- proto_reg_handoff_q932_ros --------------------------------------------*/

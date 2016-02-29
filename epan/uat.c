@@ -2,7 +2,7 @@
  *  uat.c
  *
  *  User Accessible Tables
- *  Mantain an array of user accessible data strucures
+ *  Maintain an array of user accessible data structures
  *
  * (c) 2007, Luis E. Garcia Ontanon <luis@ontanon.org>
  *
@@ -250,7 +250,7 @@ uat_t* uat_get_table_by_name(const char* name) {
 
 static void putfld(FILE* fp, void* rec, uat_field_t* f) {
     guint fld_len;
-    const char* fld_ptr;
+    char* fld_ptr;
 
     f->cb.tostr(rec,&fld_ptr,&fld_len,f->cbdata.tostr,f->fld_data);
 
@@ -290,7 +290,7 @@ static void putfld(FILE* fp, void* rec, uat_field_t* f) {
             g_assert_not_reached();
     }
 
-    g_free((char*)fld_ptr);
+    g_free(fld_ptr);
 }
 
 gboolean uat_save(uat_t* uat, char** error) {
@@ -747,11 +747,76 @@ char* uat_esc(const char* buf, guint len) {
 
 }
 
-CHK_STR_IS_DEF(isprint)
-CHK_STR_IS_DEF(isalpha)
-CHK_STR_IS_DEF(isalnum)
-CHK_STR_IS_DEF(isdigit)
-CHK_STR_IS_DEF(isxdigit)
+gboolean uat_fld_chk_str_isprint(void* u1 _U_, const char* strptr, guint len, const void* u2 _U_, const void* u3 _U_, char** err) {
+    guint i;
+
+    for (i = 0; i < len; i++) {
+	char c = strptr[i];
+	if (! g_ascii_isprint(c)) {
+	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+            return FALSE;
+        }
+    }
+    *err = NULL;
+    return TRUE;
+}
+
+gboolean uat_fld_chk_str_isalpha(void* u1 _U_, const char* strptr, guint len, const void* u2 _U_, const void* u3 _U_, char** err) {
+    guint i;
+
+    for (i = 0; i < len; i++) {
+	char c = strptr[i];
+	if (! g_ascii_isalpha(c)) {
+	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+            return FALSE;
+        }
+    }
+    *err = NULL;
+    return TRUE;
+}
+
+gboolean uat_fld_chk_str_isalnum(void* u1 _U_, const char* strptr, guint len, const void* u2 _U_, const void* u3 _U_, char** err) {
+    guint i;
+
+    for (i = 0; i < len; i++) {
+	char c = strptr[i];
+	if (! g_ascii_isalnum(c)) {
+	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+            return FALSE;
+        }
+    }
+    *err = NULL;
+    return TRUE;
+}
+
+gboolean uat_fld_chk_str_isdigit(void* u1 _U_, const char* strptr, guint len, const void* u2 _U_, const void* u3 _U_, char** err) {
+    guint i;
+
+    for (i = 0; i < len; i++) {
+	char c = strptr[i];
+	if (! g_ascii_isdigit(c)) {
+	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+            return FALSE;
+        }
+    }
+    *err = NULL;
+    return TRUE;
+}
+
+gboolean uat_fld_chk_str_isxdigit(void* u1 _U_, const char* strptr, guint len, const void* u2 _U_, const void* u3 _U_, char** err) {
+    guint i;
+
+    for (i = 0; i < len; i++) {
+	char c = strptr[i];
+	if (! g_ascii_isxdigit(c)) {
+	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+            return FALSE;
+        }
+    }
+    *err = NULL;
+    return TRUE;
+}
+
 
 /*
  * Editor modelines

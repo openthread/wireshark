@@ -37,8 +37,8 @@
 
 #include <epan/packet.h>
 #include <epan/etypes.h>
+#include <epan/capture_dissectors.h>
 
-#include "packet-bpq.h"
 #include "packet-ax25.h"
 
 #define STRLEN	80
@@ -48,6 +48,7 @@
 void proto_register_bpq(void);
 void proto_reg_handoff_bpq(void);
 
+static dissector_handle_t bpq_handle;
 static dissector_handle_t ax25_handle;
 
 static int proto_bpq            = -1;
@@ -55,8 +56,8 @@ static int hf_bpq_len		= -1;
 
 static gint ett_bpq = -1;
 
-static void
-dissect_bpq( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree )
+static int
+dissect_bpq( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_ )
 {
 	proto_item *ti;
 	proto_tree *bpq_tree;
@@ -98,22 +99,20 @@ dissect_bpq( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree )
 	/* XXX - use the length */
 	next_tvb = tvb_new_subset_remaining( tvb, offset );
 	call_dissector( ax25_handle, next_tvb, pinfo, parent_tree );
+	return tvb_captured_length(tvb);
 }
 
-void
-capture_bpq( const guchar *pd, int offset, int len, packet_counts *ld)
+static gboolean
+capture_bpq( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
 	int l_offset;
 
 	if ( ! BYTES_ARE_IN_FRAME( offset, len, BPQ_HEADER_SIZE ) )
-		{
-		ld->other++;
-		return;
-		}
+		return FALSE;
 
 	l_offset = offset;
 	l_offset += BPQ_HEADER_SIZE; /* step over bpq header to point at the AX.25 packet*/
-	capture_ax25( pd, l_offset, len, ld );
+	return capture_ax25( pd, l_offset, len, cpinfo, pseudo_header );
 }
 
 void
@@ -137,7 +136,7 @@ proto_register_bpq(void)
 	proto_bpq = proto_register_protocol( "Amateur Radio BPQ", "BPQ", "bpq" );
 
 	/* Register the dissector */
-	register_dissector( "bpq", dissect_bpq, proto_bpq );
+	bpq_handle = register_dissector("bpq", dissect_bpq, proto_bpq);
 
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array( proto_bpq, hf, array_length( hf ) );
@@ -147,10 +146,8 @@ proto_register_bpq(void)
 void
 proto_reg_handoff_bpq(void)
 {
-	dissector_handle_t bpq_handle;
-
-	bpq_handle = create_dissector_handle( dissect_bpq, proto_bpq );
 	dissector_add_uint("ethertype", ETHERTYPE_BPQ, bpq_handle);
+	register_capture_dissector("ethertype", ETHERTYPE_BPQ, capture_bpq, proto_bpq);
 
 	/* BPQ is only implemented for AX.25 */
 	ax25_handle     = find_dissector( "ax25" );

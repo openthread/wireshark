@@ -464,7 +464,7 @@ static gboolean
 wslua_filehandler_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
                       const guint8 *pd, int *err, gchar **err_info);
 static gboolean
-wslua_filehandler_dump_close(wtap_dumper *wdh, int *err);
+wslua_filehandler_dump_finish(wtap_dumper *wdh, int *err);
 
 
 /* The classic wtap dump_open function.
@@ -514,11 +514,11 @@ wslua_filehandler_dump_open(wtap_dumper *wdh, int *err)
             return 0;
         }
 
-        /* it's ok to not have a close routine */
+        /* it's ok to not have a finish routine */
         if (fh->write_close_ref != LUA_NOREF)
-            wdh->subtype_close = wslua_filehandler_dump_close;
+            wdh->subtype_finish = wslua_filehandler_dump_finish;
         else
-            wdh->subtype_close = NULL;
+            wdh->subtype_finish = NULL;
     }
     else {
         /* not our file type? */
@@ -570,11 +570,11 @@ wslua_filehandler_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
     return (retval == 1);
 }
 
-/* The classic wtap dump_close routine.  This returns TRUE if it closes cleanly,
- * else FALSE.
+/* The classic wtap dump_finish routine.  This returns TRUE if it
+ * writes out the last information cleanly, else FALSE.
 */
 static gboolean
-wslua_filehandler_dump_close(wtap_dumper *wdh, int *err)
+wslua_filehandler_dump_finish(wtap_dumper *wdh, int *err)
 {
     FileHandler fh = (FileHandler)(wdh->wslua_data);
     int retval = -1;
@@ -884,7 +884,7 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,can_write_encap);
 
     The called Lua function should return true on success, or false if it hit an error.
 
-    Also make sure to set the `FileHandler.write` (and potentially `FileHandler.write_close`) functions before
+    Also make sure to set the `FileHandler.write` (and potentially `FileHandler.write_finish`) functions before
     returning true from this function. */
 WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,write_open);
 
@@ -900,7 +900,7 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,write_open);
     The called Lua function should return true on success, or false if it hit an error. */
 WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,write);
 
-/* WSLUA_ATTRIBUTE FileHandler_write_close WO The Lua function to be called when Wireshark wants to close the written file.
+/* WSLUA_ATTRIBUTE FileHandler_write_finish WO The Lua function to be called when Wireshark wants to close the written file.
 
     When later called by Wireshark, the Lua function will be given:
         1. A `File` object

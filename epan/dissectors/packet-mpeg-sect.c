@@ -127,7 +127,7 @@ static const value_string mpeg_sect_table_id_vals[] = {
     { TID_NIT_OTHER,   "Network Information Table (NIT), other network" },
     { TID_SDT,         "Service Description Table (SDT), current network" },
     { TID_SDT_OTHER,   "Service Description (SDT), other network" },
-    { TID_BAT,         "Bouquet Associatoin Table (BAT)" },
+    { TID_BAT,         "Bouquet Association Table (BAT)" },
     { TID_EIT,         "Event Information Table (EIT), actual TS" },
     { TID_EIT_OTHER,   "Event Information Table (EIT), other TS" },
     { TID_TDT,         "Time and Date Table (TDT)" },
@@ -363,7 +363,7 @@ proto_register_mpeg_sect(void)
     expert_module_t* expert_mpeg_sect;
 
     proto_mpeg_sect = proto_register_protocol("MPEG2 Section", "MPEG SECT", "mpeg_sect");
-    new_register_dissector("mpeg_sect", dissect_mpeg_sect, proto_mpeg_sect);
+    register_dissector("mpeg_sect", dissect_mpeg_sect, proto_mpeg_sect);
 
     proto_register_field_array(proto_mpeg_sect, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -380,7 +380,7 @@ proto_register_mpeg_sect(void)
 
     mpeg_sect_tid_dissector_table = register_dissector_table("mpeg_sect.tid",
                                  "MPEG SECT Table ID",
-                                 FT_UINT8, BASE_HEX);
+                                 FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 }
 

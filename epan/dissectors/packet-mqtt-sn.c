@@ -500,7 +500,7 @@ static void dissect_mqttsn_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 }
 
 /* Dissect a complete MQTT-SN message. */
-static void dissect_mqttsn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_mqttsn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     /* Various variables. */
     int offset = 0;
@@ -532,6 +532,7 @@ static void dissect_mqttsn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* Dissect a MQTT-SN packet. */
     dissect_mqttsn_packet(tvb, pinfo, tree, offset);
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark. */

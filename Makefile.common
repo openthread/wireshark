@@ -31,6 +31,7 @@ BUILT_SOURCES =	$(BUILT_C_FILES) $(BUILT_HEADER_FILES)
 
 # Header files generated from source files.
 GENERATED_HEADER_FILES = \
+	text2pcap-scanner_lex.h \
 	$(BUILT_HEADER_FILES)
 
 # C source files generated from source files.
@@ -50,7 +51,6 @@ SHARK_COMMON_SRC =	\
 # corresponding headers
 SHARK_COMMON_INCLUDES =	\
 	cfile.h			\
-	color.h			\
 	extcap.h		\
 	extcap_parser.h		\
 	file.h			\
@@ -64,16 +64,16 @@ WIRESHARK_COMMON_SRC =	\
 	$(SHARK_COMMON_SRC)	\
 	capture_info.c	\
 	capture_opts.c	\
-	color_filters.c	\
 	file.c		\
 	fileset.c	\
+	filter_files.c \
 	summary.c
 
 # corresponding headers
 WIRESHARK_COMMON_INCLUDES =	\
 	capture_info.h	\
 	capture_opts.h	\
-	color_filters.h	\
+	filter_files.h \
 	globals.h	\
 	log.h		\
 	summary.h	\
@@ -83,6 +83,7 @@ WIRESHARK_COMMON_INCLUDES =	\
 tshark_SOURCES =	\
 	$(SHARK_COMMON_SRC)	\
 	capture_opts.c		\
+	filter_files.c		\
 	tshark.c
 
 # tfshark specifics
@@ -94,10 +95,6 @@ tfshark_SOURCES =	\
 rawshark_SOURCES =	\
 	$(SHARK_COMMON_SRC)	\
 	rawshark.c
-
-# androiddump specifics
-androiddump_SOURCES =	\
-	extcap/androiddump.c
 
 # text2pcap specifics
 text2pcap_SOURCES = \
@@ -154,6 +151,7 @@ dumpcap_SOURCES =	\
 	capture_stop_conditions.c	\
 	conditions.c	\
 	dumpcap.c	\
+	filter_files.c	\
 	pcapio.c	\
 	ringbuffer.c	\
 	sync_pipe_write.c

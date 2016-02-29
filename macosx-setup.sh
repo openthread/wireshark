@@ -57,7 +57,7 @@ XZ_VERSION=5.0.4
 #
 # In case we want to build with cmake.
 #
-CMAKE_VERSION=2.8.12.2
+CMAKE_VERSION=${CMAKE_VERSION-2.8.12.2}
 
 #
 # The following libraries and tools are required even to build only TShark.
@@ -69,20 +69,20 @@ PKG_CONFIG_VERSION=0.28
 #
 # One or more of the following libraries are required to build Wireshark.
 #
-# If you don't want to build with Qt, comment out the QT_VERSION= line.
+# To override the versions of Qt and GTK call the script with some of the
+# variables set to the new values. Setting a variable to empty will disable
+# building the toolkit and will un-install any version previously installed
+# by the script, e.g. "GTK_VERSION=3.5.2 QT_VERSION= ./macos-setup.sh"
+# will build and install with GTK+ 3.5.2 and will not install Qt (and,
+# if the script installed Qt earlier, will un-install that version of Qt).
+#
 # Note that Qt 5, prior to 5.5.0, mishandles context menus in ways that,
 # for example, cause them not to work reliably in the packet detail or
 # packet data pane; see, for example, Qt bugs QTBUG-31937, QTBUG-41017,
 # and QTBUG-43464, all of which seem to be the same bug.
 #
-# If you want to build with GTK+ 2, comment out the GTK_VERSION=3.* line
-# and un-comment the GTK_VERSION=2.* line.
-#
-# If you don't want to build with GTK+ at all, comment out both lines.
-#
-QT_VERSION=5.5.0
-GTK_VERSION=2.24.17
-#GTK_VERSION=3.5.2
+QT_VERSION=${QT_VERSION-5.5.0}
+GTK_VERSION=${GTK_VERSION-2.24.17}
 if [ "$GTK_VERSION" ]; then
     #
     # We'll be building GTK+, so we need some additional libraries.
@@ -93,7 +93,7 @@ if [ "$GTK_VERSION" ]; then
 
     ATK_VERSION=2.8.0
     PANGO_VERSION=1.30.1
-    PNG_VERSION=1.6.17
+    PNG_VERSION=1.6.20
     PIXMAN_VERSION=0.26.0
     CAIRO_VERSION=1.12.2
     GDK_PIXBUF_VERSION=2.28.0
@@ -103,6 +103,7 @@ if [ "$QT_VERSION" ]; then
     QT_MINOR_VERSION="`expr $QT_VERSION : '[0-9][0-9]*\.\([0-9][0-9]*\).*'`"
     QT_DOTDOT_VERSION="`expr $QT_VERSION : '[0-9][0-9]*\.[0-9][0-9]*\.\([0-9][0-9]*\).*'`"
     QT_MAJOR_MINOR_VERSION=$QT_MAJOR_VERSION.$QT_MINOR_VERSION
+    QT_MAJOR_MINOR_DOTDOT_VERSION=$QT_MAJOR_VERSION.$QT_MINOR_VERSION.$QT_DOTDOT_VERSION
 fi
 
 # In case we want to build GTK *and* we don't have Apple's X11 SDK installed
@@ -139,6 +140,8 @@ PORTAUDIO_VERSION=pa_stable_v19_20111121
 GEOIP_VERSION=1.4.8
 
 CARES_VERSION=1.10.0
+
+LIBSSH_VERSION=0.7.2
 
 DARWIN_MAJOR_VERSION=`uname -r | sed 's/\([0-9]*\).*/\1/'`
 
@@ -329,7 +332,7 @@ install_cmake() {
             #
             # Download the DMG, run the installer.
             #
-            [ -f cmake-$CMAKE_VERSION-Darwin64-universal.dmg ] || curl -O http://www.cmake.org/files/v$CMAKE_MAJOR_MINOR_VERSION/cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
+            [ -f cmake-$CMAKE_VERSION-Darwin64-universal.dmg ] || curl -O https://cmake.org/files/v$CMAKE_MAJOR_MINOR_VERSION/cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
             sudo hdiutil attach cmake-$CMAKE_VERSION-Darwin64-universal.dmg || exit 1
             sudo installer -target / -pkg /Volumes/cmake-$CMAKE_VERSION-Darwin64-universal/cmake-$CMAKE_VERSION-Darwin64-universal.pkg || exit 1
             sudo hdiutil detach /Volumes/cmake-$CMAKE_VERSION-Darwin64-universal
@@ -351,7 +354,7 @@ install_cmake() {
             else
                 type="Darwin-x86_64"
             fi
-            [ -f cmake-$CMAKE_VERSION-$type.dmg ] || curl -O http://www.cmake.org/files/v$CMAKE_MAJOR_MINOR_VERSION/cmake-$CMAKE_VERSION-$type.dmg || exit 1
+            [ -f cmake-$CMAKE_VERSION-$type.dmg ] || curl -O https://cmake.org/files/v$CMAKE_MAJOR_MINOR_VERSION/cmake-$CMAKE_VERSION-$type.dmg || exit 1
             sudo hdiutil attach cmake-$CMAKE_VERSION-$type.dmg || exit 1
             sudo ditto /Volumes/cmake-$CMAKE_VERSION-$type/CMake.app /Applications/CMake.app || exit 1
 
@@ -365,7 +368,7 @@ install_cmake() {
             #    3) it can't be run from the command line;
             #
             # so we do it ourselves.
-	    #
+            #
             for i in ccmake cmake cmake-gui cmakexbuild cpack ctest
             do
                 sudo ln -s /Applications/CMake.app/Contents/bin/$i /usr/local/bin/$i
@@ -608,14 +611,31 @@ install_qt() {
         # What you get for this URL might just be a 302 Found reply, so use
         # -L so we get redirected.
         #
-        [ -f qt-opensource-mac-x64-clang-$QT_VERSION.dmg ] || curl -L -O http://download.qt.io/archive/qt/$QT_MAJOR_MINOR_VERSION/$QT_VERSION/qt-opensource-mac-x64-clang-$QT_VERSION.dmg || exit 1
-        sudo hdiutil attach qt-opensource-mac-x64-clang-$QT_VERSION.dmg || exit 1
+        if [ "$QT_MAJOR_VERSION" -ge 5 ]
+        then
+            QT_VOLUME=qt-opensource-mac-x64-clang-$QT_VERSION
+        else
+            QT_VOLUME=qt-opensource-mac-$QT_VERSION
+        fi
+        [ -f $QT_VOLUME.dmg ] || curl -L -O http://download.qt.io/archive/qt/$QT_MAJOR_MINOR_VERSION/$QT_MAJOR_MINOR_DOTDOT_VERSION/$QT_VOLUME.dmg || exit 1
+        sudo hdiutil attach $QT_VOLUME.dmg || exit 1
 
-        #
-        # Run the executable directly, so that we wait for it to finish.
-        #
-        /Volumes/qt-opensource-mac-x64-clang-$QT_VERSION/qt-opensource-mac-x64-clang-$QT_VERSION.app/Contents/MacOS/qt-opensource-mac-x64-clang-$QT_VERSION
-        sudo hdiutil detach /Volumes/qt-opensource-mac-x64-clang-$QT_VERSION
+        if [ "$QT_MAJOR_VERSION" -ge 5 ]
+        then
+            #
+            # Run the installer executable directly, so that we wait for
+            # it to finish.  Then unmount the volume.
+            #
+            /Volumes/$QT_VOLUME/$QT_VOLUME.app/Contents/MacOS/$QT_VOLUME
+            sudo hdiutil detach /Volumes/$QT_VOLUME
+        else
+            #
+            # Open the installer package; use -W, so that we wait for
+            # the installer to finish.  Then unmount the volume.
+            #
+            open -W "/Volumes/Qt $QT_MAJOR_MINOR_DOTDOT_VERSION/Qt.mpkg"
+            sudo hdiutil detach "/Volumes/Qt $QT_MAJOR_MINOR_DOTDOT_VERSION"
+        fi
 
         #
         # Versions 5.3.x through 5.5.0, at least, have bogus .pc files.
@@ -1234,7 +1254,7 @@ install_lua() {
         [ -f lua-$LUA_VERSION.tar.gz ] || curl -L -O http://www.lua.org/ftp/lua-$LUA_VERSION.tar.gz || exit 1
         gzcat lua-$LUA_VERSION.tar.gz | tar xf - || exit 1
         cd lua-$LUA_VERSION
-        make $MAKE_BUILD_OPTS macosx || exit 1
+        make MYCFLAGS="$CFLAGS $VERSION_MIN_FLAGS $SDKFLAGS" MYLDFLAGS="$LDFLAGS $VERSION_MIN_FLAGS $SDKFLAGS" $MAKE_BUILD_OPTS macosx || exit 1
         $DO_MAKE_INSTALL || exit 1
         cd ..
         touch lua-$LUA_VERSION-done
@@ -1418,11 +1438,59 @@ uninstall_c_ares() {
     fi
 }
 
+install_libssh() {
+    if [ "$LIBSSH_VERSION" -a ! -f libssh-$LIBSSH_VERSION-done ] ; then
+        echo "Downloading, building, and installing libssh:"
+        [ -f libssh-$LIBSSH_VERSION.tar.xz ] || curl -L -O https://red.libssh.org/attachments/download/177/libssh-$LIBSSH_VERSION.tar.xz || exit 1
+        xzcat libssh-$LIBSSH_VERSION.tar.xz | tar xf - || exit 1
+        cd libssh-$LIBSSH_VERSION
+        mkdir build
+        cd build
+        CFLAGS="$CFLAGS $VERSION_MIN_FLAGS $SDKFLAGS" CXXFLAGS="$CXXFLAGS $VERSION_MIN_FLAGS $SDKFLAGS"  LDFLAGS="$LDFLAGS $VERSION_MIN_FLAGS $SDKFLAGS" cmake -DWITH_GCRYPT=1 ../ || exit 1
+        make $MAKE_BUILD_OPTS || exit 1
+        $DO_MAKE_INSTALL || exit 1
+        cd ../..
+        touch libssh-$LIBSSH_VERSION-done
+    fi
+}
+
+uninstall_libssh() {
+    if [ ! -z "$installed_libssh_version" ] ; then
+        echo "Uninstalling libssh:"
+        cd libssh-$installed_libssh_version
+        $DO_MAKE_UNINSTALL || exit 1
+        make distclean || exit 1
+        cd ..
+        rm libssh-$installed_libssh_version-done
+
+        if [ "$#" -eq 1 -a "$1" = "-r" ] ; then
+            #
+            # Get rid of the previously downloaded and unpacked version.
+            #
+            rm -rf libssh-$installed_libssh_version
+            rm -rf libssh-$installed_libssh_version.tar.xz
+        fi
+
+        installed_libssh_version=""
+    fi
+}
+
 install_all() {
     #
     # Check whether the versions we have installed are the versions
     # requested; if not, uninstall the installed versions.
     #
+    if [ ! -z "$installed_libssh_version" -a \
+              "$installed_libssh_version" != "$LIBSSH_VERSION" ] ; then
+        echo "Installed libssh version is $installed_libssh_version"
+        if [ -z "$LIBSSH_VERSION" ] ; then
+            echo "libssh is not requested"
+        else
+            echo "Requested libssh version is $LIBSSH_VERSION"
+        fi
+        uninstall_libssh -r
+    fi
+
     if [ ! -z "$installed_cares_version" -a \
               "$installed_cares_version" != "$CARES_VERSION" ] ; then
         echo "Installed C-Ares version is $installed_cares_version"
@@ -1810,6 +1878,8 @@ install_all() {
     install_geoip
 
     install_c_ares
+
+    install_libssh
 }
 
 uninstall_all() {
@@ -1826,6 +1896,8 @@ uninstall_all() {
         # We also do a "make distclean", so that we don't have leftovers from
         # old configurations.
         #
+        uninstall_libssh
+
         uninstall_c_ares
 
         uninstall_geoip
@@ -1980,6 +2052,7 @@ then
     installed_portaudio_version=`ls portaudio-*-done 2>/dev/null | sed 's/portaudio-\(.*\)-done/\1/'`
     installed_geoip_version=`ls geoip-*-done 2>/dev/null | sed 's/geoip-\(.*\)-done/\1/'`
     installed_cares_version=`ls c-ares-*-done 2>/dev/null | sed 's/c-ares-\(.*\)-done/\1/'`
+    installed_libssh_version=`ls libssh-*-done 2>/dev/null | sed 's/libssh-\(.*\)-done/\1/'`
 
     #
     # If we don't have a versioned -done file for portaudio, but do have
@@ -2214,10 +2287,22 @@ then
         # ages ago, but don't remember what I did.
         #
         GLIB_VERSION=2.16.3
-        CAIRO_VERSION=1.6.4
-        ATK_VERSION=1.24.0
-        PANGO_VERSION=1.20.2
-        GTK_VERSION=2.12.9
+        if [ "$CAIRO_VERSION" ]
+        then
+            CAIRO_VERSION=1.6.4
+        fi
+        if [ "$ATK_VERSION" ]
+        then
+            ATK_VERSION=1.24.0
+        fi
+        if [ "$PANGO_VERSION" ]
+        then
+            PANGO_VERSION=1.20.2
+        fi
+        if [ "$GTK_VERSION" ]
+        then
+            GTK_VERSION=2.12.9
+        fi
 
         #
         # That version of GTK+ includes gdk-pixbuf.
@@ -2306,7 +2391,7 @@ echo ""
 pkg_config_path=/usr/local/lib/pkgconfig
 if [ "$QT_VERSION" ]; then
     qt_base_path=$HOME/Qt$QT_VERSION/$QT_MAJOR_MINOR_VERSION/clang_64
-    pkg_config_path="$pkg_config_path":"$qt_base_path/clang_64/lib/pkgconfig"
+    pkg_config_path="$pkg_config_path":"$qt_base_path/lib/pkgconfig"
     CMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH":"$qt_base_path/lib/cmake"
 fi
 pkg_config_path="$pkg_config_path":/usr/X11/lib/pkgconfig

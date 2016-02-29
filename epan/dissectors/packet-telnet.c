@@ -31,6 +31,7 @@
 #include <epan/expert.h>
 #include <epan/asn1.h>
 #include "packet-kerberos.h"
+#include "packet-ssl-utils.h"
 #include "packet-tn3270.h"
 #include "packet-tn5250.h"
 
@@ -88,6 +89,8 @@ static int hf_tn3270_request = -1;
 static int hf_tn3270_regime_subopt_value = -1;
 static int hf_tn3270_regime_cmd = -1;
 
+static int hf_telnet_starttls = -1;
+
 static gint ett_telnet = -1;
 static gint ett_telnet_cmd = -1;
 static gint ett_telnet_subopt = -1;
@@ -127,6 +130,7 @@ static gint ett_xauth_subopt = -1;
 static gint ett_charset_subopt = -1;
 static gint ett_rsp_subopt = -1;
 static gint ett_comport_subopt = -1;
+static gint ett_starttls_subopt = -1;
 
 static expert_field ei_telnet_suboption_length = EI_INIT;
 static expert_field ei_telnet_invalid_subcommand = EI_INIT;
@@ -145,6 +149,7 @@ static dissector_handle_t telnet_handle;
 
 static dissector_handle_t tn3270_handle;
 static dissector_handle_t tn5250_handle;
+static dissector_handle_t ssl_handle;
 
 /* Some defines for Telnet */
 
@@ -211,6 +216,11 @@ typedef struct tn_opt {
                                   /* routine to dissect option */
 } tn_opt;
 
+typedef struct _telnet_conv_info {
+  guint32   starttls_requested_in;  /* Frame of first sender of START_TLS FOLLOWS */
+  guint32   starttls_port;          /* Source port for first sender */
+} telnet_conv_info_t;
+
 static void
 check_tn3270_model(packet_info *pinfo _U_, const char *terminaltype)
 {
@@ -249,6 +259,20 @@ check_for_tn3270(packet_info *pinfo _U_, const char *optname, const char *termin
       (strcmp(terminaltype,"IBM-5291-1") == 0) ||   /* 24 x 80 monochrome display*/
       (strcmp(terminaltype,"IBM-5251-11") == 0))    /* 24 x 80 monochrome display*/
     add_tn5250_conversation(pinfo, 0);
+}
+
+static telnet_conv_info_t *
+telnet_get_session(packet_info *pinfo)
+{
+  conversation_t        *conversation = find_or_create_conversation(pinfo);
+  telnet_conv_info_t    *telnet_info;
+
+  telnet_info = (telnet_conv_info_t*)conversation_get_proto_data(conversation, proto_telnet);
+  if (!telnet_info) {
+    telnet_info = wmem_new0(wmem_file_scope(), telnet_conv_info_t);
+    conversation_add_proto_data(conversation, proto_telnet, telnet_info);
+  }
+  return telnet_info;
 }
 
 static void
@@ -446,6 +470,25 @@ dissect_tn3270e_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t
     len--;
   }
 
+}
+
+static void
+dissect_starttls_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t *tvb, int offset,
+                       int len _U_, proto_tree *tree, proto_item *item _U_)
+{
+  telnet_conv_info_t *session = telnet_get_session(pinfo);
+
+  proto_tree_add_item(tree, hf_telnet_starttls, tvb, offset, 1, ENC_BIG_ENDIAN);
+
+  if (session->starttls_requested_in == 0) {
+    /* First sender (client or server) requesting to start TLS. */
+    session->starttls_requested_in = pinfo->num;
+    session->starttls_port = pinfo->srcport;
+  } else if (session->starttls_requested_in < pinfo->num &&
+      session->starttls_port != pinfo->srcport) {
+    /* Other side confirms that following data is TLS. */
+    ssl_starttls_ack(ssl_handle, pinfo, telnet_handle);
+  }
 }
 
 static const value_string telnet_outmark_subopt_cmd_vals[] = {
@@ -1516,6 +1559,41 @@ static tn_opt options[] = {
     VARIABLE_LENGTH,
     1,
     dissect_comport_subopt
+  },
+  {
+    "Suppress Local Echo",                      /* draft-rfced-exp-atmar-00 */
+    NULL,
+    NO_LENGTH,
+    0,
+    NULL
+  },
+  {
+    "Start TLS",                                /* draft-ietf-tn3270e-telnet-tls-06 */
+    &ett_starttls_subopt,
+    FIXED_LENGTH,
+    1,
+    dissect_starttls_subopt
+  },
+  {
+    "KERMIT",                                   /* RFC 2840 */
+    NULL,
+    VARIABLE_LENGTH,
+    1,
+    NULL                                        /* XXX - stub */
+  },
+  {
+    "SEND-URL",                                 /* draft-croft-telnet-url-trans-00 */
+    NULL,
+    VARIABLE_LENGTH,
+    1,
+    NULL                                        /* XXX - stub */
+  },
+  {
+    "FORWARD_X",                                /* draft-altman-telnet-fwdx-03 */
+    NULL,
+    VARIABLE_LENGTH,
+    1,
+    NULL                                        /* XXX - stub */
   }
 
 };
@@ -1789,8 +1867,8 @@ static int find_unescaped_iac(tvbuff_t *tvb, int offset, int len)
   return iac_offset;
 }
 
-static void
-dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree *telnet_tree, *ti;
   tvbuff_t   *next_tvb;
@@ -1841,7 +1919,7 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       if (is_tn3270 || is_tn5250) {
         pinfo->desegment_offset = offset;
         pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
-        return;
+        return tvb_captured_length(tvb);
       }
       /*
        * We found no IAC byte, so what remains in the buffer
@@ -1852,6 +1930,7 @@ dissect_telnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       break;
     }
   }
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -2038,6 +2117,10 @@ proto_register_telnet(void)
       { "Cmd", "telnet.regime_cmd", FT_UINT8, BASE_DEC,
         NULL, 0, NULL, HFILL }
     },
+    { &hf_telnet_starttls,
+      { "Follows", "telnet.starttls", FT_UINT8, BASE_DEC,
+        NULL, 0, NULL, HFILL }
+    },
   };
   static gint *ett[] = {
     &ett_telnet,
@@ -2078,7 +2161,8 @@ proto_register_telnet(void)
     &ett_xauth_subopt,
     &ett_charset_subopt,
     &ett_rsp_subopt,
-    &ett_comport_subopt
+    &ett_comport_subopt,
+    &ett_starttls_subopt,
   };
 
   static ei_register_info ei[] = {
@@ -2114,6 +2198,7 @@ proto_reg_handoff_telnet(void)
   dissector_add_uint("tcp.port", TCP_PORT_TELNET, telnet_handle);
   tn3270_handle = find_dissector("tn3270");
   tn5250_handle = find_dissector("tn5250");
+  ssl_handle = find_dissector("ssl");
 }
 
 /*

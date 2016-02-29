@@ -171,7 +171,7 @@ m2m_defragment_cleanup(void)
 
 
 /* WiMax MAC to MAC protocol dissector */
-static void dissect_m2m(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int dissect_m2m(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti = NULL;
 	proto_item *m2m_item = NULL;
@@ -409,6 +409,7 @@ static void dissect_m2m(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			tlv_count--;
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 /* Decode and display the FCH burst */

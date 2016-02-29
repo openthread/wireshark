@@ -21,17 +21,9 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-include $(top_srcdir)/Makefile.am.inc
-
-AM_CPPFLAGS = -I$(top_srcdir)
-
 include Makefile.common
-
-if HAVE_WARNINGS_AS_ERRORS
-AM_CFLAGS = -Werror
-endif
-
-plugindir = @plugindir@
+include $(top_srcdir)/Makefile.am.inc
+include ../Makefile.am.inc
 
 plugin_LTLIBRARIES = opcua.la
 
@@ -41,64 +33,11 @@ opcua_la_SOURCES = \
 	$(SRC_FILES)	\
 	$(HEADER_FILES)
 
-opcua_la_LDFLAGS = -module -avoid-version
-opcua_la_LIBADD = @PLUGIN_LIBS@
+opcua_la_CPPFLAGS = $(AM_CPPFLAGS) $(PLUGIN_CPPFLAGS)
 
-# Libs must be cleared, or else libtool won't create a shared module.
-# If your module needs to be linked against any particular libraries,
-# add them here.
-LIBS =
+opcua_la_CFLAGS = $(AM_CFLAGS) $(PLUGIN_CFLAGS)
 
-#
-# Build plugin.c, which contains the plugin version[] string, a
-# function plugin_register() that calls the register routines for all
-# protocols, and a function plugin_reg_handoff() that calls the handoff
-# registration routines for all protocols.
-#
-# We do this by scanning sources.  If that turns out to be too slow,
-# maybe we could just require every .o file to have an register routine
-# of a given name (packet-aarp.o -> proto_register_aarp, etc.).
-#
-# Formatting conventions:  The name of the proto_register_* routines an
-# proto_reg_handoff_* routines must start in column zero, or must be
-# preceded only by "void " starting in column zero, and must not be
-# inside #if.
-#
-# REGISTER_SRC_FILES is assumed to have all the files that need to be scanned.
-#
-# For some unknown reason, having a big "for" loop in the Makefile
-# to scan all the files doesn't work with some "make"s; they seem to
-# pass only the first few names in the list to the shell, for some
-# reason.
-#
-# Therefore, we use a script to generate the register.c file.
-# The first argument is the directory in which the source files live.
-# The second argument is "plugin", to indicate that we should build
-# a plugin.c file for a plugin.
-# All subsequent arguments are the files to scan.
-#
-plugin.c: $(REGISTER_SRC_FILES) Makefile.common $(top_srcdir)/tools/make-dissector-reg.py
-	@echo Making plugin.c
-	@$(PYTHON) $(top_srcdir)/tools/make-dissector-reg.py $(srcdir) \
-		plugin $(REGISTER_SRC_FILES)
-
-#
-# Currently plugin.c can be included in the distribution because
-# we always build all protocol dissectors. We used to have to check
-# whether or not to build the snmp dissector. If we again need to
-# variably build something, making plugin.c non-portable, uncomment
-# the dist-hook line below.
-#
-# Oh, yuk.  We don't want to include "plugin.c" in the distribution, as
-# its contents depend on the configuration, and therefore we want it
-# to be built when the first "make" is done; however, Automake insists
-# on putting *all* source into the distribution.
-#
-# We work around this by having a "dist-hook" rule that deletes
-# "plugin.c", so that "dist" won't pick it up.
-#
-#dist-hook:
-#	@rm -f $(distdir)/plugin.c
+opcua_la_LDFLAGS = $(PLUGIN_LDFLAGS)
 
 CLEANFILES = \
 	opcua \
@@ -115,8 +54,3 @@ EXTRA_DIST = \
 	plugin.rc.in		\
 	README			\
 	CMakeLists.txt
-
-checkapi:
-	$(PERL) $(top_srcdir)/tools/checkAPIs.pl -g abort -g termoutput -build \
-	-sourcedir=$(srcdir) \
-	$(CLEAN_SRC_FILES) $(CLEAN_HEADER_FILES)

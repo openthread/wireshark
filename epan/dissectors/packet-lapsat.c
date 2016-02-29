@@ -433,8 +433,8 @@ dissect_control(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int is_
 	return ctl;
 }
 
-static void
-dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissector_data _U_)
 {
 	proto_tree *lapsat_tree, *addr_tree;
 	proto_item *lapsat_ti, *addr_ti;
@@ -445,7 +445,7 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Check that there's enough data */
 	if (tvb_captured_length(tvb) < LAPSAT_HEADER_LEN)
-		return;
+		return 0;
 
 	/* Set protocol column */
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "LAPSat");
@@ -503,7 +503,7 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		tvb_get_guint8(tvb, 3) : tvb_captured_length(tvb) - hlen;
 
 	if (!plen)
-		return;	/* No point in doing more if there is no payload */
+		return 3;	/* No point in doing more if there is no payload */
 
 	DISSECTOR_ASSERT((plen + hlen) <= tvb_captured_length(tvb));
 
@@ -554,7 +554,7 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		);
 
 		/* Reassembled into this packet ? */
-		if (fd_m && pinfo->fd->num == fd_m->reassembled_in) {
+		if (fd_m && pinfo->num == fd_m->reassembled_in) {
 			/* Yes, so handoff to upper layers */
 			if (!dissector_try_uint(lapsat_sapi_dissector_table, sapi,
 			                        reassembled, pinfo, tree))
@@ -574,6 +574,7 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		if (!dissector_try_uint(lapsat_sapi_dissector_table, sapi, payload, pinfo, tree))
 			call_dissector(data_handle, payload, pinfo, tree);
 	}
+	return tvb_captured_length(tvb);
 }
 
 void
@@ -764,7 +765,7 @@ proto_register_lapsat(void)
 
 	register_dissector("lapsat", dissect_lapsat, proto_lapsat);
 
-	lapsat_sapi_dissector_table = register_dissector_table("lapsat.sapi", "LAPSat SAPI", FT_UINT8, BASE_DEC);
+	lapsat_sapi_dissector_table = register_dissector_table("lapsat.sapi", "LAPSat SAPI", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	register_init_routine (lapsat_defragment_init);
 	register_cleanup_routine (lapsat_defragment_cleanup);

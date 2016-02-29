@@ -9,9 +9,14 @@
 %option nounput
 
 /*
- * We don't read from the terminal.
+ * We don't read interactively from the terminal.
  */
 %option never-interactive
+
+/*
+ * We want to stop processing when we get to the end of the input.
+ */
+%option noyywrap
 
 /*
  * Prefix scanner routines with "uat_load_" rather than "yy", so this scanner
@@ -24,7 +29,7 @@
 	 * uat_load.l
 	 *
 	 *  User Accessible Tables
-	 *  Mantain an array of user accessible data strucures
+	 *  Maintain an array of user accessible data strucures
 	 *  One parser to fit them all
 	 *
 	 * (c) 2007, Luis E. Garcia Ontanon <luis@ontanon.org>
@@ -374,17 +379,4 @@ uat_load_str(uat_t *uat_in, char *entry, char **err)
 
 	*err = NULL;
 	return TRUE;
-}
-
-/*
- * We want to stop processing when we get to the end of the input.
- * (%option noyywrap is not used because if used then
- * some flex versions (eg: 2.5.35) generate code which causes
- * warnings by the Windows VC compiler).
- */
-
-int
-yywrap(void)
-{
-    return 1;
 }

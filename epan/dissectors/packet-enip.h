@@ -84,7 +84,7 @@
 /* Offset for Advertise frames */
 #define DLR_LEARN_RESERVED             12
 
-/* DLR commmands */
+/* DLR commands */
 #define DLR_FT_BEACON            1
 #define DLR_FT_NEIGHBOR_REQ      2
 #define DLR_FT_NEIGHBOR_RES      3
@@ -112,6 +112,6 @@ enum enip_connid_type {ECIDT_UNKNOWN, ECIDT_O2T, ECIDT_T2O};
 void enip_close_cip_connection( packet_info *pinfo, guint16 ConnSerialNumber, guint16 VendorID, guint32 DeviceSerialNumber );
 void enip_mark_connection_triad( packet_info *pinfo, guint16 ConnSerialNumber, guint16 VendorID, guint32 DeviceSerialNumber );
 
-extern attribute_info_t enip_attribute_vals[45];
+extern attribute_info_t enip_attribute_vals[99];
 
 #endif /* PACKET_ENIP_H */

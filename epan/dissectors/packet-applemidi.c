@@ -241,7 +241,7 @@ test_applemidi(tvbuff_t *tvb, guint16 *command_p, gboolean conversation_establis
 
 	/* If the conversation is establised (one prior packet with a valid known command)
 	 * we won't check the commands anymore - this way we still show new commands
-	 * Apple might introduct as "unknown" instead of punting to RTP-dissector */
+	 * Apple might introduce as "unknown" instead of punting to RTP-dissector */
 	if ( conversation_established ) {
 		return TRUE;
 	}
@@ -265,14 +265,16 @@ test_applemidi(tvbuff_t *tvb, guint16 *command_p, gboolean conversation_establis
 /* dissect_applemidi() is called when a packet is seen from a previously identified applemidi conversation */
 /*  If the packet isn't a valid applemidi packet, assume it's an RTP-MIDI packet.                          */
 
-static void
-dissect_applemidi( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree ) {
+static int
+dissect_applemidi( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ ) {
 	guint16		command;
 
 	if ( test_applemidi( tvb, &command, TRUE ) )
 		dissect_applemidi_common( tvb, pinfo, tree, command );
 	else
 		call_dissector( rtp_handle, tvb, pinfo, tree );
+
+	return tvb_captured_length(tvb);
 }
 
 static gboolean
@@ -295,7 +297,7 @@ dissect_applemidi_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	rtp_dyn_payload = rtp_dyn_payload_new();
 	rtp_dyn_payload_insert(rtp_dyn_payload, 97, "rtp-midi", 10000);
 	rtp_add_address( pinfo, &pinfo->src, pinfo->srcport, 0, APPLEMIDI_DISSECTOR_SHORTNAME,
-			 pinfo->fd->num, FALSE, rtp_dyn_payload);
+			 pinfo->num, FALSE, rtp_dyn_payload);
 
 	/* call dissect_applemidi() from now on for UDP packets on this "connection"
 	   it is important to do this step after calling rtp_add_address, otherwise

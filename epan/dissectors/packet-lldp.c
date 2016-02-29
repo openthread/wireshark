@@ -234,6 +234,11 @@ static int hf_ieee_802_3_aggregation_status_cap = -1;
 static int hf_ieee_802_3_aggregation_status_enabled = -1;
 static int hf_ieee_802_3_aggregated_port_id = -1;
 static int hf_ieee_802_3_max_frame_size = -1;
+static int hf_ieee_802_3_eee_transmit = -1;
+static int hf_ieee_802_3_eee_receive = -1;
+static int hf_ieee_802_3_eee_fallback_receive = -1;
+static int hf_ieee_802_3_eee_echo_transmit = -1;
+static int hf_ieee_802_3_eee_echo_receive = -1;
 static int hf_ieee_802_1qbg_subtype = -1;
 static int hf_ieee_802_1qbg_evb_support_caps = -1;
 static int hf_ieee_802_1qbg_evb_support_caps_std = -1;
@@ -391,6 +396,7 @@ static gint ett_org_spc_ieee_802_3_1 = -1;
 static gint ett_org_spc_ieee_802_3_2 = -1;
 static gint ett_org_spc_ieee_802_3_3 = -1;
 static gint ett_org_spc_ieee_802_3_4 = -1;
+static gint ett_org_spc_ieee_802_3_5 = -1;
 
 static gint ett_org_spc_media_1 = -1;
 static gint ett_org_spc_media_2 = -1;
@@ -567,6 +573,7 @@ static const value_string ieee_802_3_subtypes[] = {
 	{ 0x02,	"Power Via MDI" },
 	{ 0x03,	"Link Aggregation" },
 	{ 0x04, "Maximum Frame Size" },
+	{ 0x05, "EEE (Energy-Efficient Ethernet)" },
 	{ 0, NULL }
 };
 
@@ -1170,7 +1177,7 @@ dissect_lldp_chassis_id(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
 
 		strPtr = tvb_ether_to_str(tvb, offset);
 		proto_tree_add_item(chassis_tree, hf_chassis_id_mac, tvb, offset, 6, ENC_NA);
-
+		col_append_fstr(pinfo->cinfo, COL_INFO, "NoS = %s ", strPtr);
 		offset += (dataLen - 1);
 		break;
 	}
@@ -1235,12 +1242,18 @@ dissect_lldp_chassis_id(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gui
 		switch(tlvsubType)
 		{
 		case 2: /* Interface alias */
+			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen - 1));
+			break;
 		case 6: /* Interfae name */
+			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen - 1));
+			break;
 		case 7: /* Locally assigned */
 			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen-1));
-
+			col_append_fstr(pinfo->cinfo, COL_INFO, "NoS = %s ", strPtr);
 			break;
 		case 1: /* Chassis component */
+			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen - 1));
+			break;
 		case 3: /* Port component */
 			strPtr = tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, (dataLen-1));
 
@@ -1388,10 +1401,20 @@ dissect_lldp_port_id(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint3
 			strPtr = tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, (dataLen-1));
 			break;
 		case 1: /* Interface alias */
+			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen - 1));
+			break;
 		case 5: /* Interface name */
+			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen - 1));
+			break;
 		case 6: /* Agent circuit ID */
+			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen - 1));
+			break;
 		case 7: /* Locally assigned */
 			strPtr = tvb_format_stringzpad(tvb, offset, (dataLen-1));
+			col_append_fstr(pinfo->cinfo, COL_INFO, "Port Id = %s " ,strPtr);
+			/* Create fence in the column that prevents subsequent 'col_...'
+			calls from clearing the data currently in that column */
+			col_set_fence(pinfo->cinfo, COL_INFO);
 			break;
 		default:
 			strPtr = "Reserved";
@@ -1970,7 +1993,7 @@ dissect_ieee_802_1_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, 
 	}
 	case 0x04:	/* Protocol ID */
 	{
-		/* Get protocal id length */
+		/* Get protocol id length */
 		tempByte = tvb_get_guint8(tvb, offset);
 		proto_tree_add_item(tree, hf_ieee_802_1_proto_id_length, tvb, offset, 1, ENC_BIG_ENDIAN);
 
@@ -2019,7 +2042,7 @@ dissect_ieee_802_1_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, 
 		proto_tree_add_item(tree, hf_ieee_8021az_feature_flag_cbs, tvb, offset, 1, ENC_BIG_ENDIAN);
 
 		tempByte = (tvb_get_guint8(tvb, offset) & 0x7);
-		/* 0 implies 8 trafffic classes supported */
+		/* 0 implies 8 traffic classes supported */
 		proto_tree_add_uint_format_value(tree, hf_ieee_8021az_maxtcs, tvb, offset, 1, tempByte, "%u (0x%X)", tempByte ? tempByte : 8, tempByte);
 
 		offset++;
@@ -2494,6 +2517,25 @@ dissect_ieee_802_3_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, 
 		proto_tree_add_item(tree, hf_ieee_802_3_max_frame_size, tvb, offset, 2, ENC_BIG_ENDIAN);
 
 		offset+=2;
+		break;
+	}
+	case 0x05:	/* Energy-Efficient Ethernet */
+	{
+		proto_tree_add_item(tree, hf_ieee_802_3_eee_transmit, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset+=2;
+
+		proto_tree_add_item(tree, hf_ieee_802_3_eee_receive, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset+=2;
+
+		proto_tree_add_item(tree, hf_ieee_802_3_eee_fallback_receive, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset+=2;
+
+		proto_tree_add_item(tree, hf_ieee_802_3_eee_echo_transmit, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset+=2;
+
+		proto_tree_add_item(tree, hf_ieee_802_3_eee_echo_receive, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset+=2;
+
 		break;
 	}
 	}
@@ -2985,7 +3027,9 @@ dissect_profinet_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gu
 		proto_tree_add_uint(tree, hf_profinet_class3_port_status_PreambleLength, tvb, offset, 2, class3_PortStatus);
 
 		class3_PortStatus = class3_PortStatus & 0x7;
-		col_append_fstr(pinfo->cinfo, COL_INFO,"RTClass3 Port Status = %s", val_to_str(class3_PortStatus, profinet_port3_status_vals, "Unknown %d"));
+		/* When Profinet tlv is used, delete previous column info which is consist of "ttl and system description" */
+		col_clear(pinfo->cinfo, COL_INFO);
+		col_append_fstr(pinfo->cinfo, COL_INFO, "RTClass3 Port Status = %s", val_to_str(class3_PortStatus, profinet_port3_status_vals, "Unknown %d"));
 		/*offset+=2;*/
 		break;
 	}
@@ -3456,6 +3500,8 @@ dissect_organizational_specific_tlv(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 			break;
 		case 4:	tempTree = ett_org_spc_ieee_802_3_4;
 			break;
+		case 5:	tempTree = ett_org_spc_ieee_802_3_5;
+			break;
 		}
 		break;
 	case OUI_MEDIA_ENDPOINT:
@@ -3601,8 +3647,8 @@ dissect_lldp_unknown_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
 
 
 /* Dissect LLDP packets */
-static void
-dissect_lldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_lldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item *ti;
 	proto_tree *lldp_tree = NULL;
@@ -3629,8 +3675,7 @@ dissect_lldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (rtnValue < 0)
 	{
 		col_set_str(pinfo->cinfo, COL_INFO, "Invalid Chassis ID TLV");
-
-		return;
+		return tvb_captured_length(tvb);
 	}
 
 	offset += rtnValue;
@@ -3643,8 +3688,7 @@ dissect_lldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (rtnValue < 0)
 	{
 		col_set_str(pinfo->cinfo, COL_INFO, "Invalid Port ID TLV");
-
-		return;
+		return tvb_captured_length(tvb);
 	}
 
 	offset += rtnValue;
@@ -3657,8 +3701,7 @@ dissect_lldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if (rtnValue < 0)
 	{
 		col_set_str(pinfo->cinfo, COL_INFO, "Invalid Time-to-Live TLV");
-
-		return;
+		return tvb_captured_length(tvb);
 	}
 
 	offset += rtnValue;
@@ -3718,6 +3761,7 @@ dissect_lldp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			offset += rtnValue;
 	}
 
+	return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */
@@ -4472,6 +4516,26 @@ proto_register_lldp(void)
 			{ "Maximum Frame Size", "lldp.ieee.802_3.max_frame_size", FT_UINT16, BASE_DEC,
 			NULL, 0, NULL, HFILL }
 		},
+		{ &hf_ieee_802_3_eee_transmit,
+			{ "Transmit", "lldp.ieee.802_3.eee.transmit", FT_UINT16, BASE_DEC,
+			NULL, 0, NULL, HFILL }
+		},
+		{ &hf_ieee_802_3_eee_receive,
+			{ "Receive", "lldp.ieee.802_3.eee.receive", FT_UINT16, BASE_DEC,
+			NULL, 0, NULL, HFILL }
+		},
+		{ &hf_ieee_802_3_eee_fallback_receive,
+			{ "Fallback Receive", "lldp.ieee.802_3.eee.fallback_receive", FT_UINT16, BASE_DEC,
+			NULL, 0, NULL, HFILL }
+		},
+		{ &hf_ieee_802_3_eee_echo_transmit,
+			{ "Echo Transmit", "lldp.ieee.802_3.eee.echo_transmit", FT_UINT16, BASE_DEC,
+			NULL, 0, NULL, HFILL }
+		},
+		{ &hf_ieee_802_3_eee_echo_receive,
+			{ "Echo Receive", "lldp.ieee.802_3.eee.echo_receive", FT_UINT16, BASE_DEC,
+			NULL, 0, NULL, HFILL }
+		},
 		{ &hf_ieee_802_1qbg_subtype,
 			{ "IEEE 802.1Qbg Subtype", "lldp.ieee.802_1qbg.subtype", FT_UINT8, BASE_HEX,
 			VALS(ieee_802_1qbg_subtypes), 0x0, NULL, HFILL }
@@ -4986,6 +5050,7 @@ proto_register_lldp(void)
 		&ett_org_spc_ieee_802_3_2,
 		&ett_org_spc_ieee_802_3_3,
 		&ett_org_spc_ieee_802_3_4,
+		&ett_org_spc_ieee_802_3_5,
 		&ett_org_spc_media_1,
 		&ett_org_spc_media_2,
 		&ett_org_spc_media_3,
@@ -5030,7 +5095,7 @@ proto_register_lldp(void)
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_lldp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	oui_unique_code_table = register_dissector_table("lldp.orgtlv.oui", "LLDP OUI", FT_UINT24, BASE_HEX );
+	oui_unique_code_table = register_dissector_table("lldp.orgtlv.oui", "LLDP OUI", FT_UINT24, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE );
 
 	expert_lldp = expert_register_protocol(proto_lldp);
 	expert_register_field_array(expert_lldp, ei, array_length(ei));

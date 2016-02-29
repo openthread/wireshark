@@ -62,12 +62,10 @@ TrafficTableDialog::TrafficTableDialog(QWidget &parent, CaptureFile &cf, const c
     filter_(filter)
 {
     ui->setupUi(this);
+    loadGeometry(parent.width(), parent.height() * 3 / 4);
 
     ui->enabledTypesPushButton->setText(tr("%1 Types").arg(table_name));
     setWindowSubtitle(QString("%1s").arg(table_name));
-
-    // XXX Use recent settings instead
-    resize(parent.width(), parent.height() * 3 / 4);
 
     QMenu *copy_menu = new QMenu();
     QAction *ca;
@@ -86,7 +84,10 @@ TrafficTableDialog::TrafficTableDialog(QWidget &parent, CaptureFile &cf, const c
 
     connect(ui->trafficTableTabWidget, SIGNAL(currentChanged(int)),
             this, SLOT(itemSelectionChanged()));
-    connect(&cap_file_, SIGNAL(captureFileClosing()), this, SLOT(captureFileClosing()));
+    connect(&cap_file_, SIGNAL(captureFileRetapStarted()),
+            this, SLOT(retapStarted()));
+    connect(&cap_file_, SIGNAL(captureFileRetapFinished()),
+            this, SLOT(retapFinished()));
 }
 
 TrafficTableDialog::~TrafficTableDialog()
@@ -97,9 +98,9 @@ TrafficTableDialog::~TrafficTableDialog()
 const QList<int> TrafficTableDialog::defaultProtos() const
 {
     // Reasonable defaults?
-    return QList<int>() << proto_get_id_by_filter_name( "tcp" ) << proto_get_id_by_filter_name( "eth" )
-                        << proto_get_id_by_filter_name( "ip" ) << proto_get_id_by_filter_name( "ipv6" )
-                        << proto_get_id_by_filter_name( "udp" );
+    return QList<int>() << proto_get_id_by_filter_name("eth") << proto_get_id_by_filter_name("ip")
+                        << proto_get_id_by_filter_name("ipv6") << proto_get_id_by_filter_name("tcp")
+                        << proto_get_id_by_filter_name("udp");
 }
 
 void TrafficTableDialog::fillTypeMenu(QList<int> &enabled_protos)
@@ -178,6 +179,16 @@ void TrafficTableDialog::on_displayFilterCheckBox_toggled(bool checked)
     cap_file_.retapPackets();
 }
 
+void TrafficTableDialog::retapStarted()
+{
+    ui->displayFilterCheckBox->setEnabled(false);
+}
+
+void TrafficTableDialog::retapFinished()
+{
+    ui->displayFilterCheckBox->setEnabled(true);
+}
+
 void TrafficTableDialog::setTabText(QWidget *tree, const QString &text)
 {
     // Could use QObject::sender as well
@@ -224,6 +235,8 @@ void TrafficTableDialog::updateWidgets()
     }
     ui->trafficTableTabWidget->setCurrentWidget(cur_w);
     ui->trafficTableTabWidget->setUpdatesEnabled(true);
+
+    WiresharkDialog::updateWidgets();
 }
 
 QList<QVariant> TrafficTableDialog::curTreeRowData(int row) const

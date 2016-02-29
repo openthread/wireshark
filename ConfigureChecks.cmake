@@ -96,21 +96,28 @@ cmake_pop_check_state()
 # Use check_symbol_exists just in case math.h does something magic
 # and there's not actually a function named floorl()
 #
+cmake_push_check_state()
+set(CMAKE_REQUIRED_INCLUDES ${M_INCLUDE_DIRS})
+set(CMAKE_REQUIRED_LIBRARIES ${M_LIBRARIES})
 check_symbol_exists("floorl" "math.h"    HAVE_FLOORL)
+check_symbol_exists("lrint"  "math.h"    HAVE_LRINT)
+cmake_pop_check_state()
+
 check_function_exists("getaddrinfo"      HAVE_GETADDRINFO)
 check_function_exists("gethostbyname"    HAVE_GETHOSTBYNAME)
 check_function_exists("gethostbyname2"   HAVE_GETHOSTBYNAME2)
 check_function_exists("getopt_long"      HAVE_GETOPT_LONG)
 if(HAVE_GETOPT_LONG)
-    if(HAVE_GETOPT_H)
-        check_symbol_exists("optreset" "getopt.h" HAVE_OPTRESET)
-    else()
-        check_symbol_exists("optreset"           HAVE_OPTRESET)
-    endif()
+	if(HAVE_GETOPT_H)
+		check_symbol_exists("optreset" "getopt.h" HAVE_OPTRESET)
+	else()
+		check_symbol_exists("optreset"           HAVE_OPTRESET)
+	endif()
 endif()
 check_function_exists("getprotobynumber" HAVE_GETPROTOBYNUMBER)
 check_function_exists("inet_aton"        HAVE_INET_ATON)
 check_function_exists("inet_ntop"        HAVE_INET_NTOP_PROTO)
+check_function_exists("inet_pton"        HAVE_INET_PTON)
 check_function_exists("issetugid"        HAVE_ISSETUGID)
 check_function_exists("mkdtemp"          HAVE_MKDTEMP)
 check_function_exists("mkstemp"          HAVE_MKSTEMP)
@@ -203,3 +210,16 @@ else()
 		}" HAVE_GLIB_PRINTF_GROUPING)
 	cmake_pop_check_state()
 endif()
+
+#
+# Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+#
+# Local variables:
+# c-basic-offset: 8
+# tab-width: 8
+# indent-tabs-mode: t
+# End:
+#
+# vi: set shiftwidth=8 tabstop=8 noexpandtab:
+# :indentSize=8:tabSize=8:noTabs=false:
+#

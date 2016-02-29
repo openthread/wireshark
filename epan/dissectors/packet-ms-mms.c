@@ -1127,17 +1127,17 @@ static void msmms_data_add_address(packet_info *pinfo, address *addr, port_type 
         return;
     }
 
-    SET_ADDRESS(&null_addr, AT_NONE, 0, NULL);
+    clear_address(&null_addr);
 
     /* Check if the ip address and port combination is not
      * already registered as a conversation. */
-    p_conv = find_conversation(pinfo->fd->num, addr, &null_addr, pt, port, 0,
+    p_conv = find_conversation(pinfo->num, addr, &null_addr, pt, port, 0,
                                NO_ADDR_B | NO_PORT_B);
 
     /* If not, create a new conversation. */
     if (!p_conv)
     {
-        p_conv = conversation_new(pinfo->fd->num, addr, &null_addr, pt,
+        p_conv = conversation_new(pinfo->num, addr, &null_addr, pt,
                                   (guint32)port, 0, NO_ADDR2 | NO_PORT2);
     }
 
@@ -1879,7 +1879,7 @@ void proto_register_msmms(void)
     proto_msmms = proto_register_protocol("Microsoft Media Server", "MSMMS", "msmms");
     proto_register_field_array(proto_msmms, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    new_register_dissector("msmms", dissect_msmms_pdu, proto_msmms);
+    register_dissector("msmms", dissect_msmms_pdu, proto_msmms);
 }
 
 void proto_reg_handoff_msmms_command(void)

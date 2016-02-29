@@ -31,7 +31,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/address_types.h>
-#include <epan/to_str-int.h>
+#include <epan/to_str.h>
 #include "packet-cip.h"
 
 void proto_register_devicenet(void);
@@ -461,7 +461,7 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         /* Set source address */
         src_address = (guint8*)wmem_alloc(pinfo->pool, 1);
         *src_address = (guint8)(can_id.id & MESSAGE_GROUP_1_MAC_ID_MASK);
-        SET_ADDRESS(&pinfo->src, devicenet_address_type, 1, (const void*)src_address);
+        set_address(&pinfo->src, devicenet_address_type, 1, (const void*)src_address);
 
         message_id = can_id.id & MESSAGE_GROUP_1_MSG_MASK;
         col_set_str(pinfo->cinfo, COL_INFO, val_to_str_const(message_id, devicenet_grp_msg1_vals, "Other Group 1 Message"));
@@ -486,7 +486,7 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         /* Set source address */
         src_address = (guint8*)wmem_alloc(pinfo->pool, 1);
         *src_address = (guint8)((can_id.id & MESSAGE_GROUP_2_MAC_ID_MASK) >> 3);
-        SET_ADDRESS(&pinfo->src, devicenet_address_type, 1, (const void*)src_address);
+        set_address(&pinfo->src, devicenet_address_type, 1, (const void*)src_address);
 
         content_tree = proto_tree_add_subtree(devicenet_tree, tvb, offset, -1, ett_devicenet_contents, NULL, "Contents");
 
@@ -532,7 +532,7 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         /* Set source address */
         src_address = (guint8*)wmem_alloc(pinfo->pool, 1);
         *src_address = (guint8)(can_id.id & MESSAGE_GROUP_3_MAC_ID_MASK);
-        SET_ADDRESS(&pinfo->src, devicenet_address_type, 1, (const void*)src_address);
+        set_address(&pinfo->src, devicenet_address_type, 1, (const void*)src_address);
 
         message_id = can_id.id & MESSAGE_GROUP_3_MSG_MASK;
         col_set_str(pinfo->cinfo, COL_INFO, val_to_str_const(message_id, devicenet_grp_msg3_vals, "Unknown"));
@@ -547,7 +547,7 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         /* XXX - This may be source address depending on message type.  Need to adjust accordingly) */
         dest_address = (guint8*)wmem_alloc(pinfo->pool, 1);
         *dest_address = (guint8)source_mac;
-        SET_ADDRESS(&pinfo->dst, devicenet_address_type, 1, (const void*)dest_address);
+        set_address(&pinfo->dst, devicenet_address_type, 1, (const void*)dest_address);
         offset++;
 
         if (byte1 & MESSAGE_GROUP_3_FRAG_MASK)
@@ -599,7 +599,7 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
                     break;
                 default:
                     expert_add_info_format(pinfo, service_item, &ei_devicenet_invalid_service,
-                        "Invalid service code (0x%x) for Group 3 Messsage ID 5", service_rr & CIP_SC_MASK);
+                        "Invalid service code (0x%x) for Group 3 Message ID 5", service_rr & CIP_SC_MASK);
                     break;
                 }
                 break;
@@ -611,13 +611,13 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
                     break;
                 default:
                     expert_add_info_format(pinfo, service_item, &ei_devicenet_invalid_service,
-                        "Invalid service code (0x%x) for Group 3 Messsage ID 6", service_rr & CIP_SC_MASK);
+                        "Invalid service code (0x%x) for Group 3 Message ID 6", service_rr & CIP_SC_MASK);
                     break;
                 }
                 break;
             case 0x1C0:
                 expert_add_info_format(pinfo, msg_id_item, &ei_devicenet_invalid_msg_id,
-                        "Invalid Group 3 Messsage ID (%d)", message_id);
+                        "Invalid Group 3 Message ID (%d)", message_id);
                 break;
             }
 
@@ -788,7 +788,7 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
 static int devicenet_addr_to_str(const address* addr, gchar *buf, int buf_len _U_)
 {
-    guint8 addrdata = *((guint8*)addr->data) & 0x3F;
+    guint8 addrdata = *((const guint8*)addr->data) & 0x3F;
     gchar *start_buf = buf;
 
     buf = uint_to_str_back(buf, addrdata);
@@ -1064,7 +1064,7 @@ proto_reg_handoff_devicenet(void)
 {
     dissector_handle_t devicenet_handle;
 
-    devicenet_handle = new_create_dissector_handle( dissect_devicenet, proto_devicenet );
+    devicenet_handle = create_dissector_handle( dissect_devicenet, proto_devicenet );
     dissector_add_for_decode_as("can.subdissector", devicenet_handle );
 }
 

@@ -124,6 +124,12 @@
  * https://raw.githubusercontent.com/splunk/ipfix/master/app/Splunk_TA_IPFIX/bin/IPFIX/information-elements/5951.xml
  */
 
+/*
+ * December 2015: uhei:  Add Barracuda NGFirewall extensions
+ * used documentation found at:
+ * https://techlib.barracuda.com/NG61/ConfigAuditReportingIPFIX
+ */
+
 #include "config.h"
 #include <epan/packet.h>
 #include <epan/prefs.h>
@@ -133,6 +139,7 @@
 #include <epan/to_str.h>
 #include <epan/expert.h>
 #include <epan/addr_resolv.h>
+#include <wsutil/str_util.h>
 #include "packet-tcp.h"
 #include "packet-udp.h"
 #include "packet-ntp.h"
@@ -294,10 +301,11 @@ typedef enum {
     TF_NTOP,
     TF_IXIA,
     TF_NETSCALER,
+    TF_BARRACUDA,
     TF_NO_VENDOR_INFO
 } v9_v10_tmplt_fields_type_t;
 #define TF_NUM 2
-#define TF_NUM_EXT 7   /* includes vendor fields */
+#define TF_NUM_EXT 8   /* includes vendor fields */
 
 typedef struct _v9_v10_tmplt {
     /* For linking back to show where fields were defined */
@@ -1099,6 +1107,64 @@ static const value_string v10_template_types_netscaler[] = {
 };
 static value_string_ext v10_template_types_netscaler_ext = VALUE_STRING_EXT_INIT(v10_template_types_netscaler);
 
+/* Barracuda NGFirewall IPFIX */
+static const value_string v10_template_types_barracuda[] = {
+    {  1, "Timestamp" },
+    {  2, "LogOp" },
+    {  3, "TrafficType" },
+    {  4, "FW Rule" },
+    {  5, "ServiceName" },
+    {  6, "Reason" },
+    {  7, "ReasonText" },
+    {  8, "BindIPv4Address" },
+    {  9, "BindTransportPort" },
+    {  10, "ConnIPv4Address" },
+    {  11, "ConnTransportPort" },
+    {  12, "AuditCounter" },
+    { 0, NULL }
+};
+static value_string_ext v10_template_types_barracuda_ext = VALUE_STRING_EXT_INIT(v10_template_types_barracuda);
+
+static const value_string v10_barracuda_logop[] = {
+    { 0, "Unknown" },
+    { 1, "Allow" },
+    { 2, "LocalAllow" },
+    { 3, "Block" },
+    { 4, "LocalBlock" },
+    { 5, "Remove" },
+    { 6, "LocalRemove" },
+    { 7, "Drop" },
+    { 8, "Terminate" },
+    { 9, "LocalTerminate" },
+    { 10, "Change" },
+    { 11, "Operation" },
+    { 12, "Startup" },
+    { 13, "Configuration" },
+    { 14, "Rule" },
+    { 15, "State" },
+    { 16, "LocalState" },
+    { 17, "Process" },
+    { 18, "AdminAction" },
+    { 19, "Deny" },
+    { 20, "LocalDeny" },
+    { 21, "SecurityEvent" },
+    { 22, "Sync" },
+    { 23, "Fail" },
+    { 24, "LocalFail" },
+    { 25, "ARP" },
+    { 26, "Detect" },
+    { 27, "LocalDetect" },
+    { 28, "IntermediateReport" },
+    { 0, NULL }
+};
+
+static const value_string v10_barracuda_traffictype[] = {
+    { 0, "Forwarding" },
+    { 1, "Local In" },
+    { 2, "Local Out" },
+    { 3, "Loopback" },
+    { 0, NULL }
+};
 
 static const value_string v9_scope_field_types[] = {
     { 1, "System" },
@@ -1261,6 +1327,7 @@ static int      ett_field               = -1;
 static int      ett_dataflowset         = -1;
 static int      ett_fwdstat             = -1;
 static int      ett_mpls_label          = -1;
+static int      ett_tcpflags            = -1;
 /*
  * cflow header
  */
@@ -1323,6 +1390,7 @@ static int      hf_cflow_template_plixer_field_type                 = -1;
 static int      hf_cflow_template_ntop_field_type                   = -1;
 static int      hf_cflow_template_ixia_field_type                   = -1;
 static int      hf_cflow_template_netscaler_field_type              = -1;
+static int      hf_cflow_template_barracuda_field_type              = -1;
 
 
 /*
@@ -1357,6 +1425,24 @@ static int      hf_cflow_marked_tos                                 = -1;
 static int      hf_cflow_flags                                      = -1;
 static int      hf_cflow_tcpflags                                   = -1;
 static int      hf_cflow_tcpflags16                                 = -1;
+static int      hf_cflow_tcpflags_fin                               = -1;
+static int      hf_cflow_tcpflags_syn                               = -1;
+static int      hf_cflow_tcpflags_rst                               = -1;
+static int      hf_cflow_tcpflags_psh                               = -1;
+static int      hf_cflow_tcpflags_ack                               = -1;
+static int      hf_cflow_tcpflags_urg                               = -1;
+static int      hf_cflow_tcpflags16_fin                             = -1;
+static int      hf_cflow_tcpflags16_syn                             = -1;
+static int      hf_cflow_tcpflags16_rst                             = -1;
+static int      hf_cflow_tcpflags16_psh                             = -1;
+static int      hf_cflow_tcpflags16_ack                             = -1;
+static int      hf_cflow_tcpflags16_urg                             = -1;
+static int      hf_cflow_tcpflags16_ece                             = -1;
+static int      hf_cflow_tcpflags16_cwr                             = -1;
+static int      hf_cflow_tcpflags16_ns                              = -1;
+static int      hf_cflow_tcpflags_reserved                          = -1;
+static int      hf_cflow_tcpflags16_reserved                        = -1;
+static int      hf_cflow_tcpflags16_zero                            = -1;
 static int      hf_cflow_dstas                                      = -1;
 static int      hf_cflow_srcas                                      = -1;
 static int      hf_cflow_dstmask                                    = -1;
@@ -2034,6 +2120,20 @@ static int      hf_pie_netscaler_cacheredirclientconnectioncoreid        = -1;
 static int      hf_pie_netscaler_cacheredirclientconnectiontransactionid = -1;
 
 
+static int      hf_pie_barracuda                                         = -1;
+static int      hf_pie_barracuda_timestamp                               = -1;
+static int      hf_pie_barracuda_logop                                   = -1;
+static int      hf_pie_barracuda_traffictype                             = -1;
+static int      hf_pie_barracuda_fwrule                                  = -1;
+static int      hf_pie_barracuda_servicename                             = -1;
+static int      hf_pie_barracuda_reason                                  = -1;
+static int      hf_pie_barracuda_reasontext                              = -1;
+static int      hf_pie_barracuda_bindipv4address                         = -1;
+static int      hf_pie_barracuda_bindtransportport                       = -1;
+static int      hf_pie_barracuda_connipv4address                         = -1;
+static int      hf_pie_barracuda_conntransportport                       = -1;
+static int      hf_pie_barracuda_auditcounter                            = -1;
+
 static int      hf_string_len_short = -1;
 static int      hf_string_len_long  = -1;
 
@@ -2060,6 +2160,32 @@ static const value_string special_mpls_top_label_type[] = {
     {4, "BGP"},
     {5, "LDP"},
     {0, NULL }
+};
+
+static const int * tcp_flags[] = {
+    &hf_cflow_tcpflags_reserved,
+    &hf_cflow_tcpflags_urg,
+    &hf_cflow_tcpflags_ack,
+    &hf_cflow_tcpflags_psh,
+    &hf_cflow_tcpflags_rst,
+    &hf_cflow_tcpflags_syn,
+    &hf_cflow_tcpflags_fin,
+    NULL
+};
+
+static const int * tcp_flags16[] = {
+    &hf_cflow_tcpflags16_zero,
+    &hf_cflow_tcpflags16_reserved,
+    &hf_cflow_tcpflags16_ns,
+    &hf_cflow_tcpflags16_cwr,
+    &hf_cflow_tcpflags16_ece,
+    &hf_cflow_tcpflags16_urg,
+    &hf_cflow_tcpflags16_ack,
+    &hf_cflow_tcpflags16_psh,
+    &hf_cflow_tcpflags16_rst,
+    &hf_cflow_tcpflags16_syn,
+    &hf_cflow_tcpflags16_fin,
+    NULL
 };
 
 static proto_item *
@@ -2173,6 +2299,8 @@ pen_to_type_hf_list(guint32 pen) {
         return TF_IXIA;
     case VENDOR_NETSCALER:
         return TF_NETSCALER;
+    case VENDOR_BARRACUDA:
+        return TF_BARRACUDA;
     default:
         return TF_NO_VENDOR_INFO;
     }
@@ -2222,14 +2350,14 @@ static void store_sequence_analysis_info(guint32 domain_id, guint32 seqnum, unsi
         *result_state = *domain_state;
 
         /* Add into result table for current frame number */
-        g_hash_table_insert(netflow_sequence_analysis_result_hash, GUINT_TO_POINTER(pinfo->fd->num), result_state);
+        g_hash_table_insert(netflow_sequence_analysis_result_hash, GUINT_TO_POINTER(pinfo->num), result_state);
     }
 
     /* Update domain info for the next frame to consult.
        Add flows(data records) for all protocol versions except for 9, which just counts exported frames */
     domain_state->current_sequence_number = seqnum + ((version == 9) ? 1 : new_flows);
     domain_state->sequence_number_set = TRUE;
-    domain_state->current_frame_number = pinfo->fd->num;
+    domain_state->current_frame_number = pinfo->num;
 }
 
 /* Check for result stored indicating that sequence number wasn't as expected, and show in tree */
@@ -2239,7 +2367,7 @@ static void show_sequence_analysis_info(guint32 domain_id, guint32 seqnum,
 {
     /* Look for info stored for this frame */
     netflow_domain_state_t *state = (netflow_domain_state_t *)g_hash_table_lookup(netflow_sequence_analysis_result_hash,
-                                                                                  GUINT_TO_POINTER(pinfo->fd->num));
+                                                                                  GUINT_TO_POINTER(pinfo->num));
     if (state != NULL) {
         proto_item *ti;
 
@@ -2405,7 +2533,7 @@ dissect_netflow(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
         nstime_t nsuptime;
 
         nsuptime.secs = sysuptime / 1000;
-        nsuptime.nsecs = sysuptime * 1000;
+        nsuptime.nsecs = (sysuptime % 1000) * 1000000;
         proto_tree_add_time(netflow_tree, hf_cflow_sysuptime, tvb,
                             offset, 4, &nsuptime);
         offset += 4;
@@ -2963,7 +3091,7 @@ dissect_v9_v10_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, int 
         /* Provide a link back to template frame */
         ti = proto_tree_add_uint(pdutree, hf_template_frame, tvb,
                                  0, 0, tmplt_p->template_frame_number);
-        if (tmplt_p->template_frame_number > pinfo->fd->num) {
+        if (tmplt_p->template_frame_number > pinfo->num) {
             proto_item_append_text(ti, " (received after this frame)");
         }
         PROTO_ITEM_SET_GENERATED(ti);
@@ -3142,7 +3270,8 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
                          plixer_pie_seen = FALSE,
                          ntop_pie_seen = FALSE,
                          ixia_pie_seen = FALSE,
-                         netscaler_pie_seen = FALSE;
+                         netscaler_pie_seen = FALSE,
+                         barracuda_pie_seen = FALSE;
 
 
     guint8       ip_protocol = 0;
@@ -3262,6 +3391,13 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
                     netscaler_pie_seen = TRUE;
                 }
                 break;
+            case VENDOR_BARRACUDA:
+                if (!barracuda_pie_seen) {
+                    proto_item *pie_barracuda_ti = proto_tree_add_item(pdutree, hf_pie_barracuda, tvb, 0, 0, ENC_NA);
+                    PROTO_ITEM_SET_HIDDEN(pie_barracuda_ti);
+                    barracuda_pie_seen = TRUE;
+                }
+                break;
 
             default:
                 break;
@@ -3300,11 +3436,9 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
 
         case 6: /* TCP flags */
             if (length == 1) {
-                ti = proto_tree_add_item(pdutree, hf_cflow_tcpflags,
-                                         tvb, offset, length, ENC_BIG_ENDIAN);
+                ti = proto_tree_add_bitmask(pdutree, tvb, offset, hf_cflow_tcpflags, ett_tcpflags, tcp_flags, ENC_NA);
             } else {
-                ti = proto_tree_add_item(pdutree, hf_cflow_tcpflags16,
-                                         tvb, offset, length, ENC_BIG_ENDIAN);
+                ti = proto_tree_add_bitmask(pdutree, tvb, offset, hf_cflow_tcpflags16, ett_tcpflags, tcp_flags16, ENC_NA);
             }
             break;
 
@@ -5716,28 +5850,28 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
         case VENDOR_CACE << 16 | 0: /* caceLocalIPv4Address */
             ti = proto_tree_add_item(pdutree, hf_pie_cace_local_ipv4_address,
                                      tvb, offset, length, ENC_BIG_ENDIAN);
-            TVB_SET_ADDRESS(&local_addr, AT_IPv4, tvb, offset, 4);
+            set_address_tvb(&local_addr, AT_IPv4, 4, tvb, offset);
             got_flags |= GOT_LOCAL_ADDR;
             break;
 
         case VENDOR_CACE << 16 | 1: /* caceRemoteIPv4Address */
             ti = proto_tree_add_item(pdutree, hf_pie_cace_remote_ipv4_address,
                                      tvb, offset, length, ENC_BIG_ENDIAN);
-            TVB_SET_ADDRESS(&remote_addr, AT_IPv4, tvb, offset, 4);
+            set_address_tvb(&remote_addr, AT_IPv4, 4, tvb, offset);
             got_flags |= GOT_REMOTE_ADDR;
             break;
 
         case VENDOR_CACE << 16 | 2: /* caceLocalIPv6Address */
             ti = proto_tree_add_item(pdutree, hf_pie_cace_local_ipv6_address,
                                      tvb, offset, length, ENC_NA);
-            TVB_SET_ADDRESS(&local_addr, AT_IPv6, tvb, offset, 16);
+            set_address_tvb(&local_addr, AT_IPv6, 16, tvb, offset);
             got_flags |= GOT_LOCAL_ADDR;
             break;
 
         case VENDOR_CACE << 16 | 3: /* caceRemoteIPv6Address */
             ti = proto_tree_add_item(pdutree, hf_pie_cace_remote_ipv6_address,
                                      tvb, offset, length, ENC_NA);
-            TVB_SET_ADDRESS(&remote_addr, AT_IPv6, tvb, offset, 16);
+            set_address_tvb(&remote_addr, AT_IPv6, 16, tvb, offset);
             got_flags |= GOT_REMOTE_ADDR;
             break;
 
@@ -6635,11 +6769,11 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
             break;
         case ((VENDOR_NETSCALER << 16) | 223):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icasessionupdatebeginsec,
-                                     tvb, offset, length, ENC_BIG_ENDIAN);
+                                     tvb, offset, length, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
             break;
         case ((VENDOR_NETSCALER << 16) | 224):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icasessionupdateendsec,
-                                     tvb, offset, length, ENC_BIG_ENDIAN);
+                                     tvb, offset, length, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
             break;
         case ((VENDOR_NETSCALER << 16) | 225):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icachannelid1,
@@ -6699,7 +6833,7 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
             break;
         case ((VENDOR_NETSCALER << 16) | 239):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_applicationstartuptime,
-                                     tvb, offset, length, ENC_BIG_ENDIAN);
+                                     tvb, offset, length, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
             break;
         case ((VENDOR_NETSCALER << 16) | 240):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icaapplicationterminationtype,
@@ -6759,11 +6893,11 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
             break;
         case ((VENDOR_NETSCALER << 16) | 254):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icanetworkupdatestarttime,
-                                     tvb, offset, length, ENC_BIG_ENDIAN);
+                                     tvb, offset, length, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
             break;
         case ((VENDOR_NETSCALER << 16) | 255):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icanetworkupdateendtime,
-                                     tvb, offset, length, ENC_BIG_ENDIAN);
+                                     tvb, offset, length, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
             break;
         case ((VENDOR_NETSCALER << 16) | 256):
             ti = proto_tree_add_item(pdutree, hf_pie_netscaler_icaclientsidesrtt,
@@ -6822,6 +6956,57 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
                                      tvb, offset, length, ENC_BIG_ENDIAN);
             break;
             /* END Netscaler Communications */
+
+            /* START Barracuda Communications */
+        case ((VENDOR_BARRACUDA << 16) | 1):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_timestamp,
+                                     tvb, offset, length, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 2):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_logop,
+                                     tvb, offset, length, ENC_BIG_ENDIAN);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 3):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_traffictype,
+                                     tvb, offset, length, ENC_BIG_ENDIAN);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 4):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_fwrule,
+                                     tvb, offset, length, ENC_UTF_8|ENC_NA);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 5):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_servicename,
+                                     tvb, offset, length, ENC_UTF_8|ENC_NA);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 6):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_reason,
+                                     tvb, offset, length, ENC_BIG_ENDIAN);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 7):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_reasontext,
+                                     tvb, offset, length, ENC_UTF_8|ENC_NA);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 8):
+            ti = proto_tree_add_ipv4(pdutree, hf_pie_barracuda_bindipv4address,
+                                     tvb, offset, 4, tvb_get_ipv4(tvb, offset));
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 9):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_bindtransportport,
+                                     tvb, offset, length, ENC_BIG_ENDIAN);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 10):
+            ti = proto_tree_add_ipv4(pdutree, hf_pie_barracuda_connipv4address,
+                                     tvb, offset, 4, tvb_get_ipv4(tvb, offset));
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 11):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_conntransportport,
+                                     tvb, offset, length, ENC_BIG_ENDIAN);
+            break;
+        case ((VENDOR_BARRACUDA << 16) | 12):
+            ti = proto_tree_add_item(pdutree, hf_pie_barracuda_auditcounter,
+                                     tvb, offset, length, ENC_BIG_ENDIAN);
+            break;
+            /* END Barracuda Communications */
 
         default:  /* Unknown Field ID */
             if ((hdrinfo_p->vspec == 9) || (pen == REVPEN)) {
@@ -6891,10 +7076,10 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
 
     /* XXX - These IDs are currently hard-coded in procflow.py. */
     if (got_flags == GOT_TCP_UDP && (tmplt_p->tmplt_id == 256 || tmplt_p->tmplt_id == 258)) {
-        add_tcp_process_info(pinfo->fd->num, &local_addr, &remote_addr, local_port, remote_port, uid, pid, uname_str, cmd_str);
+        add_tcp_process_info(pinfo->num, &local_addr, &remote_addr, local_port, remote_port, uid, pid, uname_str, cmd_str);
     }
     if (got_flags == GOT_TCP_UDP && (tmplt_p->tmplt_id == 257 || tmplt_p->tmplt_id == 259)) {
-        add_udp_process_info(pinfo->fd->num, &local_addr, &remote_addr, local_port, remote_port, uid, pid, uname_str, cmd_str);
+        add_udp_process_info(pinfo->num, &local_addr, &remote_addr, local_port, remote_port, uid, pid, uname_str, cmd_str);
     }
 
     return (guint) (offset - orig_offset);
@@ -6913,6 +7098,7 @@ static const int *v10_template_type_hf_list[TF_NUM_EXT] = {
     &hf_cflow_template_ntop_field_type,
     &hf_cflow_template_ixia_field_type,
     &hf_cflow_template_netscaler_field_type,
+    &hf_cflow_template_barracuda_field_type,
     NULL};
 
 static value_string_ext *v9_template_type_vse_list[TF_NUM] = {
@@ -6925,6 +7111,7 @@ static value_string_ext *v10_template_type_vse_list[TF_NUM_EXT] = {
     &v10_template_types_ntop_ext,
     &v10_template_types_ixia_ext,
     &v10_template_types_netscaler_ext,
+    &v10_template_types_barracuda_ext,
     NULL};
 
 static int
@@ -7172,10 +7359,10 @@ dissect_v9_v10_options_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *p
         if ((tmplt_p == NULL) && (tmplt.fields_p[TF_SCOPES] || tmplt.fields_p[TF_ENTRIES])) {
             /* create permanent template copy for storage in template table */
             tmplt_p = (v9_v10_tmplt_t *)wmem_memdup(wmem_file_scope(), &tmplt, sizeof(tmplt));
-            WMEM_COPY_ADDRESS(wmem_file_scope(), &tmplt_p->src_addr, &pinfo->net_src);
-            WMEM_COPY_ADDRESS(wmem_file_scope(), &tmplt_p->dst_addr, &pinfo->net_dst);
+            copy_address_wmem(wmem_file_scope(), &tmplt_p->src_addr, &pinfo->net_src);
+            copy_address_wmem(wmem_file_scope(), &tmplt_p->dst_addr, &pinfo->net_dst);
             /* Remember when we saw this template */
-            tmplt_p->template_frame_number = pinfo->fd->num;
+            tmplt_p->template_frame_number = pinfo->num;
             /* Add completed entry into table */
             g_hash_table_insert(v9_v10_tmplt_table, tmplt_p, tmplt_p);
         }
@@ -7272,10 +7459,10 @@ dissect_v9_v10_data_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdut
 
             /* create permanent template copy for storage in template table */
             tmplt_p = (v9_v10_tmplt_t *)wmem_memdup(wmem_file_scope(), &tmplt, sizeof(tmplt));
-            WMEM_COPY_ADDRESS(wmem_file_scope(), &tmplt_p->src_addr, &pinfo->net_src);
-            WMEM_COPY_ADDRESS(wmem_file_scope(), &tmplt_p->dst_addr, &pinfo->net_dst);
+            copy_address_wmem(wmem_file_scope(), &tmplt_p->src_addr, &pinfo->net_src);
+            copy_address_wmem(wmem_file_scope(), &tmplt_p->dst_addr, &pinfo->net_dst);
             /* Remember when we saw this template */
-            tmplt_p->template_frame_number = pinfo->fd->num;
+            tmplt_p->template_frame_number = pinfo->num;
             g_hash_table_insert(v9_v10_tmplt_table, tmplt_p, tmplt_p);
 
             /* Create if necessary observation domain entry (for use with sequence analysis) */
@@ -7301,9 +7488,9 @@ dissect_v9_v10_data_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdut
 /* Note: address at *(pinfo->net_???.data) is *not* copied */
 static v9_v10_tmplt_t *v9_v10_tmplt_build_key(v9_v10_tmplt_t *tmplt_p, packet_info *pinfo, guint32 src_id, guint16 tmplt_id)
 {
-    SET_ADDRESS(&tmplt_p->src_addr, pinfo->net_src.type, pinfo->net_src.len, pinfo->net_src.data); /* lookup only! */
+    set_address(&tmplt_p->src_addr, pinfo->net_src.type, pinfo->net_src.len, pinfo->net_src.data); /* lookup only! */
     tmplt_p->src_port  = pinfo->srcport;
-    SET_ADDRESS(&tmplt_p->dst_addr, pinfo->net_dst.type, pinfo->net_dst.len, pinfo->net_dst.data); /* lookup only! */
+    set_address(&tmplt_p->dst_addr, pinfo->net_dst.type, pinfo->net_dst.len, pinfo->net_dst.data); /* lookup only! */
     tmplt_p->dst_port  = pinfo->destport;
     tmplt_p->src_id    = src_id;
     tmplt_p->tmplt_id  = tmplt_id;
@@ -7317,9 +7504,9 @@ v9_v10_tmplt_table_equal(gconstpointer k1, gconstpointer k2)
     const v9_v10_tmplt_t *tb = (const v9_v10_tmplt_t *)k2;
 
     return (
-        (CMP_ADDRESS(&ta->src_addr, &tb->src_addr) == 0) &&
+        (cmp_address(&ta->src_addr, &tb->src_addr) == 0) &&
         (ta->src_port == tb->src_port)                   &&
-        (CMP_ADDRESS(&ta->dst_addr, &tb->dst_addr) == 0) &&
+        (cmp_address(&ta->dst_addr, &tb->dst_addr) == 0) &&
         (ta->dst_port == tb->dst_port)                   &&
         (ta->src_id   == tb->src_id)                     &&
         (ta->tmplt_id == tb->tmplt_id)
@@ -7334,8 +7521,8 @@ v9_v10_tmplt_table_hash(gconstpointer k)
 
     val = tmplt_p->src_id + (tmplt_p->tmplt_id << 9) + tmplt_p->src_port + tmplt_p->dst_port;
 
-    ADD_ADDRESS_TO_HASH(val, &tmplt_p->src_addr);
-    ADD_ADDRESS_TO_HASH(val, &tmplt_p->dst_addr);
+    val = add_address_to_hash(val, &tmplt_p->src_addr);
+    val = add_address_to_hash(val, &tmplt_p->dst_addr);
 
     return val;
 }
@@ -7441,7 +7628,7 @@ getprefix(const guint32 *addr, int prefix)
 
     gprefix = *addr & g_htonl((0xffffffff << (32 - prefix)));
 
-    SET_ADDRESS(&prefix_addr, AT_IPv4, 4, &gprefix);
+    set_address(&prefix_addr, AT_IPv4, 4, &gprefix);
     return address_to_str(wmem_packet_scope(), &prefix_addr);
 }
 
@@ -7780,6 +7967,96 @@ proto_register_netflow(void)
         {&hf_cflow_tcpflags16,
          {"TCP Flags", "cflow.tcpflags",
           FT_UINT16, BASE_HEX, NULL, 0x0,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_fin,
+         {"FIN", "cflow.tcpflags.fin",
+          FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x01,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_syn,
+         {"SYN", "cflow.tcpflags.syn",
+          FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x02,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_rst,
+         {"RST", "cflow.tcpflags.rst",
+          FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x04,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_psh,
+         {"PSH", "cflow.tcpflags.psh",
+          FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x08,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_ack,
+         {"ACK", "cflow.tcpflags.ack",
+          FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x10,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_urg,
+         {"URG", "cflow.tcpflags.urg",
+          FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x20,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_fin,
+         {"FIN", "cflow.tcpflags.fin",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0001,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_syn,
+         {"SYN", "cflow.tcpflags.syn",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0002,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_rst,
+         {"RST", "cflow.tcpflags.rst",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0004,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_psh,
+         {"PSH", "cflow.tcpflags.psh",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0008,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_ack,
+         {"ACK", "cflow.tcpflags.ack",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0010,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_urg,
+         {"URG", "cflow.tcpflags.urg",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0020,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_ece,
+         {"ECN Echo", "cflow.tcpflags.ece",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0040,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_cwr,
+         {"CWR", "cflow.tcpflags.cwr",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0080,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_ns,
+         {"ECN Nonce Sum", "cflow.tcpflags.ns",
+          FT_BOOLEAN, 16, TFS(&tfs_used_notused), 0x0100,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags_reserved,
+         {"Reserved", "cflow.tcpflags.reserved",
+          FT_UINT8, BASE_HEX, NULL, 0xc0,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_reserved,
+         {"Reserved", "cflow.tcpflags.reserved",
+          FT_UINT16, BASE_HEX, NULL, 0x0e00,
+          NULL, HFILL}
+        },
+        {&hf_cflow_tcpflags16_zero,
+         {"Zero (Header Length)", "cflow.tcpflags.zero",
+          FT_UINT16, BASE_HEX, NULL, 0xf000,
           NULL, HFILL}
         },
         {&hf_cflow_srcas,
@@ -9609,6 +9886,11 @@ proto_register_netflow(void)
           FT_UINT16, BASE_DEC|BASE_EXT_STRING, &v10_template_types_netscaler_ext, 0x7FFF,
           "Template field type", HFILL}
         },
+        {&hf_cflow_template_barracuda_field_type,
+         {"Type", "cflow.template_barracuda_field_type",
+          FT_UINT16, BASE_DEC|BASE_EXT_STRING, &v10_template_types_barracuda_ext, 0x7FFF,
+          "Template field type", HFILL}
+        },
         {&hf_cflow_template_ipfix_field_type_enterprise,
          {"Type", "cflow.template_ipfix_field_type_enterprise",
           FT_UINT16, BASE_DEC, NULL, 0x7FFF,
@@ -11129,14 +11411,14 @@ proto_register_netflow(void)
         /* netscaler, 5951 / 223 */
         {&hf_pie_netscaler_icasessionupdatebeginsec,
          {"ICA Session Update Begin Sec", "cflow.pie.netscaler.ica-session-update-begin-sec",
-          FT_UINT64, BASE_DEC, NULL, 0x0,
-          "ICA Session Update Begin Sec (s)", HFILL}
+          FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0,
+          NULL, HFILL}
         },
         /* netscaler, 5951 / 224 */
         {&hf_pie_netscaler_icasessionupdateendsec,
          {"ICA Session Update End Sec", "cflow.pie.netscaler.ica-session-update-end-sec",
-          FT_UINT64, BASE_DEC, NULL, 0x0,
-          "ICA Session Update End Sec (s)", HFILL}
+          FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0,
+          NULL, HFILL}
         },
         /* netscaler, 5951 / 225 */
         {&hf_pie_netscaler_icachannelid1,
@@ -11225,8 +11507,8 @@ proto_register_netflow(void)
         /* netscaler, 5951 / 239 */
         {&hf_pie_netscaler_applicationstartuptime,
          {"Application Startup Time", "cflow.pie.netscaler.application-startup-time",
-          FT_UINT64, BASE_DEC, NULL, 0x0,
-          "Application Startup Time (s)", HFILL}
+          FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0,
+          NULL, HFILL}
         },
         /* netscaler, 5951 / 240 */
         {&hf_pie_netscaler_icaapplicationterminationtype,
@@ -11261,7 +11543,7 @@ proto_register_netflow(void)
         /* netscaler, 5951 / 245 */
         {&hf_pie_netscaler_icaappprocessid,
          {"ICA App Process ID", "cflow.pie.netscaler.ica-app-processid",
-          FT_UINT32, BASE_HEX, NULL, 0x0,
+          FT_UINT32, BASE_DEC_HEX, NULL, 0x0,
           NULL, HFILL}
         },
         /* netscaler, 5951 / 246 */
@@ -11315,14 +11597,14 @@ proto_register_netflow(void)
         /* netscaler, 5951 / 254 */
         {&hf_pie_netscaler_icanetworkupdatestarttime,
          {"ICA Network Update Start Time", "cflow.pie.netscaler.ica-network-update-start-time",
-          FT_UINT64, BASE_DEC, NULL, 0x0,
-          "ICA Network Update Start Time (s)", HFILL}
+          FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0,
+          NULL, HFILL}
         },
         /* netscaler, 5951 / 255 */
         {&hf_pie_netscaler_icanetworkupdateendtime,
          {"ICA Network Update End Time", "cflow.pie.netscaler.ica-network-update-end-time",
-          FT_UINT64, BASE_DEC, NULL, 0x0,
-          "ICA Network Update End Time (s)", HFILL}
+          FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0,
+          NULL, HFILL}
         },
         /* netscaler, 5951 / 256 */
         {&hf_pie_netscaler_icaclientsidesrtt,
@@ -11409,6 +11691,84 @@ proto_register_netflow(void)
           NULL, HFILL}
         },
 
+        /* Barracuda root (a hidden item to allow filtering) */
+        {&hf_pie_barracuda,
+         {"Barracuda", "cflow.pie.barracuda",
+          FT_NONE, BASE_NONE, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 1 */
+        {&hf_pie_barracuda_timestamp,
+         {"Timestamp", "cflow.pie.barracuda.timestamp",
+          FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0,
+          "Seconds since epoch", HFILL}
+        },
+        /* Barracuda, 10704 / 2 */
+        {&hf_pie_barracuda_logop,
+         {"LogOp", "cflow.pie.barracuda.logop",
+          FT_UINT8, BASE_DEC, VALS(v10_barracuda_logop), 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 3 */
+        {&hf_pie_barracuda_traffictype,
+         {"Traffic Type", "cflow.pie.barracuda.traffictype",
+          FT_UINT8, BASE_DEC, VALS(v10_barracuda_traffictype), 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 4 */
+        {&hf_pie_barracuda_fwrule,
+         {"FW Rule", "cflow.pie.barracuda.fwrule",
+          FT_STRING, STR_UNICODE, NULL, 0x0,
+          "Name of FW Rule", HFILL}
+        },
+        /* Barracuda, 10704 / 5 */
+        {&hf_pie_barracuda_servicename,
+         {"Service Name", "cflow.pie.barracuda.servicename",
+          FT_STRING, STR_UNICODE, NULL, 0x0,
+          "Name of Service", HFILL}
+        },
+        /* Barracuda, 10704 / 6 */
+        {&hf_pie_barracuda_reason,
+         {"Reason", "cflow.pie.barracuda.reason",
+          FT_UINT32, BASE_DEC, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 7 */
+        {&hf_pie_barracuda_reasontext,
+         {"Reason Text", "cflow.pie.barracuda.reasontext",
+          FT_STRING, STR_UNICODE, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 8 */
+        {&hf_pie_barracuda_bindipv4address,
+         {"Bind IPv4 Address", "cflow.pie.barracuda.bindipv4address",
+          FT_IPv4, BASE_NONE, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 9 */
+        {&hf_pie_barracuda_bindtransportport,
+         {"Bind Transport Port", "cflow.pie.barracuda.bindtransportport",
+          FT_UINT16, BASE_DEC, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 10 */
+        {&hf_pie_barracuda_connipv4address,
+         {"Conn IPv4 Address", "cflow.pie.barracuda.connipv4address",
+          FT_IPv4, BASE_NONE, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 11 */
+        {&hf_pie_barracuda_conntransportport,
+         {"Conn Transport Port", "cflow.pie.barracuda.conntransportport",
+          FT_UINT16, BASE_DEC, NULL, 0x0,
+          NULL, HFILL}
+        },
+        /* Barracuda, 10704 / 12 */
+        {&hf_pie_barracuda_auditcounter,
+         {"Audit Counter", "cflow.pie.barracuda.auditcounter",
+          FT_UINT32, BASE_DEC, NULL, 0x0,
+          "Internal Data Counter", HFILL}
+        },
 
         {&hf_string_len_short,
          {"String_len_short", "cflow.string_len_short",
@@ -11453,7 +11813,8 @@ proto_register_netflow(void)
         &ett_field,
         &ett_dataflowset,
         &ett_fwdstat,
-        &ett_mpls_label
+        &ett_mpls_label,
+        &ett_tcpflags
     };
 
     static ei_register_info ei[] = {
@@ -11569,7 +11930,7 @@ proto_reg_handoff_netflow(void)
     static range_t  *ipfix_ports;
 
     if (!netflow_prefs_initialized) {
-        netflow_handle = new_create_dissector_handle(dissect_netflow, proto_netflow);
+        netflow_handle = create_dissector_handle(dissect_netflow, proto_netflow);
         netflow_prefs_initialized = TRUE;
         dissector_add_uint("wtap_encap", WTAP_ENCAP_RAW_IPFIX, netflow_handle);
     } else {

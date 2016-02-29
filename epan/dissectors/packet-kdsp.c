@@ -1145,7 +1145,7 @@ proto_register_kdsp(void)
   expert_kdsp = expert_register_protocol(proto_kdsp);
   expert_register_field_array(expert_kdsp, ei, array_length(ei));
 
-  subdissector_dlt_table = register_dissector_table("kdsp.cpt.dlt", "KDSP DLT Type", FT_UINT32, BASE_DEC);
+  subdissector_dlt_table = register_dissector_table("kdsp.cpt.dlt", "KDSP DLT Type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   prefs_register_uint_preference(kdsp_module, "tcp.port",
                                  "Kismet Drone TCP Port",
@@ -1166,7 +1166,7 @@ proto_reg_handoff_kdsp(void)
 
 
   if (!initialized) {
-    kdsp_handle = new_create_dissector_handle(dissect_kdsp, proto_kdsp);
+    kdsp_handle = create_dissector_handle(dissect_kdsp, proto_kdsp);
     dlt_handle = find_dissector("radiotap");
     if (dlt_handle)
         dissector_add_uint( "kdsp.cpt.dlt", DATALINK_RADIOTAP, dlt_handle);

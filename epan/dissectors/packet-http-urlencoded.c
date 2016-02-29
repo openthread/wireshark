@@ -36,9 +36,6 @@ static header_field_info *hfi_urlencoded = NULL;
 
 #define URLENCODED_HFI_INIT HFI_INIT(proto_urlencoded)
 
-static header_field_info hfi_form_keyvalue URLENCODED_HFI_INIT =
-	{ "Form item", "urlencoded-form", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL };
-
 static header_field_info hfi_form_key URLENCODED_HFI_INIT =
 	{ "Key", "urlencoded-form.key", FT_STRINGZ, BASE_NONE, NULL, 0x0, NULL, HFILL };
 
@@ -153,9 +150,7 @@ dissect_form_urlencoded(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 		const int start_offset = offset;
 		char *key, *value;
 
-		ti = proto_tree_add_item(url_tree, &hfi_form_keyvalue, tvb, offset, 0, ENC_NA);
-
-		sub = proto_item_add_subtree(ti, ett_form_keyvalue);
+		sub = proto_tree_add_subtree(url_tree, tvb, offset, 0, ett_form_keyvalue, &ti, "Form item");
 
 		next_offset = get_form_key_value(tvb, &key, offset, '=');
 		if (next_offset == -1)
@@ -184,7 +179,6 @@ proto_register_http_urlencoded(void)
 {
 #ifndef HAVE_HFI_SECTION_INIT
 	static header_field_info *hfi[] = {
-		&hfi_form_keyvalue,
 		&hfi_form_key,
 		&hfi_form_value,
 	};
@@ -200,7 +194,7 @@ proto_register_http_urlencoded(void)
 	proto_urlencoded = proto_register_protocol("HTML Form URL Encoded", "URL Encoded Form Data", "urlencoded-form");
 	hfi_urlencoded = proto_registrar_get_nth(proto_urlencoded);
 
-	form_urlencoded_handle = new_register_dissector("urlencoded-form", dissect_form_urlencoded, proto_urlencoded);
+	form_urlencoded_handle = register_dissector("urlencoded-form", dissect_form_urlencoded, proto_urlencoded);
 
 	proto_register_fields(proto_urlencoded, hfi, array_length(hfi));
 	proto_register_subtree_array(ett, array_length(ett));

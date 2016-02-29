@@ -370,7 +370,7 @@ zebra_route(proto_tree *tree, tvbuff_t *tvb, int offset, guint16 len,
 		tvb_memcpy(tvb, buffer6, offset,
 			   MIN((unsigned) PSIZE(prefixlen), sizeof buffer6));
 		proto_tree_add_ipv6(tree, hf_zebra_prefix6,
-				    tvb, offset, PSIZE(prefixlen), buffer6);
+				    tvb, offset, PSIZE(prefixlen), (struct e_in6_addr *)buffer6);
 	}else {
 		prefix4 = 0;
 		tvb_memcpy(tvb, (guint8 *)&prefix4, offset,
@@ -642,8 +642,8 @@ return offset;
 	+-------------------------------+
  The Marker is 0xFF to distinguish it from a version 0 header.
  */
-static void
-dissect_zebra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_zebra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item	*ti;
 	proto_tree	*zebra_tree;
@@ -699,6 +699,8 @@ dissect_zebra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			left -= len;
 		}
 	}
+
+	return tvb_captured_length(tvb);
 }
 
 void

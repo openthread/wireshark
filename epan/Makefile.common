@@ -29,9 +29,10 @@ LIBWIRESHARK_SRC =		\
 	aftypes.c		\
 	app_mem_usage.c		\
 	asn1.c			\
+	capture_dissectors.c \
 	charsets.c		\
 	circuit.c		\
-	color_dissector_filters.c	\
+	color_filters.c	\
 	column.c		\
 	column-utils.c		\
 	conversation.c		\
@@ -75,6 +76,7 @@ LIBWIRESHARK_SRC =		\
 	print.c			\
 	print_stream.c		\
 	proto.c			\
+	proto_data.c		\
 	range.c			\
 	reassemble.c		\
 	reedsolomon.c		\
@@ -157,10 +159,11 @@ LIBWIRESHARK_INCLUDES =		\
 	asn1.h			\
 	ax25_pids.h		\
 	bridged_pids.h		\
+	capture_dissectors.h \
 	charsets.h		\
 	chdlctypes.h		\
 	circuit.h		\
-	color_dissector_filters.h	\
+	color_filters.h		\
 	column.h		\
 	column-info.h		\
 	column-utils.h		\
@@ -209,7 +212,7 @@ LIBWIRESHARK_INCLUDES =		\
 	ip_opts.h		\
 	ipproto.h		\
 	ipv4.h			\
-	ipv6-utils.h		\
+	ipv6.h			\
 	lapd_sapi.h		\
 	llcsaps.h		\
 	next_tvb.h		\
@@ -227,6 +230,7 @@ LIBWIRESHARK_INCLUDES =		\
 	prefs.h			\
 	prefs-int.h		\
 	proto.h			\
+	proto_data.h		\
 	ps.h			\
 	ptvcursor.h		\
 	range.h			\

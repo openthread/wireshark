@@ -12,6 +12,8 @@ SetCompressorDictSize 64 ; MB
 
 !include "common.nsh"
 !include 'LogicLib.nsh'
+!include "StrFunc.nsh"
+${StrRep}
 
 ; See http://nsis.sourceforge.net/Check_if_a_file_exists_at_compile_time for documentation
 !macro !defineifexist _VAR_NAME _FILE_NAME
@@ -81,6 +83,7 @@ BrandingText "Wireshark Installer (tm)"
 Page custom DisplayAdditionalTasksPage
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom DisplayWinPcapPage
+Page custom DisplayUSBPcapPage
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -99,6 +102,7 @@ Page custom DisplayWinPcapPage
 
   ReserveFile "AdditionalTasksPage.ini"
   ReserveFile "WinPcapPage.ini"
+  ReserveFile "USBPcapPage.ini"
   !insertmacro MUI_RESERVEFILE_INSTALLOPTIONS
 
 ; ============================================================================
@@ -211,6 +215,9 @@ Var TMP_UNINSTALLER
 ; ============================================================================
 !include x64.nsh
 
+!include "GetWindowsVersion.nsh"
+!include WinMessages.nsh
+
 Function .onInit
   !if ${WIRESHARK_TARGET_PLATFORM} == "win64"
     ; http://forums.winamp.com/printthread.php?s=16ffcdd04a8c8d52bee90c0cae273ac5&threadid=262873
@@ -221,8 +228,10 @@ Function .onInit
   !endif
 
     ; Get the Windows version
-    Call GetWindowsVersion
-    Pop $R0 ; Windows Version
+    ${GetWindowsVersion} $R0
+
+    ; Uncomment to test.
+    ; MessageBox MB_OK "You're running Windows $R0."
 
     ; Check if we're able to run with this version
     StrCmp $R0 '95' lbl_winversion_unsupported
@@ -230,7 +239,8 @@ Function .onInit
     StrCmp $R0 'ME' lbl_winversion_unsupported
     StrCmp $R0 'NT 4.0' lbl_winversion_unsupported_nt4
     StrCmp $R0 '2000' lbl_winversion_unsupported_2000
-    StrCmp $R0 'XP' lbl_winversion_warn_xp
+    StrCmp $R0 'XP' lbl_winversion_unsupported_xp_2003
+    StrCmp $R0 '2003' lbl_winversion_unsupported_xp_2003
     Goto lbl_winversion_supported
 
 lbl_winversion_unsupported:
@@ -251,10 +261,10 @@ lbl_winversion_unsupported_2000:
         /SD IDOK
     Quit
 
-lbl_winversion_warn_xp:
-    MessageBox MB_YESNO|MB_ICONINFORMATION \
-        "This version of ${PROGRAM_NAME} may not work on Windows $R0.$\nWe recommend ${PROGRAM_NAME} 1.10 instead.$\nDo you want to continue?" \
-        /SD IDYES IDYES lbl_winversion_supported
+lbl_winversion_unsupported_xp_2003:
+    MessageBox MB_OK \
+        "Windows $R0 is no longer supported.$\nPlease install ${PROGRAM_NAME} 1.12 or 1.10 instead." \
+        /SD IDOK
     Quit
 
 lbl_winversion_supported:
@@ -303,6 +313,7 @@ done:
   ;Extract InstallOptions INI files
   !insertmacro MUI_INSTALLOPTIONS_EXTRACT "AdditionalTasksPage.ini"
   !insertmacro MUI_INSTALLOPTIONS_EXTRACT "WinpcapPage.ini"
+  !insertmacro MUI_INSTALLOPTIONS_EXTRACT "USBPcapPage.ini"
 FunctionEnd
 
 Function DisplayAdditionalTasksPage
@@ -315,11 +326,17 @@ Function DisplayWinPcapPage
   !insertmacro MUI_INSTALLOPTIONS_DISPLAY "WinPcapPage.ini"
 FunctionEnd
 
+Function DisplayUSBPcapPage
+  !insertmacro MUI_HEADER_TEXT "Install USBPcap?" "USBPcap is required to capture USB traffic. Should USBPcap be installed?"
+  !insertmacro MUI_INSTALLOPTIONS_DISPLAY "USBPcapPage.ini"
+FunctionEnd
+
 ; ============================================================================
 ; Installation execution commands
 ; ============================================================================
 
 Var WINPCAP_UNINSTALL ;declare variable for holding the value of a registry key
+Var USBPCAP_UNINSTALL ;declare variable for holding the value of a registry key
 ;Var WIRESHARK_UNINSTALL ;declare variable for holding the value of a registry key
 
 !ifdef VCREDIST_EXE
@@ -340,6 +357,7 @@ File "${STAGING_DIR}\wiretap-${WTAP_VERSION}.dll"
 !ifdef ENABLE_LIBWIRESHARK
 File "${STAGING_DIR}\libwireshark.dll"
 !endif
+File "${STAGING_DIR}\libwscodecs.dll"
 File "${STAGING_DIR}\libwsutil.dll"
 
 !include all-manifest.nsh
@@ -817,6 +835,33 @@ ExecWait '"$INSTDIR\WinPcap_${WINPCAP_PACKAGE_VERSION}.exe"' $0
 DetailPrint "WinPcap installer returned $0"
 SecRequired_skip_Winpcap:
 
+; If running as a silent installer, don't try to install USBPcap
+IfSilent SecRequired_skip_USBPcap
+
+ReadINIStr $0 "$PLUGINSDIR\USBPcapPage.ini" "Field 4" "State"
+StrCmp $0 "0" SecRequired_skip_USBPcap
+SetOutPath $INSTDIR
+File "${WIRESHARK_LIB_DIR}\USBPcapSetup-${USBPCAP_DISPLAY_VERSION}-1.exe"
+ExecWait '"$INSTDIR\USBPcapSetup-${USBPCAP_DISPLAY_VERSION}-1.exe"' $0
+DetailPrint "USBPcap installer returned $0"
+${If} $0 == "0"
+    ${If} ${RunningX64}
+        ${DisableX64FSRedirection}
+        SetRegView 64
+    ${EndIf}
+    ReadRegStr $USBPCAP_UNINSTALL HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\Uninstall\USBPcap" "UninstallString"
+    ${If} ${RunningX64}
+        ${EnableX64FSRedirection}
+        SetRegView 32
+    ${EndIf}
+    CreateDirectory $INSTDIR\extcap
+    ${StrRep} $0 '$USBPCAP_UNINSTALL' 'Uninstall.exe' 'USBPcapCMD.exe'
+    ${StrRep} $1 '$0' '"' ''
+    CopyFiles  /SILENT $1 $INSTDIR\extcap
+    SetRebootFlag true
+${EndIf}
+SecRequired_skip_USBPcap:
+
 ; If no user profile exists for Wireshark but for Ethereal, copy it over
 SetShellVarContext current
 IfFileExists $APPDATA\Wireshark profile_done
@@ -1014,6 +1059,23 @@ SetOutPath $INSTDIR\extcap
 File "${STAGING_DIR}\extcap\androiddump.exe"
 SectionEnd
 
+;WIP: uncomment this section when sshdump on windows will be ready to go
+;Section /o "Sshdump" SecSshdumpinfos
+;-------------------------------------------
+;SetOutPath $INSTDIR
+;File "${STAGING_DIR}\sshdump.html"
+;SetOutPath $INSTDIR\extcap
+;File "${STAGING_DIR}\extcap\sshdump.exe"
+;SectionEnd
+
+Section /o "Randpktdump" SecRandpktdumpinfos
+;-------------------------------------------
+SetOutPath $INSTDIR
+File "${STAGING_DIR}\randpktdump.html"
+SetOutPath $INSTDIR\extcap
+File "${STAGING_DIR}\extcap\randpktdump.exe"
+SectionEnd
+
 SectionGroupEnd ; "Tools"
 
 !ifdef USER_GUIDE_DIR
@@ -1060,6 +1122,9 @@ SectionEnd
 
   !insertmacro MUI_DESCRIPTION_TEXT ${SecToolsGroup} "Additional command line based tools."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAndroiddumpinfos} "Provide capture interfaces from Android devices"
+;WIP: uncomment this section when sshdump on windows will be ready to go
+;!insertmacro MUI_DESCRIPTION_TEXT ${SecSshdumpinfos} "Provide remote capture through SSH"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecRandpktdumpinfos} "Provide random packet generator"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecEditCap} "Copy packets to a new file, optionally trimmming packets, omitting them, or saving to a different format."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecText2Pcap} "Read an ASCII hex dump and write the data into a libpcap-style capture file."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMergecap} "Combine multiple saved capture files into a single output file"
@@ -1162,13 +1227,12 @@ FunctionEnd
 !endif
 
 
-!include "GetWindowsVersion.nsh"
-!include WinMessages.nsh
 !include "VersionCompare.nsh"
 
 Var WINPCAP_NAME ; DisplayName from WinPcap installation
 Var WINWINPCAP_VERSION ; DisplayVersion from WinPcap installation
 Var NPCAP_NAME ; DisplayName from Npcap installation
+Var USBPCAP_NAME ; DisplayName from USBPcap installation
 
 Function myShowCallback
 
@@ -1185,6 +1249,7 @@ Function myShowCallback
     WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 10" "Flags" ""
 !endif
 
+    ClearErrors
     ; detect if WinPcap should be installed
     WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 4" "Text" "Install WinPcap ${PCAP_DISPLAY_VERSION}"
     ReadRegStr $WINPCAP_NAME HKEY_LOCAL_MACHINE "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\WinPcapInst" "DisplayName"
@@ -1243,6 +1308,33 @@ lbl_winpcap_do_install:
     WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 5" "Text" "The currently installed $WINPCAP_NAME will be uninstalled first."
 
 lbl_winpcap_done:
+
+    ; detect if USBPcap should be installed
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 4" "Text" "Install USBPcap ${USBPCAP_DISPLAY_VERSION}"
+    ${If} ${RunningX64}
+        ${DisableX64FSRedirection}
+        SetRegView 64
+    ${EndIf}
+    ReadRegStr $USBPCAP_NAME HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\Uninstall\USBPcap" "DisplayName"
+    ${If} ${RunningX64}
+        ${EnableX64FSRedirection}
+        SetRegView 32
+    ${EndIf}
+    IfErrors 0 lbl_usbpcap_installed ;if RegKey is available, USBPcap is already installed
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 2" "Text" "USBPcap is currently not installed"
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 2" "Flags" "DISABLED"
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 5" "Text" "(Use Add/Remove Programs first to uninstall any undetected old USBPcap versions)"
+    Goto lbl_usbpcap_done
+
+lbl_usbpcap_installed:
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 2" "Text" "$USBPCAP_NAME"
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 4" "State" "0"
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 4" "Flags" "DISABLED"
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 5" "Text" "If you wish to install USBPcap ${USBPCAP_DISPLAY_VERSION}, please uninstall $USBPCAP_NAME manually first."
+    WriteINIStr "$PLUGINSDIR\USBPcapPage.ini" "Field 5" "Flags" "DISABLED"
+    Goto lbl_usbpcap_done
+
+lbl_usbpcap_done:
 
     ; if Wireshark was previously installed, unselect previously not installed icons etc.
     ; detect if Wireshark is already installed ->

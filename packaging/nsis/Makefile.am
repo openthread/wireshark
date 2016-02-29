@@ -3,6 +3,7 @@ MAINTAINERCLEANFILES = \
 
 EXTRA_DIST = \
 	AdditionalTasksPage.ini \
+	CMakeLists.txt	\
 	common.nsh	\
 	config.nsh.in	\
 	Custom.nmake \
@@ -17,5 +18,6 @@ EXTRA_DIST = \
 	VersionCompare.nsh \
 	windeployqt-to-nsis.ps1 \
 	WinPcapPage.ini \
+	USBPcapPage.ini \
 	wireshark.nsi	\
 	x64.nsh

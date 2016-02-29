@@ -59,6 +59,8 @@ wiretap/ascend.h
 wiretap/k12text.c
 wireshark-tap-register.c
 wireshark-tap-register-cache.pkl
+ui/gtk/wireshark-gresources.c
+ui/gtk/wireshark-gresources.h
 
 # Generated makefile system #
 #############################
@@ -96,9 +98,11 @@ mergecap
 missing
 oids_test
 randpkt
+randpktdump
 rawshark
 reordercap
 reassemble_test
+sshdump
 stamp-h1
 text2pcap
 tfshark
@@ -113,10 +117,22 @@ ylwrap
 ##################
 CMakeCache.txt
 CMakeFiles
+CMakeLists.txt.user*
 cmake_install.cmake
 CPackConfig.cmake
 CPackSourceConfig.cmake
 lib/
+WiresharkConfig.cmake
+WiresharkConfigVersion.cmake
+epan/_regc.tmp
+wireshark.pc
+run/
+tshark-tap-register-cache.pkl
+build.ninja
+rules.ninja
+.ninja_deps
+.ninja_log
+asn1/*/*-stamp
 
 
 # Generated dir #
@@ -138,8 +154,12 @@ doxygen-*.tag
 help/faq.txt
 pod2htm[di].tmp
 wireshark.pod
-docbook/developer-guide.xml
-docbook/user-guide.xml
+docbook/developer-guide-toc.hhc
+docbook/developer-guide.hhp
+docbook/developer-guide*.xml
+docbook/user-guide-toc.hhc
+docbook/user-guide.hhp
+docbook/user-guide*.xml
 docbook/ws?g_src/WS?G_*.dbk
 docbook/*-guide-*.fo
 docbook/*-guide-*.pdf
@@ -164,6 +184,7 @@ qtshark
 /ui/qt/*.pro.user
 #/ui/qt/*.qm
 /ui/qt/moc_*.cpp
+/ui/qt/moc_*.cpp_parameters
 /ui/qt/*.moc.cpp
 /ui/qt/moc_*.cxx
 /ui/qt/qrc_*.cpp
@@ -176,8 +197,6 @@ qtshark
 #######
 epan/abi-check-headers/
 epan/abi-descriptor.xml
-filetap/abi-check-headers/
-filetap/abi-descriptor.xml
 wiretap/abi-check-headers/
 wiretap/abi-descriptor.xml
 wsutil/abi-check-headers/
@@ -186,6 +205,7 @@ wsutil/abi-descriptor.xml
 # Windows Stuff #
 #################
 *.bsc
+*.dir/
 *.dsp
 *.dsw
 *.chm
@@ -199,12 +219,25 @@ wsutil/abi-descriptor.xml
 !adns_dll.rc
 !image/file_dlg_win32.rc
 *.res
+*.vcxproj*
+/Copying.txt
+/News.txt
+/README.txt
+/README.windows.txt
+Win32/
+Wireshark.opensdf
+Wireshark.sdf
+Wireshark.sln
+Wireshark.*.suo
+x64/
 _libs_check_
 /wireshark-gtk*
 doc/ws.css
 ui/qt/config.pri
 packaging/nsis/all-manifest.nsh
 packaging/nsis/gtk-dll-manifest.nsh
+/packaging/portableapps/WiresharkPortable/
+/zlib/
 
 # Misc #
 ########

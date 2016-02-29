@@ -36,6 +36,7 @@ proper helper routines
 #include <epan/to_str.h>
 #include <epan/asn1.h>
 #include <epan/expert.h>
+#include <wsutil/str_util.h>
 #include "packet-per.h"
 
 void proto_register_per(void);
@@ -96,7 +97,7 @@ static dissector_table_t per_oid_dissector_table = NULL;
 
 /*
 #define DEBUG_ENTRY(x) \
-printf("#%u  %s   tvb:0x%08x\n",actx->pinfo->fd->num,x,(int)tvb);
+printf("#%u  %s   tvb:0x%08x\n",actx->pinfo->num,x,(int)tvb);
 */
 #define DEBUG_ENTRY(x) \
 	;
@@ -216,7 +217,7 @@ dissect_per_open_type_internal(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, 
 	if (actx->aligned) BYTE_ALIGN_OFFSET(offset);
 	end_offset = offset + type_length * 8;
 
-	if ((variant==CB_DISSECTOR)||(variant==CB_NEW_DISSECTOR)) {
+	if (variant==CB_NEW_DISSECTOR) {
 		val_tvb = new_octet_aligned_subset(tvb, offset, actx, type_length);
 		if (hfi) {
 			if (IS_FT_UINT(hfi->type)||IS_FT_INT(hfi->type)) {
@@ -237,11 +238,8 @@ dissect_per_open_type_internal(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, 
 			case CB_ASN1_ENC:
 				((per_type_fn)type_cb)(tvb, offset, actx, tree, hf_index);
 				break;
-			case CB_DISSECTOR:
-				((dissector_t)type_cb)(val_tvb, actx->pinfo, subtree);
-				break;
 			case CB_NEW_DISSECTOR:
-				((new_dissector_t)type_cb)(val_tvb, actx->pinfo, subtree, NULL);
+				((dissector_t)type_cb)(val_tvb, actx->pinfo, subtree, NULL);
 				break;
 			case CB_DISSECTOR_HANDLE:
 				break;
@@ -260,13 +258,7 @@ dissect_per_open_type(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tre
 }
 
 guint32
-dissect_per_open_type_pdu(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, dissector_t type_cb)
-{
-	return dissect_per_open_type_internal(tvb, offset, actx, tree, hf_index, (void*)type_cb, CB_DISSECTOR);
-}
-
-guint32
-dissect_per_open_type_pdu_new(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, new_dissector_t type_cb)
+dissect_per_open_type_pdu_new(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, dissector_t type_cb)
 {
 	return dissect_per_open_type_internal(tvb, offset, actx, tree, hf_index, (void*)type_cb, CB_NEW_DISSECTOR);
 }
@@ -1081,7 +1073,7 @@ guint32
 dissect_per_integer(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, gint32 *value)
 {
 	guint32 i, length;
-	gint32 val;
+	guint32 val;
 	proto_item *it=NULL;
 	header_field_info *hfi;
 
@@ -1792,7 +1784,7 @@ index_get_field_name(const per_sequence_t *sequence, int idx)
 /* this functions decodes a SEQUENCE
    it can only handle SEQUENCES with at most 32 DEFAULT or OPTIONAL fields
 18.1 extension bit
-18.2 optinal/default items in root
+18.2 optional/default items in root
 18.3 we ignore the case where n>64K
 18.4 the root sequence
 	   18.5
@@ -2209,22 +2201,7 @@ DEBUG_ENTRY("dissect_per_bit_string");
 	return offset;
 }
 
-guint32 dissect_per_bit_string_containing_pdu(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, gboolean has_extension, dissector_t type_cb)
-{
-	tvbuff_t *val_tvb = NULL;
-	proto_tree *subtree = tree;
-
-	offset = dissect_per_bit_string(tvb, offset, actx, tree, hf_index, min_len, max_len, has_extension, &val_tvb, NULL);
-
-	if (type_cb && val_tvb) {
-		subtree = proto_item_add_subtree(actx->created_item, ett_per_containing);
-		type_cb(val_tvb, actx->pinfo, subtree);
-	}
-
-	return offset;
-}
-
-guint32 dissect_per_bit_string_containing_pdu_new(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, gboolean has_extension, new_dissector_t type_cb)
+guint32 dissect_per_bit_string_containing_pdu_new(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, gboolean has_extension, dissector_t type_cb)
 {
 	tvbuff_t *val_tvb = NULL;
 	proto_tree *subtree = tree;
@@ -2239,7 +2216,7 @@ guint32 dissect_per_bit_string_containing_pdu_new(tvbuff_t *tvb, guint32 offset,
 	return offset;
 }
 
-/* this fucntion dissects an OCTET STRING
+/* this function dissects an OCTET STRING
 	16.1
 	16.2
 	16.3
@@ -2349,22 +2326,7 @@ DEBUG_ENTRY("dissect_per_octet_string");
 	return offset;
 }
 
-guint32 dissect_per_octet_string_containing_pdu(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, gboolean has_extension, dissector_t type_cb)
-{
-	tvbuff_t *val_tvb = NULL;
-	proto_tree *subtree = tree;
-
-	offset = dissect_per_octet_string(tvb, offset, actx, tree, hf_index, min_len, max_len, has_extension, &val_tvb);
-
-	if (type_cb && val_tvb) {
-		subtree = proto_item_add_subtree(actx->created_item, ett_per_containing);
-		type_cb(val_tvb, actx->pinfo, subtree);
-	}
-
-	return offset;
-}
-
-guint32 dissect_per_octet_string_containing_pdu_new(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, gboolean has_extension, new_dissector_t type_cb)
+guint32 dissect_per_octet_string_containing_pdu_new(tvbuff_t *tvb, guint32 offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, gboolean has_extension, dissector_t type_cb)
 {
 	tvbuff_t *val_tvb = NULL;
 	proto_tree *subtree = tree;
@@ -2437,6 +2399,8 @@ gboolean get_size_constraint_from_stack(asn1_ctx_t *actx, const gchar *name, int
 
 static int
 dissect_per_T_direct_reference(tvbuff_t *tvb, int offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index) {
+
+	DISSECTOR_ASSERT(actx);
 	offset = dissect_per_object_identifier_str(tvb, offset, actx, tree, hf_index, &actx->external.direct_reference);
 
 	actx->external.direct_ref_present = TRUE;
@@ -2559,7 +2523,7 @@ dissect_per_external_type(tvbuff_t *tvb _U_, guint32 offset, asn1_ctx_t *actx, p
 }
 
 /*
- * Calls the callback defined with new_register_per_oid_dissector() if found.
+ * Calls the callback defined with register_per_oid_dissector() if found.
  * Offset is in bits.
  */
 
@@ -2589,11 +2553,11 @@ call_per_oid_callback(const char *oid, tvbuff_t *tvb, packet_info *pinfo, proto_
 }
 
 void
-new_register_per_oid_dissector(const char *oid, new_dissector_t dissector, int proto, const char *name)
+register_per_oid_dissector(const char *oid, dissector_t dissector, int proto, const char *name)
 {
 	dissector_handle_t dissector_handle;
 
-	dissector_handle = new_create_dissector_handle(dissector, proto);
+	dissector_handle = create_dissector_handle(dissector, proto);
 	dissector_add_string("per.oid", oid, dissector_handle);
 	oid_add_from_string(name, oid);
 }
@@ -2764,7 +2728,7 @@ proto_register_per(void)
 				       "Whether the dissector should put the internal PER data in the tree or if it should hide it",
 				       &display_internal_per_fields);
 
-	per_oid_dissector_table = register_dissector_table("per.oid", "PER OID Dissectors", FT_STRING, BASE_NONE);
+	per_oid_dissector_table = register_dissector_table("per.oid", "PER OID Dissectors", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 
 }

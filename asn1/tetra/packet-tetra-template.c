@@ -50,7 +50,6 @@ static int proto_tetra = -1;
 static dissector_handle_t data_handle = NULL;
 
 static dissector_handle_t tetra_handle;
-static void dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
 
 static int global_tetra_port = 7074;
 
@@ -430,10 +429,9 @@ static void dissect_tetra_UNITDATA_REQ(tvbuff_t *tvb, packet_info *pinfo, proto_
 	}
 }
 
-static void
-dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-
 	proto_item *tetra_item = NULL;
 	proto_item *tetra_sub_item = NULL;
 	proto_tree *tetra_tree = NULL;
@@ -546,6 +544,7 @@ dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			break;
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 void proto_reg_handoff_tetra(void)

@@ -80,7 +80,7 @@ BluetoothDevicesDialog::BluetoothDevicesDialog(QWidget &parent, CaptureFile &cf)
     ui(new Ui::BluetoothDevicesDialog)
 {
     ui->setupUi(this);
-    resize(parent.width() * 4 / 5, parent.height() * 2 / 3);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 2 / 3);
 
     connect(ui->tableTreeWidget, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(tableContextMenu(const QPoint &)));
     connect(ui->interfaceComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(interfaceCurrentIndexChanged(int)));
@@ -182,7 +182,7 @@ void BluetoothDevicesDialog::on_actionCopy_Rows_triggered()
     clipboard->setText(copy);
 }
 
-void BluetoothDevicesDialog::tapReset(void *tapinfo_ptr )
+void BluetoothDevicesDialog::tapReset(void *tapinfo_ptr)
 {
     bluetooth_devices_tapinfo_t *tapinfo = (bluetooth_devices_tapinfo_t *) tapinfo_ptr;
     BluetoothDevicesDialog  *bluetooth_devices_dialog = static_cast<BluetoothDevicesDialog *>(tapinfo->ui);
@@ -198,9 +198,11 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
     bluetooth_device_tap_t       *tap_device = static_cast<bluetooth_device_tap_t *>(const_cast<void *>(data));
     QString                       bd_addr;
     QString                       bd_addr_oui;
-    QString                       name;
     const gchar                  *manuf;
     QTreeWidgetItem              *item = NULL;
+
+    if (dialog->file_closed_)
+        return FALSE;
 
     if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID) {
         gchar       *interface;
@@ -268,7 +270,7 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
         item_data_t *item_data = wmem_new(wmem_file_scope(), item_data_t);
         item_data->interface_id = tap_device->interface_id;
         item_data->adapter_id = tap_device->adapter_id;
-        item_data->frame_number = pinfo->fd->num;
+        item_data->frame_number = pinfo->num;
         item->setData(0, Qt::UserRole, QVariant::fromValue<item_data_t *>(item_data));
     }
 
@@ -315,7 +317,7 @@ void BluetoothDevicesDialog::showInformationStepsChanged(int)
 
 void BluetoothDevicesDialog::on_tableTreeWidget_itemActivated(QTreeWidgetItem *item, int)
 {
-    if (!cap_file_.isValid())
+    if (file_closed_)
         return;
 
     item_data_t *item_data = item->data(0, Qt::UserRole).value<item_data_t *>();
@@ -326,23 +328,26 @@ void BluetoothDevicesDialog::on_tableTreeWidget_itemActivated(QTreeWidgetItem *i
 
 void BluetoothDevicesDialog::on_actionCopy_All_triggered()
 {
-    QClipboard             *clipboard = QApplication::clipboard();
-    QString                 copy;
-    QTreeWidgetItemIterator i_item(ui->tableTreeWidget);
+    QClipboard              *clipboard = QApplication::clipboard();
+    QString                  copy;
+    QTreeWidgetItemIterator  i_item(ui->tableTreeWidget);
+    QTreeWidgetItem         *item;
+
+    item = ui->tableTreeWidget->headerItem();
 
     copy += QString("%1  %2  %3  %4  %5  %6  %7  %8  %9\n")
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_bd_addr), -20)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_bd_addr_oui), -20)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_name), -30)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_lmp_version), -20)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_lmp_subversion), -20)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_manufacturer), -30)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_hci_version), -20)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_hci_revision), -20)
-            .arg(ui->tableTreeWidget->headerItem()->text(column_number_is_local_adapter), -20);
+            .arg(item->text(column_number_bd_addr), -20)
+            .arg(item->text(column_number_bd_addr_oui), -20)
+            .arg(item->text(column_number_name), -30)
+            .arg(item->text(column_number_lmp_version), -20)
+            .arg(item->text(column_number_lmp_subversion), -20)
+            .arg(item->text(column_number_manufacturer), -30)
+            .arg(item->text(column_number_hci_version), -20)
+            .arg(item->text(column_number_hci_revision), -20)
+            .arg(item->text(column_number_is_local_adapter), -20);
 
     while (*i_item) {
-        QTreeWidgetItem *item = static_cast<QTreeWidgetItem*>(*i_item);
+        item = static_cast<QTreeWidgetItem*>(*i_item);
         copy += QString("%1  %2  %3  %4  %5  %6  %7  %8  %9\n")
                 .arg(item->text(column_number_bd_addr), -20)
                 .arg(item->text(column_number_bd_addr_oui), -20)

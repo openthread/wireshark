@@ -1,6 +1,6 @@
 /* packet-capwap.c
- * Routines for CAPWAP dissection (RFC 5415 / RFC5416)
- * Copyright 2009,  Alexis La Goutte <alexis.lagoutte at gmail dot com>
+ * Routines for CAPWAP dissection (RFC 5415 / RFC 5416)
+ * Copyright 2009, Alexis La Goutte <alexis.lagoutte at gmail dot com>
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -1514,7 +1514,7 @@ static const value_string fortinet_element_id_vals[] = {
     { VSP_FORTINET_COEXT, "Coext" },
     { VSP_FORTINET_AMSDU, "AMSDU" },
     { VSP_FORTINET_PS_OPT, "PS OPT" },
-    { VSP_FORTINET_PURE, "Pure "},
+    { VSP_FORTINET_PURE, "Pure" },
     { VSP_FORTINET_EBP_TAG, "EBP Tag" },
     { VSP_FORTINET_TELNET_ENABLE, "Telnet Enable" },
     { VSP_FORTINET_ADMIN_PASSWD, "Admin Password" },
@@ -1547,7 +1547,7 @@ static const value_string fortinet_element_id_vals[] = {
 static int
 dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *sub_msg_element_type_tree, guint offset, packet_info *pinfo _U_, guint optlen,  proto_item *msg_element_type_item)
 {
-    guint element_id;
+    guint element_id, i;
 
     proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_fortinet_element_id, tvb, offset, 2, ENC_BIG_ENDIAN);
     element_id = tvb_get_ntohs(tvb, offset);
@@ -1582,7 +1582,7 @@ dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *s
             offset += 1;
         break;
         case VSP_FORTINET_MAC:{ /* 33 */
-            guint8 mac_length;
+            guint mac_length;
             proto_item *ti;
             proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_fortinet_mac_rid, tvb, offset, 1, ENC_BIG_ENDIAN);
             offset += 1;
@@ -1596,7 +1596,7 @@ dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *s
                 expert_add_info(pinfo, ti, &ei_capwap_fortinet_mac_len );
                 break;
             }
-            for(;mac_length > 0; mac_length -= 6){
+            for(i = 0; i < mac_length/6; i++){
                 proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_fortinet_mac, tvb, offset, 6, ENC_NA);
                 offset += 6;
             }
@@ -1609,7 +1609,7 @@ dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *s
             offset += 1;
         break;
         case VSP_FORTINET_WBH_STA:{ /* 36 */
-            guint16 mac_length;
+            guint mac_length;
             proto_item *ti;
 
             proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_fortinet_wbh_sta_rid, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -1622,7 +1622,7 @@ dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *s
                 expert_add_info(pinfo, ti, &ei_capwap_fortinet_mac_len );
                 break;
             }
-            for(;mac_length > 0; mac_length -= 6){
+            for(i = 0; i < mac_length/6; i++){
                 proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_fortinet_wbh_sta_mac, tvb, offset, 6, ENC_NA);
                 offset += 6;
             }
@@ -2218,12 +2218,11 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
                            "AC IPv4 List length %u wrong, must be >= 4", optlen);
         break;
         }
-        offset_end = offset + 4 + optlen;
         offset += 4;
 
         if (optlen%4 == 0)
         {
-            while (offset_end-offset > 0)
+            for (i = 0; i < optlen/4; i++)
             {
                 proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_ac_ipv4_list, tvb, offset, 4, ENC_BIG_ENDIAN);
                 offset += 4;
@@ -2237,12 +2236,11 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
                            "AC IPv6 List length %u wrong, must be >= 4", optlen);
         break;
         }
-        offset_end = offset + 4 + optlen;
         offset += 4;
 
         if (optlen%16 == 0)
         {
-            while (offset_end-offset > 0)
+            for (i = 0; i < optlen/16; i++)
             {
                 proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_ac_ipv6_list, tvb, offset, 16, ENC_NA);
                 offset += 16;
@@ -3293,8 +3291,8 @@ dissect_capwap_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     return offset;
 }
 
-static void
-dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *capwap_data_tree;
@@ -3323,7 +3321,7 @@ dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     if (type_header == 1) {
         next_tvb = tvb_new_subset_remaining (tvb, offset);
         call_dissector(dtls_handle, next_tvb, pinfo, tree);
-        return;
+        return tvb_captured_length(tvb);
     }
 
     /* CAPWAP Header */
@@ -3336,7 +3334,7 @@ dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
         gint len_rem = tvb_reported_length_remaining(tvb, offset);
         if (len_rem <= 0)
-            return;
+            return offset;
 
         pinfo->fragmented = TRUE;
 
@@ -3355,7 +3353,7 @@ dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             next_tvb = tvb_new_subset_remaining(tvb, offset);
             call_dissector(data_handle, next_tvb, pinfo, tree);
             col_append_fstr(pinfo->cinfo, COL_INFO, " (Fragment ID: %u, Fragment Offset: %u)", fragment_id, fragment_offset);
-            return;
+            return tvb_captured_length(tvb);
         }
         else
         {
@@ -3395,7 +3393,8 @@ dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
     }
     pinfo->fragmented = save_fragmented;
-    }
+    return tvb_captured_length(tvb);
+}
 
 void
 proto_register_capwap_control(void)
@@ -5223,7 +5222,7 @@ proto_register_capwap_control(void)
               NULL, HFILL }
         },
         { &hf_capwap_fortinet_ebptag_tag,
-            { "Tag", "capwap.control.fortinet.ebptag.ebp",
+            { "Tag", "capwap.control.fortinet.ebptag.tag",
               FT_ETHER, BASE_NONE, NULL, 0x0,
               NULL, HFILL }
         },
@@ -5798,7 +5797,7 @@ proto_reg_handoff_capwap(void)
     static guint capwap_control_udp_port, capwap_data_udp_port;
 
     if (!inited) {
-        capwap_control_handle = new_create_dissector_handle(dissect_capwap_control, proto_capwap_control);
+        capwap_control_handle = create_dissector_handle(dissect_capwap_control, proto_capwap_control);
         capwap_data_handle    = create_dissector_handle(dissect_capwap_data, proto_capwap_data);
         dtls_handle           = find_dissector("dtls");
         ieee8023_handle       = find_dissector("eth_withoutfcs");

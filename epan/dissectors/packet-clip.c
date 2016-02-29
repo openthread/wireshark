@@ -26,10 +26,10 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <epan/expert.h>
 #include <wiretap/wtap.h>
 
-#include "packet-clip.h"
 #include "packet-ip.h"
 
 void proto_register_clip(void);
@@ -43,18 +43,10 @@ static expert_field ei_no_link_info = EI_INIT;
 
 static dissector_handle_t ip_handle;
 
-void
-capture_clip( const guchar *pd, int len, packet_counts *ld ) {
-
-    capture_ip(pd, 0, len, ld);
-}
-
-static void
-dissect_clip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_clip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item *fh_item;
-
-  pinfo->current_proto = "CLIP";
 
   /* load the top pane info. This should be overwritten by
      the next protocol in the stack */
@@ -90,6 +82,7 @@ dissect_clip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
   expert_add_info(pinfo, fh_item, &ei_no_link_info);
 
   call_dissector(ip_handle, tvb, pinfo, tree);
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -122,9 +115,11 @@ proto_reg_handoff_clip(void)
    */
   ip_handle = find_dissector("ip");
 
-  clip_handle = create_dissector_handle(dissect_clip, -1);
+  clip_handle = create_dissector_handle(dissect_clip, proto_clip);
       /* XXX - no protocol, can't be disabled */
   dissector_add_uint("wtap_encap", WTAP_ENCAP_LINUX_ATM_CLIP, clip_handle);
+
+  register_capture_dissector("wtap_encap", WTAP_ENCAP_LINUX_ATM_CLIP, capture_ip, proto_clip);
 }
 
 /*

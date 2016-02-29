@@ -146,18 +146,19 @@ dissect_pcli_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     }
 }
 
-static void
-dissect_pcli(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pcli(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     int offset = 0;
 
     dissect_pcli_common(tvb, pinfo, tree, &offset);
 
     dissect_pcli_payload(tvb, pinfo, tree, offset);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_pcli8(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pcli8(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *pcli_tree;
     int offset = 0;
@@ -168,10 +169,11 @@ dissect_pcli8(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += 4;
 
     dissect_pcli_payload(tvb, pinfo, tree, offset);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_pcli12(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pcli12(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *pcli_tree;
     int offset = 0;
@@ -182,10 +184,11 @@ dissect_pcli12(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += 8;
 
     dissect_pcli_payload(tvb, pinfo, tree, offset);
+    return tvb_captured_length(tvb);
 }
 
-static void
-dissect_pcli20(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_pcli20(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_tree *pcli_tree;
     int offset = 0;
@@ -198,6 +201,7 @@ dissect_pcli20(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     offset += 8;
 
     dissect_pcli_payload(tvb, pinfo, tree, offset);
+    return tvb_captured_length(tvb);
 }
 
 static void
@@ -267,7 +271,7 @@ proto_register_pcli(void)
 
     pcli_subdissector_table = register_dissector_table(
         "pcli.payload", "PCLI payload dissector",
-        FT_UINT32, BASE_DEC);
+        FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     register_decode_as(&pcli_payload_da);
 }

@@ -148,8 +148,8 @@ dissect_nasdaq_soup_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent
 }
 
 /* ---------------------------- */
-static void
-dissect_nasdaq_soup(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_nasdaq_soup(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item *ti;
     proto_tree *nasdaq_soup_tree = NULL;
@@ -172,7 +172,7 @@ dissect_nasdaq_soup(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
          */
         pinfo->desegment_offset = offset;
         pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
-        return;
+        return tvb_captured_length(tvb);
       }
 
       nasdaq_soup_type = tvb_get_guint8(tvb, offset);
@@ -193,6 +193,7 @@ dissect_nasdaq_soup(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       dissect_nasdaq_soup_packet(tvb, pinfo, tree, nasdaq_soup_tree, offset, linelen);
       offset = next_offset;
     }
+    return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

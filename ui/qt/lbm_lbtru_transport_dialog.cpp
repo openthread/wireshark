@@ -624,19 +624,19 @@ void LBMLBTRUSourceTransportEntry::processPacket(const packet_info * pinfo, cons
 {
     if (m_first_frame_timestamp_valid)
     {
-        if (nstime_cmp(&(pinfo->fd->abs_ts), &m_first_frame_timestamp) < 0)
+        if (nstime_cmp(&(pinfo->abs_ts), &m_first_frame_timestamp) < 0)
         {
-            nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+            nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         }
     }
     else
     {
-        nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         m_first_frame_timestamp_valid = true;
     }
-    if (nstime_cmp(&(pinfo->fd->abs_ts), &m_last_frame_timestamp) > 0)
+    if (nstime_cmp(&(pinfo->abs_ts), &m_last_frame_timestamp) > 0)
     {
-        nstime_copy(&(m_last_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_last_frame_timestamp), &(pinfo->abs_ts));
     }
     if (tap_info->type == LBTRU_PACKET_TYPE_DATA)
     {
@@ -657,7 +657,7 @@ void LBMLBTRUSourceTransportEntry::processPacket(const packet_info * pinfo, cons
             {
                 sqn = it.value();
             }
-            sqn->processFrame(pinfo->fd->num);
+            sqn->processFrame(pinfo->num);
         }
         else
         {
@@ -674,7 +674,7 @@ void LBMLBTRUSourceTransportEntry::processPacket(const packet_info * pinfo, cons
                 sqn = it.value();
             }
         }
-        sqn->processFrame(pinfo->fd->num);
+        sqn->processFrame(pinfo->num);
     }
     else if (tap_info->type == LBTRU_PACKET_TYPE_NCF)
     {
@@ -697,7 +697,7 @@ void LBMLBTRUSourceTransportEntry::processPacket(const packet_info * pinfo, cons
             {
                 sqn = it.value();
             }
-            sqn->processFrame(tap_info->ncf_reason, pinfo->fd->num);
+            sqn->processFrame(tap_info->ncf_reason, pinfo->num);
         }
     }
     else if (tap_info->type == LBTRU_PACKET_TYPE_SM)
@@ -717,7 +717,7 @@ void LBMLBTRUSourceTransportEntry::processPacket(const packet_info * pinfo, cons
         {
             sqn = it.value();
         }
-        sqn->processFrame(pinfo->fd->num);
+        sqn->processFrame(pinfo->num);
     }
     else if (tap_info->type == LBTRU_PACKET_TYPE_RST)
     {
@@ -736,7 +736,7 @@ void LBMLBTRUSourceTransportEntry::processPacket(const packet_info * pinfo, cons
         {
             reason = it.value();
         }
-        reason->processFrame(pinfo->fd->num);
+        reason->processFrame(pinfo->num);
     }
     else
     {
@@ -873,19 +873,19 @@ void LBMLBTRUSourceEntry::processPacket(const packet_info * pinfo, const lbm_lbt
 
     if (m_first_frame_timestamp_valid)
     {
-        if (nstime_cmp(&(pinfo->fd->abs_ts), &m_first_frame_timestamp) < 0)
+        if (nstime_cmp(&(pinfo->abs_ts), &m_first_frame_timestamp) < 0)
         {
-            nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+            nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         }
     }
     else
     {
-        nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         m_first_frame_timestamp_valid = true;
     }
-    if (nstime_cmp(&(pinfo->fd->abs_ts), &m_last_frame_timestamp) > 0)
+    if (nstime_cmp(&(pinfo->abs_ts), &m_last_frame_timestamp) > 0)
     {
-        nstime_copy(&(m_last_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_last_frame_timestamp), &(pinfo->abs_ts));
     }
     switch (tap_info->type)
     {
@@ -1068,19 +1068,19 @@ void LBMLBTRUReceiverTransportEntry::processPacket(const packet_info * pinfo, co
 {
     if (m_first_frame_timestamp_valid)
     {
-        if (nstime_cmp(&(pinfo->fd->abs_ts), &m_first_frame_timestamp) < 0)
+        if (nstime_cmp(&(pinfo->abs_ts), &m_first_frame_timestamp) < 0)
         {
-            nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+            nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         }
     }
     else
     {
-        nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         m_first_frame_timestamp_valid = true;
     }
-    if (nstime_cmp(&(pinfo->fd->abs_ts), &m_last_frame_timestamp) > 0)
+    if (nstime_cmp(&(pinfo->abs_ts), &m_last_frame_timestamp) > 0)
     {
-        nstime_copy(&(m_last_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_last_frame_timestamp), &(pinfo->abs_ts));
     }
     switch (tap_info->type)
     {
@@ -1105,7 +1105,7 @@ void LBMLBTRUReceiverTransportEntry::processPacket(const packet_info * pinfo, co
                     {
                         sqn = it.value();
                     }
-                    sqn->processFrame(pinfo->fd->num);
+                    sqn->processFrame(pinfo->num);
                 }
             }
             break;
@@ -1126,7 +1126,7 @@ void LBMLBTRUReceiverTransportEntry::processPacket(const packet_info * pinfo, co
                 {
                     sqn = it.value();
                 }
-                sqn->processFrame(pinfo->fd->num);
+                sqn->processFrame(pinfo->num);
             }
             break;
         case LBTRU_PACKET_TYPE_CREQ:
@@ -1146,7 +1146,7 @@ void LBMLBTRUReceiverTransportEntry::processPacket(const packet_info * pinfo, co
                 {
                     req = it.value();
                 }
-                req->processFrame(pinfo->fd->num);
+                req->processFrame(pinfo->num);
             }
             break;
         default:
@@ -1260,19 +1260,19 @@ void LBMLBTRUReceiverEntry::processPacket(const packet_info * pinfo, const lbm_l
 
     if (m_first_frame_timestamp_valid)
     {
-        if (nstime_cmp(&(pinfo->fd->abs_ts), &m_first_frame_timestamp) < 0)
+        if (nstime_cmp(&(pinfo->abs_ts), &m_first_frame_timestamp) < 0)
         {
-            nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+            nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         }
     }
     else
     {
-        nstime_copy(&(m_first_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_first_frame_timestamp), &(pinfo->abs_ts));
         m_first_frame_timestamp_valid = true;
     }
-    if (nstime_cmp(&(pinfo->fd->abs_ts), &m_last_frame_timestamp) > 0)
+    if (nstime_cmp(&(pinfo->abs_ts), &m_last_frame_timestamp) > 0)
     {
-        nstime_copy(&(m_last_frame_timestamp), &(pinfo->fd->abs_ts));
+        nstime_copy(&(m_last_frame_timestamp), &(pinfo->abs_ts));
     }
     switch (tap_info->type)
     {
@@ -2233,10 +2233,10 @@ void LBMLBTRUTransportDialog::actionReceiverAutoResizeColumns_triggered(void)
  *
  * Local variables:
  * c-basic-offset: 4
- * tab-width: 4
+ * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=4 tabstop=4 expandtab:
- * :indentSize=4:tabSize=4:noTabs=true:
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

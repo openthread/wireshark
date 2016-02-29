@@ -134,8 +134,8 @@ dissect_cmstatus_tlv (tvbuff_t * tvb, proto_tree * tree, guint8 start, guint16 l
     } /* while */
 }
 
-static void
-dissect_cmstatus (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
+static int
+dissect_cmstatus (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
 {
   proto_item *it;
   proto_tree *cmstatus_tree = NULL;
@@ -199,6 +199,7 @@ dissect_cmstatus (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree)
     }
   /* Call Dissector TLV's */
   dissect_cmstatus_tlv(tvb, cmstatus_tree, 3, len);
+  return tvb_captured_length(tvb);
 }
 
 /* Register the protocol with Wireshark */

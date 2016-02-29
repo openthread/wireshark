@@ -223,7 +223,7 @@ dissect_usb_dfu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     k_bus_id          = bus_id;
     k_device_address  = device_address;
-    k_frame_number    = pinfo->fd->num;
+    k_frame_number    = pinfo->num;
 
     key[0].length = 1;
     key[0].key = &k_bus_id;
@@ -309,7 +309,7 @@ dissect_usb_dfu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
             command_data->command = command;
             command_data->interface = interface;
-            command_data->command_frame_number = pinfo->fd->num;
+            command_data->command_frame_number = pinfo->num;
             command_data->block_number = block_number;
 
             wmem_tree_insert32_array(command_info, key, command_data);
@@ -326,7 +326,7 @@ dissect_usb_dfu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     wmem_tree = (wmem_tree_t *) wmem_tree_lookup32_array(command_info, key);
     if (wmem_tree) {
-        command_data = (command_data_t *) wmem_tree_lookup32_le(wmem_tree, pinfo->fd->num);
+        command_data = (command_data_t *) wmem_tree_lookup32_le(wmem_tree, pinfo->num);
         if (command_data) {
             command_response = command_data->command;
             block_number = command_data->block_number;
@@ -554,7 +554,7 @@ proto_register_usb_dfu(void)
     proto_usb_dfu = proto_register_protocol("USB Device Firmware Upgrade ", "USB DFU", "usbdfu");
     proto_register_field_array(proto_usb_dfu, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    usb_dfu_handle = new_register_dissector("usb_dfu", dissect_usb_dfu, proto_usb_dfu);
+    usb_dfu_handle = register_dissector("usb_dfu", dissect_usb_dfu, proto_usb_dfu);
 
     expert_module = expert_register_protocol(proto_usb_dfu);
     expert_register_field_array(expert_module, ei, array_length(ei));
@@ -570,7 +570,7 @@ proto_reg_handoff_usb_dfu(void)
 {
     dissector_handle_t  usf_dfu_descriptor_handle;
 
-    usf_dfu_descriptor_handle = new_create_dissector_handle(dissect_usb_dfu_descriptor, proto_usb_dfu);
+    usf_dfu_descriptor_handle = create_dissector_handle(dissect_usb_dfu_descriptor, proto_usb_dfu);
     dissector_add_uint("usb.descriptor", IF_CLASS_APPLICATION_SPECIFIC, usf_dfu_descriptor_handle);
 
     dissector_add_uint("usb.product", (0x1d50 << 16) | 0x1db5, usb_dfu_handle); /* IDBG in DFU mode */

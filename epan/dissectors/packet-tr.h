@@ -31,7 +31,7 @@ typedef struct _tr_hdr {
 	address src;
 } tr_hdr;
 
-WS_DLL_PUBLIC
-void capture_tr(const guchar *, int, int, packet_counts *);
+extern
+gboolean capture_tr(const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
 
 #endif

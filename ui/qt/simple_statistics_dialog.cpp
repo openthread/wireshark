@@ -32,7 +32,7 @@
 // To do:
 // - Hide rows with zero counts.
 
-static QHash<const QString, new_stat_tap_ui *> cfg_str_to_stu_;
+static QHash<const QString, stat_tap_table_ui *> cfg_str_to_stu_;
 
 extern "C" {
 static void
@@ -50,7 +50,7 @@ simple_stat_init(const char *args, void*) {
 }
 
 void register_simple_stat_tables(gpointer data, gpointer) {
-    new_stat_tap_ui *stu = (new_stat_tap_ui*)data;
+    stat_tap_table_ui *stu = (stat_tap_table_ui*)data;
 
     cfg_str_to_stu_[stu->cli_string] = stu;
     TapParameterDialog::registerDialog(
@@ -154,11 +154,12 @@ private:
     const stat_tap_table_item_type *fields_;
 };
 
-SimpleStatisticsDialog::SimpleStatisticsDialog(QWidget &parent, CaptureFile &cf, struct _new_stat_tap_ui *stu, const QString filter, int help_topic) :
+SimpleStatisticsDialog::SimpleStatisticsDialog(QWidget &parent, CaptureFile &cf, struct _stat_tap_table_ui *stu, const QString filter, int help_topic) :
     TapParameterDialog(parent, cf, help_topic),
     stu_(stu)
 {
     setWindowSubtitle(stu_->title);
+    loadGeometry(0, 0, stu_->title);
 
     QStringList header_labels;
     for (int col = 0; col < (int) stu_->nfields; col++) {
@@ -182,7 +183,7 @@ TapParameterDialog *SimpleStatisticsDialog::createSimpleStatisticsDialog(QWidget
         return NULL;
     }
 
-    new_stat_tap_ui *stu = cfg_str_to_stu_[cfg_str];
+    stat_tap_table_ui *stu = cfg_str_to_stu_[cfg_str];
 
     return new SimpleStatisticsDialog(parent, cf, stu, filter);
 }
@@ -197,8 +198,8 @@ void SimpleStatisticsDialog::addMissingRows(struct _new_stat_data_t *stat_data)
     // the top-level tree item text set to the column labels for that table.
 
     // Add any missing tables and rows.
-    for (guint table_idx = 0; table_idx < stat_data->new_stat_tap_data->tables->len; table_idx++) {
-        new_stat_tap_table* st_table = g_array_index(stat_data->new_stat_tap_data->tables, new_stat_tap_table*, table_idx);
+    for (guint table_idx = 0; table_idx < stat_data->stat_tap_data->tables->len; table_idx++) {
+        stat_tap_table* st_table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, table_idx);
         QTreeWidgetItem *ti = NULL;
 
         if ((int) table_idx >= statsTreeWidget()->topLevelItemCount()) {
@@ -227,7 +228,7 @@ void SimpleStatisticsDialog::tapReset(void *sd_ptr)
     SimpleStatisticsDialog *ss_dlg = static_cast<SimpleStatisticsDialog *>(sd->user_data);
     if (!ss_dlg) return;
 
-    reset_stat_table(sd->new_stat_tap_data, NULL, NULL);
+    reset_stat_table(sd->stat_tap_data, NULL, NULL);
     ss_dlg->statsTreeWidget()->clear();
 }
 
@@ -256,7 +257,7 @@ void SimpleStatisticsDialog::tapDraw(void *sd_ptr)
 void SimpleStatisticsDialog::fillTree()
 {
     new_stat_data_t stat_data;
-    stat_data.new_stat_tap_data = stu_;
+    stat_data.stat_tap_data = stu_;
     stat_data.user_data = this;
 
     stu_->stat_tap_init_cb(stu_, NULL, NULL);

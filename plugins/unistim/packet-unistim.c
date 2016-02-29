@@ -231,8 +231,8 @@ dissect_unistim(tvbuff_t *tvb,packet_info *pinfo,proto_tree *tree,void *data _U_
    uinfo->set_termid = -1;
    uinfo->string_data = NULL;
    uinfo->key_buffer = NULL;
-   SET_ADDRESS(&uinfo->it_ip, AT_NONE, 0, NULL);
-   SET_ADDRESS(&uinfo->ni_ip, AT_NONE, 0, NULL);
+   clear_address(&uinfo->it_ip);
+   clear_address(&uinfo->ni_ip);
    uinfo->it_port = 0;
 
    offset+=4;
@@ -288,15 +288,15 @@ dissect_payload(proto_tree *overall_unistim_tree,tvbuff_t *tvb, gint offset, pac
    /*UNISTIM only so no term id but further payload work*/
          /* Collect info for tap */
          /* If no term id then packet sourced from NI */
-         COPY_ADDRESS(&(uinfo->ni_ip), &(pinfo->src));
-         COPY_ADDRESS(&(uinfo->it_ip), &(pinfo->dst));
+         copy_address(&(uinfo->ni_ip), &(pinfo->src));
+         copy_address(&(uinfo->it_ip), &(pinfo->dst));
          uinfo->it_port = pinfo->destport;
          break;
       case 0x02:
    /*UNISTIM with term id*/
          /* Termid packs are always sourced from the it, so collect relevant infos */
-         COPY_ADDRESS(&(uinfo->ni_ip),&(pinfo->dst));
-         COPY_ADDRESS(&(uinfo->it_ip),&(pinfo->src));
+         copy_address(&(uinfo->ni_ip),&(pinfo->dst));
+         copy_address(&(uinfo->it_ip),&(pinfo->src));
          uinfo->it_port = pinfo->srcport;
          uinfo->termid = tvb_get_ntohl(tvb,offset);
 
@@ -1048,8 +1048,8 @@ dissect_display_switch(proto_tree *msg_tree,
          }
          if(msg_len>0){
             /* I'm guessing this will work flakily at best */
-            uinfo->string_data = tvb_get_string(wmem_packet_scope(), tvb,offset,msg_len);
-            proto_tree_add_item(msg_tree,hf_generic_string,tvb,offset,msg_len,ENC_ASCII|ENC_NA);
+            uinfo->string_data = tvb_get_string_enc(wmem_packet_scope(), tvb,offset,msg_len,ENC_ASCII);
+            proto_tree_add_string(msg_tree,hf_generic_string,tvb,offset,msg_len,uinfo->string_data);
          }
 
          offset+=msg_len;
@@ -2314,13 +2314,13 @@ dissect_audio_switch(proto_tree *msg_tree,packet_info *pinfo,
                guint16 far_port;
 
                far_ip_addr = tvb_get_ipv4(tvb, offset-4);
-               SET_ADDRESS(&far_addr, AT_IPv4, 4, &far_ip_addr);
+               set_address(&far_addr, AT_IPv4, 4, &far_ip_addr);
 
                far_port = tvb_get_ntohs(tvb, offset-8);
-               rtp_add_address(pinfo, &far_addr, far_port, 0, "UNISTIM", pinfo->fd->num, FALSE, NULL);
+               rtp_add_address(pinfo, &far_addr, far_port, 0, "UNISTIM", pinfo->num, FALSE, NULL);
 
                far_port = tvb_get_ntohs(tvb, offset-6);
-               rtcp_add_address(pinfo, &far_addr, far_port, 0, "UNISTIM", pinfo->fd->num);
+               rtcp_add_address(pinfo, &far_addr, far_port, 0, "UNISTIM", pinfo->num);
             }
          }
          break;
@@ -4056,7 +4056,7 @@ proto_reg_handoff_unistim(void) {
    static guint unistim_port;
 
    if (!initialized) {
-      unistim_handle=new_create_dissector_handle(dissect_unistim,proto_unistim);
+      unistim_handle=create_dissector_handle(dissect_unistim,proto_unistim);
       dissector_add_for_decode_as("udp.port", unistim_handle);
       initialized=TRUE;
    } else {

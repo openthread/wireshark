@@ -37,7 +37,7 @@
 
 #include <epan/addr_resolv.h>
 
-#include "../globals.h"
+#include "../../globals.h"
 #include <epan/stat_groups.h>
 #include "ui/simple_dialog.h"
 
@@ -48,13 +48,14 @@
 #include "ui/gtk/gtkglobals.h"
 #include "ui/gtk/stock_icons.h"
 
-static void mcaststream_dlg_update(void *ti_ptr);
+static void mcaststream_tap_reset(mcaststream_tapinfo_t *tapinfo);
+static void mcaststream_tap_draw(mcaststream_tapinfo_t *tapinfo);
 
 /****************************************************************************/
 /* the one and only global mcaststream_tapinfo_t structure for tshark and wireshark.
  */
 static mcaststream_tapinfo_t the_tapinfo_struct =
-    {NULL, NULL, mcaststream_dlg_update, NULL, 0, NULL, FALSE};
+    {NULL, mcaststream_tap_reset, mcaststream_tap_draw, NULL, 0, NULL, FALSE};
 
 /* Capture callback data keys */
 #define E_MCAST_ENTRY_1     "burst_interval"
@@ -186,8 +187,8 @@ mcaststream_on_select_row(GtkTreeSelection *selection, gpointer data _U_)
     if (gtk_tree_selection_get_selected(selection, NULL, &list_iter))
     {
         gtk_tree_model_get(GTK_TREE_MODEL(list_store), &list_iter, MC_COL_DATA, &selected_stream_fwd, -1);
-        src_addr = (char*)address_to_display(NULL, &(selected_stream_fwd->src_addr));
-        dst_addr = (char*)address_to_display(NULL, &(selected_stream_fwd->dest_addr));
+        src_addr = address_to_display(NULL, &(selected_stream_fwd->src_addr));
+        dst_addr = address_to_display(NULL, &(selected_stream_fwd->dest_addr));
         g_snprintf(label_text, sizeof(label_text), "Selected: %s:%u -> %s:%u",
             src_addr,
             selected_stream_fwd->src_port,
@@ -388,8 +389,8 @@ add_to_list_store(mcast_stream_info_t* strinfo)
         in g_snprintf("%f") functions */
     setlocale(LC_NUMERIC, "C");
 
-    src_addr = (char*)address_to_display(NULL, &(strinfo->src_addr));
-    dst_addr = (char*)address_to_display(NULL, &(strinfo->dest_addr));
+    src_addr = address_to_display(NULL, &(strinfo->src_addr));
+    dst_addr = address_to_display(NULL, &(strinfo->dest_addr));
     data[0] = g_strdup(src_addr);
     data[1] = g_strdup_printf("%u", strinfo->src_port);
     data[2] = g_strdup(dst_addr);
@@ -747,18 +748,9 @@ mcaststream_dlg_create(void)
 /****************************************************************************/
 /* update the contents of the dialog box clist */
 /* list: pointer to list of mcast_stream_info_t* */
-void
-mcaststream_dlg_update(void *ti_ptr)
+static void
+mcaststream_dlg_update(GList *list)
 {
-    GList *list;
-    mcaststream_tapinfo_t *tapinfo = (mcaststream_tapinfo_t *)ti_ptr;
-
-    if (!tapinfo) {
-        return;
-    }
-
-    list = tapinfo->strinfo_list;
-
     if (mcast_stream_dlg != NULL) {
         gtk_list_store_clear(list_store);
         streams_nb = 0;
@@ -774,6 +766,29 @@ mcaststream_dlg_update(void *ti_ptr)
     }
 
     last_list = list;
+}
+
+static void
+mcaststream_tap_reset(mcaststream_tapinfo_t *tapinfo _U_)
+{
+    GtkTreeSelection  *selection;
+    if (mcast_stream_dlg != NULL) {
+        /* Disable selection to avoid mcaststream_on_select_row from
+         * triggering and thereby accessing invalid memory. */
+        selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(list_w));
+        gtk_tree_selection_set_mode(selection, GTK_SELECTION_NONE);
+        gtk_list_store_clear(list_store);
+        gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
+        streams_nb = 0;
+    }
+}
+
+static void
+mcaststream_tap_draw(mcaststream_tapinfo_t *tapinfo)
+{
+    if (tapinfo) {
+        mcaststream_dlg_update(tapinfo->strinfo_list);
+    }
 }
 
 #if 0

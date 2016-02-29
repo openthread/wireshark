@@ -23,12 +23,7 @@
  */
 
 #include "config.h"
-#ifdef HAVE_ARPA_INET_H
-    #include <arpa/inet.h>
-#endif
-#if HAVE_WINSOCK2_H
-    #include <winsock2.h>
-#endif
+
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
@@ -36,9 +31,7 @@
 #include <epan/tap.h>
 #include <epan/conversation.h>
 #include <epan/to_str.h>
-#ifndef HAVE_INET_ATON
-    #include <wsutil/inet_aton.h>
-#endif
+#include <wsutil/inet_aton.h>
 #include <wsutil/pint.h>
 #include "packet-lbm.h"
 #include "packet-lbtrm.h"
@@ -59,7 +52,7 @@ static int lbtrm_tap_handle = -1;
 /* LBT-RM transport management.                                               */
 /*----------------------------------------------------------------------------*/
 
-static const address lbtrm_null_address = { AT_NONE, 0, NULL };
+static const address lbtrm_null_address = ADDRESS_INIT_NONE;
 
 static lbtrm_transport_t * lbtrm_transport_unicast_find(const address * source_address, guint16 source_port, guint32 session_id, guint32 frame)
 {
@@ -156,10 +149,10 @@ lbtrm_transport_t * lbtrm_transport_add(const address * source_address, guint16 
         return (entry);
     }
     entry = wmem_new(wmem_file_scope(), lbtrm_transport_t);
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->source_address), source_address);
+    copy_address_wmem(wmem_file_scope(), &(entry->source_address), source_address);
     entry->source_port = source_port;
     entry->session_id = session_id;
-    WMEM_COPY_ADDRESS(wmem_file_scope(), &(entry->multicast_group), multicast_group);
+    copy_address_wmem(wmem_file_scope(), &(entry->multicast_group), multicast_group);
     entry->dest_port = dest_port;
     entry->channel = lbm_channel_assign(LBM_CHANNEL_TRANSPORT_LBTRM);
     entry->frame = wmem_tree_new(wmem_file_scope());
@@ -1092,7 +1085,7 @@ typedef struct
     guint32 current_frame;
 } lbtrm_sqn_frame_list_callback_data_t;
 
-static gboolean dissect_lbtrm_sqn_frame_list_callback(void * frame, void * user_data)
+static gboolean dissect_lbtrm_sqn_frame_list_callback(const void *key _U_, void * frame, void * user_data)
 {
     lbtrm_sqn_frame_list_callback_data_t * cb_data = (lbtrm_sqn_frame_list_callback_data_t *) user_data;
     proto_item * transport_item = NULL;
@@ -1181,22 +1174,22 @@ static int dissect_lbtrm(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
         /* Note that this won't handle the case when a NAK occurs in the capture before any other packets for that transport. Oh well. */
         if (packet_type == LBTRM_PACKET_TYPE_NAK)
         {
-            transport = lbtrm_transport_unicast_find(&(pinfo->dst), src_port, session_id, pinfo->fd->num);
+            transport = lbtrm_transport_unicast_find(&(pinfo->dst), src_port, session_id, pinfo->num);
         }
         else
         {
-            transport = lbtrm_transport_add(&(pinfo->src), src_port, session_id, &(pinfo->dst), dest_port, pinfo->fd->num);
+            transport = lbtrm_transport_add(&(pinfo->src), src_port, session_id, &(pinfo->dst), dest_port, pinfo->num);
         }
     }
     else
     {
         if (packet_type == LBTRM_PACKET_TYPE_NAK)
         {
-            transport = lbtrm_transport_unicast_find(&(pinfo->dst), src_port, session_id, pinfo->fd->num);
+            transport = lbtrm_transport_unicast_find(&(pinfo->dst), src_port, session_id, pinfo->num);
         }
         else
         {
-            transport = lbtrm_transport_find(&(pinfo->src), src_port, session_id, &(pinfo->dst), dest_port, pinfo->fd->num);
+            transport = lbtrm_transport_find(&(pinfo->src), src_port, session_id, &(pinfo->dst), dest_port, pinfo->num);
         }
     }
     if (transport != NULL)
@@ -1303,7 +1296,7 @@ static int dissect_lbtrm(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
         {
             if (transport != NULL)
             {
-                lbtrm_transport_frame_add(transport, packet_type, pinfo->fd->num, sequence, retransmission);
+                lbtrm_transport_frame_add(transport, packet_type, pinfo->num, sequence, retransmission);
             }
         }
         else
@@ -1316,7 +1309,7 @@ static int dissect_lbtrm(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
                 transport_item = proto_tree_add_item(lbtrm_tree, hf_lbtrm_analysis, tvb, 0, 0, ENC_NA);
                 PROTO_ITEM_SET_GENERATED(transport_item);
                 transport_tree = proto_item_add_subtree(transport_item, ett_lbtrm_transport);
-                frame = lbtrm_transport_frame_find(transport, pinfo->fd->num);
+                frame = lbtrm_transport_frame_find(transport, pinfo->num);
                 if (frame != NULL)
                 {
                     lbm_transport_sqn_t * sqn = NULL;
@@ -1358,7 +1351,7 @@ static int dissect_lbtrm(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
                                     frame_tree = proto_item_add_subtree(frame_tree_item, ett_lbtrm_transport_sqn);
                                     cb_data.tree = frame_tree;
                                     cb_data.tvb = tvb;
-                                    cb_data.current_frame = pinfo->fd->num;
+                                    cb_data.current_frame = pinfo->num;
                                     wmem_tree_foreach(sqn->frame, dissect_lbtrm_sqn_frame_list_callback, (void *) &cb_data);
                                 }
                             }
@@ -1412,7 +1405,7 @@ static int dissect_lbtrm(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
                                     frame_tree = proto_item_add_subtree(frame_tree_item, ett_lbtrm_transport_sqn);
                                     cb_data.tree = frame_tree;
                                     cb_data.tvb = tvb;
-                                    cb_data.current_frame = pinfo->fd->num;
+                                    cb_data.current_frame = pinfo->num;
                                     wmem_tree_foreach(sqn->frame, dissect_lbtrm_sqn_frame_list_callback, (void *) &cb_data);
                                 }
                             }
@@ -1872,7 +1865,7 @@ void proto_reg_handoff_lbtrm(void)
 
     if (!already_registered)
     {
-        lbtrm_dissector_handle = new_create_dissector_handle(dissect_lbtrm, proto_lbtrm);
+        lbtrm_dissector_handle = create_dissector_handle(dissect_lbtrm, proto_lbtrm);
         dissector_add_for_decode_as("udp.port", lbtrm_dissector_handle);
         heur_dissector_add("udp", test_lbtrm_packet, "LBT Reliable Multicast over UDP", "lbtrm_udp", proto_lbtrm, HEURISTIC_ENABLE);
         lbtrm_tap_handle = register_tap("lbm_lbtrm");

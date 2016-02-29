@@ -134,7 +134,7 @@ register_ctx_id_and_oid(packet_info *pinfo _U_, guint32 idx, const char *oid)
 	pres_ctx_oid_t *pco, *tmppco;
 	conversation_t *conversation;
 
-	if(!oid){
+	if (!oid) {
 		/* we did not get any oid name, malformed packet? */
 		return;
 	}
@@ -142,7 +142,7 @@ register_ctx_id_and_oid(packet_info *pinfo _U_, guint32 idx, const char *oid)
 	pco=wmem_new(wmem_file_scope(), pres_ctx_oid_t);
 	pco->ctx_id=idx;
 	pco->oid=wmem_strdup(wmem_file_scope(), oid);
-	conversation=find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	conversation=find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
 			pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 	if (conversation) {
 		pco->idx = conversation->index;
@@ -152,9 +152,8 @@ register_ctx_id_and_oid(packet_info *pinfo _U_, guint32 idx, const char *oid)
 
 	/* if this ctx already exists, remove the old one first */
 	tmppco=(pres_ctx_oid_t *)g_hash_table_lookup(pres_ctx_oid_table, pco);
-	if(tmppco){
+	if (tmppco) {
 		g_hash_table_remove(pres_ctx_oid_table, tmppco);
-
 	}
 	g_hash_table_insert(pres_ctx_oid_table, pco, pco);
 }
@@ -184,7 +183,7 @@ find_oid_by_pres_ctx_id(packet_info *pinfo, guint32 idx)
 	conversation_t *conversation;
 
 	pco.ctx_id=idx;
-	conversation=find_conversation (pinfo->fd->num, &pinfo->src, &pinfo->dst,
+	conversation=find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
 			pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
 	if (conversation) {
 		pco.idx = conversation->index;
@@ -193,7 +192,7 @@ find_oid_by_pres_ctx_id(packet_info *pinfo, guint32 idx)
 	}
 
 	tmppco=(pres_ctx_oid_t *)g_hash_table_lookup(pres_ctx_oid_table, &pco);
-	if(tmppco){
+	if (tmppco) {
 		return tmppco->oid;
 	}
 
@@ -237,13 +236,13 @@ dissect_ppdu(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, st
 	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
 	/* do we have spdu type from the session dissector?  */
-	if( local_session == NULL ){
+	if (local_session == NULL) {
 		proto_tree_add_expert(tree, pinfo, &ei_pres_wrong_spdu_type, tvb, offset, -1);
 		return 0;
 	}
 
 	session = local_session;
-	if(session->spdu_type == 0 ){
+	if (session->spdu_type == 0) {
 		proto_tree_add_expert_format(tree, pinfo, &ei_pres_wrong_spdu_type, tvb, offset, -1,
 			"Internal error:wrong spdu type %x from session dissector.",session->spdu_type);
 		return 0;
@@ -258,7 +257,7 @@ dissect_ppdu(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, st
 	ti = proto_tree_add_item(tree, proto_pres, tvb, offset, -1, ENC_NA);
 	pres_tree = proto_item_add_subtree(ti, ett_pres);
 
-	switch(session->spdu_type){
+	switch (session->spdu_type) {
 		case SES_CONNECTION_REQUEST:
 			offset = dissect_pres_CP_type(FALSE, tvb, offset, &asn1_ctx, pres_tree, hf_pres_CP_type);
 			break;
@@ -302,7 +301,7 @@ dissect_pres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 
 	/* first, try to check length   */
 	/* do we have at least 4 bytes  */
-	if (!tvb_bytes_exist(tvb, 0, 4)){
+	if (!tvb_bytes_exist(tvb, 0, 4)) {
 		if (session && session->spdu_type != SES_MAJOR_SYNC_POINT) {
 			proto_tree_add_item(parent_tree, hf_pres_user_data, tvb, offset,
 					    tvb_reported_length_remaining(tvb,offset), ENC_NA);
@@ -316,16 +315,14 @@ dissect_pres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 
 	/* if the session unit-data packet then we process it */
 	/* as a connectionless presentation protocol unit data */
-	if(session && session->spdu_type == CLSES_UNIT_DATA)
-	{
+	if (session && session->spdu_type == CLSES_UNIT_DATA) {
 		proto_tree * clpres_tree = NULL;
 		proto_item *ti;
 
 		col_set_str(pinfo->cinfo, COL_PROTOCOL, "CL-PRES");
   		col_clear(pinfo->cinfo, COL_INFO);
 
-		if (parent_tree)
-		{
+		if (parent_tree) {
 			ti = proto_tree_add_item(parent_tree, proto_clpres, tvb, offset, -1, ENC_NA);
 			clpres_tree = proto_item_add_subtree(ti, ett_pres);
 		}
@@ -353,12 +350,12 @@ dissect_pres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 		return tvb_captured_length(tvb);
 	}
 
-	while (tvb_reported_length_remaining(tvb, offset) > 0){
+	while (tvb_reported_length_remaining(tvb, offset) > 0) {
 		old_offset = offset;
 		offset = dissect_ppdu(tvb, offset, pinfo, parent_tree, session);
-		if(offset <= old_offset){
-            proto_tree_add_expert(parent_tree, pinfo, &ei_pres_invalid_offset, tvb, offset, -1);
-            break;
+		if (offset <= old_offset) {
+			proto_tree_add_expert(parent_tree, pinfo, &ei_pres_invalid_offset, tvb, offset, -1);
+			break;
 		}
 	}
 
@@ -432,7 +429,7 @@ void proto_register_pres(void) {
 
   /* Register protocol */
   proto_pres = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  new_register_dissector("pres", dissect_pres, proto_pres);
+  register_dissector("pres", dissect_pres, proto_pres);
 
   /* Register connectionless protocol (just for the description) */
   proto_clpres = proto_register_protocol(CLPNAME, CLPSNAME, CLPFNAME);

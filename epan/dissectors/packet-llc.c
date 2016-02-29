@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/capture_dissectors.h>
 #include <wiretap/wtap.h>
 #include <wsutil/pint.h>
 #include <epan/oui.h>
@@ -37,7 +38,6 @@
 #include "packet-ip.h"
 #include "packet-ipx.h"
 #include "packet-netbios.h"
-#include "packet-vines.h"
 #include "packet-sll.h"
 #include "packet-juniper.h"
 
@@ -137,6 +137,7 @@ static dissector_handle_t data_handle;
  */
 const value_string sap_vals[] = {
 	{ SAP_NULL,           "NULL LSAP" },
+	{ SAP_NULL+1,         "NULL LSAP" },
 	{ SAP_LLC_SLMGMT,     "LLC Sub-Layer Management" },
 	{ SAP_SNA_PATHCTRL,   "SNA Path Control" },
 	{ SAP_IP,             "TCP/IP" },
@@ -236,7 +237,7 @@ llc_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
 
 	new_info = (oui_info_t *)g_malloc(sizeof (oui_info_t));
 	new_info->table = register_dissector_table(table_name,
-	    table_ui_name, FT_UINT16, BASE_HEX);
+	    table_ui_name, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 	new_info->field_info = hf_item;
 
 	/*
@@ -250,17 +251,16 @@ llc_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
 	g_hash_table_insert(oui_info_table, GUINT_TO_POINTER(oui), new_info);
 }
 
-void
-capture_llc(const guchar *pd, int offset, int len, packet_counts *ld) {
+gboolean
+capture_llc(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_) {
 
 	int		is_snap;
 	guint16		control;
 	int		llc_header_len;
 
-	if (!BYTES_ARE_IN_FRAME(offset, len, 2)) {
-		ld->other++;
-		return;
-	}
+	if (!BYTES_ARE_IN_FRAME(offset, len, 2))
+		return FALSE;
+
 	is_snap = (pd[offset] == SAP_SNAP) && (pd[offset+1] == SAP_SNAP);
 	llc_header_len = 2;	/* DSAP + SSAP */
 
@@ -272,56 +272,27 @@ capture_llc(const guchar *pd, int offset, int len, packet_counts *ld) {
 	 */
 	control = get_xdlc_control(pd, offset+2, pd[offset+1] & SSAP_CR_BIT);
 	llc_header_len += XDLC_CONTROL_LEN(control, TRUE);
-	if (!BYTES_ARE_IN_FRAME(offset, len, llc_header_len)) {
-		ld->other++;
-		return;
-	}
+	if (!BYTES_ARE_IN_FRAME(offset, len, llc_header_len))
+		return FALSE;
 
-	if (!XDLC_IS_INFORMATION(control)) {
-		ld->other++;
-		return;
-	}
+	if (!XDLC_IS_INFORMATION(control))
+		return FALSE;
+
 	if (is_snap)
-		capture_snap(pd, offset+llc_header_len, len, ld);
-	else {
-		/* non-SNAP */
-		switch (pd[offset]) {
+		return capture_snap(pd, offset+llc_header_len, len, cpinfo, pseudo_header);
 
-		case SAP_IP:
-			capture_ip(pd, offset + llc_header_len, len, ld);
-			break;
-
-		case SAP_NETWARE1:
-		case SAP_NETWARE2:
-			capture_ipx(ld);
-			break;
-
-		case SAP_NETBIOS:
-			capture_netbios(ld);
-			break;
-
-		case SAP_VINES1:
-		case SAP_VINES2:
-			capture_vines(ld);
-			break;
-
-		default:
-			ld->other++;
-			break;
-		}
-	}
+	/* non-SNAP */
+	return try_capture_dissector("llc.dsap", pd[offset], pd, offset + llc_header_len, len, cpinfo, pseudo_header);
 }
 
-void
-capture_snap(const guchar *pd, int offset, int len, packet_counts *ld)
+gboolean
+capture_snap(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
 	guint32		oui;
 	guint16		etype;
 
-	if (!BYTES_ARE_IN_FRAME(offset, len, 5)) {
-		ld->other++;
-		return;
-	}
+	if (!BYTES_ARE_IN_FRAME(offset, len, 5))
+		return FALSE;
 
 	oui = pd[offset] << 16 | pd[offset+1] << 8 | pd[offset+2];
 	etype = pntoh16(&pd[offset+3]);
@@ -337,12 +308,10 @@ capture_snap(const guchar *pd, int offset, int len, packet_counts *ld)
 		   AppleTalk data packets - but used
 		   OUI_ENCAP_ETHER and an Ethernet
 		   packet type for AARP packets. */
-		capture_ethertype(etype, pd, offset+5, len, ld);
-		break;
+		return try_capture_dissector("ethertype", etype, pd, offset+5, len, cpinfo, pseudo_header);
 
 	case OUI_CISCO:
-		capture_ethertype(etype, pd, offset+5, len, ld);
-		break;
+		return try_capture_dissector("ethertype", etype, pd, offset+5, len, cpinfo, pseudo_header);
 
 	case OUI_MARVELL:
 		/*
@@ -351,13 +320,10 @@ capture_snap(const guchar *pd, int offset, int len, packet_counts *ld)
 		 * the payload.  (We assume the header is
 		 * 5 bytes, for now).
 		 */
-		capture_ethertype(etype, pd, offset+5+5, len, ld);
-		break;
-
-	default:
-		ld->other++;
-		break;
+		return try_capture_dissector("ethertype", etype, pd, offset+5+5, len, cpinfo, pseudo_header);
 	}
+
+	return FALSE;
 }
 
 /* Used only for U frames */
@@ -386,8 +352,8 @@ static const xdlc_cf_items llc_cf_items_ext = {
 	&hf_llc_ftype_s_u_ext
 };
 
-static void
-dissect_basicxid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_basicxid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*xid_tree = NULL;
 	proto_item	*ti = NULL;
@@ -397,36 +363,32 @@ dissect_basicxid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	col_clear(pinfo->cinfo, COL_INFO);
 
 	format = tvb_get_guint8(tvb, 0);
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_basicxid, tvb, 0, -1, ENC_NA);
-		xid_tree = proto_item_add_subtree(ti, ett_llc_basicxid);
-		proto_tree_add_uint(xid_tree, hf_llc_xid_format, tvb, 0,
-			1, format);
-	} else
-		xid_tree = NULL;
-	col_append_str(pinfo->cinfo, COL_INFO,
-		    "Basic Format");
+
+	ti = proto_tree_add_item(tree, proto_basicxid, tvb, 0, -1, ENC_NA);
+	xid_tree = proto_item_add_subtree(ti, ett_llc_basicxid);
+	proto_tree_add_uint(xid_tree, hf_llc_xid_format, tvb, 0, 1, format);
+
+	col_append_str(pinfo->cinfo, COL_INFO, "Basic Format");
 
 	types = tvb_get_guint8(tvb, 1);
-	if (tree) {
-		proto_tree_add_uint(xid_tree, hf_llc_xid_types, tvb, 1,
+	proto_tree_add_uint(xid_tree, hf_llc_xid_types, tvb, 1,
 			1, types & TYPES_MASK);
-	}
+
 	col_append_fstr(pinfo->cinfo, COL_INFO,
 		    "; %s", val_to_str(types & TYPES_MASK, type_vals, "0x%02x")
 		);
 
 	wsize = tvb_get_guint8(tvb, 2);
-	if (tree) {
-		proto_tree_add_uint(xid_tree, hf_llc_xid_wsize, tvb, 2,
+	proto_tree_add_uint(xid_tree, hf_llc_xid_wsize, tvb, 2,
 			1, (wsize & 0xFE) >> 1);
-	}
+
 	col_append_fstr(pinfo->cinfo, COL_INFO,
 		    "; Window Size %d", (wsize & 0xFE) >> 1);
+	return tvb_captured_length(tvb);
 }
 
-static void
-dissect_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*llc_tree;
 	proto_tree	*field_tree;
@@ -511,7 +473,7 @@ dissect_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				 */
 				format = tvb_get_guint8(next_tvb, 0);
 				if (format == 0x81) {
-				    dissect_basicxid(next_tvb, pinfo, tree);
+				    dissect_basicxid(next_tvb, pinfo, tree, data);
 				} else {
 				/*
 				 * Try the XID LLC subdissector table
@@ -530,6 +492,7 @@ dissect_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			}
 		}
 	}
+	return tvb_captured_length(tvb);
 }
 
 /*
@@ -856,9 +819,10 @@ proto_register_llc(void)
 
 	/* subdissector code */
 	dsap_subdissector_table = register_dissector_table("llc.dsap",
-	  "LLC SAP", FT_UINT8, BASE_HEX);
+	  "LLC SAP", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	xid_subdissector_table = register_dissector_table("llc.xid_dsap",
-	  "LLC XID SAP", FT_UINT8, BASE_HEX);
+	  "LLC XID SAP", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	register_capture_dissector_table("llc.dsap", "LLC");
 
 	register_dissector("llc", dissect_llc, proto_llc);
 }
@@ -947,6 +911,10 @@ proto_reg_handoff_llc(void)
 
 	dissector_add_uint("juniper.proto", JUNIPER_PROTO_LLC, llc_handle);
 	dissector_add_uint("juniper.proto", JUNIPER_PROTO_LLC_SNAP, llc_handle);
+
+	register_capture_dissector("ethertype", ETHERTYPE_JUMBO_LLC, capture_llc, proto_llc);
+	register_capture_dissector("atm.aal5.type", TRAF_LLCMX, capture_llc, proto_llc);
+	register_capture_dissector("sll.ltype", LINUX_SLL_P_802_2, capture_llc, proto_llc);
 
 	/*
 	 * Register all the fields for PIDs for various OUIs.

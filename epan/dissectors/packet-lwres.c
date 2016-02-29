@@ -815,8 +815,8 @@ static void dissect_getrdatabyname(tvbuff_t* tvb, proto_tree* lwres_tree, int ty
         dissect_rdata_response(tvb, lwres_tree);
 }
 
-static void
-dissect_lwres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_lwres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     guint16 version, flags, authtype, authlength ;
     guint32 length, opcode, result, recvlength, serial;
@@ -857,7 +857,7 @@ dissect_lwres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     if(tree == NULL)
-        return;
+        return tvb_captured_length(tvb);
 
     lwres_item = proto_tree_add_item(tree,proto_lwres, tvb,0, -1, ENC_NA);
     lwres_tree = proto_item_add_subtree(lwres_item, ett_lwres);
@@ -950,6 +950,7 @@ dissect_lwres(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
             break;
         }
     }
+    return tvb_captured_length(tvb);
 }
 
 

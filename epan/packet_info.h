@@ -46,9 +46,19 @@
 #define P2P_DIR_UL  0
 #define P2P_DIR_DL  1
 
+/*
+ * Presence flags.
+ */
+#define PINFO_HAS_TS            0x00000001  /**< time stamp */
+
 typedef struct _packet_info {
   const char *current_proto;        /**< name of protocol currently being dissected */
   struct epan_column_info *cinfo;   /**< Column formatting information */
+  guint32 presence_flags;           /**< Presence flags for some items */
+  guint32 num;                      /**< Frame number */
+  nstime_t abs_ts;                  /**< Packet absolute time stamp */
+  nstime_t rel_ts;                  /**< Relative timestamp (yes, it can be negative) */
+  gint pkt_encap;                   /**< Per-packet encapsulation/data-link type */
   frame_data *fd;
   union wtap_pseudo_header *pseudo_header;
   struct wtap_pkthdr *phdr;         /**< Record metadata */
@@ -59,6 +69,7 @@ typedef struct _packet_info {
   address net_dst;                  /**< network-layer destination address */
   address src;                      /**< source address (net if present, DL otherwise )*/
   address dst;                      /**< destination address (net if present, DL otherwise )*/
+  guint32 vlan_id;                  /**< First encountered VLAN Id if pressent otherwise 0 */
   circuit_type ctype;               /**< type of circuit, for protocols with a VC identifier */
   guint32 circuit_id;               /**< circuit ID, for protocols with a VC identifier */
   const char *noreassembly_reason;  /**< reason why reassembly wasn't done, if any */
@@ -130,24 +141,6 @@ typedef struct _packet_info {
                                        inbound (P2P_DIR_RECV)
                                        unknown (P2P_DIR_UNKNOWN) */
 
-  /**< Extra data for handling of decryption of GSSAPI wrapped tvbuffs.
-     Caller sets decrypt_gssapi_tvb if this service is requested.
-     If gssapi_encrypted_tvb is NULL, then the rest of the tvb data following
-     the gssapi blob itself is decrypted othervise the gssapi_encrypted_tvb
-     tvb will be decrypted (DCERPC has the data before the gssapi blob)
-     If, on return, gssapi_data_encrypted is FALSE, the wrapped tvbuff
-     was signed (i.e., an encrypted signature was present, to check
-     whether the data was modified by a man in the middle) but not sealed
-     (i.e., the data itself wasn't encrypted).
-  */
-#define DECRYPT_GSSAPI_NORMAL   1
-#define DECRYPT_GSSAPI_DCE  2
-  guint16 decrypt_gssapi_tvb;
-  tvbuff_t *gssapi_wrap_tvb;
-  tvbuff_t *gssapi_encrypted_tvb;
-  tvbuff_t *gssapi_decrypted_tvb;
-  gboolean gssapi_data_encrypted;
-
   GHashTable *private_table;    /**< a hash table passed from one dissector to another */
 
   wmem_list_t *layers;      /**< layers of each protocol */
@@ -167,7 +160,6 @@ typedef struct _packet_info {
 
   wmem_allocator_t *pool;      /**< Memory pool scoped to the pinfo struct */
   struct epan_session *epan;
-  nstime_t     rel_ts;       /**< Relative timestamp (yes, it can be negative) */
   const gchar *heur_list_name;    /**< name of heur list if this packet is being heuristically dissected */
 } packet_info;
 

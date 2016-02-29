@@ -166,7 +166,7 @@ dissect_wol_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
     col_clear(pinfo->cinfo, COL_INFO);
 
    */
-    SET_ADDRESS(&mac_addr, AT_ETHER, 6, mac);
+    set_address(&mac_addr, AT_ETHER, 6, mac);
 
     col_add_fstr(pinfo->cinfo, COL_INFO, "MagicPacket for %s",
         address_with_resolution_to_str(wmem_packet_scope(), &mac_addr));
@@ -317,11 +317,11 @@ proto_reg_handoff_wol(void)
 {
     dissector_handle_t wol_handle;
 
-/*  Use new_create_dissector_handle() to indicate that dissect_wol()
+/*  Use create_dissector_handle() to indicate that dissect_wol()
  *  returns the number of bytes it dissected (or 0 if it thinks the packet
  *  does not belong to PROTONAME).
  */
-    wol_handle = new_create_dissector_handle(dissect_wol, proto_wol);
+    wol_handle = create_dissector_handle(dissect_wol, proto_wol);
 
     /* We don't really want to register with EVERY possible dissector,
      * do we?  I know that the AMD white paper specifies that the

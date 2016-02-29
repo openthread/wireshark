@@ -49,10 +49,8 @@ PacketDialog::PacketDialog(QWidget &parent, CaptureFile &cf, frame_data *fdata) 
     packet_data_(NULL)
 {
     ui->setupUi(this);
+    loadGeometry(parent.width() * 4 / 5, parent.height() * 4 / 5);
     ui->hintLabel->setSmallText();
-
-    // XXX Use recent settings instead
-    resize(parent.width() * 4 / 5, parent.height() * 4 / 5);
 
     setWindowSubtitle(tr("Packet %1").arg(fdata->num));
 
@@ -71,7 +69,6 @@ PacketDialog::PacketDialog(QWidget &parent, CaptureFile &cf, frame_data *fdata) 
 
     proto_tree_ = new ProtoTree(ui->packetSplitter);
     proto_tree_->fillProtocolTree(edt_.tree);
-    proto_tree_->expandAll();
 
     byte_view_tab_ = new ByteViewTab(ui->packetSplitter);
     byte_view_tab_->setCaptureFile(cap_file_.capFile());
@@ -84,7 +81,7 @@ PacketDialog::PacketDialog(QWidget &parent, CaptureFile &cf, frame_data *fdata) 
         source = (struct data_source *)src_le->data;
         source_name = get_data_source_name(source);
         byte_view_tab_->addTab(source_name, get_data_source_tvb(source), edt_.tree, proto_tree_,
-                               cap_file_.capFile()->current_frame->flags.encoding);
+                               (packet_char_enc)cap_file_.capFile()->current_frame->flags.encoding);
         wmem_free(NULL, source_name);
     }
     byte_view_tab_->setCurrentIndex(0);

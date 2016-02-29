@@ -128,7 +128,6 @@ XMIT-Max7:20: (task "_brouterControlTask" at 0xb094ac20, time: 1481.51) 20 octet
 
 #include "config.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -435,7 +434,6 @@ datagroup: dataln
 void
 init_parse_ascend(void)
 {
-  at_eof = 0;
   start_time = 0;	/* we haven't see a date/time yet */
 }
 

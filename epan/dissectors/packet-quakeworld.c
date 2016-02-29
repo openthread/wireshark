@@ -209,7 +209,7 @@ Cmd_TokenizeString(const char* text)
 		}
 
 		if (*text == '\n') {
-			/* a newline seperates commands in the buffer */
+			/* a newline separates commands in the buffer */
 			text++;
 			break;
 		}
@@ -640,8 +640,8 @@ dissect_quakeworld_GamePacket(tvbuff_t *tvb, packet_info *pinfo,
 }
 
 
-static void
-dissect_quakeworld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_quakeworld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree	*quakeworld_tree = NULL;
 	int		direction;
@@ -684,6 +684,7 @@ dissect_quakeworld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dissect_quakeworld_GamePacket(
 			tvb, pinfo, quakeworld_tree, direction);
 	}
+	return tvb_captured_length(tvb);
 }
 
 

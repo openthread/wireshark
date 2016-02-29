@@ -1,4 +1,6 @@
 /* interface_tree.h
+ * Display of interface names, traffic sparklines, and, if available,
+ * extcap options
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -56,6 +58,9 @@ public:
 
     void resetColumnCount();
 
+    // Used by CaptureInterfacesDialog.
+    static void updateGlobalDeviceSelections(QTreeWidget *if_tree, int name_col);
+
 protected:
     void hideEvent(QHideEvent *evt);
     void showEvent(QShowEvent *evt);
@@ -69,7 +74,6 @@ private:
 #endif // HAVE_LIBPCAP
 
 signals:
-    void interfaceUpdated(const char *device_name, bool selected);
 
 public slots:
     // add_interface_to_list
@@ -77,13 +81,14 @@ public slots:
     // change_interface_selection_for_all
     //void getPoints(int row, QList<int> *pts);
     void getPoints(int row, PointList *pts);
-    void setSelectedInterfaces();
     void interfaceListChanged();
+    void selectedInterfaceChanged() { updateGlobalDeviceSelections(this, IFTREE_COL_NAME); }
+    void updateSelectedInterfaces();
+    void updateToolTips();
 
 private slots:
     void getInterfaceList();
     void updateStatistics(void);
-    void updateSelectedInterfaces();
 };
 
 

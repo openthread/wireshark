@@ -58,7 +58,7 @@ public:
     int columnCount(const QModelIndex & = QModelIndex()) const;
     QVariant data(const QModelIndex &d_index, int role) const;
     QVariant headerData(int section, Qt::Orientation orientation,
-                             int role = Qt::DisplayRole) const;
+                        int role = Qt::DisplayRole | Qt::ToolTipRole) const;
 
     gint appendPacket(frame_data *fdata);
     frame_data *getRowFdata(int row);
@@ -72,6 +72,7 @@ public:
     void setDisplayedFrameIgnore(gboolean set);
     void toggleFrameRefTime(const QModelIndex &rt_index);
     void unsetAllFrameRefTime();
+    void applyTimeShift();
 
     void setMaximiumRowHeight(int height);
 

@@ -4489,8 +4489,8 @@ static int dissect_h450_12_CmnArg_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
 
 typedef struct _h450_op_t {
   gint32 opcode;
-  new_dissector_t arg_pdu;
-  new_dissector_t res_pdu;
+  dissector_t arg_pdu;
+  dissector_t res_pdu;
 } h450_op_t;
 
 static const h450_op_t h450_op_tab[] = {
@@ -4599,7 +4599,7 @@ static const h450_op_t h450_op_tab[] = {
 
 typedef struct _h450_err_t {
   gint32 errcode;
-  new_dissector_t err_pdu;
+  dissector_t err_pdu;
 } h450_err_t;
 
 static const h450_err_t h450_err_tab[] = {
@@ -6481,7 +6481,7 @@ void proto_register_h450(void) {
 
   /* Register protocol */
   proto_h450 = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  new_register_dissector("h4501", dissect_h450_H4501SupplementaryService_PDU, proto_h450);
+  register_dissector("h4501", dissect_h450_H4501SupplementaryService_PDU, proto_h450);
   /* Register fields and subtrees */
   proto_register_field_array(proto_h450, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -6491,12 +6491,12 @@ void proto_register_h450(void) {
   rose_ctx_init(&h450_rose_ctx);
 
   /* Register dissector tables */
-  h450_rose_ctx.arg_global_dissector_table = register_dissector_table("h450.ros.global.arg", "H.450 Operation Argument (global opcode)", FT_STRING, BASE_NONE);
-  h450_rose_ctx.res_global_dissector_table = register_dissector_table("h450.ros.global.res", "H.450 Operation Result (global opcode)", FT_STRING, BASE_NONE);
-  h450_rose_ctx.arg_local_dissector_table = register_dissector_table("h450.ros.local.arg", "H.450 Operation Argument (local opcode)", FT_UINT32, BASE_HEX);
-  h450_rose_ctx.res_local_dissector_table = register_dissector_table("h450.ros.local.res", "H.450 Operation Result (local opcode)", FT_UINT32, BASE_HEX);
-  h450_rose_ctx.err_global_dissector_table = register_dissector_table("h450.ros.global.err", "H.450 Error (global opcode)", FT_STRING, BASE_NONE);
-  h450_rose_ctx.err_local_dissector_table = register_dissector_table("h450.ros.local.err", "H.450 Error (local opcode)", FT_UINT32, BASE_HEX);
+  h450_rose_ctx.arg_global_dissector_table = register_dissector_table("h450.ros.global.arg", "H.450 Operation Argument (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  h450_rose_ctx.res_global_dissector_table = register_dissector_table("h450.ros.global.res", "H.450 Operation Result (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  h450_rose_ctx.arg_local_dissector_table = register_dissector_table("h450.ros.local.arg", "H.450 Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  h450_rose_ctx.res_local_dissector_table = register_dissector_table("h450.ros.local.res", "H.450 Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  h450_rose_ctx.err_global_dissector_table = register_dissector_table("h450.ros.global.err", "H.450 Error (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  h450_rose_ctx.err_local_dissector_table = register_dissector_table("h450.ros.local.err", "H.450 Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 }
 
@@ -6510,13 +6510,13 @@ proto_reg_handoff_h450(void)
   dissector_handle_t h450_res_handle;
   dissector_handle_t h450_err_handle;
 
-  h450_arg_handle = new_create_dissector_handle(dissect_h450_arg, proto_h450);
-  h450_res_handle = new_create_dissector_handle(dissect_h450_res, proto_h450);
+  h450_arg_handle = create_dissector_handle(dissect_h450_arg, proto_h450);
+  h450_res_handle = create_dissector_handle(dissect_h450_res, proto_h450);
   for (i=0; i<(int)array_length(h450_op_tab); i++) {
     dissector_add_uint("h450.ros.local.arg", h450_op_tab[i].opcode, h450_arg_handle);
     dissector_add_uint("h450.ros.local.res", h450_op_tab[i].opcode, h450_res_handle);
   }
-  h450_err_handle = new_create_dissector_handle(dissect_h450_err, proto_h450);
+  h450_err_handle = create_dissector_handle(dissect_h450_err, proto_h450);
   for (i=0; i<(int)array_length(h450_err_tab); i++) {
     dissector_add_uint("h450.ros.local.err", h450_err_tab[i].errcode, h450_err_handle);
   }

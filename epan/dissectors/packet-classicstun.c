@@ -289,16 +289,16 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
         if (((msg_type & CLASS_MASK) >> 4) == REQUEST) {
             /* This is a request */
             classicstun_trans=wmem_new(wmem_file_scope(), classicstun_transaction_t);
-            classicstun_trans->req_frame=pinfo->fd->num;
+            classicstun_trans->req_frame=pinfo->num;
             classicstun_trans->rep_frame=0;
-            classicstun_trans->req_time=pinfo->fd->abs_ts;
+            classicstun_trans->req_time=pinfo->abs_ts;
             wmem_tree_insert32_array(classicstun_info->pdus, transaction_id_key,
                            (void *)classicstun_trans);
         } else {
             classicstun_trans=(classicstun_transaction_t *)wmem_tree_lookup32_array(classicstun_info->pdus,
                                  transaction_id_key);
             if(classicstun_trans){
-                classicstun_trans->rep_frame=pinfo->fd->num;
+                classicstun_trans->rep_frame=pinfo->num;
             }
         }
     } else {
@@ -309,7 +309,7 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
         classicstun_trans=wmem_new(wmem_packet_scope(), classicstun_transaction_t);
         classicstun_trans->req_frame=0;
         classicstun_trans->rep_frame=0;
-        classicstun_trans->req_time=pinfo->fd->abs_ts;
+        classicstun_trans->req_time=pinfo->abs_ts;
     }
 
 
@@ -345,7 +345,7 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
                 it=proto_tree_add_uint(classicstun_tree, hf_classicstun_response_to, tvb, 0, 0, classicstun_trans->req_frame);
                 PROTO_ITEM_SET_GENERATED(it);
 
-                nstime_delta(&ns, &pinfo->fd->abs_ts, &classicstun_trans->req_time);
+                nstime_delta(&ns, &pinfo->abs_ts, &classicstun_trans->req_time);
                 it=proto_tree_add_time(classicstun_tree, hf_classicstun_time, tvb, 0, 0, &ns);
                 PROTO_ITEM_SET_GENERATED(it);
             }
@@ -496,8 +496,6 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
                                      (transaction_id_first_word >> 16));
                         PROTO_ITEM_SET_GENERATED(ti);
 
-                        if (att_length < 8)
-                            break;
                         switch( tvb_get_guint8(tvb, offset+1) ){
                             case 1:
                                 if (att_length < 8)
@@ -693,8 +691,8 @@ proto_register_classicstun(void)
     proto_register_field_array(proto_classicstun, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    new_register_dissector("classicstun", dissect_classicstun, proto_classicstun);
-    new_register_dissector("classicstun-heur", dissect_classicstun_heur, proto_classicstun);
+    register_dissector("classicstun", dissect_classicstun, proto_classicstun);
+    register_dissector("classicstun-heur", dissect_classicstun_heur, proto_classicstun);
 }
 
 

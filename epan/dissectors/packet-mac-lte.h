@@ -67,6 +67,8 @@
 #define M_RNTI      6
 #define SL_BCH_RNTI 7
 #define SL_RNTI     8
+#define SC_RNTI     9
+#define G_RNTI      10
 
 typedef enum mac_lte_oob_event {
     ltemac_send_preamble,
@@ -308,6 +310,8 @@ typedef struct drb_mapping_t
     guint8     rlcMode;             /* Part of RLC config - optional */
     gboolean   rlc_ul_ext_li_field; /* Part of RLC config - optional */
     gboolean   rlc_dl_ext_li_field; /* Part of RLC config - optional */
+    gboolean   rlc_ul_ext_am_sn;    /* Part of RLC config - optional */
+    gboolean   rlc_dl_ext_am_sn;    /* Part of RLC config - optional */
     gboolean   um_sn_length_present;
     guint8     um_sn_length;        /* Part of RLC config - optional */
     gboolean   ul_priority_present;
