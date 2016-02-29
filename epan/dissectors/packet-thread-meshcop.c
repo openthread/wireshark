@@ -154,16 +154,16 @@ static int hf_thread_mc_tlv_chan_mask_len = -1;
 static int hf_thread_mc_tlv_chan_mask_mask = -1;
 
 /* Count TLV fields */
-static int hf_thread_mc_tlv_count = 1;
+static int hf_thread_mc_tlv_count = -1;
 
 /* Period TLV fields */
-static int hf_thread_mc_tlv_period = 1;
+static int hf_thread_mc_tlv_period = -1;
 
 /* Period TLV fields */
-static int hf_thread_mc_tlv_scan_duration = 1;
+static int hf_thread_mc_tlv_scan_duration = -1;
 
 /* Period TLV fields */
-static int hf_thread_mc_tlv_energy_list = 1;
+static int hf_thread_mc_tlv_energy_list = -1;
 
 static gint ett_thread_mc = -1;
 static gint ett_thread_mc_tlv = -1;
@@ -193,7 +193,7 @@ static dissector_handle_t thread_udp_handle;
 #define THREAD_MC_TLV_COMMISSIONER_SESSION_ID      11
 #define THREAD_MC_TLV_SECURITY_POLICY              12
 #define THREAD_MC_TLV_GET                          13
-#define THREAD_MC_TLV_ACTIVE_TSTAMP                14 /* Modified for new features */
+#define THREAD_MC_TLV_ACTIVE_TSTAMP                14 /* Was "Commissioning Dataset Timestamp TLV" */
 /* Gap */
 #define THREAD_MC_TLV_STATE                        16
 #define THREAD_MC_TLV_JOINER_DTLS_ENCAP            17

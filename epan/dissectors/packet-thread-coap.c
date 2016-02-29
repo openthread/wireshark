@@ -144,7 +144,7 @@ proto_reg_handoff_thread_coap(void)
     thread_nwd_handle = find_dissector("thread_nwd");
     thread_meshcop_handle = find_dissector("thread_mc");
     thread_address_handle = find_dissector("thread_address");
-    thread_diagnostic_handle = find_dissector("thread_diagnostic");
+    thread_diagnostic_handle = find_dissector("thread_dg");
     thread_coap_initialized = TRUE;
   }
   

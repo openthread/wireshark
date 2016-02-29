@@ -1,9 +1,9 @@
-/* packet-thread-address.c
- * Routines for Thread Network Data packet dissection
+/* packet-thread-diagnostic.c
+ * Routines for Thread TLV packet dissection
  *
  * Robert Cragie <robert.cragie@arm.com>
  *
- * $Id: packet-thread-address.c $
+ * $Id: packet-thread-diagnostic.c $
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -40,46 +40,153 @@
 #include <epan/to_str.h>
 
 /* Forward declarations */
-void proto_register_thread_diagnostic(void);
-void proto_reg_handoff_thread_diagnostic(void);
+void proto_register_thread_dg(void);
+void proto_reg_handoff_thread_dg(void);
 
-static int proto_thread_diagnostic = -1;
+#define THREAD_DG_TLV_LENGTH_ESC  0xFF
 
-static int hf_thread_diagnostic_tlv = -1;
-static int hf_thread_diagnostic_tlv_type = -1;
-static int hf_thread_diagnostic_tlv_length = -1;
-static int hf_thread_diagnostic_tlv_unknown = -1;
+static int proto_thread_dg = -1;
 
-static gint ett_thread_diagnostic = -1;
-static gint ett_thread_diagnostic_tlv = -1;
+static int hf_thread_dg_tlv = -1;
+static int hf_thread_dg_tlv_type = -1;
+static int hf_thread_dg_tlv_length8 = -1;
+static int hf_thread_dg_tlv_length16 = -1;
+static int hf_thread_dg_tlv_unknown = -1;
 
-static expert_field ei_thread_diagnostic_tlv_length_failed = EI_INIT;
-static expert_field ei_thread_diagnostic_len_size_mismatch = EI_INIT;
+#if 0
+/**** TBC ****/
+static int hf_thread_dg_tlv_source_addr = -1;
+static int hf_thread_dg_tlv_mode_device_type = -1;
+static int hf_thread_dg_tlv_mode_idle_rx = -1;
+static int hf_thread_dg_tlv_mode_sec_data_req = -1;
+static int hf_thread_dg_tlv_mode_nwk_data = -1;
+static int hf_thread_dg_tlv_timeout = -1;
+static int hf_thread_dg_tlv_lqi_c = -1;
+static int hf_thread_dg_tlv_lqi_size = -1;
+static int hf_thread_dg_tlv_neighbor = -1;
+static int hf_thread_dg_tlv_neighbor_flagI = -1;
+static int hf_thread_dg_tlv_neighbor_flagO = -1;
+static int hf_thread_dg_tlv_neighbor_flagP = -1;
+static int hf_thread_dg_tlv_neighbor_idr = -1;
+static int hf_thread_dg_tlv_neighbor_addr = -1;
+static int hf_thread_dg_tlv_network_param_id = -1;
+static int hf_thread_dg_tlv_network_delay = -1;
+static int hf_thread_dg_tlv_network_channel = -1;
+static int hf_thread_dg_tlv_network_pan_id = -1;
+static int hf_thread_dg_tlv_network_pmt_join = -1;
+static int hf_thread_dg_tlv_network_bcn_payload = -1;
+static int hf_thread_dg_tlv_network_unknown = -1;
+static int hf_thread_dg_tlv_mle_frm_cntr = -1;
+static int hf_thread_dg_tlv_route_tbl_id_seq = -1;
+static int hf_thread_dg_tlv_route_tbl_id_mask = -1;
+static int hf_thread_dg_tlv_route_tbl_entry = -1;
+static int hf_thread_dg_tlv_route_tbl_nbr_out = -1;
+static int hf_thread_dg_tlv_route_tbl_nbr_in = -1;
+static int hf_thread_dg_tlv_route_tbl_cost = -1;
+static int hf_thread_dg_tlv_route_tbl_unknown = -1;
+static int hf_thread_dg_tlv_addr_16 = -1;
+static int hf_thread_dg_tlv_leader_data_partition_id = -1;
+static int hf_thread_dg_tlv_leader_data_weighting = -1;
+static int hf_thread_dg_tlv_leader_data_version = -1;
+static int hf_thread_dg_tlv_leader_data_stable_version = -1;
+static int hf_thread_dg_tlv_leader_data_router_id = -1;
+static int hf_thread_dg_tlv_network_data = -1;
+static int hf_thread_dg_tlv_scan_mask_r = -1;
+static int hf_thread_dg_tlv_scan_mask_e = -1;
+static int hf_thread_dg_tlv_conn_max_child_cnt = -1;
+static int hf_thread_dg_tlv_conn_child_cnt = -1;
+static int hf_thread_dg_tlv_conn_lq3 = -1;
+static int hf_thread_dg_tlv_conn_lq2 = -1;
+static int hf_thread_dg_tlv_conn_lq1 = -1;
+static int hf_thread_dg_tlv_conn_leader_cost = -1;
+static int hf_thread_dg_tlv_conn_id_seq = -1;
+static int hf_thread_dg_tlv_link_margin = -1;
+static int hf_thread_dg_tlv_status = -1;
+static int hf_thread_dg_tlv_version = -1;
+static int hf_thread_dg_tlv_addr_reg_entry = -1;
+static int hf_thread_dg_tlv_addr_reg_iid_type = -1;
+static int hf_thread_dg_tlv_addr_reg_cid = -1;
+static int hf_thread_dg_tlv_addr_reg_iid = -1;
+static int hf_thread_dg_tlv_addr_reg_ipv6 = -1;
+static int hf_thread_dg_tlv_hold_time = -1;
+#endif
 
-static dissector_handle_t thread_diagnostic_handle;
+static gint ett_thread_dg = -1;
+static gint ett_thread_dg_tlv = -1;
 
-#define THREAD_DIAGNOSTIC_TLV_UNKNOWN                  255
+static expert_field ei_thread_dg_tlv_length_failed = EI_INIT;
+static expert_field ei_thread_dg_len_size_mismatch = EI_INIT;
 
-static const value_string thread_diagnostic_tlv_vals[] = {
-{ THREAD_DIAGNOSTIC_TLV_UNKNOWN,               "Unknown" }
+static dissector_handle_t thread_dg_handle;
+
+/* MLE mirrors */
+#define THREAD_DG_TLV_SOURCE_ADDRESS        0 /* As MLE_TLV_SOURCE_ADDRESS */
+#define THREAD_DG_TLV_ADDRESS_16            1 /* As MLE_TLV_ADDRESS_16 */
+#define THREAD_DG_TLV_MODE                  2 /* As MLE_TLV_MODE */
+#define THREAD_DG_TLV_TIMEOUT               3 /* As MLE_TLV_TIMEOUT? */
+#define THREAD_DG_TLV_CONNECTIVITY          4 /* As MLE_TLV_CONNECTIVITY */
+#define THREAD_DG_TLV_ROUTING_TABLE         5 /* As MLE_TLV_ROUTING_TABLE */
+#define THREAD_DG_TLV_LEADER_DATA           6 /* As MLE_TLV_LEADER_DATA */
+#define THREAD_DG_TLV_NETWORK_DATA          7 /* As MLE_TLV_NETWORK_DATA */
+/* Statistics */
+#define THREAD_DG_TLV_IPV6_ADDR_LIST        8
+#define THREAD_DG_TLV_PACKETS_TX            9
+#define THREAD_DG_TLV_PACKETS_RX            10
+#define THREAD_DG_TLV_PACKETS_TX_DROPPED    11
+#define THREAD_DG_TLV_PACKETS_RX_DROPPED    12
+#define THREAD_DG_TLV_SEC_ERRORS            13
+#define THREAD_DG_TLV_RETRIES               14
+/* Others */
+#define THREAD_DG_TLV_VOLTAGE               15
+#define THREAD_DG_TLV_CHILD_TABLE           16
+#define THREAD_DG_TLV_CHANNEL_PAGES         17
+#define THREAD_DG_TLV_UNKNOWN               255
+
+static const value_string thread_dg_tlv_vals[] = {
+{ THREAD_DG_TLV_SOURCE_ADDRESS,        "Source Address" },
+{ THREAD_DG_TLV_ADDRESS_16,            "Address16"},
+{ THREAD_DG_TLV_MODE,                  "Mode" },
+{ THREAD_DG_TLV_TIMEOUT,               "Timeout" },
+{ THREAD_DG_TLV_CONNECTIVITY,          "Connectivity"},
+{ THREAD_DG_TLV_ROUTING_TABLE,         "Routing Table"},
+{ THREAD_DG_TLV_LEADER_DATA,           "Leader Data"},
+{ THREAD_DG_TLV_NETWORK_DATA,          "Network Data"},
+{ THREAD_DG_TLV_IPV6_ADDR_LIST,        "IPv6 Address List"},
+{ THREAD_DG_TLV_PACKETS_TX,            "Packets Sent"},
+{ THREAD_DG_TLV_PACKETS_RX,            "Packets Received"},
+{ THREAD_DG_TLV_PACKETS_TX_DROPPED,    "Packets Sent Dropped"},
+{ THREAD_DG_TLV_PACKETS_RX_DROPPED,    "Packets Received Dropped"},
+{ THREAD_DG_TLV_SEC_ERRORS,            "Security Errors"},
+{ THREAD_DG_TLV_RETRIES,               "Retries"},
+{ THREAD_DG_TLV_VOLTAGE,               "Voltage (mV)"},
+{ THREAD_DG_TLV_CHILD_TABLE,           "Child Table"},
+{ THREAD_DG_TLV_CHANNEL_PAGES,         "Channel Pages"},
+{ THREAD_DG_TLV_UNKNOWN,               "Unknown" }
 };
 
+typedef enum {
+    DG_LENGTH8 = 0,
+    DG_LENGTH16
+} dg_length_e;
+
 static void
-dissect_thread_diagnostic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+dissect_thread_dg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
     proto_item  *volatile proto_root = NULL;
-    proto_tree  *volatile thread_diagnostic_tree = NULL;
+    proto_tree  *volatile thread_dg_tree = NULL;
     proto_tree  *tlv_tree;
     guint       offset;
     proto_item  *ti;
-    guint8      tlv_type, tlv_len;
+    guint8      tlv_type;
+    guint16     tlv_len;
+    dg_length_e tlv_dg_len;
    
     (void)pinfo; /* Prevent warning/error */
 
     /* Create the protocol tree. */
     if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_thread_diagnostic, tvb, 0, tvb_reported_length(tvb), "Thread Diagnostic");
-        thread_diagnostic_tree = proto_item_add_subtree(proto_root, ett_thread_diagnostic);
+        proto_root = proto_tree_add_protocol_format(tree, proto_thread_dg, tvb, 0, tvb_reported_length(tvb), "Thread Diagnostic");
+        thread_dg_tree = proto_item_add_subtree(proto_root, ett_thread_dg);
     }
 
     offset = 0;
@@ -87,70 +194,99 @@ dissect_thread_diagnostic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Thread Network Data TLVs */
     while (tvb_offset_exists(tvb, offset)) {
  
-        /* Get the length ahead of time to pass to next function so we can highlight
+        /* Get the type and length ahead of time to pass to next function so we can highlight
            proper amount of bytes */
-        tlv_len = tvb_get_guint8(tvb, offset + 1);
- 
-        ti = proto_tree_add_item(thread_diagnostic_tree, hf_thread_diagnostic_tlv, tvb, offset, tlv_len, FALSE);
-        tlv_tree = proto_item_add_subtree(ti, ett_thread_diagnostic_tlv);
+        tlv_type = tvb_get_guint8(tvb, offset);
+        tlv_len = (guint16)tvb_get_guint8(tvb, offset + 1);
+        
+        /* TODO: need to make sure this applies to all Diagnostic TLVs */
+        if (THREAD_DG_TLV_LENGTH_ESC == tlv_len) {
+            /* 16-bit length field */
+            tlv_len = tvb_get_ntohs(tvb, offset + 2);
+            tlv_dg_len = DG_LENGTH16;
+        } else {
+            tlv_dg_len = DG_LENGTH8;
+        }
+
+        /* Create the tree */
+        ti = proto_tree_add_item(thread_dg_tree, hf_thread_dg_tlv, tvb, offset, tlv_len, FALSE);
+        tlv_tree = proto_item_add_subtree(ti, ett_thread_dg_tlv);
         
         /* Type */
-        proto_tree_add_item(tlv_tree, hf_thread_diagnostic_tlv_type, tvb, offset, 1, FALSE);
-        tlv_type = tvb_get_guint8(tvb, offset);
+        proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_type, tvb, offset, 1, FALSE);
         offset++;
     
         /* Add value name to value root label */
-        proto_item_append_text(ti, " (%s", val_to_str(tlv_type, thread_diagnostic_tlv_vals, "Unknown (%d)"));
+        proto_item_append_text(ti, " (%s", val_to_str(tlv_type, thread_dg_tlv_vals, "Unknown (%d)"));
 
         /* Length */
-        proto_tree_add_item(tlv_tree, hf_thread_diagnostic_tlv_length, tvb, offset, 1, FALSE);
-        offset++;
+        switch (tlv_dg_len) {
+            case DG_LENGTH8:
+                proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_length8, tvb, offset, 1, FALSE);
+                offset++;
+                break;
+            case DG_LENGTH16:
+                proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_length16, tvb, offset + 1, 2, FALSE);
+                offset += 3; /* Including escape byte */
+                break;
+            default:
+                break;
+        }
         
         switch(tlv_type) {
             default:                
                 proto_item_append_text(ti, ")");
-                proto_tree_add_item(tlv_tree, hf_thread_diagnostic_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_unknown, tvb, offset, tlv_len, FALSE);
                 offset += tlv_len;           
         }        
     }
 }
 
 void
-proto_register_thread_diagnostic(void)
+proto_register_thread_dg(void)
 {
   static hf_register_info hf[] = {
     
     /* Generic TLV */
-    { &hf_thread_diagnostic_tlv,
+    { &hf_thread_dg_tlv,
       { "TLV",
-        "thread_diagnostic.tlv",
+        "thread_dg.tlv",
         FT_NONE, BASE_NONE, NULL, 0x0,
         "Type-Length-Value",
         HFILL
       }
     },
         
-    { &hf_thread_diagnostic_tlv_type,
+    { &hf_thread_dg_tlv_type,
       { "Type",
-        "thread_diagnostic.tlv.type",
-        FT_UINT8, BASE_DEC, VALS(thread_diagnostic_tlv_vals), 0x0,
+        "thread_dg.tlv.type",
+        FT_UINT8, BASE_DEC, VALS(thread_dg_tlv_vals), 0x0,
         "Type of value",
         HFILL
       }
     },
 
-    { &hf_thread_diagnostic_tlv_length,
+    { &hf_thread_dg_tlv_length8,
       { "Length",
-        "thread_diagnostic.tlv.len",
+        "thread_dg.tlv.len8",
         FT_UINT8, BASE_DEC, NULL, 0x0,
-        "Length of value",
+        "Length of value (8-bit)",
         HFILL
       }
     },
     
-    { &hf_thread_diagnostic_tlv_unknown,
+    { &hf_thread_dg_tlv_length16,
+      { "Length",
+        "thread_dg.tlv.len16",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        "Length of value (16-bit)",
+        HFILL
+      }
+    },
+    
+    { &hf_thread_dg_tlv_unknown,
       { "Unknown",
-        "thread_diagnostic.tlv.unknown",
+        "thread_dg.tlv.unknown",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Unknown TLV, raw value",
         HFILL
@@ -159,34 +295,34 @@ proto_register_thread_diagnostic(void)
   };
   
   static gint *ett[] = {
-    &ett_thread_diagnostic,
-    &ett_thread_diagnostic_tlv,
+    &ett_thread_dg,
+    &ett_thread_dg_tlv,
   };
 
   static ei_register_info ei[] = {
-    { &ei_thread_diagnostic_tlv_length_failed, { "thread_diagnostic.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
-    { &ei_thread_diagnostic_len_size_mismatch, { "thread_diagnostic.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
+    { &ei_thread_dg_tlv_length_failed, { "thread_dg.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
+    { &ei_thread_dg_len_size_mismatch, { "thread_dg.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
   };
 
-  expert_module_t* expert_thread_diagnostic;
+  expert_module_t* expert_thread_dg;
 
-  proto_thread_diagnostic = proto_register_protocol("Thread Diagnostics", "Thread Diagnostics", "thread_diagnostic");
-  proto_register_field_array(proto_thread_diagnostic, hf, array_length(hf));
+  proto_thread_dg = proto_register_protocol("Thread Diagnostics", "Thread Diagnostics", "thread_dg");
+  proto_register_field_array(proto_thread_dg, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
-  expert_thread_diagnostic = expert_register_protocol(proto_thread_diagnostic);
-  expert_register_field_array(expert_thread_diagnostic, ei, array_length(ei));
+  expert_thread_dg = expert_register_protocol(proto_thread_dg);
+  expert_register_field_array(expert_thread_dg, ei, array_length(ei));
 
-  register_dissector("thread_diagnostic", dissect_thread_diagnostic, proto_thread_diagnostic);
+  register_dissector("thread_dg", dissect_thread_dg, proto_thread_dg);
 }
 
 void
-proto_reg_handoff_thread_diagnostic(void)
+proto_reg_handoff_thread_dg(void)
 {
-  static gboolean thread_diagnostic_initialized = FALSE;
+  static gboolean thread_dg_initialized = FALSE;
 
-  if (!thread_diagnostic_initialized) {
-    thread_diagnostic_handle = find_dissector("thread_diagnostic");
-    thread_diagnostic_initialized = TRUE;
+  if (!thread_dg_initialized) {
+    thread_dg_handle = find_dissector("thread_dg");
+    thread_dg_initialized = TRUE;
   }
 }
 
