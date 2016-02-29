@@ -236,6 +236,7 @@ static const value_string mle_status_tlv_enums[] = {
 #define MLE_CMD_CHILD_ID_RESPONSE     12
 #define MLE_CMD_CHILD_UPDATE_REQUEST  13
 #define MLE_CMD_CHILD_UPDATE_RESPONSE 14
+#define MLE_CMD_ANNOUNCE              15
 #endif // THREAD_EXTENSIONS
 
 static const value_string mle_command_vals[] = {
@@ -254,7 +255,8 @@ static const value_string mle_command_vals[] = {
 { MLE_CMD_CHILD_ID_REQUEST,         "Child ID Request" },
 { MLE_CMD_CHILD_ID_RESPONSE,        "Child ID Response" },
 { MLE_CMD_CHILD_UPDATE_REQUEST,     "Child Update Request" },
-{ MLE_CMD_CHILD_UPDATE_RESPONSE,    "Child Update Response" } };
+{ MLE_CMD_CHILD_UPDATE_RESPONSE,    "Child Update Response" },
+{ MLE_CMD_ANNOUNCE,                 "Announce" } };
 #else // !THREAD_EXTENSIONS
 { MLE_CMD_UPDATE_REQUEST,           "Update Request" } };
 #endif // !THREAD_EXTENSIONS
