@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include <epan/packet.h>
 #include <epan/conversation.h>
+#include <epan/proto_data.h>
 #include <epan/wmem/wmem.h>
 #include <epan/expert.h>
 #include <epan/range.h>
@@ -838,8 +839,8 @@ ccm_cbc_mac(const gchar *key _U_, const gchar *iv _U_, const gchar *a _U_, gint 
 } /* ccm_cbc_mac */
 
 
-static void
-dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     tvbuff_t                *volatile payload_tvb = NULL;
     proto_tree              *volatile mle_tree = NULL;
@@ -1604,7 +1605,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     }
 
     encryption_failed:
-    return;
+    return tvb_captured_length(tvb);
 }
 
 void

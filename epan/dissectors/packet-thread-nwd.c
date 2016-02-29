@@ -153,8 +153,8 @@ static const true_false_string tfs_thread_nwd_tlv_border_router_r = {
 #define ND_OPT_6CO_FLAG_CID      0x0F
 #define ND_OPT_6CO_FLAG_RESERVED 0xE0
 
-static void
-dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     proto_item  *volatile proto_root = NULL;
     proto_tree  *volatile thread_nwd_tree = NULL;
@@ -253,8 +253,8 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     /* Prefix */
                     memset(&prefix.bytes, 0, sizeof(prefix));
                     tvb_memcpy(tvb, (guint8 *)&prefix.bytes, offset, prefix_byte_len);
-                    proto_tree_add_ipv6(tlv_tree, hf_thread_nwd_tlv_prefix, tvb, offset, prefix_byte_len, prefix.bytes);
-                    SET_ADDRESS(&prefix_addr, AT_IPv6, 16, prefix.bytes);
+                    proto_tree_add_ipv6(tlv_tree, hf_thread_nwd_tlv_prefix, tvb, offset, prefix_byte_len, &prefix);
+                    set_address(&prefix_addr, AT_IPv6, 16, prefix.bytes);
                     proto_item_append_text(ti, " = %s/%d)", address_to_str(wmem_packet_scope(), &prefix_addr), prefix_len);
                     offset += prefix_byte_len;
                     tlv_offset += prefix_byte_len;
@@ -267,7 +267,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         sub_tlv_tree = proto_item_add_subtree(ti, ett_thread_nwd_prefix_sub_tlvs);
                         /* Call this dissector for sub-TLVs */
                         sub_tvb = tvb_new_subset_length(tvb, offset, remainder); /* remove prefix length (1) and prefix (prefix_byte_len) */
-                        dissect_thread_nwd(sub_tvb, pinfo, sub_tlv_tree);
+                        dissect_thread_nwd(sub_tvb, pinfo, sub_tlv_tree, data);
                         offset += remainder;
                     }
                 }
@@ -343,6 +343,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 offset += tlv_len;           
         }        
     }
+    return tvb_captured_length(tvb);
 }
 
 void

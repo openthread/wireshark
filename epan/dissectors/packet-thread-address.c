@@ -109,8 +109,8 @@ static const value_string thread_address_tlv_status_vals[] = {
 { 1, "No Address Available" },
 };
 
-static void
-dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     proto_item  *volatile proto_root = NULL;
     proto_tree  *volatile thread_address_tree = NULL;
@@ -299,6 +299,7 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 offset += tlv_len;           
         }        
     }
+    return tvb_captured_length(tvb);
 }
 
 void

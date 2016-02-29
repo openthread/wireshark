@@ -278,8 +278,8 @@ static const true_false_string thread_mc_tlv_allowed = {
     "Not Allowed"
 };
 
-static void
-dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     proto_item  *volatile proto_root = NULL;
     proto_tree  *volatile thread_mc_tree = NULL;
@@ -469,7 +469,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         tvb_memcpy(tvb, (guint8 *)&prefix.bytes, offset, tlv_len);
-                        proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_ula, tvb, offset, tlv_len, prefix.bytes);
+                        proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_ula, tvb, offset, tlv_len, &prefix);
                     }
                     offset += tlv_len;           
                 }
@@ -955,6 +955,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 offset += tlv_len;           
         }        
     }
+    return tvb_captured_length(tvb);
 }
 
 void

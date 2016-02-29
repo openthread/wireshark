@@ -169,8 +169,8 @@ typedef enum {
     DG_LENGTH16
 } dg_length_e;
 
-static void
-dissect_thread_dg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_thread_dg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     proto_item  *volatile proto_root = NULL;
     proto_tree  *volatile thread_dg_tree = NULL;
@@ -240,6 +240,7 @@ dissect_thread_dg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 offset += tlv_len;           
         }        
     }
+    return tvb_captured_length(tvb);
 }
 
 void

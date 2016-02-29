@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <epan/packet.h>
 #include <epan/conversation.h>
+#include <epan/proto_data.h>
 #include <epan/wmem/wmem.h>
 #include <epan/expert.h>
 #include <epan/range.h>
@@ -62,8 +63,8 @@ typedef enum {
     THREAD_COAP_URI_DIAGNOSTIC  /* "/d/..."  */
 } thread_coap_uri_type;
 
-static void
-dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
     coap_info           *coinfo;
     gchar               *tok, *uri;
@@ -94,7 +95,7 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     
     if (THREAD_COAP_URI_THREAD == uri_type) {
         /* Not enough to go on */
-        return;
+        return tvb_captured_length(tvb);
     }
 
     switch (uri_type) {
@@ -114,6 +115,7 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     default:
         break;
     }
+    return tvb_captured_length(tvb);
 }
 
 void
