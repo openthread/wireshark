@@ -966,7 +966,7 @@ proto_register_thread_mc(void)
     /* Generic TLV */
     { &hf_thread_mc_tlv,
       { "TLV",
-        "thread_mc.tlv",
+        "thread_meshcop.tlv",
         FT_NONE, BASE_NONE, NULL, 0x0,
         "Type-Length-Value",
         HFILL
@@ -975,7 +975,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_type,
       { "Type",
-        "thread_mc.tlv.type",
+        "thread_meshcop.tlv.type",
         FT_UINT8, BASE_DEC, VALS(thread_mc_tlv_vals), 0x0,
         "Type of value",
         HFILL
@@ -984,7 +984,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_length8,
       { "Length",
-        "thread_mc.tlv.len8",
+        "thread_meshcop.tlv.len8",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         "Length of value (8-bit)",
         HFILL
@@ -993,7 +993,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_length16,
       { "Length",
-        "thread_mc.tlv.len16",
+        "thread_meshcop.tlv.len16",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         "Length of value (16-bit)",
         HFILL
@@ -1002,7 +1002,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_unknown,
       { "Unknown",
-        "thread_mc.tlv.unknown",
+        "thread_meshcop.tlv.unknown",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Unknown TLV, raw value",
         HFILL
@@ -1011,7 +1011,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_sub_tlvs,
       { "Sub-TLV(s)",
-        "thread_mc.tlv.sub_tlvs",
+        "thread_meshcop.tlv.sub_tlvs",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1021,7 +1021,7 @@ proto_register_thread_mc(void)
     /* Type-Specific TLV Fields */
     { &hf_thread_mc_tlv_channel_page,
       { "Channel Page",
-        "thread_mc.tlv.channel_page",
+        "thread_meshcop.tlv.channel_page",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -1030,7 +1030,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_channel,
       { "Channel",
-        "thread_mc.tlv.channel",
+        "thread_meshcop.tlv.channel",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -1039,7 +1039,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_pan_id,
       { "PAN ID",
-        "thread_mc.tlv.pan_id",
+        "thread_meshcop.tlv.pan_id",
         FT_UINT16, BASE_HEX, NULL, 0x0,
         NULL,
         HFILL
@@ -1048,7 +1048,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_xpan_id,
       { "Extended PAN ID",
-        "thread_mc.tlv.xpan_id",
+        "thread_meshcop.tlv.xpan_id",
         FT_UINT64, BASE_HEX, NULL, 0x0,
         NULL,
         HFILL
@@ -1057,7 +1057,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_net_name,
       { "Network Name",
-        "thread_mc.tlv.net_name",
+        "thread_meshcop.tlv.net_name",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1066,7 +1066,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_pskc,
       { "PSKc",
-        "thread_mc.tlv.pskc",
+        "thread_meshcop.tlv.pskc",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1075,7 +1075,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_master_key,
       { "Master Key",
-        "thread_mc.tlv.master_key",
+        "thread_meshcop.tlv.master_key",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1084,7 +1084,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_net_key_seq,
       { "Network Key Sequence",
-        "thread_mc.tlv.net_key_seq",
+        "thread_meshcop.tlv.net_key_seq",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1093,7 +1093,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_ml_ula,
       { "Mesh Local ULA Prefix",
-        "thread_mc.tlv.ml_ula",
+        "thread_meshcop.tlv.ml_ula",
         FT_IPv6, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1102,7 +1102,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_steering_data,
       { "Steering Data",
-        "thread_mc.tlv.steering_data",
+        "thread_meshcop.tlv.steering_data",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1111,7 +1111,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_br_locator,
       { "Border Router Locator",
-        "thread_mc.tlv.br_locator",
+        "thread_meshcop.tlv.br_locator",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1120,7 +1120,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_commissioner_id,
       { "Commissioner ID",
-        "thread_mc.tlv.commissioner_id",
+        "thread_meshcop.tlv.commissioner_id",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1129,7 +1129,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_commissioner_sess_id,
       { "Commissioner Session ID",
-        "thread_mc.tlv.commissioner_sess_id",
+        "thread_meshcop.tlv.commissioner_sess_id",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1138,7 +1138,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_sec_policy,
       { "Security Policy",
-        "thread_mc.tlv.sec_policy",
+        "thread_meshcop.tlv.sec_policy",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1147,7 +1147,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_sec_policy_o,
       { "Out-of-band Commissioning",
-        "thread_mc.tlv.sec_policy_o",
+        "thread_meshcop.tlv.sec_policy_o",
         FT_BOOLEAN, 8, TFS(&thread_mc_tlv_allowed), THREAD_MC_SEC_POLICY_MASK_O_MASK,
         NULL,
         HFILL
@@ -1156,7 +1156,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_sec_policy_n,
       { "Native Commissioning",
-        "thread_mc.tlv.sec_policy_n",
+        "thread_meshcop.tlv.sec_policy_n",
         FT_BOOLEAN, 8, TFS(&thread_mc_tlv_allowed), THREAD_MC_SEC_POLICY_MASK_N_MASK,
         NULL,
         HFILL
@@ -1165,7 +1165,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_sec_policy_rot,
       { "Rotation Time",
-        "thread_mc.tlv.sec_policy_rot",
+        "thread_meshcop.tlv.sec_policy_rot",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -1174,7 +1174,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_state,
       { "State",
-        "thread_mc.tlv.state",
+        "thread_meshcop.tlv.state",
         FT_INT8, BASE_DEC, VALS(thread_mc_state_vals), 0x0,
         NULL,
         HFILL
@@ -1183,7 +1183,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_active_tstamp,
       { "Active Timestamp",
-        "thread_mc.tlv.active_tstamp",
+        "thread_meshcop.tlv.active_tstamp",
         FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
         NULL,
         HFILL
@@ -1192,7 +1192,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_pending_tstamp,
       { "Pending Timestamp",
-        "thread_mc.tlv.pending_tstamp",
+        "thread_meshcop.tlv.pending_tstamp",
         FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
         NULL,
         HFILL
@@ -1201,7 +1201,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_tstamp_u,
       { "Authoritative Source",
-        "thread_mc.tlv.tstamp_u",
+        "thread_meshcop.tlv.tstamp_u",
         FT_BOOLEAN, 8, NULL, THREAD_MC_TSTAMP_MASK_U_MASK,
         NULL,
         HFILL
@@ -1210,7 +1210,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_udp_port,
       { "UDP Port",
-        "thread_mc.tlv.udp_port",
+        "thread_meshcop.tlv.udp_port",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -1219,7 +1219,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_iid,
       { "Interface Identifier",
-        "thread_mc.tlv.iid",
+        "thread_meshcop.tlv.iid",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1228,7 +1228,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_jr_locator,
       { "Joiner Router Locator",
-        "thread_mc.tlv.jr_locator",
+        "thread_meshcop.tlv.jr_locator",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1237,7 +1237,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_kek,
       { "Key Encryption Key (KEK)",
-        "thread_mc.tlv.kek",
+        "thread_meshcop.tlv.kek",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1246,7 +1246,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_provisioning_url,
       { "Provisioning URL",
-        "thread_mc.tlv.provisioning_url",
+        "thread_meshcop.tlv.provisioning_url",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1255,7 +1255,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_name,
       { "Vendor Name",
-        "thread_mc.tlv.vendor_name",
+        "thread_meshcop.tlv.vendor_name",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1264,7 +1264,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_model,
       { "Vendor Model",
-        "thread_mc.tlv.vendor_model",
+        "thread_meshcop.tlv.vendor_model",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1273,7 +1273,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_sw_ver,
       { "Vendor Software Version",
-        "thread_mc.tlv.vendor_sw_ver",
+        "thread_meshcop.tlv.vendor_sw_ver",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1282,7 +1282,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_data,
       { "Vendor Data",
-        "thread_mc.tlv.vendor_model",
+        "thread_meshcop.tlv.vendor_model",
         FT_STRING, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1291,7 +1291,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_stack_ver,
       { "Stack Version",
-        "thread_mc.tlv.vendor_stack_ver",
+        "thread_meshcop.tlv.vendor_stack_ver",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1300,7 +1300,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_stack_ver_oui,
       { "OUI",
-        "thread_mc.tlv.vendor_stack_ver_oui",
+        "thread_meshcop.tlv.vendor_stack_ver_oui",
         FT_UINT24, BASE_HEX, VALS(oui_vals), 0x0,
         NULL,
         HFILL
@@ -1309,7 +1309,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_stack_ver_build,
       { "Build",
-        "thread_mc.tlv.vendor_stack_ver_build",
+        "thread_meshcop.tlv.vendor_stack_ver_build",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -1318,7 +1318,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_stack_ver_rev,
       { "Revision",
-        "thread_mc.tlv.vendor_stack_ver_rev",
+        "thread_meshcop.tlv.vendor_stack_ver_rev",
         FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_REV_MASK,
         NULL,
         HFILL
@@ -1327,7 +1327,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_stack_ver_min,
       { "Minor",
-        "thread_mc.tlv.vendor_stack_ver_min",
+        "thread_meshcop.tlv.vendor_stack_ver_min",
         FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_MIN_MASK,
         NULL,
         HFILL
@@ -1336,7 +1336,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_vendor_stack_ver_maj,
       { "Major",
-        "thread_mc.tlv.vendor_stack_ver_maj",
+        "thread_meshcop.tlv.vendor_stack_ver_maj",
         FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_MAJ_MASK,
         NULL,
         HFILL
@@ -1345,7 +1345,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_ipv6_addr,
       { "IPv6 Address",
-        "thread_mc.tlv.ipv6_addr",
+        "thread_meshcop.tlv.ipv6_addr",
         FT_IPv6, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1354,7 +1354,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_delay_timer,
       { "Delay Timer",
-        "thread_mc.tlv.delay_timer",
+        "thread_meshcop.tlv.delay_timer",
         FT_UINT32, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -1363,7 +1363,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_chan_mask,
       { "Channel Mask",
-        "thread_mc.tlv.chan_mask",
+        "thread_meshcop.tlv.chan_mask",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1372,7 +1372,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_chan_mask_page,
       { "Channel Page",
-        "thread_mc.tlv.chan_mask_page",
+        "thread_meshcop.tlv.chan_mask_page",
         FT_UINT8, BASE_DEC, NULL, 0,
         NULL,
         HFILL
@@ -1381,7 +1381,7 @@ proto_register_thread_mc(void)
     
     { &hf_thread_mc_tlv_chan_mask_len,
       { "Mask Length",
-        "thread_mc.tlv.chan_mask_len",
+        "thread_meshcop.tlv.chan_mask_len",
         FT_UINT8, BASE_DEC, NULL, 0,
         NULL,
         HFILL
@@ -1390,7 +1390,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_chan_mask_mask,
       { "Mask",
-        "thread_mc.tlv.chan_mask_mask",
+        "thread_meshcop.tlv.chan_mask_mask",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1399,7 +1399,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_count,
       { "Count",
-        "thread_mc.tlv.count",
+        "thread_meshcop.tlv.count",
         FT_UINT8, BASE_DEC, NULL, 0,
         NULL,
         HFILL
@@ -1408,7 +1408,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_period,
       { "Period",
-        "thread_mc.tlv.period",
+        "thread_meshcop.tlv.period",
         FT_UINT16, BASE_DEC, NULL, 0,
         NULL,
         HFILL
@@ -1417,7 +1417,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_scan_duration,
       { "Scan Duration",
-        "thread_mc.tlv.scan_duration",
+        "thread_meshcop.tlv.scan_duration",
         FT_UINT16, BASE_DEC, NULL, 0,
         NULL,
         HFILL
@@ -1426,7 +1426,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_energy_list,
       { "Energy List",
-        "thread_mc.tlv.energy_list",
+        "thread_meshcop.tlv.energy_list",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1443,20 +1443,20 @@ proto_register_thread_mc(void)
   };
 
   static ei_register_info ei[] = {
-    { &ei_thread_mc_tlv_length_failed, { "thread_mc.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
-    { &ei_thread_mc_len_size_mismatch, { "thread_mc.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
-    { &ei_thread_mc_len_too_long, { "thread_mc.len_too_long", PI_UNDECODED, PI_WARN, "TLV Length too long", EXPFILL }}
+    { &ei_thread_mc_tlv_length_failed, { "thread_meshcop.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
+    { &ei_thread_mc_len_size_mismatch, { "thread_meshcop.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
+    { &ei_thread_mc_len_too_long, { "thread_meshcop.len_too_long", PI_UNDECODED, PI_WARN, "TLV Length too long", EXPFILL }}
   };
 
   expert_module_t* expert_thread_mc;
 
-  proto_thread_mc = proto_register_protocol("Thread MeshCoP", "Thread MeshCoP", "thread_mc");
+  proto_thread_mc = proto_register_protocol("Thread MeshCoP", "Thread MeshCoP", "thread_meshcop");
   proto_register_field_array(proto_thread_mc, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_thread_mc = expert_register_protocol(proto_thread_mc);
   expert_register_field_array(expert_thread_mc, ei, array_length(ei));
 
-  register_dissector("thread_mc", dissect_thread_mc, proto_thread_mc);
+  register_dissector("thread_meshcop", dissect_thread_mc, proto_thread_mc);
 }
 
 void
@@ -1465,7 +1465,7 @@ proto_reg_handoff_thread_mc(void)
   static gboolean thread_mc_initialized = FALSE;
 
   if (!thread_mc_initialized) {
-    thread_mc_handle = find_dissector("thread_mc");
+    thread_mc_handle = find_dissector("thread_meshcop");
     thread_dtls_handle = find_dissector("dtls");
     thread_udp_handle = find_dissector("udp");
     thread_mc_initialized = TRUE;

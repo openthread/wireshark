@@ -251,7 +251,7 @@ proto_register_thread_dg(void)
     /* Generic TLV */
     { &hf_thread_dg_tlv,
       { "TLV",
-        "thread_dg.tlv",
+        "thread_diagnostic.tlv",
         FT_NONE, BASE_NONE, NULL, 0x0,
         "Type-Length-Value",
         HFILL
@@ -260,7 +260,7 @@ proto_register_thread_dg(void)
         
     { &hf_thread_dg_tlv_type,
       { "Type",
-        "thread_dg.tlv.type",
+        "thread_diagnostic.tlv.type",
         FT_UINT8, BASE_DEC, VALS(thread_dg_tlv_vals), 0x0,
         "Type of value",
         HFILL
@@ -269,7 +269,7 @@ proto_register_thread_dg(void)
 
     { &hf_thread_dg_tlv_length8,
       { "Length",
-        "thread_dg.tlv.len8",
+        "thread_diagnostic.tlv.len8",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         "Length of value (8-bit)",
         HFILL
@@ -278,7 +278,7 @@ proto_register_thread_dg(void)
     
     { &hf_thread_dg_tlv_length16,
       { "Length",
-        "thread_dg.tlv.len16",
+        "thread_diagnostic.tlv.len16",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         "Length of value (16-bit)",
         HFILL
@@ -287,7 +287,7 @@ proto_register_thread_dg(void)
     
     { &hf_thread_dg_tlv_unknown,
       { "Unknown",
-        "thread_dg.tlv.unknown",
+        "thread_diagnostic.tlv.unknown",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Unknown TLV, raw value",
         HFILL
@@ -301,19 +301,19 @@ proto_register_thread_dg(void)
   };
 
   static ei_register_info ei[] = {
-    { &ei_thread_dg_tlv_length_failed, { "thread_dg.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
-    { &ei_thread_dg_len_size_mismatch, { "thread_dg.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
+    { &ei_thread_dg_tlv_length_failed, { "thread_diagnostic.tlv_length_failed", PI_UNDECODED, PI_WARN, "TLV Length inconsistent", EXPFILL }},
+    { &ei_thread_dg_len_size_mismatch, { "thread_diagnostic.len_size_mismatch", PI_UNDECODED, PI_WARN, "TLV Length & Size field disagree", EXPFILL }},
   };
 
   expert_module_t* expert_thread_dg;
 
-  proto_thread_dg = proto_register_protocol("Thread Diagnostics", "Thread Diagnostics", "thread_dg");
+  proto_thread_dg = proto_register_protocol("Thread Diagnostics", "Thread Diagnostics", "thread_diagnostic");
   proto_register_field_array(proto_thread_dg, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_thread_dg = expert_register_protocol(proto_thread_dg);
   expert_register_field_array(expert_thread_dg, ei, array_length(ei));
 
-  register_dissector("thread_dg", dissect_thread_dg, proto_thread_dg);
+  register_dissector("thread_diagnostic", dissect_thread_dg, proto_thread_dg);
 }
 
 void
@@ -322,7 +322,7 @@ proto_reg_handoff_thread_dg(void)
   static gboolean thread_dg_initialized = FALSE;
 
   if (!thread_dg_initialized) {
-    thread_dg_handle = find_dissector("thread_dg");
+    thread_dg_handle = find_dissector("thread_diagnostic");
     thread_dg_initialized = TRUE;
   }
 }
