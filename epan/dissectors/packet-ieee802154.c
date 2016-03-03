@@ -2635,6 +2635,28 @@ ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes)
     g_byte_array_free(bytes, TRUE);
 }
 
+static GByteArray *ieee802154_set_seq_ctr_key_index(guint8 key_index)
+{
+    GByteArray *seq_ctr_bytes = NULL;;
+
+    seq_ctr_bytes = g_byte_array_new();
+    if (ieee802154_thr_seq_ctr_acqd) {
+        seq_ctr_bytes = g_byte_array_set_size(seq_ctr_bytes, 4);
+        memcpy(seq_ctr_bytes->data, ieee802154_thr_seq_ctr_bytes, 4);
+    } else {
+        hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
+        if (seq_ctr_bytes->len != 4) {
+            /* Not read correctly - assume value is 0 */
+            seq_ctr_bytes = g_byte_array_set_size(seq_ctr_bytes, 4);
+            memset(seq_ctr_bytes->data, 0, 4);
+        }
+    }
+    /* Replace lower part with counter based on packet key index */
+    seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[3] & 0x80) + ((key_index - 1) & 0x7F);
+    
+    return seq_ctr_bytes;
+}
+
 /* Set MAC key function. */
 static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
 {
@@ -2658,10 +2680,7 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
     }
     if (i == NUM_KEYS) {
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
-            seq_ctr_bytes = g_byte_array_new();
-            hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
-            assert(seq_ctr_bytes->len == 4);
-            seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[3] & 0x80) + ((packet->key_index - 1) & 0x7F);
+            seq_ctr_bytes = ieee802154_set_seq_ctr_key_index(packet->key_index);
         }
         if (seq_ctr_bytes != NULL) {
             ieee802154_create_thread_temp_keys(seq_ctr_bytes);
@@ -2700,16 +2719,7 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, u
     if (i == NUM_KEYS) {
         GByteArray *seq_ctr_bytes = NULL;;
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
-            seq_ctr_bytes = g_byte_array_new();
-            if (ieee802154_thr_seq_ctr_acqd) {
-                seq_ctr_bytes = g_byte_array_set_size(seq_ctr_bytes, 4);
-                memcpy(seq_ctr_bytes->data, ieee802154_thr_seq_ctr_bytes, 3);
-            } else {
-                hex_str_to_bytes(ieee802154_pref_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
-                assert(seq_ctr_bytes->len == 4);
-            }
-            /* Replace lower part with counter based on packet key index */
-            seq_ctr_bytes->data[3] = (seq_ctr_bytes->data[3] & 0x80) + ((packet->key_index - 1) & 0x7F);
+            seq_ctr_bytes = ieee802154_set_seq_ctr_key_index(packet->key_index);
         }
         else if (packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) {
             /* Reconstruct the key source from the key source in the packet */
