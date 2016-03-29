@@ -271,7 +271,6 @@ static gboolean q931_desegment = TRUE;
 static dissector_handle_t h225_handle;
 static dissector_handle_t q931_tpkt_handle;
 static dissector_handle_t q931_tpkt_pdu_handle;
-static dissector_handle_t data_handle = NULL;
 
 static heur_dissector_list_t q931_user_heur_subdissector_list;
 
@@ -2422,7 +2421,7 @@ dissect_q931_user_user_ie(tvbuff_t *tvb, packet_info *pinfo, int offset, int len
         next_tvb = tvb_new_subset_length(tvb, offset, len);
         proto_tree_add_uint_format_value(tree, hf_q931_user_information_len, tvb, offset, len, len, "%d octets", len);
         if (!dissector_try_heuristic(q931_user_heur_subdissector_list, next_tvb, pinfo, tree, &hdtbl_entry, NULL)) {
-        call_dissector_only(data_handle, next_tvb, pinfo, tree, NULL);
+        call_data_dissector(next_tvb, pinfo, tree);
         }
         break;
 
@@ -3975,9 +3974,9 @@ proto_register_q931(void)
     register_dissector("q931.ie.cs7", dissect_q931_ie_cs7, proto_q931);
 
     /* subdissector code */
-    codeset_dissector_table = register_dissector_table("q931.codeset", "Q.931 Codeset", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-    ie_dissector_table = register_dissector_table("q931.ie", "Q.931 IE", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-    q931_user_heur_subdissector_list = register_heur_dissector_list("q931_user");
+    codeset_dissector_table = register_dissector_table("q931.codeset", "Q.931 Codeset", proto_q931, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+    ie_dissector_table = register_dissector_table("q931.ie", "Q.931 IE", proto_q931, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+    q931_user_heur_subdissector_list = register_heur_dissector_list("q931_user", proto_q931);
 
     q931_module = prefs_register_protocol(proto_q931, NULL);
     prefs_register_bool_preference(q931_module, "desegment_h323_messages",
@@ -4010,9 +4009,7 @@ proto_reg_handoff_q931(void)
      * dissect putatively-H.255 Call Signaling stuff as User
      * Information.
      */
-    h225_handle = find_dissector("h225");
-
-    data_handle = find_dissector("data");
+    h225_handle = find_dissector_add_dependency("h225", proto_q931);
 
     /*
      * For H.323.

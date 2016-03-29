@@ -87,6 +87,9 @@ struct data_source {
  * "param" is the base in which to display the uint value for that
  * dissector table, if it's a uint dissector table, or if it's a string
  * table, TRUE/FALSE to indicate case-insensitive or not.
+ *
+ * "protocol" is the protocol associated with the dissector table. Used
+ * for determining dependencies.
  */
 struct dissector_table {
 	GHashTable	*hash_table;
@@ -94,6 +97,7 @@ struct dissector_table {
 	const char	*ui_name;
 	ftenum_t	type;
 	int		param;
+	protocol_t	*protocol;
 	GHashFunc hash_func;
 	dissector_table_allow_e allow_dup_proto; /* XXX - Could be converted to a flag-like field */
 };
@@ -106,9 +110,29 @@ static GHashTable *dissector_tables = NULL;
 static GHashTable *registered_dissectors = NULL;
 
 /*
+ * A dissector dependency list.
+ */
+struct depend_dissector_list {
+	GSList		*dissectors;
+};
+
+static GHashTable *depend_dissector_lists = NULL;
+
+static void
+destroy_depend_dissector_list(void *data)
+{
+	depend_dissector_list_t dissector_list = (depend_dissector_list_t)data;
+	GSList **list = &(dissector_list->dissectors);
+
+	g_slist_free(*list);
+	g_slice_free(struct depend_dissector_list, dissector_list);
+}
+
+/*
  * A heuristics dissector list.
  */
 struct heur_dissector_list {
+	protocol_t	*protocol;
 	GSList		*dissectors;
 };
 
@@ -154,6 +178,9 @@ packet_init(void)
 	registered_dissectors = g_hash_table_new_full(g_str_hash, g_str_equal,
 			NULL, NULL);
 
+	depend_dissector_lists = g_hash_table_new_full(g_str_hash, g_str_equal,
+			NULL, destroy_depend_dissector_list);
+
 	heur_dissector_lists = g_hash_table_new_full(g_str_hash, g_str_equal,
 			NULL, destroy_heuristic_dissector_list);
 
@@ -181,6 +208,7 @@ packet_cleanup(void)
 {
 	g_hash_table_destroy(dissector_tables);
 	g_hash_table_destroy(registered_dissectors);
+	g_hash_table_destroy(depend_dissector_lists);
 	g_hash_table_destroy(heur_dissector_lists);
 	g_hash_table_destroy(heuristic_short_names);
 }
@@ -1591,7 +1619,7 @@ void dissector_add_guid(const char *name, guid_key* guid_val, dissector_handle_t
 	 * Now add it to the list of handles that could be used with this
 	 * table, because it *is* being used with this table.
 	 */
-	dissector_add_handle(name, handle);
+	dissector_add_for_decode_as(name, handle);
 
 }
 
@@ -1720,6 +1748,12 @@ dissector_add_for_decode_as(const char *name, dissector_handle_t handle)
 			abort();
 		return;
 	}
+
+	/* Add the dissector as a dependency
+	  (some dissector tables don't have protocol association, so there is
+	  the need for the NULL check */
+	if (sub_dissectors->protocol != NULL)
+		register_depend_dissector(proto_get_protocol_short_name(sub_dissectors->protocol), proto_get_protocol_short_name(handle->protocol));
 
 	/* Is it already in this list? */
 	entry = g_slist_find(sub_dissectors->dissector_handles, (gpointer)handle);
@@ -2033,7 +2067,7 @@ dissector_all_tables_foreach_table (DATFunc_table func,
 }
 
 dissector_table_t
-register_dissector_table(const char *name, const char *ui_name, const ftenum_t type,
+register_dissector_table(const char *name, const char *ui_name, const int proto, const ftenum_t type,
 			 const int param, dissector_table_allow_e allow_dup)
 {
 	dissector_table_t	sub_dissectors;
@@ -2085,13 +2119,14 @@ register_dissector_table(const char *name, const char *ui_name, const ftenum_t t
 	sub_dissectors->ui_name = ui_name;
 	sub_dissectors->type    = type;
 	sub_dissectors->param   = param;
+	sub_dissectors->protocol  = find_protocol_by_id(proto);
 	sub_dissectors->allow_dup_proto   = allow_dup;
 	g_hash_table_insert( dissector_tables, (gpointer)name, (gpointer) sub_dissectors );
 	return sub_dissectors;
 }
 
 dissector_table_t register_custom_dissector_table(const char *name,
-	const char *ui_name, GHashFunc hash_func, GEqualFunc key_equal_func, dissector_table_allow_e allow_dup)
+	const char *ui_name, const int proto, GHashFunc hash_func, GEqualFunc key_equal_func, dissector_table_allow_e allow_dup)
 {
 	dissector_table_t	sub_dissectors;
 
@@ -2113,6 +2148,7 @@ dissector_table_t register_custom_dissector_table(const char *name,
 	sub_dissectors->ui_name = ui_name;
 	sub_dissectors->type    = FT_BYTES; /* Consider key a "blob" of data, no need to really create new type */
 	sub_dissectors->param   = BASE_NONE;
+	sub_dissectors->protocol  = find_protocol_by_id(proto);
 	sub_dissectors->allow_dup_proto   = allow_dup;
 	g_hash_table_insert( dissector_tables, (gpointer)name, (gpointer) sub_dissectors );
 	return sub_dissectors;
@@ -2238,6 +2274,12 @@ heur_dissector_add(const char *name, heur_dissector_t dissector, const char *dis
 
 	/* XXX - could be optimized to pass hdtbl_entry directly */
 	proto_add_heuristic_dissector(hdtbl_entry->protocol, short_name);
+
+	/* Add the dissector as a dependency
+	  (some heuristic tables don't have protocol association, so there is
+	  the need for the NULL check */
+	if (sub_dissectors->protocol != NULL)
+		register_depend_dissector(proto_get_protocol_short_name(sub_dissectors->protocol), proto_get_protocol_short_name(hdtbl_entry->protocol));
 }
 
 
@@ -2261,14 +2303,15 @@ heur_dissector_delete(const char *name, heur_dissector_t dissector, const int pr
 	g_assert(sub_dissectors != NULL);
 
 	hdtbl_entry.dissector = dissector;
-
 	hdtbl_entry.protocol  = find_protocol_by_id(proto);
 
 	found_entry = g_slist_find_custom(sub_dissectors->dissectors,
 	    (gpointer) &hdtbl_entry, find_matching_heur_dissector);
 
 	if (found_entry) {
-		g_free(((heur_dtbl_entry_t *)(found_entry->data))->list_name);
+		heur_dtbl_entry_t *found_hdtbl_entry = (heur_dtbl_entry_t *)(found_entry->data);
+		g_free(found_hdtbl_entry->list_name);
+		g_hash_table_remove(heuristic_short_names, (gpointer)found_hdtbl_entry->short_name);
 		g_slice_free(heur_dtbl_entry_t, found_entry->data);
 		sub_dissectors->dissectors = g_slist_delete_link(sub_dissectors->dissectors,
 		    found_entry);
@@ -2494,7 +2537,7 @@ dissector_dump_heur_decodes(void)
 
 
 heur_dissector_list_t
-register_heur_dissector_list(const char *name)
+register_heur_dissector_list(const char *name, const int proto)
 {
 	heur_dissector_list_t sub_dissectors;
 
@@ -2506,6 +2549,7 @@ register_heur_dissector_list(const char *name)
 	/* Create and register the dissector table for this name; returns */
 	/* a pointer to the dissector table. */
 	sub_dissectors = g_slice_new(struct heur_dissector_list);
+	sub_dissectors->protocol  = find_protocol_by_id(proto);
 	sub_dissectors->dissectors = NULL;	/* initially empty */
 	g_hash_table_insert(heur_dissector_lists, (gpointer)name,
 			    (gpointer) sub_dissectors);
@@ -2578,6 +2622,18 @@ dissector_handle_t
 find_dissector(const char *name)
 {
 	return (dissector_handle_t)g_hash_table_lookup(registered_dissectors, name);
+}
+
+/** Find a dissector by name and add parent protocol as a depedency*/
+dissector_handle_t find_dissector_add_dependency(const char *name, const int parent_proto)
+{
+	dissector_handle_t handle = (dissector_handle_t)g_hash_table_lookup(registered_dissectors, name);
+	if ((handle != NULL) && (parent_proto > 0))
+	{
+		register_depend_dissector(proto_get_protocol_short_name(find_protocol_by_id(parent_proto)), dissector_handle_get_short_name(handle));
+	}
+
+	return handle;
 }
 
 /* Get a dissector name from handle. */
@@ -2704,6 +2760,11 @@ call_dissector(dissector_handle_t handle, tvbuff_t *tvb,
 	return call_dissector_with_data(handle, tvb, pinfo, tree, NULL);
 }
 
+int
+call_data_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+{
+	return call_dissector_work(data_handle, tvb, pinfo, tree, TRUE, NULL);
+}
 
 /*
  * Call a heuristic dissector through a heur_dtbl_entry
@@ -2758,6 +2819,70 @@ void call_heur_dissector_direct(heur_dtbl_entry_t *heur_dtbl_entry, tvbuff_t *tv
 	pinfo->current_proto = saved_curr_proto;
 	pinfo->heur_list_name = saved_heur_list_name;
 
+}
+
+gboolean register_depend_dissector(const char* parent, const char* dependent)
+{
+	guint                  i, list_size;
+	GSList                *list_entry;
+	const char            *protocol_name;
+	depend_dissector_list_t sub_dissectors;
+
+	if ((parent == NULL) || (dependent == NULL))
+	{
+		/* XXX - assert on parent? */
+		return FALSE;
+	}
+
+	sub_dissectors = find_depend_dissector_list(parent);
+	if (sub_dissectors == NULL) {
+		/* parent protocol doesn't exist, create it */
+		sub_dissectors = g_slice_new(struct depend_dissector_list);
+		sub_dissectors->dissectors = NULL;	/* initially empty */
+		g_hash_table_insert(depend_dissector_lists, (gpointer)parent, (gpointer) sub_dissectors);
+	}
+
+	/* Verify that sub-dissector is not already in the list */
+	list_size = g_slist_length(sub_dissectors->dissectors);
+	for (i = 0; i < list_size; i++)
+	{
+		list_entry = g_slist_nth(sub_dissectors->dissectors, i);
+		protocol_name = (const char*)list_entry->data;
+		if (strcmp(dependent, protocol_name) == 0)
+			return TRUE; /* Dependency already exists */
+	}
+
+	sub_dissectors->dissectors = g_slist_prepend(sub_dissectors->dissectors, (gpointer)dependent);
+	return TRUE;
+}
+
+static int
+find_matching_depend_dissector( gconstpointer a, gconstpointer b) {
+	return (strcmp((const char*)a, (const char*)b) != 0);
+}
+
+gboolean deregister_depend_dissector(const char* parent, const char* dependent)
+{
+	depend_dissector_list_t  sub_dissectors = find_depend_dissector_list(parent);
+	GSList                *found_entry;
+
+	/* sanity check */
+	g_assert(sub_dissectors != NULL);
+
+	found_entry = g_slist_find_custom(sub_dissectors->dissectors,
+		(gpointer)dependent, find_matching_depend_dissector);
+
+	if (found_entry) {
+		sub_dissectors->dissectors = g_slist_delete_link(sub_dissectors->dissectors, found_entry);
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+depend_dissector_list_t find_depend_dissector_list(const char* name)
+{
+	return (depend_dissector_list_t)g_hash_table_lookup(depend_dissector_lists, name);
 }
 
 /*

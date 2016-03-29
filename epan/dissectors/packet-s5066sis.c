@@ -79,7 +79,6 @@ static guint dissect_s5066_26(tvbuff_t *tvb, guint offset, proto_tree *tree, gui
 static guint dissect_s5066_27(tvbuff_t *tvb, guint offset, proto_tree *tree, guint *client_app_id);
 
 static gint proto_s5066 = -1;
-static dissector_handle_t data_handle;
 
 static dissector_table_t s5066sis_dissector_table;
 
@@ -1053,7 +1052,7 @@ dissect_s5066_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	next_tvb = tvb_new_subset(tvb, offset, MIN(available_length, reported_length), reported_length);
 
 	if(dissector_try_uint(s5066sis_dissector_table, client_app_id, next_tvb, pinfo, tree) == 0) {
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 	}
 
 	return tvb_captured_length(tvb);
@@ -1447,7 +1446,7 @@ proto_register_s5066(void)
 				       " This number is registered with IANA.)",
 				       10, &global_s5066_port);
 
-	s5066sis_dissector_table = register_dissector_table("s5066sis.ctl.appid", "STANAG 5066 Application Identifier", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	s5066sis_dissector_table = register_dissector_table("s5066sis.ctl.appid", "STANAG 5066 Application Identifier", proto_s5066, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 }
 
@@ -1460,7 +1459,6 @@ proto_reg_handoff_s5066(void)
 
 	if (!Initialized) {
 		s5066_tcp_handle = create_dissector_handle(dissect_s5066_tcp, proto_s5066);
-		data_handle = find_dissector("data");
 		Initialized = TRUE;
 	} else {
 		dissector_delete_uint("tcp.port", saved_s5066_port, s5066_tcp_handle);

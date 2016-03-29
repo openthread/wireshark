@@ -45,7 +45,6 @@ static int hf_i2c_addr = -1;
 
 static gint ett_i2c = -1;
 
-static dissector_handle_t data_handle;
 static dissector_table_t subdissector_table;
 
 /* I2C packet flags. */
@@ -222,7 +221,7 @@ dissect_i2c(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		   have a unique identifier to determine subdissector */
 		if (!dissector_try_uint(subdissector_table, 0, tvb, pinfo, tree))
 		{
-			call_dissector(data_handle, tvb, pinfo, tree);
+			call_data_dissector(tvb, pinfo, tree);
 		}
 	}
 	return tvb_captured_length(tvb);
@@ -256,7 +255,7 @@ proto_register_i2c(void)
 	proto_register_field_array(proto_i2c, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	subdissector_table = register_dissector_table("i2c.message", "I2C messages dissector", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	subdissector_table = register_dissector_table("i2c.message", "I2C messages dissector", proto_i2c, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	m = prefs_register_protocol(proto_i2c, NULL);
 	prefs_register_obsolete_preference(m, "type");
@@ -268,8 +267,6 @@ void
 proto_reg_handoff_i2c(void)
 {
 	dissector_handle_t i2c_handle;
-
-	data_handle = find_dissector("data");
 
 	i2c_handle = create_dissector_handle(dissect_i2c, proto_i2c);
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_I2C, i2c_handle);

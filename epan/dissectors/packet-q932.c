@@ -1,11 +1,11 @@
 /* Do not modify this file. Changes will be overwritten.                      */
 /* Generated automatically by the ASN.1 to Wireshark dissector compiler       */
 /* packet-q932.c                                                              */
-/* ../../tools/asn2wrs.py -b -p q932 -c ./q932.cnf -s ./packet-q932-template -D . -O ../../epan/dissectors Addressing-Data-Elements.asn Network-Facility-Extension.asn Network-Protocol-Profile-component.asn Interpretation-component.asn */
+/* asn2wrs.py -b -p q932 -c ./q932.cnf -s ./packet-q932-template -D . -O ../.. Addressing-Data-Elements.asn Network-Facility-Extension.asn Network-Protocol-Profile-component.asn Interpretation-component.asn */
 
 /* Input file: packet-q932-template.c */
 
-#line 1 "../../asn1/q932/packet-q932-template.c"
+#line 1 "./asn1/q932/packet-q932-template.c"
 /* packet-q932.c
  * Routines for Q.932 packet dissection
  * 2007  Tomas Kukosa
@@ -55,7 +55,7 @@ static int hf_q932_pp = -1;
 static int hf_q932_nd = -1;
 
 /*--- Included file: packet-q932-hf.c ---*/
-#line 1 "../../asn1/q932/packet-q932-hf.c"
+#line 1 "./asn1/q932/packet-q932-hf.c"
 static int hf_q932_NetworkFacilityExtension_PDU = -1;  /* NetworkFacilityExtension */
 static int hf_q932_NetworkProtocolProfile_PDU = -1;  /* NetworkProtocolProfile */
 static int hf_q932_InterpretationComponent_PDU = -1;  /* InterpretationComponent */
@@ -95,14 +95,14 @@ static int hf_q932_destinationEntity = -1;        /* EntityType */
 static int hf_q932_destinationEntityAddress = -1;  /* AddressInformation */
 
 /*--- End of included file: packet-q932-hf.c ---*/
-#line 49 "../../asn1/q932/packet-q932-template.c"
+#line 49 "./asn1/q932/packet-q932-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_q932 = -1;
 static gint ett_q932_ie = -1;
 
 /*--- Included file: packet-q932-ett.c ---*/
-#line 1 "../../asn1/q932/packet-q932-ett.c"
+#line 1 "./asn1/q932/packet-q932-ett.c"
 static gint ett_q932_PresentedAddressScreened = -1;
 static gint ett_q932_PresentedAddressUnscreened = -1;
 static gint ett_q932_PresentedNumberScreened = -1;
@@ -118,7 +118,7 @@ static gint ett_q932_UserSpecifiedSubaddress = -1;
 static gint ett_q932_NetworkFacilityExtension_U = -1;
 
 /*--- End of included file: packet-q932-ett.c ---*/
-#line 54 "../../asn1/q932/packet-q932-template.c"
+#line 54 "./asn1/q932/packet-q932-template.c"
 
 static expert_field ei_q932_dse_not_supported = EI_INIT;
 static expert_field ei_q932_acse_not_supported = EI_INIT;
@@ -209,7 +209,7 @@ static const value_string str_nd[] = {
 
 
 /*--- Included file: packet-q932-fn.c ---*/
-#line 1 "../../asn1/q932/packet-q932-fn.c"
+#line 1 "./asn1/q932/packet-q932-fn.c"
 
 
 static int
@@ -716,7 +716,7 @@ static int dissect_InterpretationComponent_PDU(tvbuff_t *tvb _U_, packet_info *p
 
 
 /*--- End of included file: packet-q932-fn.c ---*/
-#line 143 "../../asn1/q932/packet-q932-template.c"
+#line 143 "./asn1/q932/packet-q932-template.c"
 
 /*--- dissect_q932_facility_ie -------------------------------------------------------*/
 static void
@@ -888,7 +888,7 @@ void proto_register_q932(void) {
                           NULL, HFILL }},
 
 /*--- Included file: packet-q932-hfarr.c ---*/
-#line 1 "../../asn1/q932/packet-q932-hfarr.c"
+#line 1 "./asn1/q932/packet-q932-hfarr.c"
     { &hf_q932_NetworkFacilityExtension_PDU,
       { "NetworkFacilityExtension", "q932.NetworkFacilityExtension_element",
         FT_NONE, BASE_NONE, NULL, 0,
@@ -1039,7 +1039,7 @@ void proto_register_q932(void) {
         "AddressInformation", HFILL }},
 
 /*--- End of included file: packet-q932-hfarr.c ---*/
-#line 313 "../../asn1/q932/packet-q932-template.c"
+#line 313 "./asn1/q932/packet-q932-template.c"
   };
 
   /* List of subtrees */
@@ -1048,7 +1048,7 @@ void proto_register_q932(void) {
     &ett_q932_ie,
 
 /*--- Included file: packet-q932-ettarr.c ---*/
-#line 1 "../../asn1/q932/packet-q932-ettarr.c"
+#line 1 "./asn1/q932/packet-q932-ettarr.c"
     &ett_q932_PresentedAddressScreened,
     &ett_q932_PresentedAddressUnscreened,
     &ett_q932_PresentedNumberScreened,
@@ -1064,7 +1064,7 @@ void proto_register_q932(void) {
     &ett_q932_NetworkFacilityExtension_U,
 
 /*--- End of included file: packet-q932-ettarr.c ---*/
-#line 320 "../../asn1/q932/packet-q932-template.c"
+#line 320 "./asn1/q932/packet-q932-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -1096,17 +1096,17 @@ void proto_register_q932(void) {
   rose_ctx_init(&q932_rose_ctx);
 
   /* Register dissector tables */
-  q932_rose_ctx.arg_global_dissector_table = register_dissector_table("q932.ros.global.arg", "Q.932 Operation Argument (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  q932_rose_ctx.res_global_dissector_table = register_dissector_table("q932.ros.global.res", "Q.932 Operation Result (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  q932_rose_ctx.err_global_dissector_table = register_dissector_table("q932.ros.global.err", "Q.932 Error (global opcode)", FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.arg_global_dissector_table = register_dissector_table("q932.ros.global.arg", "Q.932 Operation Argument (global opcode)", proto_q932, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.res_global_dissector_table = register_dissector_table("q932.ros.global.res", "Q.932 Operation Result (global opcode)", proto_q932, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  q932_rose_ctx.err_global_dissector_table = register_dissector_table("q932.ros.global.err", "Q.932 Error (global opcode)", proto_q932, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-  qsig_arg_local_dissector_table = register_dissector_table("q932.ros.local.arg", "Q.932 Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  qsig_res_local_dissector_table = register_dissector_table("q932.ros.local.res", "Q.932 Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  qsig_err_local_dissector_table = register_dissector_table("q932.ros.local.err", "Q.932 Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_arg_local_dissector_table = register_dissector_table("q932.ros.local.arg", "Q.932 Operation Argument (local opcode)", proto_q932, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_res_local_dissector_table = register_dissector_table("q932.ros.local.res", "Q.932 Operation Result (local opcode)", proto_q932, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  qsig_err_local_dissector_table = register_dissector_table("q932.ros.local.err", "Q.932 Error (local opcode)", proto_q932, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-  etsi_arg_local_dissector_table = register_dissector_table("q932.ros.etsi.local.arg", "Q.932 ETSI Operation Argument (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  etsi_res_local_dissector_table = register_dissector_table("q932.ros.etsi.local.res", "Q.932 ETSI Operation Result (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  etsi_err_local_dissector_table = register_dissector_table("q932.ros.etsi.local.err", "Q.932 ETSI Error (local opcode)", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_arg_local_dissector_table = register_dissector_table("q932.ros.etsi.local.arg", "Q.932 ETSI Operation Argument (local opcode)", proto_q932, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_res_local_dissector_table = register_dissector_table("q932.ros.etsi.local.res", "Q.932 ETSI Operation Result (local opcode)", proto_q932, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  etsi_err_local_dissector_table = register_dissector_table("q932.ros.etsi.local.err", "Q.932 ETSI Error (local opcode)", proto_q932, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
   q932_module = prefs_register_protocol(proto_q932, proto_reg_handoff_q932);
 
@@ -1128,7 +1128,7 @@ void proto_reg_handoff_q932(void) {
     dissector_add_uint("q931.ie", (0x00 << 8) | Q932_IE_FACILITY, q932_ie_handle);
     /* Notification indicator */
     dissector_add_uint("q931.ie", (0x00 << 8) | Q932_IE_NOTIFICATION_INDICATOR, q932_ie_handle);
-    q932_ros_handle = find_dissector("q932.ros");
+    q932_ros_handle = find_dissector_add_dependency("q932.ros", proto_q932);
   }
 
   if(g_facility_encoding == FACILITY_QSIG){

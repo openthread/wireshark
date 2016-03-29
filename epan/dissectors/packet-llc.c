@@ -101,7 +101,6 @@ static dissector_handle_t fddi_handle;
 static dissector_handle_t tr_handle;
 static dissector_handle_t turbo_handle;
 static dissector_handle_t mesh_handle;
-static dissector_handle_t data_handle;
 
 /*
  * Group/Individual bit, in the DSAP.
@@ -231,13 +230,13 @@ llc_sap_value( gchar *result, guint32 sap )
  */
 void
 llc_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
-	    hf_register_info *hf_item)
+	    hf_register_info *hf_item, const int proto)
 {
 	oui_info_t *new_info;
 
 	new_info = (oui_info_t *)g_malloc(sizeof (oui_info_t));
 	new_info->table = register_dissector_table(table_name,
-	    table_ui_name, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	    table_ui_name, proto, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 	new_info->field_info = hf_item;
 
 	/*
@@ -462,8 +461,7 @@ dissect_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 				 */
 				if (!dissector_try_uint(dsap_subdissector_table,
 				    dsap, next_tvb, pinfo, tree)) {
-					call_dissector(data_handle, next_tvb,
-					    pinfo, tree);
+					call_data_dissector(next_tvb, pinfo, tree);
 				}
 			} else if ((control & (XDLC_U_MODIFIER_MASK|XDLC_U))
 			    == (XDLC_XID|XDLC_U)) {
@@ -482,13 +480,11 @@ dissect_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 				    if (!dissector_try_uint(
 					xid_subdissector_table, dsap, next_tvb,
 					pinfo, tree)) {
-					    call_dissector(data_handle,
-						next_tvb, pinfo, tree);
+						call_data_dissector(next_tvb, pinfo, tree);
 				    }
 				}
 			} else {
-				call_dissector(data_handle, next_tvb, pinfo,
-				    tree);
+				call_data_dissector(next_tvb, pinfo, tree);
 			}
 		}
 	}
@@ -532,7 +528,7 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 		next_tvb = tvb_new_subset_remaining(tvb, offset+5);
 
 		if(!dissector_try_uint(hpteam_subdissector_table,etype, next_tvb, pinfo, tree))
-	 		call_dissector(data_handle, next_tvb, pinfo, tree);
+			call_data_dissector(next_tvb, pinfo, tree);
 		break;
 
 	case OUI_ENCAP_ETHER:
@@ -553,11 +549,10 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 			next_tvb = tvb_new_subset_remaining(tvb, offset+5);
 			if (!dissector_try_uint(ethertype_subdissector_table,
 			    etype, next_tvb, pinfo, tree))
-				call_dissector(data_handle, next_tvb, pinfo,
-				    tree);
+				call_data_dissector(next_tvb, pinfo, tree);
 		} else {
 			next_tvb = tvb_new_subset_remaining(tvb, offset+5);
-			call_dissector(data_handle, next_tvb, pinfo, tree);
+			call_data_dissector(next_tvb, pinfo, tree);
 		}
 		break;
 
@@ -615,7 +610,7 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 
 		default:
 			next_tvb = tvb_new_subset_remaining(tvb, offset+5);
-			call_dissector(data_handle, next_tvb, pinfo, tree);
+			call_data_dissector(next_tvb, pinfo, tree);
 			break;
 		}
 		break;
@@ -651,11 +646,10 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 			next_tvb = tvb_new_subset_remaining(tvb, offset+5+mesh_header_len);
 			if (!dissector_try_uint(ethertype_subdissector_table,
 			    etype, next_tvb, pinfo, tree))
-				call_dissector(data_handle, next_tvb, pinfo,
-				    tree);
+				call_data_dissector(next_tvb, pinfo, tree);
 		} else {
 			next_tvb = tvb_new_subset_remaining(tvb, offset+5);
-			call_dissector(data_handle, next_tvb, pinfo, tree);
+			call_data_dissector(next_tvb, pinfo, tree);
 		}
 		break;
 
@@ -691,7 +685,7 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 					break;
 			}
 		}
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 		break;
 	}
 }
@@ -819,9 +813,9 @@ proto_register_llc(void)
 
 	/* subdissector code */
 	dsap_subdissector_table = register_dissector_table("llc.dsap",
-	  "LLC SAP", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	  "LLC SAP", proto_llc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	xid_subdissector_table = register_dissector_table("llc.xid_dsap",
-	  "LLC XID SAP", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	  "LLC XID SAP", proto_llc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	register_capture_dissector_table("llc.dsap", "LLC");
 
 	register_dissector("llc", dissect_llc, proto_llc);
@@ -871,14 +865,13 @@ proto_reg_handoff_llc(void)
 	 * Get handles for the BPDU, Ethernet, FDDI, Token Ring and
 	 * Turbocell dissectors.
 	 */
-	bpdu_handle = find_dissector("bpdu");
-	eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
-	eth_withfcs_handle = find_dissector("eth_withfcs");
-	fddi_handle = find_dissector("fddi");
-	tr_handle = find_dissector("tr");
-	turbo_handle = find_dissector("turbocell");
-	mesh_handle = find_dissector("mesh");
-	data_handle = find_dissector("data");
+	bpdu_handle = find_dissector_add_dependency("bpdu", proto_llc);
+	eth_withoutfcs_handle = find_dissector_add_dependency("eth_withoutfcs", proto_llc);
+	eth_withfcs_handle = find_dissector_add_dependency("eth_withfcs", proto_llc);
+	fddi_handle = find_dissector_add_dependency("fddi", proto_llc);
+	tr_handle = find_dissector_add_dependency("tr", proto_llc);
+	turbo_handle = find_dissector_add_dependency("turbocell", proto_llc);
+	mesh_handle = find_dissector_add_dependency("mesh", proto_llc);
 
 	/*
 	 * Get the Ethertype dissector table.

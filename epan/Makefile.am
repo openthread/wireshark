@@ -38,8 +38,6 @@ SUBDIRS = compress crypt ftypes dfilter dissectors nghttp2 wmem $(wslua_dir)
 
 DIST_SUBDIRS = $(SUBDIRS) $(wslua_dist_dir)
 
-ACLOCAL_AMFLAGS = `../aclocal-flags`
-
 AM_CPPFLAGS = $(INCLUDEDIRS) -I$(builddir)/wslua $(WS_CPPFLAGS) \
 	$(GLIB_CFLAGS) $(LUA_CFLAGS) $(LIBGNUTLS_CFLAGS) \
 	$(LIBGCRYPT_CFLAGS) $(LIBSMI_CFLAGS) $(LIBGEOIP_CFLAGS) \
@@ -78,6 +76,7 @@ libwireshark_asmopt_la_SOURCES = \
 	asm_utils_win32_x86.asm
 
 EXTRA_DIST = \
+	.editorconfig		\
 	diam_dict.l		\
 	dtd_grammar.lemon	\
 	dtd_parse.l		\
@@ -93,8 +92,8 @@ EXTRA_DIST = \
 	exntest.c		\
 	oids_test.c		\
 	doxygen.cfg.in		\
-	CMakeLists.txt	\
-	CMakeListsCustom.txt.example
+	CMakeLists.txt		\
+	print.ps
 
 CLEANFILES = \
 	doxygen-epan.tag		\
@@ -136,10 +135,7 @@ libwireshark_la_LIBADD = \
 	$(wslua_lib)				\
 	${top_builddir}/wiretap/libwiretap.la	\
 	${top_builddir}/wsutil/libwsutil.la	\
-	@SOCKET_LIBS@		\
-	@NSL_LIBS@		\
 	@C_ARES_LIBS@		\
-	@ADNS_LIBS@ 		\
 	@LIBGCRYPT_LIBS@	\
 	@LIBGNUTLS_LIBS@	\
 	@KRB5_LIBS@		\
@@ -337,7 +333,7 @@ dumpabi-libwireshark: all abi-descriptor.xml
 	cp wmem/*.h abi-check-headers/wmem
 	abi-compliance-checker -log-path abi_logs/log.txt -l libwireshark -v1 `readlink .libs/libwireshark.so | sed 's/.*\.so\.//'` \
 		-relpath $(abs_srcdir) -dump-abi abi-descriptor.xml || \
-		cat logs/libwireshark/[0-9]*/log.txt
+		cat abi_logs/log.txt logs/libwireshark/[0-9]*/log.txt
 	cp -f abi_dumps/libwireshark/libwireshark_* .libs/
 	cd .libs && ln -sf libwireshark_*.abi.tar.gz libwireshark.abi.tar.gz
 

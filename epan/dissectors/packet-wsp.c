@@ -7163,7 +7163,7 @@ proto_register_wsp(void)
 
     register_dissector("wsp-co", dissect_wsp_fromwap_co, proto_wsp);
     register_dissector("wsp-cl", dissect_wsp_fromwap_cl, proto_wsp);
-    heur_subdissector_list = register_heur_dissector_list("wsp");
+    heur_subdissector_list = register_heur_dissector_list("wsp", proto_wsp);
 
     wsp_fromudp_handle = create_dissector_handle(dissect_wsp_fromudp,
                                                  proto_wsp);
@@ -7175,9 +7175,9 @@ proto_reg_handoff_wsp(void)
     /*
      * Get a handle for the WTP-over-UDP and the generic media dissectors.
      */
-    wtp_fromudp_handle = find_dissector("wtp-udp");
-    media_handle = find_dissector("media");
-    wbxml_uaprof_handle = find_dissector("wbxml-uaprof");
+    wtp_fromudp_handle = find_dissector_add_dependency("wtp-udp", proto_wsp);
+    media_handle = find_dissector_add_dependency("media", proto_wsp);
+    wbxml_uaprof_handle = find_dissector_add_dependency("wbxml-uaprof", proto_wsp);
 
     /* Only connection-less WSP has no previous handler */
     dissector_add_uint("udp.port", UDP_PORT_WSP, wsp_fromudp_handle);

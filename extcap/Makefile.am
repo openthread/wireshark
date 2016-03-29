@@ -22,22 +22,22 @@
 include Makefile.common
 include ../Makefile.am.inc
 
-ACLOCAL_AMFLAGS = `../aclocal-flags`
-
 AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) $(GLIB_CFLAGS)
 
 MAINTAINERCLEANFILES = \
 	Makefile.in
 
 EXTRA_DIST = \
+	.editorconfig	\
 	Makefile.common
 
 extcap_PROGRAMS = \
 	@androiddump_bin@	\
 	@randpktdump_bin@	\
-	@sshdump_bin@
+	@sshdump_bin@	\
+	@ciscodump_bin@
 
-EXTRA_PROGRAMS = androiddump randpktdump sshdump
+EXTRA_PROGRAMS = androiddump randpktdump sshdump ciscodump
 
 if ENABLE_STATIC
 androiddump_LDFLAGS = -Wl,-static -all-static
@@ -49,8 +49,7 @@ endif
 androiddump_LDADD = \
 	../wiretap/libwiretap.la	\
 	../wsutil/libwsutil.la		\
-	@GLIB_LIBS@			\
-	@SOCKET_LIBS@
+	@GLIB_LIBS@
 
 if ENABLE_STATIC
 	randpktdump_LDFLAGS = -Wl,-static -all-static
@@ -63,8 +62,7 @@ randpktdump_LDADD = \
 	../randpkt_core/librandpkt_core.a \
 	../wiretap/libwiretap.la	\
 	../wsutil/libwsutil.la		\
-	@GLIB_LIBS@			\
-	@SOCKET_LIBS@
+	@GLIB_LIBS@
 
 if ENABLE_STATIC
 	sshdump_LDFLAGS = -Wl,-static -all-static
@@ -77,5 +75,17 @@ sshdump_LDADD = \
 	../wiretap/libwiretap.la	\
 	../wsutil/libwsutil.la		\
 	@GLIB_LIBS@			\
-	@LIBSSH_LIBS@		\
-	@SOCKET_LIBS@
+	@LIBSSH_LIBS@
+
+if ENABLE_STATIC
+	ciscodump_LDFLAGS = -Wl,-static -all-static
+else
+	ciscodump_LDFLAGS = -export-dynamic
+endif
+
+# Libraries and plugin flags with which to link ciscodump.
+ciscodump_LDADD = \
+	../writecap/libwritecap.a	\
+	../wsutil/libwsutil.la		\
+	@GLIB_LIBS@			\
+	@LIBSSH_LIBS@

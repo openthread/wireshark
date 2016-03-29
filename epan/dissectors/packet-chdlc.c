@@ -67,8 +67,6 @@ static int hf_slarp_reliability = -1;
 static expert_field ei_slarp_reliability = EI_INIT;
 static gint ett_slarp = -1;
 
-static dissector_handle_t data_handle;
-
 /*
  * Protocol types for the Cisco HDLC format.
  *
@@ -114,7 +112,7 @@ const value_string chdlc_vals[] = {
 };
 
 gboolean
-capture_chdlc( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_ ) {
+capture_chdlc( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header) {
   if (!BYTES_ARE_IN_FRAME(offset, len, 4))
     return FALSE;
 
@@ -152,7 +150,7 @@ chdlctype(guint16 chdlc_type, tvbuff_t *tvb, int offset_after_chdlctype,
   /* do lookup with the subdissector table */
   if (!dissector_try_uint(subdissector_table, chdlc_type, next_tvb, pinfo, tree)) {
     col_add_fstr(pinfo->cinfo, COL_PROTOCOL, "0x%04x", chdlc_type);
-    call_dissector(data_handle,next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
   }
 }
 
@@ -232,7 +230,7 @@ proto_register_chdlc(void)
 
   /* subdissector code */
   subdissector_table = register_dissector_table("chdlc.protocol",
-                                                "Cisco HDLC protocol",
+                                                "Cisco HDLC protocol", proto_chdlc,
                                                 FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   register_dissector("chdlc", dissect_chdlc, proto_chdlc);
@@ -254,7 +252,6 @@ proto_reg_handoff_chdlc(void)
 {
   dissector_handle_t chdlc_handle;
 
-  data_handle  = find_dissector("data");
   chdlc_handle = find_dissector("chdlc");
   dissector_add_uint("wtap_encap", WTAP_ENCAP_CHDLC, chdlc_handle);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_CHDLC_WITH_PHDR, chdlc_handle);
@@ -336,8 +333,7 @@ dissect_slarp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     col_add_fstr(pinfo->cinfo, COL_INFO, "Unknown packet type 0x%08X", code);
 
     proto_tree_add_uint(slarp_tree, hf_slarp_ptype, tvb, 0, 4, code);
-    call_dissector(data_handle, tvb_new_subset_remaining(tvb, 4), pinfo,
-                     slarp_tree);
+    call_data_dissector(tvb_new_subset_remaining(tvb, 4), pinfo, slarp_tree);
     break;
   }
   return tvb_captured_length(tvb);

@@ -45,7 +45,6 @@ static int ett_smb_msp = -1;
 static dissector_handle_t mailslot_browse_handle;
 static dissector_handle_t mailslot_lanman_handle;
 static dissector_handle_t netlogon_handle;
-static dissector_handle_t data_handle;
 
 #define MAILSLOT_UNKNOWN              0
 #define MAILSLOT_BROWSE               1
@@ -206,7 +205,7 @@ dissect_mailslot_smb(tvbuff_t *mshdr_tvb, tvbuff_t *setup_tvb,
 		 * but indicate that we successfully dissected the mailslot
 		 * stuff.
 		 */
-		call_dissector(data_handle ,tvb, pinfo, parent_tree);
+		call_data_dissector(tvb, pinfo, parent_tree);
 		break;
 	}
 	return TRUE;
@@ -252,10 +251,9 @@ proto_register_smb_mailslot(void)
 void
 proto_reg_handoff_smb_mailslot(void)
 {
-	mailslot_browse_handle = find_dissector("mailslot_browse");
-	mailslot_lanman_handle = find_dissector("mailslot_lanman");
-	netlogon_handle = find_dissector("smb_netlogon");
-	data_handle = find_dissector("data");
+	mailslot_browse_handle = find_dissector_add_dependency("mailslot_browse", proto_smb_msp);
+	mailslot_lanman_handle = find_dissector_add_dependency("mailslot_lanman", proto_smb_msp);
+	netlogon_handle = find_dissector_add_dependency("smb_netlogon", proto_smb_msp);
 }
 
 /*

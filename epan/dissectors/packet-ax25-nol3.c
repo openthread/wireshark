@@ -57,7 +57,6 @@ void proto_reg_handoff_ax25_nol3(void);
 
 /* Dissector handles - all the possibles are listed */
 static dissector_handle_t aprs_handle;
-static dissector_handle_t default_handle;
 
 /* Initialize the protocol and registered fields */
 static int proto_ax25_nol3		= -1;
@@ -212,7 +211,7 @@ dissect_ax25_nol3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, vo
 			}
 		}
 	if ( ! dissected )
-		call_dissector( default_handle , next_tvb, pinfo, ax25_nol3_tree );
+		call_data_dissector(next_tvb, pinfo, ax25_nol3_tree );
 
 	return tvb_captured_length(tvb);
 }
@@ -288,9 +287,7 @@ proto_reg_handoff_ax25_nol3(void)
 
 	/*
 	 */
-	aprs_handle     = find_dissector( "aprs" );
-	default_handle  = find_dissector( "data" );
-
+	aprs_handle     = find_dissector_add_dependency( "aprs", proto_ax25_nol3 );
 }
 
 /*

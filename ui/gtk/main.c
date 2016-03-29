@@ -63,7 +63,6 @@
 #include <wsutil/file_util.h>
 #include <wsutil/privileges.h>
 #include <wsutil/report_err.h>
-#include <wsutil/u3.h>
 #include <wsutil/ws_diag_control.h>
 #include <wsutil/ws_version_info.h>
 
@@ -937,7 +936,8 @@ void resolve_name_cb(GtkWidget *widget _U_, gpointer data _U_)
         TRUE,   /* concurrent_dns */
         TRUE,   /* dns_pkt_addr_resolution */
         TRUE,   /* use_external_net_name_resolver */
-        FALSE   /* load_hosts_file_from_profile_only */
+        FALSE,  /* load_hosts_file_from_profile_only */
+        FALSE   /* vlan_name */
     };
 
     if (cfile.edt->tree) {
@@ -2030,11 +2030,6 @@ get_wireshark_runtime_info(GString *str)
     g_string_append(str, ", ");
     get_runtime_airpcap_version(str);
 #endif
-
-    if(u3_active()) {
-        g_string_append(str, ", ");
-        u3_runtime_info(str);
-    }
 }
 
 static e_prefs *
@@ -2533,7 +2528,7 @@ main(int argc, char *argv[])
     capture_session_init(&global_capture_session, &cfile);
 #endif
 
-    init_report_err(failure_alert_box, open_failure_alert_box,
+    init_report_err(vfailure_alert_box, open_failure_alert_box,
                     read_failure_alert_box, write_failure_alert_box);
 
     /* Non-blank filter means we're remote. Throttle splash screen and resolution updates. */
@@ -3348,10 +3343,6 @@ main(int argc, char *argv[])
         main_filter_packets(&cfile, dfilter, FALSE);
     }
 
-
-    /* register our pid if we are being run from a U3 device */
-    u3_register_pid();
-
     profile_store_persconffiles (FALSE);
 
 #ifdef HAVE_GTKOSXAPPLICATION
@@ -3379,9 +3370,6 @@ main(int argc, char *argv[])
 #ifdef HAVE_LIBPCAP
     gtk_iface_mon_stop();
 #endif
-
-    /* deregister our pid */
-    u3_deregister_pid();
 
     epan_cleanup();
 

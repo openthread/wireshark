@@ -3821,7 +3821,7 @@ proto_register_obex(void)
 
     obex_handle = register_dissector("obex", dissect_obex, proto_obex);
 
-    obex_profile_table = register_dissector_table("obex.profile", "OBEX Profile", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    obex_profile_table = register_dissector_table("obex.profile", "OBEX Profile", proto_obex, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_obex, hf, array_length(hf));
@@ -3887,8 +3887,8 @@ proto_reg_handoff_obex(void)
     dissector_add_string("bluetooth.uuid",  "1133",  obex_handle);
     dissector_add_string("bluetooth.uuid",  "1134",  obex_handle);
 
-    http_handle = find_dissector("http");
-    xml_handle  = find_dissector("xml");
+    http_handle = find_dissector_add_dependency("http", proto_obex);
+    xml_handle  = find_dissector_add_dependency("xml", proto_obex);
     data_handle = find_dissector("data");
     data_text_lines_handle = find_dissector("data-text-lines");
 

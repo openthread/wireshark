@@ -98,9 +98,6 @@ static expert_field ei_ccsds_checkword = EI_INIT;
 /* Dissectot table */
 static dissector_table_t ccsds_dissector_table;
 
-/* Generic data handle */
-static dissector_handle_t data_handle;
-
 static const enum_val_t dissect_checkword[] = {
     { "hdr", "Use header flag", 2 },
     { "no",  "Override header flag to be false", 0 },
@@ -502,7 +499,7 @@ dissect_ccsds(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     }
 
     /* Give the data dissector any bytes past the CCSDS packet length */
-    call_dissector(data_handle, tvb_new_subset_remaining(tvb, offset), pinfo, tree);
+    call_data_dissector(tvb_new_subset_remaining(tvb, offset), pinfo, tree);
     return tvb_captured_length(tvb);
 }
 
@@ -718,7 +715,7 @@ proto_register_ccsds(void)
         &global_dissect_checkword, dissect_checkword, FALSE);
 
     /* Dissector table for sub-dissetors */
-    ccsds_dissector_table = register_dissector_table("ccsds.apid", "CCSDS apid", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    ccsds_dissector_table = register_dissector_table("ccsds.apid", "CCSDS apid", proto_ccsds, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 
@@ -726,7 +723,6 @@ void
 proto_reg_handoff_ccsds(void)
 {
     dissector_add_for_decode_as ( "udp.port", find_dissector("ccsds") );
-    data_handle = find_dissector("data");
 }
 
 /*

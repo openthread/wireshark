@@ -201,7 +201,8 @@ WSLUA_CONSTRUCTOR DissectorTable_new (lua_State *L) {
             name = g_strdup(name);
             ui_name = g_strdup(ui_name);
 
-            dt->table = register_dissector_table(name, ui_name, type, base, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+            /* XXX - can't determine dependencies of Lua protocols if they don't provide protocol name */
+            dt->table = register_dissector_table(name, ui_name, -1, type, base, DISSECTOR_TABLE_ALLOW_DUPLICATE);
             dt->name = name;
             dt->ui_name = ui_name;
             dt->created = TRUE;
@@ -661,7 +662,7 @@ WSLUA_METAMETHOD DissectorTable__tostring(lua_State* L) {
 }
 
 /* Gets registered as metamethod automatically by WSLUA_REGISTER_CLASS/META */
-static int DissectorTable__gc(lua_State* L _U_) {
+static int DissectorTable__gc(lua_State* L) {
     DissectorTable dt = toDissectorTable(L,1);
 
     if (dt->created && !dt->expired) {

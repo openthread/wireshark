@@ -32,12 +32,10 @@
 
 #include <errno.h>
 #include "file.h"
-#include "../../epan/addr_resolv.h"
-#include "../../epan/prefs.h"
-#include "../../wsutil/filesystem.h"
-#include "../../wsutil/nstime.h"
-
-#include <wireshark_application.h>
+#include "epan/addr_resolv.h"
+#include "wsutil/filesystem.h"
+#include "wsutil/nstime.h"
+#include "ui/all_files_wildcard.h"
 
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -51,6 +49,8 @@
 #endif // Q_OS_WIN
 
 #include <QPushButton>
+#include "epan/prefs.h"
+#include <wireshark_application.h>
 
 #ifdef Q_OS_WIN
 // All of these routines are required by file_dlg_win32.c.
@@ -99,8 +99,28 @@ CaptureFileDialog::CaptureFileDialog(QWidget *parent, capture_file *cf, QString 
     file_type_(-1)
 #endif
 {
+    switch (prefs.gui_fileopen_style) {
+    case FO_STYLE_LAST_OPENED:
+        /* The user has specified that we should start out in the last directory
+         * we looked in.  If we've already opened a file, use its containing
+         * directory, if we could determine it, as the directory, otherwise
+         * use the "last opened" directory saved in the preferences file if
+         * there was one.
+         */
+        setDirectory(wsApp->lastOpenDir());
+        break;
+
+    case FO_STYLE_SPECIFIED:
+        /* The user has specified that we should always start out in a
+         * specified directory; if they've specified that directory,
+         * start out by showing the files in that dir.
+         */
+        if (prefs.gui_fileopen_dir[0] != '\0')
+            setDirectory(prefs.gui_fileopen_dir);
+        break;
+    }
+
 #if !defined(Q_OS_WIN)
-    setDirectory(wsApp->lastOpenDir());
     // Add extra widgets
     // https://wiki.qt.io/Qt_project_org_faq#How_can_I_add_widgets_to_my_QFileDialog_instance.3F
     setOption(QFileDialog::DontUseNativeDialog, true);
@@ -344,11 +364,11 @@ QString CaptureFileDialog::fileType(int ft, bool extension_globs)
     extensions_list = wtap_get_file_extensions_list(ft, TRUE);
     if (extensions_list == NULL) {
         /* This file type doesn't have any particular extension
-           conventionally used for it, so we'll just use "*"
-           as the pattern, as this is UN*X, where "*.*" only
-           matches files that have an extension. (On Windows,
-           it matches all files, but this isn't Windows.) */
-           filter += "*";
+           conventionally used for it, so we'll just use a
+           wildcard that matches all file names - even those
+           with no extension, so we don't need to worry about
+           compressed file extensions. */
+           filter += ALL_FILES_WILDCARD;
     } else {
         GSList *extension;
         /* Construct the list of patterns. */
@@ -388,10 +408,7 @@ QStringList CaptureFileDialog::buildFileOpenTypeList() {
      * the filter will be a bit long, so it *really* shouldn't be shown.
      * What about other platforms?
      */
-    /*
-     * Add the "All Files" entry.  As per the above, we use *, not *.*.
-     */
-    filters << QString(tr("All Files (*)"));
+    filters << QString(tr("All Files (" ALL_FILES_WILDCARD ")"));
 
     /*
      * Add an "All Capture Files" entry, with all the extensions we

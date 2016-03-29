@@ -95,7 +95,7 @@ WSLUA_METAMETHOD FieldInfo__call(lua_State* L) {
 
     switch(fi->ws_fi->hfinfo->type) {
         case FT_BOOLEAN:
-                lua_pushboolean(L,(int)fvalue_get_uinteger(&(fi->ws_fi->value)));
+                lua_pushboolean(L,(int)fvalue_get_uinteger64(&(fi->ws_fi->value)));
                 return 1;
         case FT_UINT8:
         case FT_UINT16:
@@ -432,7 +432,7 @@ WSLUA_METAMETHOD FieldInfo__lt(lua_State* L) {
 }
 
 /* Gets registered as metamethod automatically by WSLUA_REGISTER_META */
-static int FieldInfo__gc(lua_State* L _U_) {
+static int FieldInfo__gc(lua_State* L) {
     FieldInfo fi = toFieldInfo(L,1);
 
     if (!fi) return 0;

@@ -362,7 +362,7 @@ add_to_graph(voip_calls_tapinfo_t *tapinfo, packet_info *pinfo, epan_dissect_t *
 /****************************************************************************/
 /* Append str to frame_label and comment in a graph item */
 /* return 0 if the frame_num is not in the graph list */
-static int append_to_frame_graph(voip_calls_tapinfo_t *tapinfo _U_, guint32 frame_num, const gchar *new_frame_label, const gchar *new_comment)
+static int append_to_frame_graph(voip_calls_tapinfo_t *tapinfo, guint32 frame_num, const gchar *new_frame_label, const gchar *new_comment)
 {
     seq_analysis_item_t *gai=NULL;
     gchar *frame_label = NULL;
@@ -391,7 +391,7 @@ static int append_to_frame_graph(voip_calls_tapinfo_t *tapinfo _U_, guint32 fram
 /****************************************************************************/
 /* Change the frame_label and comment in a graph item if not NULL*/
 /* return 0 if the frame_num is not in the graph list */
-static int change_frame_graph(voip_calls_tapinfo_t *tapinfo _U_, guint32 frame_num, const gchar *new_frame_label, const gchar *new_comment)
+static int change_frame_graph(voip_calls_tapinfo_t *tapinfo, guint32 frame_num, const gchar *new_frame_label, const gchar *new_comment)
 {
     seq_analysis_item_t *gai=NULL;
     gchar *frame_label = NULL;
@@ -419,7 +419,7 @@ static int change_frame_graph(voip_calls_tapinfo_t *tapinfo _U_, guint32 frame_n
 
 /****************************************************************************/
 /* Change all the graph items with call_num to new_call_num */
-static guint change_call_num_graph(voip_calls_tapinfo_t *tapinfo _U_, guint16 call_num, guint16 new_call_num)
+static guint change_call_num_graph(voip_calls_tapinfo_t *tapinfo, guint16 call_num, guint16 new_call_num)
 {
     seq_analysis_item_t *gai;
     GList *list;
@@ -3907,9 +3907,22 @@ skinny_calls_packet(void *tap_offset_ptr, packet_info *pinfo, epan_dissect_t *ed
             callsinfo->call_num, &(pinfo->src), &(pinfo->dst), 1);
     g_free(comment);
 
+    tapinfo->redraw |= REDRAW_SKINNY;
+
     return TRUE;
 }
 
+/****************************************************************************/
+static void
+skinny_calls_draw(void *tap_offset_ptr)
+{
+    voip_calls_tapinfo_t *tapinfo = tap_id_to_base(tap_offset_ptr, tap_id_offset_skinny_);
+
+    if (tapinfo->tap_draw && (tapinfo->redraw & REDRAW_SKINNY)) {
+        tapinfo->tap_draw(tapinfo);
+        tapinfo->redraw &= ~REDRAW_SKINNY;
+    }
+}
 
 /****************************************************************************/
 /* TAP INTERFACE */
@@ -3931,7 +3944,7 @@ skinny_calls_init_tap(voip_calls_tapinfo_t *tap_id_base)
             TL_REQUIRES_PROTO_TREE,
             NULL,
             skinny_calls_packet,
-            NULL
+            skinny_calls_draw
             );
     if (error_string != NULL) {
         simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK,
@@ -4032,10 +4045,23 @@ iax2_calls_packet( void *tap_offset_ptr, packet_info *pinfo, epan_dissect_t *edt
     add_to_graph(tapinfo, pinfo, edt, ii->messageName, "",
             callsinfo->call_num, &(pinfo->src), &(pinfo->dst), 1);
 
+    tapinfo->redraw |= REDRAW_IAX2;
+
     return TRUE;
 
 }
 
+/****************************************************************************/
+static void
+iax2_calls_draw(void *tap_offset_ptr)
+{
+    voip_calls_tapinfo_t *tapinfo = tap_id_to_base(tap_offset_ptr, tap_id_offset_iax2_);
+
+    if (tapinfo->tap_draw && (tapinfo->redraw & REDRAW_IAX2)) {
+        tapinfo->tap_draw(tapinfo);
+        tapinfo->redraw &= ~REDRAW_IAX2;
+    }
+}
 
 /****************************************************************************/
 /* TAP INTERFACE */
@@ -4060,7 +4086,7 @@ iax2_calls_init_tap(voip_calls_tapinfo_t *tap_id_base)
             TL_REQUIRES_PROTO_TREE,
             NULL,
             iax2_calls_packet,
-            NULL
+            iax2_calls_draw
             );
     if (error_string != NULL) {
         simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s",

@@ -454,7 +454,7 @@ void proto_register_ipa(void)
 
 	/* Register table for subdissectors */
 	osmo_dissector_table = register_dissector_table("ipa.osmo.protocol",
-					"GSM over IP ip.access Protocol",
+					"GSM over IP ip.access Protocol", proto_ipa,
 					FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 
@@ -488,10 +488,10 @@ void proto_reg_handoff_gsm_ipa(void)
 	static range_t *ipa_tcp_ports, *ipa_udp_ports;
 
 	if (!ipa_initialized) {
-		sub_handles[SUB_RSL] = find_dissector("gsm_abis_rsl");
-		sub_handles[SUB_OML] = find_dissector("gsm_abis_oml");
-		sub_handles[SUB_SCCP] = find_dissector("sccp");
-		sub_handles[SUB_MGCP] = find_dissector("mgcp");
+		sub_handles[SUB_RSL] = find_dissector_add_dependency("gsm_abis_rsl", proto_ipa);
+		sub_handles[SUB_OML] = find_dissector_add_dependency("gsm_abis_oml", proto_ipa);
+		sub_handles[SUB_SCCP] = find_dissector_add_dependency("sccp", proto_ipa);
+		sub_handles[SUB_MGCP] = find_dissector_add_dependency("mgcp", proto_ipa);
 		sub_handles[SUB_DATA] = find_dissector("data");
 
 		ipa_tcp_handle = create_dissector_handle(dissect_ipa_tcp, proto_ipa);

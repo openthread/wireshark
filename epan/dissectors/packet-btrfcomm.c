@@ -156,7 +156,6 @@ static uat_field_t uat_rfcomm_channels_fields[] = {
     UAT_END_FIELDS
 };
 
-static dissector_handle_t data_handle;
 static dissector_handle_t ppp_handle;
 
 static const value_string vs_ctl_pn_i[] = {
@@ -872,7 +871,7 @@ dissect_btrfcomm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
                     call_dissector_with_data(decode_by_dissector, next_tvb, pinfo, tree, rfcomm_data);
                 } else {
                     /* unknown service, let the data dissector handle it */
-                    call_dissector(data_handle, next_tvb, pinfo, tree);
+                    call_data_dissector(next_tvb, pinfo, tree);
                 }
             }
         }
@@ -1140,7 +1139,7 @@ proto_register_btrfcomm(void)
 
     service_directions = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    rfcomm_dlci_dissector_table = register_dissector_table("btrfcomm.dlci", "BT RFCOMM Directed Channel", FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    rfcomm_dlci_dissector_table = register_dissector_table("btrfcomm.dlci", "BT RFCOMM Directed Channel", proto_btrfcomm, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     module = prefs_register_protocol(proto_btrfcomm, NULL);
     prefs_register_static_text_preference(module, "rfcomm.version",
@@ -1178,8 +1177,6 @@ proto_reg_handoff_btrfcomm(void)
 {
     dissector_add_uint("btl2cap.psm", BTL2CAP_PSM_RFCOMM, btrfcomm_handle);
     dissector_add_for_decode_as("btl2cap.cid", btrfcomm_handle);
-
-    data_handle = find_dissector("data");
 }
 
 /* Bluetooth Dial-Up Networking (DUN) profile dissection */
@@ -1221,7 +1218,7 @@ dissect_btdun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
             col_set_str(pinfo->cinfo, COL_PROTOCOL, "PPP");
             col_add_fstr(pinfo->cinfo, COL_INFO, "%s <PPP frame>", (pinfo->p2p_dir == P2P_DIR_SENT) ? "Sent" : "Rcvd");
 
-            call_dissector(data_handle, tvb, pinfo, tree);
+            call_data_dissector(tvb, pinfo, tree);
         }
     }
 
@@ -1259,7 +1256,7 @@ proto_reg_handoff_btdun(void)
 
     dissector_add_for_decode_as("btrfcomm.dlci", btdun_handle);
 
-    ppp_handle = find_dissector("ppp_raw_hdlc");
+    ppp_handle = find_dissector_add_dependency("ppp_raw_hdlc", proto_btdun);
 }
 
 /* Bluetooth Serial Port profile (SPP) dissection */

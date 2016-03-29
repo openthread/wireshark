@@ -54,6 +54,7 @@ set(WSUTIL_FILES
 	frequency-utils.c
 	g711.c
 	inet_addr.c
+	interface.c
 	jsmn.c
 	md4.c
 	md5.c
@@ -72,7 +73,6 @@ set(WSUTIL_FILES
 	tempfile.c
 	time_util.c
 	type_util.c
-	u3.c
 	unicode-utils.c
 	ws_mempbrk.c
 	ws_version_info.c

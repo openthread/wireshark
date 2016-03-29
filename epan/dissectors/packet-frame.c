@@ -97,7 +97,6 @@ static expert_field ei_incomplete = EI_INIT;
 
 static int frame_tap = -1;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t docsis_handle;
 
 /* Preferences */
@@ -497,9 +496,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 						col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 						col_add_fstr(pinfo->cinfo, COL_INFO, "WTAP_ENCAP = %d",
 							     pinfo->pkt_encap);
-						call_dissector_with_data(data_handle,
-						    tvb, pinfo, parent_tree,
-						    (void *)pinfo->pseudo_header);
+						call_data_dissector(tvb, pinfo, parent_tree);
 					}
 				}
 				break;
@@ -516,7 +513,7 @@ dissect_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 						col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 						col_add_fstr(pinfo->cinfo, COL_INFO, "WTAP_ENCAP = %d",
 							     file_type_subtype);
-						call_dissector(data_handle,tvb, pinfo, parent_tree);
+						call_data_dissector(tvb, pinfo, parent_tree);
 					}
 				}
 				break;
@@ -883,12 +880,6 @@ proto_register_frame(void)
 		arr[encap_count].strptr = NULL;
 	}
 
-	wtap_encap_dissector_table = register_dissector_table("wtap_encap",
-	    "Wiretap encapsulation type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-	wtap_fts_rec_dissector_table = register_dissector_table("wtap_fts_rec",
-	    "Wiretap file type for file-type-specific records", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-	register_capture_dissector_table("wtap_encap", "Wiretap encapsulation type");
-
 	proto_frame = proto_register_protocol("Frame", "Frame", "frame");
 	proto_pkt_comment = proto_register_protocol("Packet comments", "Pkt_Comment", "pkt_comment");
 	proto_register_field_array(proto_frame, hf, array_length(hf));
@@ -897,6 +888,12 @@ proto_register_frame(void)
 	expert_frame = expert_register_protocol(proto_frame);
 	expert_register_field_array(expert_frame, ei, array_length(ei));
 	register_dissector("frame",dissect_frame,proto_frame);
+
+	wtap_encap_dissector_table = register_dissector_table("wtap_encap",
+	    "Wiretap encapsulation type", proto_frame, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	wtap_fts_rec_dissector_table = register_dissector_table("wtap_fts_rec",
+	    "Wiretap file type for file-type-specific records", proto_frame, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	register_capture_dissector_table("wtap_encap", "Wiretap encapsulation type");
 
 	/* You can't disable dissection of "Frame", as that would be
 	   tantamount to not doing any dissection whatsoever. */
@@ -931,8 +928,7 @@ proto_register_frame(void)
 void
 proto_reg_handoff_frame(void)
 {
-	data_handle = find_dissector("data");
-	docsis_handle = find_dissector("docsis");
+	docsis_handle = find_dissector_add_dependency("docsis", proto_frame);
 }
 
 /*

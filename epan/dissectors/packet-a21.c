@@ -167,7 +167,7 @@ static const value_string a21_mn_id_type_of_identity_vals[] = {
 
 /* 5.2.4.8 Mobile Identity (MN ID) */
 static void
-dissect_a21_mobile_identity(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, proto_item *item, guint16 length, guint8 message_type _U_)
+dissect_a21_mobile_identity(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_item *item, guint16 length, guint8 message_type _U_)
 {
 	int offset = 0;
 	guint identity_type;
@@ -466,7 +466,7 @@ static const value_string a21_additional_event_info_vals[] = {
 
 
 static void
-dissect_a21_event(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, proto_item *item _U_, guint16 length, guint8 message_type _U_)
+dissect_a21_event(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, proto_item *item, guint16 length, guint8 message_type _U_)
 {
 	int offset = 0;
 	guint8 event_id;
@@ -964,7 +964,7 @@ void proto_reg_handoff_a21(void)
 
 	if (!a21_prefs_initialized) {
 		a21_handle = create_dissector_handle(dissect_a21, proto_a21);
-		gcsna_handle = find_dissector("gcsna");
+		gcsna_handle = find_dissector_add_dependency("gcsna", proto_a21);
 		dissector_add_uint("udp.port", a21_udp_port, a21_handle);
 		a21_prefs_initialized = TRUE;
 	} else {

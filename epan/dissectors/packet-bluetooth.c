@@ -3,6 +3,10 @@
  *
  * Copyright 2014, Michal Labedzki for Tieto Corporation
  *
+ * Dissector for Bluetooth High Speed over wireless
+ * Copyright 2012 intel Corp.
+ * Written by Andrei Emeltchenko at intel dot com
+ *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
@@ -31,6 +35,8 @@
 #include <epan/decode_as.h>
 #include <epan/proto_data.h>
 #include <wiretap/wtap.h>
+#include "packet-llc.h"
+#include <epan/oui.h>
 
 #include "packet-bluetooth.h"
 
@@ -43,11 +49,12 @@ static int hf_bluetooth_str_src = -1;
 static int hf_bluetooth_str_dst = -1;
 static int hf_bluetooth_str_addr = -1;
 
+static int hf_llc_bluetooth_pid = -1;
+
 static gint ett_bluetooth = -1;
 
 static dissector_handle_t btle_handle;
 static dissector_handle_t hci_usb_handle;
-static dissector_handle_t data_handle;
 
 static dissector_table_t bluetooth_table;
 static dissector_table_t hci_vendor_table;
@@ -197,7 +204,7 @@ const value_string bluetooth_uuid_vals[] = {
     { 0x1812,   "Human Interface Device" },
     { 0x1813,   "Scan Parameters" },
     { 0x1814,   "Running Speed and Cadence" },
-    { 0x1815,   "Automation IO" }, /* Not adopted, 0.9 now (6th June 2015) */
+    { 0x1815,   "Automation IO" },
     { 0x1816,   "Cycling Speed and Cadence" },
     { 0x1818,   "Cycling Power" },
     { 0x1819,   "Location and Navigation" },
@@ -340,12 +347,12 @@ const value_string bluetooth_uuid_vals[] = {
     { 0x2906,   "Valid Range" },
     { 0x2907,   "External Report Reference" },
     { 0x2908,   "Report Reference" },
-    { 0x2909,   "Number of Digitals" }, /* Not adopted, 0.9 now (18th July 2015) */
+    { 0x2909,   "Number of Digitals" },
     { 0x290A,   "Value Trigger Setting" },
     { 0x290B,   "Environmental Sensing Configuration" },
     { 0x290C,   "Environmental Sensing Measurement" },
     { 0x290D,   "Environmental Sensing Trigger Setting" },
-    { 0x290E,   "Time Trigger Setting" }, /* Not adopted, 0.9 now (18th July 2015) */
+    { 0x290E,   "Time Trigger Setting" },
     /* Characteristics - https://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicsHome.aspx */
     { 0x2A00,   "Device Name" },
     { 0x2A01,   "Appearance" },
@@ -417,9 +424,9 @@ const value_string bluetooth_uuid_vals[] = {
     { 0x2A53,   "RSC Measurement" },
     { 0x2A54,   "RSC Feature" },
     { 0x2A55,   "SC Control Point" },
-    { 0x2A56,   "Digital" },    /* Not adopted, 0.9 now (6th June 2015) */
-    { 0x2A58,   "Analog" },     /* Not adopted, 0.9 now (6th June 2015) */
-    { 0x2A5A,   "Aggregate" },  /* Not adopted, 0.9 now (6th June 2015) */
+    { 0x2A56,   "Digital" },
+    { 0x2A58,   "Analog" },
+    { 0x2A5A,   "Aggregate" },
     { 0x2A5B,   "CSC Measurement" },
     { 0x2A5C,   "CSC Feature" },
     { 0x2A5D,   "Sensor Location" },
@@ -1399,6 +1406,28 @@ const value_string bluetooth_address_type_vals[] = {
     { 0, NULL }
 };
 
+/*
+ * BLUETOOTH SPECIFICATION Version 4.0 [Vol 5] defines that
+ * before transmission, the PAL shall remove the HCI header,
+ * add LLC and SNAP headers and insert an 802.11 MAC header.
+ * Protocol identifier are described in Table 5.2.
+ */
+
+#define AMP_U_L2CAP		0x0001
+#define AMP_C_ACTIVITY_REPORT	0x0002
+#define AMP_C_SECURITY_FRAME	0x0003
+#define AMP_C_LINK_SUP_REQUEST	0x0004
+#define AMP_C_LINK_SUP_REPLY	0x0005
+
+static const value_string bluetooth_pid_vals[] = {
+	{ AMP_U_L2CAP,			"AMP_U L2CAP ACL data" },
+	{ AMP_C_ACTIVITY_REPORT,	"AMP-C Activity Report" },
+	{ AMP_C_SECURITY_FRAME,		"AMP-C Security frames" },
+	{ AMP_C_LINK_SUP_REQUEST,	"AMP-C Link supervision request" },
+	{ AMP_C_LINK_SUP_REPLY,		"AMP-C Link supervision reply" },
+	{ 0,	NULL }
+};
+
 guint32 max_disconnect_in_frame = G_MAXUINT32;
 
 
@@ -1821,7 +1850,7 @@ dissect_bluetooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     bluetooth_data->previous_protocol_data.none = NULL;
 
     if (!dissector_try_uint_new(bluetooth_table, pinfo->phdr->pkt_encap, tvb, pinfo, tree, TRUE, bluetooth_data)) {
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
     }
 
     return tvb_captured_length(tvb);
@@ -1837,7 +1866,7 @@ dissect_bluetooth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
  * metadata header in the packet.
  */
 static gint
-dissect_bluetooth_bthci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+dissect_bluetooth_bthci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     bluetooth_data_t  *bluetooth_data;
 
@@ -1850,7 +1879,7 @@ dissect_bluetooth_bthci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     bluetooth_data->previous_protocol_data.bthci = (struct bthci_phdr *)data;
 
     if (!dissector_try_uint_new(bluetooth_table, pinfo->phdr->pkt_encap, tvb, pinfo, tree, TRUE, bluetooth_data)) {
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
     }
 
     return tvb_captured_length(tvb);
@@ -1865,7 +1894,7 @@ dissect_bluetooth_bthci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
  * metadata header in the packet.
  */
 static gint
-dissect_bluetooth_btmon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+dissect_bluetooth_btmon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     bluetooth_data_t  *bluetooth_data;
 
@@ -1878,7 +1907,7 @@ dissect_bluetooth_btmon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     bluetooth_data->previous_protocol_data.btmon = (struct btmon_phdr *)data;
 
     if (!dissector_try_uint_new(bluetooth_table, pinfo->phdr->pkt_encap, tvb, pinfo, tree, TRUE, bluetooth_data)) {
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
     }
 
     return tvb_captured_length(tvb);
@@ -1960,6 +1989,14 @@ proto_register_bluetooth(void)
         },
     };
 
+    static hf_register_info oui_hf[] = {
+        { &hf_llc_bluetooth_pid,
+            { "PID",	"llc.bluetooth_pid",
+            FT_UINT16, BASE_HEX, VALS(bluetooth_pid_vals), 0x0,
+            "Protocol ID", HFILL }
+        }
+    };
+
     static gint *ett[] = {
         &ett_bluetooth,
     };
@@ -1980,7 +2017,7 @@ proto_register_bluetooth(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     bluetooth_table = register_dissector_table("bluetooth.encap",
-            "Bluetooth Encapsulation", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "Bluetooth Encapsulation", proto_bluetooth, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     chandle_sessions         = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
     chandle_to_bdaddr        = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
@@ -1991,14 +2028,15 @@ proto_register_bluetooth(void)
     localhost_name           = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
     hci_vendors              = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    hci_vendor_table = register_dissector_table("bluetooth.vendor", "HCI Vendor", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    hci_vendor_table = register_dissector_table("bluetooth.vendor", "HCI Vendor", proto_bluetooth, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
     bluetooth_uuids          = wmem_tree_new(wmem_epan_scope());
 
     bluetooth_tap = register_tap("bluetooth");
     bluetooth_device_tap = register_tap("bluetooth.device");
     bluetooth_hci_summary_tap = register_tap("bluetooth.hci_summary");
 
-    bluetooth_uuid_table = register_dissector_table("bluetooth.uuid", "BT Service UUID", FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    bluetooth_uuid_table = register_dissector_table("bluetooth.uuid", "BT Service UUID", proto_bluetooth, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	llc_add_oui(OUI_BLUETOOTH, "llc.bluetooth_pid", "LLC Bluetooth OUI PID", oui_hf, proto_bluetooth);
 
     register_conversation_table(proto_bluetooth, TRUE, bluetooth_conversation_packet, bluetooth_hostlist_packet);
 
@@ -2012,10 +2050,11 @@ proto_reg_handoff_bluetooth(void)
     dissector_handle_t bluetooth_bthci_handle = create_dissector_handle(dissect_bluetooth_bthci, proto_bluetooth);
     dissector_handle_t bluetooth_btmon_handle = create_dissector_handle(dissect_bluetooth_btmon, proto_bluetooth);
     dissector_handle_t bluetooth_usb_handle = create_dissector_handle(dissect_bluetooth_usb, proto_bluetooth);
+	dissector_handle_t eapol_handle;
+	dissector_handle_t btl2cap_handle;
 
-    btle_handle = find_dissector("btle");
-    data_handle = find_dissector("data");
-    hci_usb_handle = find_dissector("hci_usb");
+    btle_handle = find_dissector_add_dependency("btle", proto_bluetooth);
+    hci_usb_handle = find_dissector_add_dependency("hci_usb", proto_bluetooth);
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_BLUETOOTH_HCI,           bluetooth_bthci_handle);
     dissector_add_uint("wtap_encap", WTAP_ENCAP_BLUETOOTH_H4,            bluetooth_handle);
@@ -2042,6 +2081,13 @@ proto_reg_handoff_bluetooth(void)
 
     wmem_tree_insert_string(bluetooth_uuids, "00000001-0000-1000-8000-0002EE000002", "SyncML Server", 0);
     wmem_tree_insert_string(bluetooth_uuids, "00000002-0000-1000-8000-0002EE000002", "SyncML Client", 0);
+
+	eapol_handle = find_dissector("eapol");
+	btl2cap_handle = find_dissector("btl2cap");
+
+	dissector_add_uint("llc.bluetooth_pid", AMP_C_SECURITY_FRAME, eapol_handle);
+	dissector_add_uint("llc.bluetooth_pid", AMP_U_L2CAP, btl2cap_handle);
+
 /* TODO: Add UUID128 verion of UUID16; UUID32? UUID16? */
 }
 

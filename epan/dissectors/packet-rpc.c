@@ -2638,7 +2638,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		offset += 4;
 
 		/* Indicate the frame to which this is a reply. */
-		if(rpc_call && rpc_call->req_num){
+		if (rpc_call->req_num) {
 			proto_item *tmp_item;
 
 			tmp_item=proto_tree_add_uint_format(rpc_tree, hf_rpc_repframe,
@@ -2656,7 +2656,7 @@ dissect_rpc_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		}
 
 
-		if ((!rpc_call) || (rpc_call->rep_num == 0)) {
+		if (rpc_call->rep_num == 0) {
 			/* We have not yet seen a reply to that call, so
 			   this must be the first reply; remember its
 			   frame number. */
@@ -4359,8 +4359,8 @@ proto_register_rpc(void)
 
 	proto_rpc = proto_register_protocol("Remote Procedure Call", "RPC", "rpc");
 
-	subdissector_call_table = register_custom_dissector_table("rpc.call", "RPC Call Functions", rpc_proc_hash, rpc_proc_equal, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-	subdissector_reply_table = register_custom_dissector_table("rpc.reply", "RPC Reply Functions", rpc_proc_hash, rpc_proc_equal, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	subdissector_call_table = register_custom_dissector_table("rpc.call", "RPC Call Functions", proto_rpc, rpc_proc_hash, rpc_proc_equal, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	subdissector_reply_table = register_custom_dissector_table("rpc.reply", "RPC Reply Functions", proto_rpc, rpc_proc_hash, rpc_proc_equal, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 	/* this is a dummy dissector for all those unknown rpc programs */
 	proto_register_field_array(proto_rpc, hf, array_length(hf));
@@ -4439,8 +4439,8 @@ proto_reg_handoff_rpc(void)
 
 	heur_dissector_add("tcp", dissect_rpc_tcp_heur, "RPC over TCP", "rpc_tcp", proto_rpc, HEURISTIC_ENABLE);
 	heur_dissector_add("udp", dissect_rpc_heur, "RPC over UDP", "rpc_udp", proto_rpc, HEURISTIC_ENABLE);
-	gssapi_handle = find_dissector("gssapi");
-	spnego_krb5_wrap_handle = find_dissector("spnego-krb5-wrap");
+	gssapi_handle = find_dissector_add_dependency("gssapi", proto_rpc);
+	spnego_krb5_wrap_handle = find_dissector_add_dependency("spnego-krb5-wrap", proto_rpc);
 	data_handle = find_dissector("data");
 }
 

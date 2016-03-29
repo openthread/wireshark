@@ -37,8 +37,6 @@ static int hf_ieee802a_pid = -1;
 
 static gint ett_ieee802a = -1;
 
-static dissector_handle_t data_handle;
-
 /*
  * Hash table for translating OUIs to a dissector table/field info pair;
  * the dissector table maps PID values to dissectors, and the field
@@ -56,13 +54,13 @@ static GHashTable *oui_info_table = NULL;
  */
 void
 ieee802a_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
-		 hf_register_info *hf_item)
+		 hf_register_info *hf_item, const int proto)
 {
 	oui_info_t *new_info;
 
 	new_info = (oui_info_t *)g_malloc(sizeof (oui_info_t));
 	new_info->table = register_dissector_table(table_name,
-	    table_ui_name, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    table_ui_name, proto, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	new_info->field_info = hf_item;
 
 	/*
@@ -134,7 +132,7 @@ dissect_ieee802a(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 	if ((subdissector_table == NULL) ||
 		/* do lookup with the subdissector table */
 		(!dissector_try_uint(subdissector_table, pid, next_tvb, pinfo, tree))) {
-			call_dissector(data_handle, next_tvb, pinfo, tree);
+			call_data_dissector(next_tvb, pinfo, tree);
 	}
 	return tvb_captured_length(tvb);
 }
@@ -172,8 +170,6 @@ void
 proto_reg_handoff_ieee802a(void)
 {
 	dissector_handle_t ieee802a_handle;
-
-	data_handle = find_dissector("data");
 
 	ieee802a_handle = create_dissector_handle(dissect_ieee802a,
 	    proto_ieee802a);

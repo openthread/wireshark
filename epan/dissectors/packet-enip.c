@@ -377,7 +377,6 @@ static dissector_table_t   subdissector_sud_table;
 static dissector_table_t   subdissector_io_table;
 static dissector_table_t   subdissector_class_table;
 
-static dissector_handle_t  data_handle;
 static dissector_handle_t  arp_handle;
 static dissector_handle_t  cipsafety_handle;
 static dissector_handle_t  cipmotion_handle;
@@ -2299,7 +2298,7 @@ dissect_cpf(enip_request_key_t *request_key, int command, tvbuff_t *tvb,
                {
                   /* Show the undissected payload */
                    if ( tvb_reported_length_remaining(tvb, offset) > 0 )
-                     call_dissector( data_handle, next_tvb, pinfo, dissector_tree);
+                     call_data_dissector(next_tvb, pinfo, dissector_tree);
                }
 
                /* Check if this is a ForwardOpen packet, because special handling is needed
@@ -2367,7 +2366,7 @@ dissect_cpf(enip_request_key_t *request_key, int command, tvbuff_t *tvb,
                       if (!dissector_try_uint(subdissector_sud_table, ifacehndl, next_tvb, pinfo, dissector_tree) )
                       {
                          /* Show the undissected payload */
-                         call_dissector( data_handle, next_tvb, pinfo, dissector_tree );
+                         call_data_dissector(next_tvb, pinfo, dissector_tree );
                       }
                       p_remove_proto_data(wmem_file_scope(), pinfo, proto_enip, ENIP_REQUEST_INFO);
                   }
@@ -3275,12 +3274,12 @@ proto_register_enip(void)
       /* Request/Response Matching */
       { &hf_enip_response_in,
         { "Response In", "enip.response_in",
-          FT_FRAMENUM, BASE_NONE, NULL, 0x0,
+          FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_RESPONSE), 0x0,
           "The response to this ENIP request is in this frame", HFILL }},
 
       { &hf_enip_response_to,
         { "Request In", "enip.response_to",
-          FT_FRAMENUM, BASE_NONE, NULL, 0x0,
+          FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_REQUEST), 0x0,
           "This is a response to the ENIP request in this frame", HFILL }},
 
       { &hf_enip_time,
@@ -4375,12 +4374,12 @@ proto_register_enip(void)
    prefs_register_obsolete_preference(enip_module, "default_io_dissector");
 
    subdissector_sud_table = register_dissector_table("enip.sud.iface",
-                                                     "ENIP SendUnitData.Interface Handle", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                     "ENIP SendUnitData.Interface Handle", proto_enip, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
    subdissector_srrd_table = register_dissector_table("enip.srrd.iface",
-                                                      "ENIP SendRequestReplyData.Interface Handle", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                      "ENIP SendRequestReplyData.Interface Handle", proto_enip, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
-   subdissector_io_table = register_dissector_table("enip.io", "ENIP IO dissector", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+   subdissector_io_table = register_dissector_table("enip.io", "ENIP IO dissector", proto_enip, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
    register_init_routine(&enip_init_protocol);
    register_cleanup_routine(&enip_cleanup_protocol);
@@ -4423,18 +4422,15 @@ proto_reg_handoff_enip(void)
    ssl_dissector_add(ENIP_SECURE_PORT, enip_tcp_handle);
    dtls_dissector_add(ENIP_SECURE_PORT, enipio_handle);
 
-   /* Find dissector for data packet */
-   data_handle = find_dissector("data");
-
    /* Find ARP dissector for TCP/IP object */
-   arp_handle = find_dissector("arp");
+   arp_handle = find_dissector_add_dependency("arp", proto_enip);
 
    /* I/O data dissectors */
    cipsafety_handle = find_dissector("cipsafety");
    cipmotion_handle = find_dissector("cipmotion");
 
    /* Implicit data dissector */
-   cip_implicit_handle = find_dissector("cip_implicit");
+   cip_implicit_handle = find_dissector_add_dependency("cip_implicit", proto_enipio);
 
    /* Register for EtherNet/IP Device Level Ring protocol */
    dlr_handle = create_dissector_handle(dissect_dlr, proto_dlr);

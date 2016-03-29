@@ -34,7 +34,6 @@ void proto_register_sita(void);
 void proto_reg_handoff_sita(void);
 
 static dissector_table_t    sita_dissector_table;
-static dissector_handle_t   data_handle;
 static gint                 ett_sita            = -1;
 static gint                 ett_sita_flags      = -1;
 static gint                 ett_sita_signals    = -1;
@@ -197,7 +196,7 @@ dissect_sita(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
            and give them the details then */
         col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
         col_add_fstr(pinfo->cinfo, COL_INFO, "IOP protocol number: %u", pinfo->pseudo_header->sita.sita_proto);
-        call_dissector(data_handle, tvb, pinfo, tree);          /* call the generic (hex display) decoder instead */
+        call_data_dissector(tvb, pinfo, tree);          /* call the generic (hex display) decoder instead */
     }
     return tvb_captured_length(tvb);
 }
@@ -376,7 +375,7 @@ proto_register_sita(void)
     };
 
     proto_sita = proto_register_protocol("Societe Internationale de Telecommunications Aeronautiques", "SITA", "sita"); /* name, short name,abbreviation */
-    sita_dissector_table = register_dissector_table("sita.proto", "SITA protocol number", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    sita_dissector_table = register_dissector_table("sita.proto", "SITA protocol number", proto_sita, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
     proto_register_field_array(proto_sita, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
     register_dissector("sita", dissect_sita, proto_sita);
@@ -396,7 +395,6 @@ proto_reg_handoff_sita(void)
     uts_handle      = find_dissector("uts");
     ipars_handle        = find_dissector("ipars");
     sita_handle         = find_dissector("sita");
-    data_handle     = find_dissector("data");
 
     dissector_add_uint("sita.proto", SITA_PROTO_BOP_LAPB,   lapb_handle);
     dissector_add_uint("sita.proto", SITA_PROTO_BOP_FRL,        frame_relay_handle);

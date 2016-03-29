@@ -57,7 +57,7 @@
  *   Mobile radio interface Layer 3 specification;
  *   Core network protocols;
  *   Stage 3
- *   (3GPP TS 24.008 version 13.4.0 Release 13)
+ *   (3GPP TS 24.008 version 13.5.0 Release 13)
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -531,7 +531,6 @@ static expert_field ei_gsm_a_gm_extraneous_data = EI_INIT;
 static expert_field ei_gsm_a_gm_not_enough_data = EI_INIT;
 static expert_field ei_gsm_a_gm_undecoded = EI_INIT;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t rrc_irat_ho_info_handle;
 static dissector_handle_t lte_rrc_ue_eutra_cap_handle;
 
@@ -3671,7 +3670,7 @@ de_gmm_net_res_id_cont(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, 
 
 /* [13] 10.5.5.32 Extended DRX parameters */
 static const value_string gsm_a_gm_paging_time_window_vals[] = {
-	{0x0,	"0 second"},
+	{0x0,	"0 seconds (PTW not used)"},
 	{0x1,	"1 second"},
 	{0x2,	"2 seconds"},
 	{0x3,	"3 seconds"},
@@ -4153,7 +4152,7 @@ static const range_string gsm_a_sm_pco_net2ms_prot_vals[] = {
 	{ 0x0011, 0x0011, "Network support of Local address in TFT indicator" },
 	{ 0x0012, 0x0012, "Reserved" },
 	{ 0x0013, 0x0013, "NBIFOM accepted indicator" },
-	{ 0x0014, 0x0014, "Reserved" },
+	{ 0x0014, 0x0014, "NBIFOM mode" },
 	{ 0xff00, 0xffff, "Operator Specific Use" },
 	{ 0, 0, NULL }
 };
@@ -4172,8 +4171,8 @@ static const value_string gsm_a_gm_sel_bearer_ctrl_mode_vals[] = {
 };
 
 static const value_string gsm_a_gm_nbifom_mode_vals[] = {
-	{ 1, "UE-initiated" },
-	{ 2, "network-initiated" },
+	{ 0, "UE-initiated" },
+	{ 1, "network-initiated" },
 	{ 0, NULL }
 };
 
@@ -4292,7 +4291,7 @@ de_sm_pco(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, g
 				}
 				break;
 			case 0x0014:
-				if ((link_dir == P2P_DIR_UL) && (e_len == 1)) {
+				if (e_len == 1) {
 					proto_tree_add_item(pco_tree, hf_gsm_a_gm_sm_pco_nbifom_mode, tvb, curr_offset, 1, ENC_NA);
 				}
 				break;
@@ -4323,7 +4322,7 @@ de_sm_pco(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, g
 							/*
 							* dissect the embedded DATA message
 							*/
-							call_dissector(data_handle, l3_tvb, pinfo, pco_tree);
+							call_data_dissector(l3_tvb, pinfo, pco_tree);
 						}
 					}
 				}
@@ -7347,9 +7346,9 @@ static void (*dtap_msg_gmm_fcn[])(tvbuff_t *tvb, proto_tree *tree, packet_info *
 	dtap_gmm_auth_ciph_req,		/* Authentication and Ciphering Req */
 	dtap_gmm_auth_ciph_resp,	/* Authentication and Ciphering Resp */
 	dtap_gmm_auth_ciph_rej,		/* Authentication and Ciphering Rej */
-	dtap_gmm_auth_ciph_fail,	/* Authentication and Ciphering Failure */
 	dtap_gmm_ident_req,		/* Identity Request */
 	dtap_gmm_ident_res,		/* Identity Response */
+	dtap_gmm_auth_ciph_fail,	/* Authentication and Ciphering Failure */
 	dtap_gmm_status,		/* GMM Status */
 	dtap_gmm_information,		/* GMM Information */
 	NULL,	/* NONE */
@@ -8686,15 +8685,14 @@ proto_register_gsm_a_gm(void)
 
 	/* subdissector code */
 	gprs_sm_pco_subdissector_table = register_dissector_table("sm_pco.protocol",
-		"GPRS SM PCO PPP protocol", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+		"GPRS SM PCO PPP protocol", proto_a_gm, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
 proto_reg_handoff_gsm_a_gm(void)
 {
-	data_handle = find_dissector("data");
-	rrc_irat_ho_info_handle = find_dissector("rrc.irat.irat_ho_info");
-	lte_rrc_ue_eutra_cap_handle = find_dissector("lte-rrc.ue_eutra_cap");
+	rrc_irat_ho_info_handle = find_dissector_add_dependency("rrc.irat.irat_ho_info", proto_a_gm);
+	lte_rrc_ue_eutra_cap_handle = find_dissector_add_dependency("lte-rrc.ue_eutra_cap", proto_a_gm);
 }
 
 /*

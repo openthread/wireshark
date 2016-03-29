@@ -860,7 +860,6 @@ static gboolean tds_defragment = TRUE;
 static dissector_handle_t tds_tcp_handle;
 static dissector_handle_t ntlmssp_handle;
 static dissector_handle_t gssapi_handle;
-static dissector_handle_t data_handle;
 
 typedef struct {
     gint tds7_version;
@@ -3945,7 +3944,7 @@ dissect_netlib_buffer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         }
     } else {
         next_tvb = tvb_new_subset_remaining (tvb, offset);
-        call_dissector(data_handle, next_tvb, pinfo, tds_tree);
+        call_data_dissector(next_tvb, pinfo, tds_tree);
     }
     pinfo->fragmented = save_fragmented;
 }
@@ -4473,7 +4472,7 @@ proto_register_tds(void)
             NULL, HFILL }
         },
         { &hf_tds_done_donerowcount_64,
-          { "Row count", "tds.done.donerowcount",
+          { "Row count", "tds.done.donerowcount64",
             FT_UINT64, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
@@ -4500,7 +4499,7 @@ proto_register_tds(void)
             NULL, HFILL }
         },
         { &hf_tds_doneproc_donerowcount_64,
-          { "Row count", "tds.doneproc.donerowcount",
+          { "Row count", "tds.doneproc.donerowcount64",
             FT_UINT64, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
@@ -4527,7 +4526,7 @@ proto_register_tds(void)
             NULL, HFILL }
         },
         { &hf_tds_doneinproc_donerowcount_64,
-          { "Row count", "tds.doneinproc.donerowcount",
+          { "Row count", "tds.doneinproc.donerowcount64",
             FT_UINT64, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
@@ -4569,7 +4568,7 @@ proto_register_tds(void)
             NULL, HFILL }
         },
         { &hf_tds_envchg_newvalue_string,
-          { "New Value", "tds.envchange.newvalue",
+          { "New Value", "tds.envchange.newvalue_string",
             FT_STRING, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
@@ -4584,7 +4583,7 @@ proto_register_tds(void)
             NULL, HFILL }
         },
         { &hf_tds_envchg_oldvalue_string,
-          { "Old Value", "tds.envchange.oldvalue",
+          { "Old Value", "tds.envchange.oldvalue_string",
             FT_STRING, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
@@ -5638,9 +5637,8 @@ proto_reg_handoff_tds(void)
 
     heur_dissector_add("tcp", dissect_tds_tcp_heur, "Tabular Data Stream over TCP", "tds_tcp", proto_tds, HEURISTIC_ENABLE);
 
-    ntlmssp_handle = find_dissector("ntlmssp");
-    gssapi_handle = find_dissector("gssapi");
-    data_handle = find_dissector("data");
+    ntlmssp_handle = find_dissector_add_dependency("ntlmssp", proto_tds);
+    gssapi_handle = find_dissector_add_dependency("gssapi", proto_tds);
 }
 
 /*

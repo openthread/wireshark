@@ -71,6 +71,7 @@ androiddump
 autom4te.cache
 capinfos
 captype
+ciscodump
 compile
 config.h
 config.h.in
@@ -111,7 +112,7 @@ tvbtest
 wireshark
 wmem_test
 ylwrap
-
+!/epan/dissectors/pidl/Makefile
 
 # CMake #
 ##################
@@ -147,6 +148,7 @@ packaging/rpm/SRPMS
 ########
 *.html
 *.[14]
+AUTHORS.git
 AUTHORS-SHORT
 AUTHORS-SHORT-FORMAT
 doxygen.cfg
@@ -168,17 +170,14 @@ docbook/ws?g_html_chunked/
 docbook/ws?g_chm/
 docbook/release-notes-*.pdf
 docbook/release-notes.txt
-docbook/wsdg.validated
 docbook/wsluarm
 docbook/wsluarm_src/
-docbook/wsug.validated
 wsar_html/
 wsar_html.zip
 
 # Qt #
 ######
 qtshark
-*.rcc.cpp
 /ui/qt/__/
 /ui/qt/*.qrc.depends
 /ui/qt/*.pro.user
@@ -186,6 +185,7 @@ qtshark
 /ui/qt/moc_*.cpp
 /ui/qt/moc_*.cpp_parameters
 /ui/qt/*.moc.cpp
+/ui/qt/*.rcc.cpp
 /ui/qt/moc_*.cxx
 /ui/qt/qrc_*.cpp
 /ui/qt/qrc_*.cxx
@@ -216,7 +216,6 @@ wsutil/abi-descriptor.xml
 *.pdb
 *.nativecodeanalysis.xml
 *.rc
-!adns_dll.rc
 !image/file_dlg_win32.rc
 *.res
 *.vcxproj*
@@ -262,3 +261,4 @@ packaging/portableapps/distribution.nmake
 packaging/rpm/SPECS/wireshark.spec
 packaging/svr4/checkinstall
 packaging/svr4/pkginfo
+vgcore.*

@@ -89,6 +89,7 @@
 #include <wsutil/str_util.h>
 #include <wsutil/ws_diag_control.h>
 #include <wsutil/ws_version_info.h>
+#include <wsutil/pint.h>
 #include <wiretap/wtap_opttypes.h>
 #include <wiretap/pcapng.h>
 
@@ -398,13 +399,12 @@ set_time_adjustment(char *optarg_str_p)
 
     /* adjust fractional portion from fractional to numerator
      * e.g., in "1.5" from 5 to 500000000 since .5*10^9 = 500000000 */
-    if (frac && end) {            /* both are valid */
-        frac_digits = end - frac - 1;   /* fractional digit count (remember '.') */
-        while(frac_digits < 9) {    /* this is frac of 10^9 */
-            val *= 10;
-            frac_digits++;
-        }
+    frac_digits = end - frac - 1;   /* fractional digit count (remember '.') */
+    while(frac_digits < 9) {    /* this is frac of 10^9 */
+        val *= 10;
+        frac_digits++;
     }
+
     time_adj.tv.nsecs = (int)val;
 }
 
@@ -472,13 +472,12 @@ set_strict_time_adj(char *optarg_str_p)
 
     /* adjust fractional portion from fractional to numerator
      * e.g., in "1.5" from 5 to 500000000 since .5*10^9 = 500000000 */
-    if (frac && end) {            /* both are valid */
-        frac_digits = end - frac - 1;   /* fractional digit count (remember '.') */
-        while(frac_digits < 9) {    /* this is frac of 10^9 */
-            val *= 10;
-            frac_digits++;
-        }
+    frac_digits = end - frac - 1;   /* fractional digit count (remember '.') */
+    while(frac_digits < 9) {    /* this is frac of 10^9 */
+        val *= 10;
+        frac_digits++;
     }
+
     strict_time_adj.tv.nsecs = (int)val;
 }
 
@@ -540,13 +539,12 @@ set_rel_time(char *optarg_str_p)
 
     /* adjust fractional portion from fractional to numerator
      * e.g., in "1.5" from 5 to 500000000 since .5*10^9 = 500000000 */
-    if (frac && end) {            /* both are valid */
-        frac_digits = end - frac - 1;   /* fractional digit count (remember '.') */
-        while(frac_digits < 9) {    /* this is frac of 10^9 */
-            val *= 10;
-            frac_digits++;
-        }
+    frac_digits = end - frac - 1;   /* fractional digit count (remember '.') */
+    while(frac_digits < 9) {    /* this is frac of 10^9 */
+        val *= 10;
+        frac_digits++;
     }
+
     relative_time_window.nsecs = (int)val;
 }
 
@@ -554,7 +552,7 @@ set_rel_time(char *optarg_str_p)
 #define VLAN_SIZE 4
 static void
 sll_remove_vlan_info(guint8* fd, guint32* len) {
-    if (g_ntohs(*(fd + LINUX_SLL_OFFSETP)) == ETHERTYPE_VLAN) {
+    if (pntoh16(fd + LINUX_SLL_OFFSETP) == ETHERTYPE_VLAN) {
         int rest_len;
         /* point to start of vlan */
         fd = fd + LINUX_SLL_OFFSETP;
@@ -928,7 +926,12 @@ get_editcap_compiled_info(GString *str)
 }
 
 static void
-get_editcap_runtime_info(GString *str)
+get_editcap_runtime_info(
+#if defined(HAVE_LIBZ) && !defined(_WIN32)
+    GString *str)
+#else
+    GString *str _U_)
+#endif
 {
   /* zlib */
 #if defined(HAVE_LIBZ) && !defined(_WIN32)

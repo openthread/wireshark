@@ -52,7 +52,6 @@ static gint ett_arcnet = -1;
 static int arcnet_address_type = -1;
 
 static dissector_table_t arcnet_dissector_table;
-static dissector_handle_t data_handle;
 
 /* Cache protocol for packet counting */
 static int proto_ipx = -1;
@@ -86,7 +85,7 @@ static int arcnet_len(void)
 }
 
 static gboolean
-capture_arcnet_common(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_, gboolean has_exception)
+capture_arcnet_common(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header, gboolean has_exception)
 {
   if (!BYTES_ARE_IN_FRAME(offset, len, 1)) {
     return FALSE;
@@ -157,13 +156,13 @@ capture_arcnet_common(const guchar *pd, int offset, int len, capture_packet_info
 }
 
 static gboolean
-capture_arcnet (const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+capture_arcnet (const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
   return capture_arcnet_common(pd, 4, len, cpinfo, pseudo_header, FALSE);
 }
 
 static gboolean
-capture_arcnet_has_exception(const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+capture_arcnet_has_exception(const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
   return capture_arcnet_common(pd, 2, len, cpinfo, pseudo_header, TRUE);
 }
@@ -283,7 +282,7 @@ dissect_arcnet_common (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
                            next_tvb, pinfo, tree))
     {
       col_add_fstr (pinfo->cinfo, COL_PROTOCOL, "0x%04x", protID);
-      call_dissector (data_handle, next_tvb, pinfo, tree);
+      call_data_dissector(next_tvb, pinfo, tree);
     }
 
 }
@@ -385,16 +384,15 @@ proto_register_arcnet (void)
     &ett_arcnet,
   };
 
-  arcnet_dissector_table = register_dissector_table ("arcnet.protocol_id",
-                                                     "ARCNET Protocol ID",
-                                                     FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-
 /* Register the protocol name and description */
   proto_arcnet = proto_register_protocol ("ARCNET", "ARCNET", "arcnet");
 
 /* Required function calls to register the header fields and subtrees used */
   proto_register_field_array (proto_arcnet, hf, array_length (hf));
   proto_register_subtree_array (ett, array_length (ett));
+
+  arcnet_dissector_table = register_dissector_table ("arcnet.protocol_id", "ARCNET Protocol ID",
+                                                     proto_arcnet, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   arcnet_address_type = address_type_dissector_register("AT_ARCNET", "ARCNET Address", arcnet_to_str, arcnet_str_len, arcnet_col_filter_str, arcnet_len, NULL, NULL);
 }
@@ -415,7 +413,6 @@ proto_reg_handoff_arcnet (void)
 
   register_capture_dissector("wtap_encap", WTAP_ENCAP_ARCNET_LINUX, capture_arcnet, proto_arcnet);
   register_capture_dissector("wtap_encap", WTAP_ENCAP_ARCNET, capture_arcnet_has_exception, proto_arcnet);
-  data_handle = find_dissector ("data");
 }
 
 /*

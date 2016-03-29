@@ -382,7 +382,6 @@ static expert_field ei_juniper_no_magic = EI_INIT;
 static gint ett_juniper = -1;
 
 static dissector_handle_t ipv4_handle;
-static dissector_handle_t data_handle;
 
 static dissector_table_t payload_table;
 
@@ -598,7 +597,7 @@ dissect_juniper_payload_proto(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
       /* XXX - left in for posterity, dissection was never done */
       /* case JUNIPER_PROTO_OAM: FIXME call OAM dissector without leading HEC byte */
 
-      call_dissector(data_handle, next_tvb, pinfo, tree);
+      call_data_dissector(next_tvb, pinfo, tree);
     }
   }
 
@@ -1084,7 +1083,7 @@ dissect_juniper_atm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint16
   /* could not figure what it is */
   ti = proto_tree_add_uint_format_value(juniper_subtree, hf_juniper_payload_type, tvb, offset, 0, 0xFFFF, "Unknown");
   proto_item_set_len(ti, tvb_reported_length_remaining(tvb, offset));
-  call_dissector(data_handle, next_tvb, pinfo, tree);
+  call_data_dissector(next_tvb, pinfo, tree);
 }
 
 
@@ -1416,7 +1415,7 @@ proto_register_juniper(void)
   expert_juniper = expert_register_protocol(proto_juniper);
   expert_register_field_array(expert_juniper, ei, array_length(ei));
 
-  payload_table = register_dissector_table("juniper.proto", "Juniper payload dissectors", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  payload_table = register_dissector_table("juniper.proto", "Juniper payload dissectors", proto_juniper, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 }
 
@@ -1436,8 +1435,7 @@ proto_reg_handoff_juniper(void)
   dissector_handle_t juniper_vp_handle;
   dissector_handle_t juniper_svcs_handle;
 
-  ipv4_handle   = find_dissector("ip");
-  data_handle   = find_dissector("data");
+  ipv4_handle   = find_dissector_add_dependency("ip", proto_juniper);
 
   juniper_atm2_handle   = create_dissector_handle(dissect_juniper_atm2,   proto_juniper);
   juniper_atm1_handle   = create_dissector_handle(dissect_juniper_atm1,   proto_juniper);

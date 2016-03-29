@@ -487,8 +487,9 @@ enum fixed_field {
   FIELD_FSTS_ID,
   FIELD_OCT_MMPDU,
   FIELD_VHT_ACTION,
-                                              /* add any new fixed field value above this line */
-  MAX_FIELD_NUM
+  FIELD_BSS_TERMINATION_DELAY,
+  FIELD_BSS_TRANSITION_STATUS_CODE,
+  MAX_FIELD_NUM /* add any new fixed field value above this line */
 };
 
 /* ************************************************************************* */
@@ -3256,6 +3257,9 @@ static int hf_ieee80211_ff_validity_interval = -1;
 static int hf_ieee80211_ff_bss_termination_duration = -1;
 static int hf_ieee80211_ff_url_len = -1;
 static int hf_ieee80211_ff_url = -1;
+static int hf_ieee80211_ff_target_bss = -1;
+static int hf_ieee80211_ff_bss_transition_status_code = -1;
+static int hf_ieee80211_ff_bss_termination_delay = -1;
 static int hf_ieee80211_ff_bss_transition_candidate_list_entries = -1;
 
 static int hf_ieee80211_ff_sa_query_action_code = -1;
@@ -5179,7 +5183,6 @@ static dissector_handle_t ieee80211_handle;
 static dissector_handle_t llc_handle;
 static dissector_handle_t ipx_handle;
 static dissector_handle_t eth_withoutfcs_handle;
-static dissector_handle_t data_handle;
 
 static int wlan_tap = -1;
 
@@ -8064,6 +8067,33 @@ wnm_bss_trans_mgmt_req(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int 
   return offset - start;
 }
 
+
+static guint
+wnm_bss_trans_mgmt_resp(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset)
+{
+  int    start = offset;
+  guint8 code;
+  gint   left;
+
+  offset += add_fixed_field(tree, tvb, pinfo, offset, FIELD_DIALOG_TOKEN);
+  code = tvb_get_guint8(tvb, offset);
+  offset += add_fixed_field(tree, tvb, pinfo, offset, FIELD_BSS_TRANSITION_STATUS_CODE);
+  offset += add_fixed_field(tree, tvb, pinfo, offset, FIELD_BSS_TERMINATION_DELAY);
+  if (!code) {
+    proto_tree_add_item(tree, hf_ieee80211_ff_target_bss,
+                        tvb, offset, 6, ENC_NA);
+    offset += 6;
+  }
+  left = tvb_reported_length_remaining(tvb, offset);
+  if (left > 0) {
+    proto_tree_add_item(tree, hf_ieee80211_ff_bss_transition_candidate_list_entries,
+                        tvb, offset, left, ENC_NA);
+    offset += left;
+  }
+
+  return offset - start;
+}
+
 static guint
 wnm_sleep_mode_req(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset)
 {
@@ -8130,6 +8160,9 @@ add_ff_action_wnm(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offse
   switch (code) {
   case WNM_BSS_TRANS_MGMT_REQ:
     offset += wnm_bss_trans_mgmt_req(tree, tvb, pinfo, offset);
+    break;
+  case WNM_BSS_TRANS_MGMT_RESP:
+    offset += wnm_bss_trans_mgmt_resp(tree, tvb, pinfo, offset);
     break;
   case WNM_TFS_REQ:
     offset += wnm_tfs_req(tree, tvb, pinfo, offset);
@@ -9445,6 +9478,22 @@ add_ff_action(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset)
   }
 }
 
+static guint
+add_ff_bss_transition_status_code(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, int offset)
+{
+  proto_tree_add_item(tree, hf_ieee80211_ff_bss_transition_status_code, tvb, offset, 1,
+                      ENC_LITTLE_ENDIAN);
+  return 1;
+}
+
+static guint
+add_ff_bss_termination_delay(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, int offset)
+{
+  proto_tree_add_item(tree, hf_ieee80211_ff_bss_termination_delay, tvb, offset, 1,
+                      ENC_LITTLE_ENDIAN);
+  return 1;
+}
+
 #define FF_FIELD(f, func) { FIELD_ ## f, add_ff_ ## func }
 
 static const struct ieee80211_fixed_field_dissector ff_dissectors[] = {
@@ -9562,6 +9611,8 @@ static const struct ieee80211_fixed_field_dissector ff_dissectors[] = {
   FF_FIELD(FSTS_ID                               , fsts_id),
   FF_FIELD(OCT_MMPDU                             , oct_mmpdu),
   FF_FIELD(VHT_ACTION                            , vht_action),
+  FF_FIELD(BSS_TERMINATION_DELAY                 , bss_termination_delay),
+  FF_FIELD(BSS_TRANSITION_STATUS_CODE            , bss_transition_status_code),
   { (enum fixed_field)-1                         , NULL }
 };
 
@@ -12555,7 +12606,7 @@ dissect_bss_ac_access_delay_ie(tvbuff_t *tvb, packet_info *pinfo,
                                     proto_tree *tree, int offset, guint32 tag_len, proto_item *ti_len)
 {
 
-  if (tag_len == 4) {
+  if (tag_len != 4) {
     expert_add_info_format(pinfo, ti_len, &ei_ieee80211_tag_length,
                            "BSS AC Access Delay length %u wrong, must = 4", tag_len);
     return offset;
@@ -12588,7 +12639,7 @@ dissect_rm_enabled_capabilities_ie(packet_info *pinfo, proto_tree *tree,
 
   if (tag_len != 5)
   {
-    expert_add_info_format(pinfo, ti_len, &ei_ieee80211_tag_length, "RM Enabled Capabilities length %u wrong, must = 4", tag_len);
+    expert_add_info_format(pinfo, ti_len, &ei_ieee80211_tag_length, "RM Enabled Capabilities length %u wrong, must = 5", tag_len);
     return offset;
   }
   proto_item_append_text(ti, " (%d octets)", tag_len);
@@ -16232,7 +16283,7 @@ dissect_ieee80211_mgt (guint16 fcf, tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
   /* check protocol activation */
   if (!proto_is_protocol_enabled(find_protocol_by_id(proto_wlan_mgt))) {
-    call_dissector(data_handle,tvb, pinfo, tree);
+    call_data_dissector(tvb, pinfo, tree);
     return;
   }
 
@@ -16960,41 +17011,31 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
       /*
        * Start shoving in other fields if needed.
        */
-      if ((frame_type_subtype == CTRL_CONTROL_WRAPPER) && tree) {
-        cw_tree = proto_tree_add_subtree(hdr_tree, tvb, offset, 2,
-                    ett_cntrl_wrapper_fc, NULL, "Contained Frame Control");
-        dissect_frame_control(cw_tree, tvb, FALSE, offset, pinfo);
-        dissect_ht_control(hdr_tree, tvb, offset + 2);
-        offset += 6;
-        hdr_tree = proto_tree_add_subtree(hdr_tree, tvb, offset, 2,
-                    ett_cntrl_wrapper_fc, &cw_item, "Carried Frame");
-         if(isDMG == TRUE) {
-                 expert_add_info_format(pinfo, cw_item, &ei_ieee80211_dmg_subtype,
-                 "DMG STA shouldn't transmit Control Wrapper frame");
-         }
-      }
-
-      if ((frame_type_subtype == CTRL_CFP_END) && tree) {
-          if(isDMG == TRUE)
-                  set_src_addr_cols(pinfo, tvb, offset, "TA");
-          else
-                  set_src_addr_cols(pinfo, tvb, offset, "BSSID");
-          if (tree) {
-            proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
-            hidden_item = proto_tree_add_item (hdr_tree, hf_ieee80211_addr, tvb, offset, 6, ENC_NA);
-            PROTO_ITEM_SET_HIDDEN(hidden_item);
+      if (frame_type_subtype == CTRL_CONTROL_WRAPPER) {
+        /* if (tree) */
+        {
+          cw_tree = proto_tree_add_subtree(hdr_tree, tvb, offset, 2,
+                      ett_cntrl_wrapper_fc, NULL, "Contained Frame Control");
+          dissect_frame_control(cw_tree, tvb, FALSE, offset, pinfo);
+          dissect_ht_control(hdr_tree, tvb, offset + 2);
+          offset += 6;
+          hdr_tree = proto_tree_add_subtree(hdr_tree, tvb, offset, 2,
+                      ett_cntrl_wrapper_fc, &cw_item, "Carried Frame");
+          if (isDMG) {
+            expert_add_info_format(pinfo, cw_item, &ei_ieee80211_dmg_subtype,
+                                   "DMG STA shouldn't transmit Control Wrapper frame");
           }
-        offset += 6;
+        }
       }
 
       switch (ctrl_type_subtype)
       {
         case CTRL_PS_POLL:
-        case CTRL_CFP_END:
         case CTRL_CFP_ENDACK:
         {
           set_src_addr_cols(pinfo, tvb, offset, "BSSID");
-          if (tree) {
+          /* if (tree) */
+          {
             const gchar *ether_name = tvb_get_ether_name(tvb, offset);
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
@@ -17008,10 +17049,38 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
           break;
         }
 
+        case CTRL_CFP_END:
+        {
+          if (isDMG)
+            set_src_addr_cols(pinfo, tvb, offset, "TA");
+          else
+            set_src_addr_cols(pinfo, tvb, offset, "BSSID");
+          /* if (tree) */
+          {
+            const gchar *ether_name = tvb_get_ether_name(tvb, offset);
+            if (isDMG) {
+              proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
+              hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
+              PROTO_ITEM_SET_HIDDEN(hidden_item);
+            } else {
+              proto_tree_add_item(hdr_tree, hf_ieee80211_addr_bssid, tvb, offset, 6, ENC_NA);
+              hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_bssid_resolved, tvb, offset, 6, ether_name);
+              PROTO_ITEM_SET_HIDDEN(hidden_item);
+            }
+            hidden_item = proto_tree_add_item (hdr_tree, hf_ieee80211_addr, tvb, offset, 6, ENC_NA);
+            PROTO_ITEM_SET_HIDDEN(hidden_item);
+            hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_resolved, tvb, offset, 6, ether_name);
+            PROTO_ITEM_SET_HIDDEN(hidden_item);
+            offset += 6;
+          }
+          break;
+        }
+
         case CTRL_BEAMFORM_RPT_POLL:
         {
           set_src_addr_cols(pinfo, tvb, offset, "TA");
-          if (tree) {
+          /* if (tree) */
+          {
             const gchar *ether_name = tvb_get_ether_name(tvb, offset);
 
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
@@ -17031,7 +17100,8 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
         case CTRL_VHT_NDP_ANNC:
         {
           set_src_addr_cols(pinfo, tvb, offset, "TA");
-          if (tree) {
+          /* if (tree) */
+          {
             guint16 sta_info;
             guint8 len_fcs = 0;
             proto_tree *dialog_token_tree;
@@ -17097,7 +17167,8 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
         case CTRL_RTS:
         {
           set_src_addr_cols(pinfo, tvb, offset, "TA");
-          if (tree) {
+          /* if (tree) */
+          {
             const gchar *ether_name = tvb_get_ether_name(tvb, offset);
             proto_tree_add_item(hdr_tree, hf_ieee80211_addr_ta, tvb, offset, 6, ENC_NA);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_ta_resolved, tvb, offset, 6, ether_name);
@@ -17106,7 +17177,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
             PROTO_ITEM_SET_HIDDEN(hidden_item);
             hidden_item = proto_tree_add_string (hdr_tree, hf_ieee80211_addr_resolved, tvb, offset, 6, ether_name);
             PROTO_ITEM_SET_HIDDEN(hidden_item);
-                offset += 6;
+            offset += 6;
           }
           break;
         }
@@ -17874,7 +17945,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
             PROTO_ITEM_SET_GENERATED(item);
           }
           next_tvb = tvb_new_subset (tvb, hdr_len, len, reported_len);
-          call_dissector(data_handle, next_tvb, pinfo, tree);
+          call_data_dissector(next_tvb, pinfo, tree);
           goto end_of_wlan;
         }
       }
@@ -18136,7 +18207,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
 
       if ((!is_centrino) && (wlan_ignore_wep == WLAN_IGNORE_WEP_NO)) {
         /* Some wireless drivers (such as Centrino) WEP payload already decrypted */
-        call_dissector(data_handle, next_tvb, pinfo, tree);
+        call_data_dissector(next_tvb, pinfo, tree);
         goto end_of_wlan;
       }
     } else {
@@ -18257,7 +18328,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
     /* Just show this as an incomplete fragment. */
     col_set_str(pinfo->cinfo, COL_INFO, "Fragmented IEEE 802.11 frame");
     next_tvb = tvb_new_subset (tvb, hdr_len, len, reported_len);
-    call_dissector(data_handle, next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
     pinfo->fragmented = save_fragmented;
     goto end_of_wlan;
   }
@@ -18393,7 +18464,7 @@ dissect_ieee80211_common (tvbuff_t *tvb, packet_info *pinfo,
   }
   pinfo->fragmented = save_fragmented;
 
-  end_of_wlan:
+end_of_wlan:
   whdr->stats = wlan_stats;
   tap_queue_packet(wlan_tap, pinfo, whdr);
   memset (&wlan_stats, 0, sizeof wlan_stats);
@@ -19641,6 +19712,16 @@ proto_register_ieee80211 (void)
       FT_UINT16, BASE_DEC, NULL, 0,
       NULL, HFILL }},
 
+    {&hf_ieee80211_ff_bss_termination_delay,
+     {"BSS Termination Delay", "wlan_mgt.fixed.bss_termination_delay",
+      FT_UINT8, BASE_DEC, NULL, 0,
+      NULL, HFILL }},
+
+    {&hf_ieee80211_ff_bss_transition_status_code,
+     {"BSS Transition Status Code", "wlan_mgt.fixed.bss_transition_status_code",
+      FT_UINT8, BASE_DEC, NULL, 0,
+      NULL, HFILL }},
+
     {&hf_ieee80211_ff_validity_interval,
      {"Validity Interval", "wlan_mgt.fixed.validity_interval",
       FT_UINT8, BASE_DEC, NULL, 0,
@@ -19660,6 +19741,11 @@ proto_register_ieee80211 (void)
     {&hf_ieee80211_ff_url,
      {"Session Information URL", "wlan_mgt.fixed.session_information.url",
       FT_STRING, BASE_NONE, NULL, 0,
+      NULL, HFILL }},
+
+    {&hf_ieee80211_ff_target_bss,
+     {"BSS Transition Target BSS", "wlan_mgt.fixed.bss_transition_target_bss",
+      FT_ETHER, BASE_NONE, NULL, 0,
       NULL, HFILL }},
 
     {&hf_ieee80211_ff_bss_transition_candidate_list_entries,
@@ -27364,10 +27450,9 @@ proto_reg_handoff_ieee80211(void)
   /*
    * Get handles for the LLC, IPX and Ethernet  dissectors.
    */
-  llc_handle            = find_dissector("llc");
-  ipx_handle            = find_dissector("ipx");
-  eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
-  data_handle           = find_dissector("data");
+  llc_handle            = find_dissector_add_dependency("llc", proto_wlan);
+  ipx_handle            = find_dissector_add_dependency("ipx", proto_wlan);
+  eth_withoutfcs_handle = find_dissector_add_dependency("eth_withoutfcs", proto_wlan);
 
   ieee80211_handle = find_dissector("wlan");
   dissector_add_uint("wtap_encap", WTAP_ENCAP_IEEE_802_11, ieee80211_handle);

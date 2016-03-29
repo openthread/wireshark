@@ -3294,8 +3294,8 @@ dialogic-elmd    1945/tcp # dialogic-elmd [Roger_Kay] [Roger_Kay]
 dialogic-elmd    1945/udp # dialogic-elmd [Roger_Kay] [Roger_Kay]
 tekpls           1946/tcp # tekpls [Brian_Abramson_2] [Brian_Abramson_2]
 tekpls           1946/udp # tekpls [Brian_Abramson_2] [Brian_Abramson_2]
-sentinelsrm      1947/tcp # SentinelSRM [Michael_Zunke_2] [Michael_Zunke_2] 2010-07-23
-sentinelsrm      1947/udp # SentinelSRM [Michael_Zunke_2] [Michael_Zunke_2] 2010-07-23
+sentinelsrm      1947/tcp # SentinelSRM [Michael_Zunke_2] [Michael_Zunke_2] 2010-07-23 Unauthorized Use Known on port 1947
+sentinelsrm      1947/udp # SentinelSRM [Michael_Zunke_2] [Michael_Zunke_2] 2010-07-23 Unauthorized Use Known on port 1947
 eye2eye          1948/tcp # eye2eye [Trevor_Bell] [Trevor_Bell]
 eye2eye          1948/udp # eye2eye [Trevor_Bell] [Trevor_Bell]
 ismaeasdaqlive   1949/tcp # ISMA Easdaq Live [Stephen_Dunne] [Stephen_Dunne]
@@ -7939,6 +7939,8 @@ brcd-vr-req      4415/tcp # Brocade Virtual Router Request [Brocade_Communicatio
 pjj-player       4416/tcp # PJJ Media Player [PJJ_Productions_Inc] [Bruno_Frechette] 2015-11-18
 pjj-player-disc  4416/udp # PJJ Media Player discovery [PJJ_Productions_Inc] [Bruno_Frechette] 2015-11-18
 workflowdir      4417/tcp # Workflow Director Communication [WfDir] [Brian_Doyle] 2015-12-11
+axysbridge       4418/udp # AXYS communication protocol [Duran_Audio_B.V.] [Gerald_van_Beuningen] 2016-03-14
+cbp              4419/tcp # Colnod Binary Protocol [Colsys_s.r.o.] [Jiri_Merth] 2016-03-23
 netrockey6       4425/tcp # NetROCKEY6 SMART Plus Service [Feitian_Technologies] [Feitian_Technologies] 2010-09-15
 netrockey6       4425/udp # NetROCKEY6 SMART Plus Service [Feitian_Technologies] [Feitian_Technologies] 2010-09-15
 beacon-port-2    4426/tcp # SMARTS Beacon Port [Eyal_Yardeni] [Eyal_Yardeni] 2003-11
@@ -8073,6 +8075,7 @@ mtsserver        4602/tcp # EAX MTS Server [Pedro_A_Rodriguez] [Pedro_A_Rodrigue
 menandmice-upg   4603/tcp # Men & Mice Upgrade Agent [Eggert_Thorlacius_2] [Eggert_Thorlacius_2] 2010-01-27
 irp              4604/tcp # Identity Registration Protocol [Sixscape_Communications_Pte_Ltd] [Lawrence_E._Hughes] 2014-03-17 2014-08-26
 sixchat          4605/tcp # Direct End to End Secure Chat Protocol [Sixscape_Communications_Pte_Ltd] [Lawrence_E._Hughes] 2014-09-11
+ventoso          4621/udp # Bidirectional single port remote radio VOIP and Control stream [Ventoso_Integrated_Peripherals] [John_Lindsey] 2016-03-04
 playsta2-app     4658/tcp # PlayStation2 App Port
 playsta2-app     4658/udp # PlayStation2 App Port
 playsta2-lob     4659/tcp # PlayStation2 Lobby Port [Noam_Rimon] [Noam_Rimon] 2004-12
@@ -8367,10 +8370,10 @@ scpi-telnet      5024/tcp # SCPI-TELNET [Ryan_Columbus] [Ryan_Columbus] 2002-10
 scpi-telnet      5024/udp # SCPI-TELNET [Ryan_Columbus] [Ryan_Columbus] 2002-10
 scpi-raw         5025/tcp # SCPI-RAW [Ryan_Columbus] [Ryan_Columbus] 2002-10
 scpi-raw         5025/udp # SCPI-RAW [Ryan_Columbus] [Ryan_Columbus] 2002-10
-strexec-d        5026/tcp # Storix I/O daemon (data) [Anthony_Johnson] [Anthony_Johnson] 2005-08
-strexec-d        5026/udp # Storix I/O daemon (data) [Anthony_Johnson] [Anthony_Johnson] 2005-08
-strexec-s        5027/tcp # Storix I/O daemon (stat) [Anthony_Johnson] [Anthony_Johnson] 2005-08
-strexec-s        5027/udp # Storix I/O daemon (stat) [Anthony_Johnson] [Anthony_Johnson] 2005-08
+strexec-d        5026/tcp # Storix I/O daemon (data) [Storix_Inc] [David_Huffman] 2005-08
+strexec-d        5026/udp # Storix I/O daemon (data) [Storix_Inc] [David_Huffman] 2005-08
+strexec-s        5027/tcp # Storix I/O daemon (stat) [Storix_Inc] [David_Huffman] 2005-08
+strexec-s        5027/udp # Storix I/O daemon (stat) [Storix_Inc] [David_Huffman] 2005-08
 qvr              5028/tcp # Quiqum Virtual Relais [Philipp_Marcel_Albre] [Philipp_Marcel_Albre] 2009-07-06
 infobright       5029/tcp # Infobright Database Server [Mark_Windrim] [Mark_Windrim] 2009-07-23
 infobright       5029/udp # Infobright Database Server [Mark_Windrim] [Mark_Windrim] 2009-07-23

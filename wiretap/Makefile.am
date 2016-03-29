@@ -22,8 +22,6 @@
 include Makefile.common
 include $(top_srcdir)/Makefile.am.inc
 
-ACLOCAL_AMFLAGS = `../aclocal-flags`
-
 AM_CPPFLAGS = $(INCLUDEDIRS) $(WS_CPPFLAGS) -DWS_BUILD_DLL $(GLIB_CFLAGS)
 
 noinst_LTLIBRARIES = libwiretap_generated.la
@@ -56,10 +54,12 @@ libwiretap_generated_la_SOURCES = \
 libwiretap_generated_la_CFLAGS = $(GENERATED_CFLAGS)
 
 EXTRA_DIST = \
+	.editorconfig		\
 	README.airmagnet	\
 	README.developer	\
 	Makefile.common		\
 	Makefile.nmake		\
+	CMakeLists.txt		\
 	$(GENERATOR_FILES) 	\
 	$(GENERATED_FILES)
 

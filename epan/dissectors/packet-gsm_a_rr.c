@@ -746,8 +746,6 @@ static int hf_gsm_a_rr_len_indicator_ms_id = -1;
 static int hf_gsm_a_rr_neighbour_cell_list_index = -1;
 static int hf_gsm_a_rr_mcc = -1;
 static int hf_gsm_a_rr_pcid_pattern = -1;
-static int hf_gsm_a_rr_tio70 = -1;
-static int hf_gsm_a_rr_tio07 = -1;
 static int hf_gsm_a_rr_where = -1;
 static int hf_gsm_a_rr_ba_index_start_bsic = -1;
 static int hf_gsm_a_rr_bitmap = -1;
@@ -771,7 +769,6 @@ static int hf_gsm_a_rr_diversity = -1;
 static int hf_gsm_a_rr_maio = -1;
 static int hf_gsm_a_rr_mobile_country_code = -1;
 static int hf_gsm_a_rr_short_lsa_id = -1;
-static int hf_gsm_a_rr_tie = -1;
 static int hf_gsm_a_rr_number_remaining_bsic = -1;
 static int hf_gsm_a_rr_number_cells = -1;
 static int hf_gsm_a_rr_padding = -1;
@@ -784,7 +781,6 @@ static int hf_gsm_a_rr_diversity_tdd = -1;
 static int hf_gsm_a_rr_spare = -1;
 static int hf_gsm_a_rr_single_channel_arfcn = -1;
 static int hf_gsm_a_rr_rtd_index = -1;
-static int hf_gsm_a_rr_ti_flag = -1;
 static int hf_gsm_a_rr_arfcn_list = -1;
 static int hf_gsm_a_rr_da_list = -1;
 static int hf_gsm_a_rr_ua_list = -1;
@@ -1119,7 +1115,6 @@ static expert_field ei_gsm_a_rr_data_not_dissected = EI_INIT;
 static expert_field ei_gsm_a_rr_unknown_version = EI_INIT;
 static expert_field ei_gsm_a_rr_extraneous_data = EI_INIT;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t rrlp_dissector;
 
 
@@ -10839,9 +10834,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     proto_tree             *pd_tree     = NULL;
     const gchar            *msg_str;
     gint                    ett_tree;
-    gint                    ti;
     int                     hf_idx;
-    gboolean                nsd;
 
     len = tvb_reported_length(tvb);
 
@@ -10849,7 +10842,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         /*
          * too short to be CCCH
          */
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
         return tvb_captured_length(tvb);
     }
 
@@ -10886,12 +10879,10 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     oct = tvb_get_guint8(tvb, offset);
 
     pd = oct_1 & DTAP_PD_MASK;
-    ti = -1;
     msg_str = NULL;
     ett_tree = -1;
     hf_idx = -1;
     msg_fcn_p = NULL;
-    nsd = FALSE;
     col_append_fstr(pinfo->cinfo, COL_INFO, "(%s) ",val_to_str(pd,gsm_a_pd_short_str_vals,"Unknown (%u)"));
 
     /*
@@ -10934,33 +10925,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 
     proto_tree_add_item(pd_tree, hf_gsm_a_L3_protocol_discriminator, tvb, 1, 1, ENC_BIG_ENDIAN);
 
-    if (ti == -1){
-        proto_tree_add_item(pd_tree, hf_gsm_a_skip_ind, tvb, 1, 1, ENC_BIG_ENDIAN);
-    }else{
-        proto_tree_add_item(pd_tree, hf_gsm_a_rr_ti_flag, tvb, 1, 1, ENC_NA);
-
-        if ((ti & DTAP_TIE_PRES_MASK) == DTAP_TIE_PRES_MASK){
-            /* ti is extended to next octet */
-            proto_tree_add_uint(pd_tree, hf_gsm_a_rr_tio70, tvb, 1, 1, oct_1);
-        }else{
-            proto_tree_add_uint(pd_tree, hf_gsm_a_rr_tio07, tvb, 1, 1, ti);
-        }
-    }
-
-
-    if ((ti != -1) && (ti & DTAP_TIE_PRES_MASK) == DTAP_TIE_PRES_MASK){
-        proto_tree_add_item(tree, hf_gsm_a_extension, tvb, 2, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(pd_tree, hf_gsm_a_rr_tie, tvb, 2, 1, ENC_BIG_ENDIAN);
-    }
-
-    /*
-     * N(SD)
-     */
-    if ((pinfo->p2p_dir == P2P_DIR_RECV) &&
-        nsd)
-    {
-        /* XXX */
-    }
+    proto_tree_add_item(pd_tree, hf_gsm_a_skip_ind, tvb, 1, 1, ENC_BIG_ENDIAN);
 
     /*
      * add DTAP message name
@@ -10971,7 +10936,7 @@ dissect_ccch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     offset++;
 
     tap_p->pdu_type = GSM_A_PDU_TYPE_DTAP;
-    tap_p->message_type = (nsd ? (oct & 0x3f) : oct);
+    tap_p->message_type = oct;
     tap_p->protocol_disc = (gsm_a_pd_str_e)pd;
 
     tap_queue_packet(gsm_a_tap, pinfo, tap_p);
@@ -12991,14 +12956,10 @@ proto_register_gsm_a_rr(void)
             { &hf_gsm_a_rr_rxlev_carrier, { "RXLEV carrier", "gsm_a.rr.rxlev_carrier", FT_UINT8, BASE_DEC|BASE_EXT_STRING, &gsm_a_rr_rxlev_vals_ext, 0x0, NULL, HFILL }},
             { &hf_gsm_a_rr_ciphering_key_seq_num, { "Ciphering Key Sequence Number", "gsm_a.rr.ciphering_key_seq_num", FT_UINT8, BASE_DEC, NULL, 0x07, NULL, HFILL }},
             { &hf_gsm_a_rr_neighbour_cell_list_index, { "Neighbour Cell List index", "gsm_a.rr.neighbour_cell_list_index", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-            { &hf_gsm_a_rr_tio70, { "TIO", "gsm_a.rr.tio", FT_UINT8, BASE_DEC, NULL, 0x70, NULL, HFILL }},
-            { &hf_gsm_a_rr_tio07, { "TIO", "gsm_a.rr.tio", FT_UINT8, BASE_DEC, NULL, 0x07, NULL, HFILL }},
-            { &hf_gsm_a_rr_tie, { "TIE", "gsm_a.rr.tie", FT_UINT8, BASE_DEC, NULL, DTAP_TIE_MASK, NULL, HFILL }},
             { &hf_gsm_a_rr_message_elements, { "Message Elements", "gsm_a.rr.message_elements", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
             { &hf_gsm_a_rr_spare, { "Spare", "gsm_a.rr.spare", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
             { &hf_gsm_a_rr_single_channel_arfcn, { "Single channel ARFCN", "gsm_a.rr.single_channel_arfcn", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
             { &hf_gsm_a_rr_rtd_index, { "RTD index", "gsm_a.rr.rtd_index", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-            { &hf_gsm_a_rr_ti_flag, { "TI flag", "gsm_a.rr.ti_flag", FT_BOOLEAN, 8, TFS(&tfs_allocated_by_receiver_sender), 0x80, NULL, HFILL }},
             { &hf_gsm_a_rr_arfcn_list, { "List of ARFCNs", "gsm_a.rr.arfcn_list", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
             { &hf_gsm_a_rr_da_list, { "List of DA", "gsm_a.rr.da_list", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
             { &hf_gsm_a_rr_ua_list, { "List of UA", "gsm_a.rr.ua_list", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -13366,9 +13327,8 @@ proto_register_gsm_a_rr(void)
 void
 proto_reg_handoff_gsm_a_rr(void)
 {
-    data_handle = find_dissector("data");
-    rrc_irat_ho_info_handle = find_dissector("rrc.irat.irat_ho_info");
-    rrc_irat_ho_to_utran_cmd_handle = find_dissector("rrc.irat.ho_to_utran_cmd");
+    rrc_irat_ho_info_handle = find_dissector_add_dependency("rrc.irat.irat_ho_info", proto_a_rr);
+    rrc_irat_ho_to_utran_cmd_handle = find_dissector_add_dependency("rrc.irat.ho_to_utran_cmd", proto_a_rr);
     rrlp_dissector = find_dissector("rrlp");
 }
 

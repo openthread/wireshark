@@ -462,7 +462,7 @@ static int hf_nfs4_count_dircount = -1;
 static int hf_nfs4_count_maxcount = -1;
 static int hf_nfs4_minorversion = -1;
 static int hf_nfs4_open_owner = -1;
-/* static int hf_nfs4_lock_owner = -1; */
+static int hf_nfs4_lock_owner = -1;
 static int hf_nfs4_new_lock_owner = -1;
 static int hf_nfs4_sec_oid = -1;
 static int hf_nfs4_qop = -1;
@@ -6160,7 +6160,7 @@ dissect_nfs4_lock_owner(tvbuff_t *tvb, int offset, proto_tree *tree)
 
 	newftree = proto_tree_add_subtree(tree, tvb, offset, 4, ett_nfs4_lock_owner, NULL, "Owner");
 	offset   = dissect_rpc_uint64(tvb, newftree, hf_nfs4_clientid, offset);
-	offset   = dissect_nfsdata(tvb, offset, newftree, hf_nfs_data);
+	offset   = dissect_nfsdata(tvb, offset, newftree, hf_nfs4_lock_owner);
 
 	return offset;
 }
@@ -12358,11 +12358,9 @@ proto_register_nfs(void)
 			"owner", "nfs.open_owner4", FT_BYTES, BASE_NONE,
 			NULL, 0, NULL, HFILL }},
 
-#if 0
 		{ &hf_nfs4_lock_owner, {
 			"owner", "nfs.lock_owner4", FT_BYTES, BASE_NONE,
 			NULL, 0, NULL, HFILL }},
-#endif
 
 		{ &hf_nfs4_createmode, {
 			"Create Mode", "nfs.createmode4", FT_UINT32, BASE_DEC,
@@ -13732,7 +13730,7 @@ proto_register_nfs(void)
 					&display_major_nfs4_ops);
 
 	nfs_fhandle_table = register_dissector_table("nfs_fhandle.type",
-	    "NFS Filehandle types", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "NFS Filehandle types", proto_nfs, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	prefs_register_obsolete_preference(nfs_module, "default_fhandle_type");
 

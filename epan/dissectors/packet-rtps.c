@@ -92,6 +92,8 @@ static int hf_rtps_nature_type                  = -1;
 
 static int hf_rtps_guid_prefix                  = -1;
 static int hf_rtps_guid_prefix_v2               = -1;
+static int hf_rtps_guid_prefix_v2_src           = -1;
+static int hf_rtps_guid_prefix_v2_dst           = -1;
 static int hf_rtps_host_id                      = -1;
 static int hf_rtps_app_id                       = -1;
 static int hf_rtps_app_id_instance_id           = -1;
@@ -125,6 +127,8 @@ static int hf_rtps_info_src_unused              = -1;
 
 static int hf_rtps_parameter_id                 = -1;
 static int hf_rtps_parameter_id_v2              = -1;
+static int hf_rtps_parameter_id_toc             = -1;
+static int hf_rtps_parameter_id_rti             = -1;
 static int hf_rtps_parameter_length             = -1;
 static int hf_rtps_param_topic_name             = -1;
 static int hf_rtps_param_strength               = -1;
@@ -717,24 +721,6 @@ static const value_string parameter_id_v2_vals[] = {
   { PID_STATUS_INFO,                    "PID_STATUS_INFO" },
   { PID_TYPE_CONSISTENCY,               "PID_TYPE_CONSISTENCY" },
 
-  /* Vendor specific: RTI */
-  { PID_PRODUCT_VERSION,                "PID_PRODUCT_VERSION" },
-  { PID_PLUGIN_PROMISCUITY_KIND,        "PID_PLUGIN_PROMISCUITY_KIND" },
-  { PID_ENTITY_VIRTUAL_GUID,            "PID_ENTITY_VIRTUAL_GUID" },
-  { PID_SERVICE_KIND,                   "PID_SERVICE_KIND" },
-  { PID_TYPECODE_RTPS2,                 "PID_TYPECODE" },
-  { PID_DISABLE_POSITIVE_ACKS,          "PID_DISABLE_POSITIVE_ACKS" },
-  { PID_LOCATOR_FILTER_LIST,            "PID_LOCATOR_FILTER_LIST" },
-  { PID_ROLE_NAME,                      "PID_ROLE_NAME"},
-  { PID_ACK_KIND,                       "PID_ACK_KIND" },
-  { PID_PEER_HOST_EPOCH,                "PID_PEER_HOST_EPOCH" },
-  { PID_TRANSPORT_INFO_LIST,            "PID_TRANSPORT_INFO_LIST" },
-  { PID_DIRECT_COMMUNICATION,           "PID_DIRECT_COMMUNICATION" },
-  { PID_EXTENDED,                       "PID_EXTENDED" },
-  { PID_TYPE_OBJECT,                    "PID_TYPE_OBJECT" },
-  { PID_EXPECTS_VIRTUAL_HB,             "PID_EXPECTS_VIRTUAL_HB" },
-  { PID_DOMAIN_ID,                      "PID_DOMAIN_ID" },
-
   /* The following PID are deprecated */
   { PID_DEADLINE_OFFERED,               "PID_DEADLINE_OFFERED [deprecated]" },
   { PID_PERSISTENCE,                    "PID_PERSISTENCE [deprecated]" },
@@ -755,6 +741,32 @@ static const value_string parameter_id_v2_vals[] = {
   { PID_DESTINATION_ORDER_OFFERED,      "PID_DESTINATION_ORDER_OFFERED [deprecated]" },
   { PID_LATENCY_BUDGET_OFFERED,         "PID_LATENCY_BUDGET_OFFERED [deprecated]" },
   { PID_PARTITION_OFFERED,              "PID_PARTITION_OFFERED [deprecated]" },
+  { PID_EXTENDED,                       "PID_EXTENDED" },
+  { 0, NULL }
+};
+
+static const value_string parameter_id_rti_vals[] = {
+  /* Vendor specific: RTI */
+  { PID_PRODUCT_VERSION,                "PID_PRODUCT_VERSION" },
+  { PID_PLUGIN_PROMISCUITY_KIND,        "PID_PLUGIN_PROMISCUITY_KIND" },
+  { PID_ENTITY_VIRTUAL_GUID,            "PID_ENTITY_VIRTUAL_GUID" },
+  { PID_SERVICE_KIND,                   "PID_SERVICE_KIND" },
+  { PID_TYPECODE_RTPS2,                 "PID_TYPECODE" },
+  { PID_DISABLE_POSITIVE_ACKS,          "PID_DISABLE_POSITIVE_ACKS" },
+  { PID_LOCATOR_FILTER_LIST,            "PID_LOCATOR_FILTER_LIST" },
+  { PID_ROLE_NAME,                      "PID_ROLE_NAME"},
+  { PID_ACK_KIND,                       "PID_ACK_KIND" },
+  { PID_PEER_HOST_EPOCH,                "PID_PEER_HOST_EPOCH" },
+  { PID_TRANSPORT_INFO_LIST,            "PID_TRANSPORT_INFO_LIST" },
+  { PID_DIRECT_COMMUNICATION,           "PID_DIRECT_COMMUNICATION" },
+  { PID_TYPE_OBJECT,                    "PID_TYPE_OBJECT" },
+  { PID_EXPECTS_VIRTUAL_HB,             "PID_EXPECTS_VIRTUAL_HB" },
+  { PID_DOMAIN_ID,                      "PID_DOMAIN_ID" },
+  { 0, NULL }
+};
+static const value_string parameter_id_toc_vals[] = {
+  /* Vendor specific: Twin Oaks Computing */
+  { PID_TYPECODE_RTPS2,                 "PID_TYPECODE_RTPS2" },
   { 0, NULL }
 };
 
@@ -1577,7 +1589,7 @@ static void rtps_util_add_guid_prefix_v1(proto_tree *tree, tvbuff_t *tvb, gint o
  */
 static void rtps_util_add_guid_prefix_v2(proto_tree *tree, tvbuff_t *tvb, gint offset,
                                       int hf_prefix, int hf_host_id, int hf_app_id,
-                                      int hf_instance_id) {
+                                      int hf_instance_id, int hf_prefix_extra) {
   if (tree) {
     proto_item *ti;
     proto_tree *guid_tree;
@@ -1585,6 +1597,12 @@ static void rtps_util_add_guid_prefix_v2(proto_tree *tree, tvbuff_t *tvb, gint o
     /* The text node (root of the guid prefix sub-tree) */
     ti = proto_tree_add_item(tree, hf_prefix, tvb, offset, 12, ENC_NA);
     guid_tree = proto_item_add_subtree(ti, ett_rtps_guid_prefix);
+
+    /* Optional filter that can be guidPrefix.src or guidPrefix.dst */
+    if (hf_prefix_extra != 0) {
+      ti = proto_tree_add_item(tree, hf_prefix_extra, tvb, offset, 12, ENC_NA);
+      PROTO_ITEM_SET_HIDDEN(ti);
+    }
 
     /* Host Id */
     proto_tree_add_item(guid_tree, hf_host_id, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -3151,7 +3169,7 @@ static gboolean dissect_parameter_sequence_rti(proto_tree *rtps_parameter_tree, 
       ENSURE_LENGTH(16);
       rtps_util_add_guid_prefix_v2(rtps_parameter_tree, tvb, offset,
         hf_rtps_sm_guid_prefix_v2, hf_rtps_sm_host_id, hf_rtps_sm_app_id,
-        hf_rtps_sm_instance_id);
+        hf_rtps_sm_instance_id, 0);
       rtps_util_add_entity_id(rtps_parameter_tree, tvb, offset+12,
         hf_rtps_sm_entity_id, hf_rtps_sm_entity_id_key, hf_rtps_sm_entity_id_kind,
         ett_rtps_entity, "virtualGUIDSuffix", NULL);
@@ -4393,10 +4411,10 @@ static gboolean dissect_parameter_sequence_v2(proto_tree *rtps_parameter_tree, p
     * +---------------+---------------+---------------+---------------+
     */
     case PID_DIRECTED_WRITE: {
-    ENSURE_LENGTH(16);
-    rtps_util_add_guid_prefix_v2(rtps_parameter_tree, tvb, offset, hf_rtps_sm_guid_prefix_v2,
-                    hf_rtps_sm_host_id, hf_rtps_sm_app_id, hf_rtps_sm_instance_id);
-    rtps_util_add_entity_id(rtps_parameter_tree, tvb, offset+12, hf_rtps_sm_entity_id,
+      ENSURE_LENGTH(16);
+      rtps_util_add_guid_prefix_v2(rtps_parameter_tree, tvb, offset, hf_rtps_sm_guid_prefix_v2,
+                    hf_rtps_sm_host_id, hf_rtps_sm_app_id, hf_rtps_sm_instance_id, 0);
+      rtps_util_add_entity_id(rtps_parameter_tree, tvb, offset+12, hf_rtps_sm_entity_id,
                     hf_rtps_sm_entity_id_key, hf_rtps_sm_entity_id_kind, ett_rtps_entity,
                     "guidSuffix", NULL);
     break;
@@ -4545,7 +4563,7 @@ static gboolean dissect_parameter_sequence_v2(proto_tree *rtps_parameter_tree, p
     case PID_ORIGINAL_WRITER_INFO:
       ENSURE_LENGTH(16);
       rtps_util_add_guid_prefix_v2(rtps_parameter_tree, tvb, offset, hf_rtps_sm_guid_prefix_v2,
-                    hf_rtps_sm_host_id, hf_rtps_sm_app_id, hf_rtps_sm_instance_id);
+                    hf_rtps_sm_host_id, hf_rtps_sm_app_id, hf_rtps_sm_instance_id, 0);
       rtps_util_add_entity_id(rtps_parameter_tree, tvb, offset+12, hf_rtps_sm_entity_id,
                     hf_rtps_sm_entity_id_key, hf_rtps_sm_entity_id_kind, ett_rtps_entity,
                     "virtualGUIDSuffix", NULL);
@@ -4610,7 +4628,7 @@ static gint dissect_parameter_sequence(proto_tree *tree, packet_info *pinfo, tvb
   gint       original_offset = offset;
   gboolean   dissect_return_value = FALSE;
   type_mapping * type_mapping_object = NULL;
-
+  const gchar * param_name = NULL;
   if (!pinfo->fd->flags.visited)
     type_mapping_object = wmem_new(wmem_file_scope(), type_mapping);
 
@@ -4638,10 +4656,35 @@ static gint dissect_parameter_sequence(proto_tree *tree, packet_info *pinfo, tvb
 
       proto_tree_add_uint(rtps_parameter_tree, hf_rtps_parameter_id, tvb, offset, 2, parameter);
     } else {
-      rtps_parameter_tree = proto_tree_add_subtree(rtps_parameter_sequence_tree, tvb, offset, -1,
-                        ett_rtps_parameter, &param_item, val_to_str(parameter, parameter_id_v2_vals, "Unknown (0x%04x)"));
+      switch(vendor_id) {
+        case RTPS_VENDOR_RTI_DDS: {
+          param_name = try_val_to_str(parameter, parameter_id_rti_vals);
+          if (param_name != NULL) {
+            rtps_parameter_tree = proto_tree_add_subtree(rtps_parameter_sequence_tree, tvb, offset, -1,
+                ett_rtps_parameter, &param_item, val_to_str(parameter, parameter_id_rti_vals, "Unknown (0x%04x)"));
 
-      proto_tree_add_uint(rtps_parameter_tree, hf_rtps_parameter_id_v2, tvb, offset, 2, parameter);
+            proto_tree_add_uint(rtps_parameter_tree, hf_rtps_parameter_id_rti, tvb, offset, 2, parameter);
+            break;
+          }
+        }
+        case RTPS_VENDOR_TOC: {
+          param_name = try_val_to_str(parameter, parameter_id_toc_vals);
+          if (param_name != NULL) {
+              rtps_parameter_tree = proto_tree_add_subtree(rtps_parameter_sequence_tree, tvb, offset, -1,
+                  ett_rtps_parameter, &param_item, val_to_str(parameter, parameter_id_toc_vals, "Unknown (0x%04x)"));
+
+              proto_tree_add_uint(rtps_parameter_tree, hf_rtps_parameter_id_toc, tvb, offset, 2, parameter);
+              break;
+          }
+        }
+        default: {
+          rtps_parameter_tree = proto_tree_add_subtree(rtps_parameter_sequence_tree, tvb, offset, -1,
+              ett_rtps_parameter, &param_item, val_to_str(parameter, parameter_id_v2_vals, "Unknown (0x%04x)"));
+          proto_tree_add_uint(rtps_parameter_tree, hf_rtps_parameter_id_v2, tvb, offset, 2, parameter);
+          break;
+        }
+      }
+
     }
     offset += 2;
 
@@ -4669,21 +4712,18 @@ static gint dissect_parameter_sequence(proto_tree *tree, packet_info *pinfo, tvb
 
     /* This way, we can include vendor specific dissections without modifying the main ones */
     switch (vendor_id) {
-    case RTPS_VENDOR_RTI_DDS: {
-      dissect_return_value = dissect_parameter_sequence_rti(rtps_parameter_tree, pinfo, tvb,
-        param_item, param_len_item, offset,
-        little_endian, param_length, parameter);
-      break;
-                }
-    case RTPS_VENDOR_TOC: {
-      dissect_return_value = dissect_parameter_sequence_toc(rtps_parameter_tree, pinfo, tvb,
-        param_item, param_len_item, offset,
-        little_endian, param_length, parameter);
-      break;
-                }
-    default: {
-
-         }
+      case RTPS_VENDOR_RTI_DDS: {
+        dissect_return_value = dissect_parameter_sequence_rti(rtps_parameter_tree, pinfo, tvb,
+            param_item, param_len_item, offset, little_endian, param_length, parameter);
+        break;
+      }
+      case RTPS_VENDOR_TOC: {
+        dissect_return_value = dissect_parameter_sequence_toc(rtps_parameter_tree, pinfo, tvb,
+            param_item, param_len_item, offset, little_endian, param_length, parameter);
+        break;
+      }
+      default:
+        break;
     }
 
     if (!dissect_return_value) {
@@ -4816,7 +4856,7 @@ static void dissect_APP_ACK_CONF(tvbuff_t *tvb,
       /* Virtual Writer Guid */
       rtps_util_add_guid_prefix_v2(sil_tree_writer, tvb, offset,
         hf_rtps_sm_guid_prefix_v2, hf_rtps_sm_host_id, hf_rtps_sm_app_id,
-        hf_rtps_sm_instance_id);
+        hf_rtps_sm_instance_id, 0);
 
       rtps_util_add_entity_id(sil_tree_writer, tvb, offset+12,
         hf_rtps_sm_entity_id, hf_rtps_sm_entity_id_key, hf_rtps_sm_entity_id_kind,
@@ -5416,7 +5456,7 @@ static void dissect_DATA_v2(tvbuff_t *tvb, packet_info *pinfo, gint offset, guin
   /* If flag H is defined, read the GUID Prefix */
   if ((flags & FLAG_DATA_H) != 0) {
     rtps_util_add_guid_prefix_v2(tree, tvb, offset, hf_rtps_sm_guid_prefix_v2, hf_rtps_sm_host_id,
-                        hf_rtps_sm_app_id, hf_rtps_sm_instance_id);
+                        hf_rtps_sm_app_id, hf_rtps_sm_instance_id, 0);
 
     offset += 12;
   } else {
@@ -5531,7 +5571,7 @@ static void dissect_DATA_FRAG(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
   /* If flag H is defined, read the GUID Prefix */
   if ((flags & FLAG_DATA_H) != 0) {
     rtps_util_add_guid_prefix_v2(tree, tvb, offset, hf_rtps_sm_guid_prefix_v2,
-                    hf_rtps_sm_host_id, hf_rtps_sm_app_id, hf_rtps_sm_instance_id);
+                    hf_rtps_sm_host_id, hf_rtps_sm_app_id, hf_rtps_sm_instance_id, 0);
     offset += 12;
   } else {
     /* Flag H not set, use hostId, appId from the packet header */
@@ -6677,7 +6717,7 @@ static void dissect_RTPS_DATA(tvbuff_t *tvb, packet_info *pinfo, gint offset, gu
       guid_tree = proto_item_add_subtree(ti, ett_rtps_part_message_data);
 
       rtps_util_add_guid_prefix_v2(guid_tree, tvb, offset, hf_rtps_sm_guid_prefix_v2, hf_rtps_sm_host_id,
-                        hf_rtps_sm_app_id, hf_rtps_sm_instance_id);
+                        hf_rtps_sm_app_id, hf_rtps_sm_instance_id, 0);
       offset += 12;
 
       /* Kind */
@@ -7355,8 +7395,8 @@ void dissect_INFO_SRC(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 fla
                         hf_rtps_sm_instance_id_v1, hf_rtps_sm_app_kind,
                         NULL);   /* Use default 'guidPrefix' */
   } else {
-      rtps_util_add_guid_prefix_v2(tree, tvb, offset, hf_rtps_guid_prefix_v2,
-                        hf_rtps_host_id, hf_rtps_app_id, hf_rtps_sm_instance_id);
+      rtps_util_add_guid_prefix_v2(tree, tvb, offset, hf_rtps_guid_prefix_v2_src,
+          hf_rtps_host_id, hf_rtps_app_id, hf_rtps_sm_instance_id, hf_rtps_guid_prefix_v2);
   }
 }
 
@@ -7483,8 +7523,8 @@ static void dissect_INFO_DST(tvbuff_t *tvb, packet_info *pinfo, gint offset, gui
                         hf_rtps_sm_instance_id_v1, hf_rtps_sm_app_kind,
                         NULL);
   } else {
-      rtps_util_add_guid_prefix_v2(tree, tvb, offset, hf_rtps_guid_prefix_v2,
-                        hf_rtps_host_id, hf_rtps_app_id, hf_rtps_sm_instance_id);
+      rtps_util_add_guid_prefix_v2(tree, tvb, offset, hf_rtps_guid_prefix_v2_dst,
+          hf_rtps_host_id, hf_rtps_app_id, hf_rtps_sm_instance_id, hf_rtps_guid_prefix_v2);
   }
 }
 
@@ -7732,13 +7772,12 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
                         hf_rtps_guid_prefix, hf_rtps_host_id, hf_rtps_app_id,
                         hf_rtps_app_id_instance_id, hf_rtps_app_id_app_kind, NULL);
     else
-      rtps_util_add_guid_prefix_v2(rtps_tree, tvb, offset+8, hf_rtps_guid_prefix_v2,
-                        hf_rtps_host_id, hf_rtps_app_id, hf_rtps_sm_instance_id);
+      rtps_util_add_guid_prefix_v2(rtps_tree, tvb, offset+8, hf_rtps_guid_prefix_v2_src,
+          hf_rtps_host_id, hf_rtps_app_id, hf_rtps_sm_instance_id, hf_rtps_guid_prefix_v2);
 
     guid.host_id = tvb_get_ntohl(tvb, offset+8);
     guid.app_id = tvb_get_ntohl(tvb, offset+12);
     guid.instance_id = tvb_get_ntohl(tvb, offset+16);
-
 #ifdef RTI_BUILD
     pinfo->guid_prefix_host = tvb_get_ntohl(tvb, offset + 8);
     pinfo->guid_prefix_app  = tvb_get_ntohl(tvb, offset + 12);
@@ -7746,7 +7785,6 @@ static gboolean dissect_rtps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     pinfo->guid_rtps2 = 1;
 #endif
   }
-
   /* Extract the domain id and participant index */
   {
     int domain_id, doffset, participant_idx = 0, nature;
@@ -8024,26 +8062,28 @@ void proto_register_rtps(void) {
     },
 
     /* Guid Prefix for the Packet ------------------------------------------ */
-    { &hf_rtps_guid_prefix, {
-        "guidPrefix",
-        "rtps.guidPrefix",
-        FT_UINT64,
-        BASE_HEX,
-        NULL,
-        0,
-        "GuidPrefix of the RTPS packet",
-        HFILL }
+    { &hf_rtps_guid_prefix,
+      { "guidPrefix", "rtps.guidPrefix",
+         FT_UINT64, BASE_HEX, NULL, 0,
+         "GuidPrefix of the RTPS packet", HFILL }
     },
 
-    { &hf_rtps_guid_prefix_v2, {
-        "guidPrefix",
-        "rtps.guidPrefix",
-        FT_BYTES,
-        BASE_NONE,
-        NULL,
-        0,
-        "a generic guidPrefix that is transmitted inside the submessage (this is NOT the guidPrefix described in the packet header",
-        HFILL }
+    { &hf_rtps_guid_prefix_v2,
+      { "guidPrefix", "rtps.guidPrefix",
+         FT_BYTES, BASE_NONE, NULL, 0,
+         "a generic guidPrefix that is transmitted inside the submessage (this is NOT the guidPrefix described in the packet header)", HFILL }
+    },
+
+    { &hf_rtps_guid_prefix_v2_src,
+      { "guidPrefix", "rtps.guidPrefix.src",
+         FT_BYTES, BASE_NONE, NULL, 0,
+         "the guidPrefix of the entity sending the sample", HFILL }
+    },
+
+    { &hf_rtps_guid_prefix_v2_dst,
+      { "guidPrefix", "rtps.guidPrefix.dst",
+         FT_BYTES, BASE_NONE, NULL, 0,
+         "the guidPrefix of the entity receiving the sample", HFILL }
     },
 
     /* Host ID ------------------------------------------------------------- */
@@ -8372,6 +8412,28 @@ void proto_register_rtps(void) {
         FT_UINT16,
         BASE_HEX,
         VALS(parameter_id_v2_vals),
+        0,
+        "Parameter Id",
+        HFILL }
+    },
+
+    { &hf_rtps_parameter_id_toc, {
+        "parameterId",
+        "rtps.param.id",
+        FT_UINT16,
+        BASE_HEX,
+        VALS(parameter_id_toc_vals),
+        0,
+        "Parameter Id",
+        HFILL }
+    },
+
+    { &hf_rtps_parameter_id_rti, {
+        "parameterId",
+        "rtps.param.id",
+        FT_UINT16,
+        BASE_HEX,
+        VALS(parameter_id_rti_vals),
         0,
         "Parameter Id",
         HFILL }
@@ -9711,7 +9773,7 @@ void proto_register_rtps(void) {
   register_init_routine(rtps_init);
 
   rtps_type_name_table = register_dissector_table("rtps.type_name", "RTPS Type Name",
-          FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+          proto_rtps, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 

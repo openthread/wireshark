@@ -208,8 +208,6 @@ static const fragment_items iax2_fragment_items = {
   "iax2 fragments"
 };
 
-static dissector_handle_t data_handle;
-
 /* data-call subdissectors, AST_DATAFORMAT_* */
 static dissector_table_t iax2_dataformat_dissector_table;
 /* voice/video call subdissectors, AST_FORMAT_* */
@@ -1579,13 +1577,13 @@ static void iax2_add_ts_fields(packet_info *pinfo, proto_tree *iax2_tree, iax_pa
 
   if (iax_packet->abstime.secs == -1) {
     time_t start_secs = iax_packet->call_data->start_time.secs;
-    gint32 abs_secs = (gint32)(start_secs + longts/1000);
+    time_t abs_secs = start_secs + longts/1000;
 
     /* deal with short timestamps by assuming that packets are never more than
      * 16 seconds late */
     while(abs_secs < pinfo->abs_ts.secs - 16) {
       longts += 32768;
-      abs_secs = (gint32)(start_secs + longts/1000);
+      abs_secs = start_secs + longts/1000;
     }
 
     iax_packet->abstime.secs=abs_secs;
@@ -2178,7 +2176,7 @@ static void process_iax_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     /* codec dissector handled our data */
   } else {
     /* we don't know how to dissect our data: dissect it as data */
-    call_dissector(data_handle, tvb, pinfo, tree);
+    call_data_dissector(tvb, pinfo, tree);
   }
 
 #ifdef DEBUG_DESEGMENT
@@ -3203,9 +3201,9 @@ proto_register_iax2(void)
   register_dissector("iax2", dissect_iax2, proto_iax2);
 
   iax2_codec_dissector_table = register_dissector_table(
-    "iax2.codec", "IAX codec number", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    "iax2.codec", "IAX codec number", proto_iax2, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
   iax2_dataformat_dissector_table = register_dissector_table(
-    "iax2.dataformat", "IAX dataformat number", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    "iax2.dataformat", "IAX dataformat number", proto_iax2, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   /* register our init routine to be called at the start of a capture,
      to clear out our hash tables etc */
@@ -3223,7 +3221,6 @@ proto_reg_handoff_iax2(void)
   v110_handle =  find_dissector("v110");
   if (v110_handle)
     dissector_add_uint("iax2.dataformat", AST_DATAFORMAT_V110, v110_handle);
-  data_handle = find_dissector("data");
 }
 
 /*

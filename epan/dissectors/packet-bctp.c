@@ -44,7 +44,6 @@ static int hf_bctp_tpi = -1;
 
 static gint ett_bctp = -1;
 static dissector_table_t bctp_dissector_table;
-static dissector_handle_t data_handle;
 static dissector_handle_t text_handle;
 
 /*
@@ -80,7 +79,7 @@ static int dissect_bctp(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, voi
 
 	if (!dissector_try_uint(bctp_dissector_table, tpi, sub_tvb, pinfo, tree) ) {
 		if (tpi <= 0x22) {
-			call_dissector(data_handle,sub_tvb, pinfo, tree);
+			call_data_dissector(sub_tvb, pinfo, tree);
 		} else {
 			/* tpi > 0x22 */
 			call_dissector(text_handle,sub_tvb, pinfo, tree);
@@ -108,14 +107,13 @@ proto_register_bctp (void)
 
 	register_dissector("bctp", dissect_bctp, proto_bctp);
 
-	bctp_dissector_table = register_dissector_table("bctp.tpi", "BCTP Tunneled Protocol Indicator", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	bctp_dissector_table = register_dissector_table("bctp.tpi", "BCTP Tunneled Protocol Indicator", proto_bctp, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
 proto_reg_handoff_bctp(void)
 {
-	data_handle = find_dissector("data");
-	text_handle = find_dissector("data-text-lines");
+	text_handle = find_dissector_add_dependency("data-text-lines", proto_bctp);
 }
 
 /*

@@ -46,8 +46,6 @@ static int hf_spp_all_nr = -1;
 static gint ett_spp = -1;
 static gint ett_spp_connctrl = -1;
 
-static dissector_handle_t data_handle;
-
 static dissector_table_t spp_socket_dissector_table;
 
 /*
@@ -179,7 +177,7 @@ dissect_spp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		    next_tvb, pinfo, tree))
 			return tvb_captured_length(tvb);
 
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 	}
 	return tvb_captured_length(tvb);
 }
@@ -263,7 +261,7 @@ proto_register_spp(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 	spp_socket_dissector_table = register_dissector_table("spp.socket",
-	    "SPP socket", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "SPP socket", proto_spp, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
@@ -273,8 +271,6 @@ proto_reg_handoff_spp(void)
 
 	spp_handle = create_dissector_handle(dissect_spp, proto_spp);
 	dissector_add_uint("idp.packet_type", IDP_PACKET_TYPE_SPP, spp_handle);
-
-	data_handle = find_dissector("data");
 }
 
 /*

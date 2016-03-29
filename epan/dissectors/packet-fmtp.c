@@ -3,7 +3,7 @@
  * Routines for FMTP version 2 packet dissection.
  *
  * The specifications of this public protocol can be found on Eurocontrol web site:
- * http://www.eurocontrol.int/ses/public/standard_page/fmtp_spec.html
+ * http://www.eurocontrol.int/sites/default/files/publication/files/20070614-fmtp-spec-v2.0.pdf
  *
  * Copyright 2011, Christophe Paletou <c.paletou@free.fr>
  *
@@ -52,8 +52,6 @@ static gint ett_fmtp = -1;
 #define FMTP_TYP_SYSTEM         4
 
 #define INFO_STR_SIZE        1024
-
-static dissector_handle_t data_handle;
 
 static const value_string packet_type_names[] = {
     { FMTP_TYP_OPERATIONAL,    "Operational message" },
@@ -122,7 +120,7 @@ dissect_fmtp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
         proto_tree_add_item(fmtp_tree, hf_fmtp_pdu_type,     tvb, 4, 1, ENC_BIG_ENDIAN);
 
         next_tvb = tvb_new_subset_remaining(tvb, FMTP_HEADER_LEN);
-        call_dissector(data_handle, next_tvb, pinfo, fmtp_tree);
+        call_data_dissector(next_tvb, pinfo, fmtp_tree);
     }
 
     return tvb_captured_length(tvb);
@@ -137,6 +135,10 @@ get_fmtp_message_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *da
 static gboolean
 dissect_fmtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
+    guint16 length;
+
+    if (tvb_captured_length(tvb) < 5)
+        return FALSE;
     /*
      * Check that packet looks like FMTP before going further
      */
@@ -144,8 +146,9 @@ dissect_fmtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     if (tvb_get_guint8(tvb, 0) != 0x02) return (FALSE);
     /* RESERVED must currently be 0x00 */
     if (tvb_get_guint8(tvb, 1) != 0x00) return (FALSE);
+    length = tvb_get_ntohs(tvb, 2);
     /* LENGTH must currently not exceed 5 (header) + 10240 (data) */
-    if (tvb_get_ntohs(tvb, 2) > FMTP_MAX_LEN) return (FALSE);
+    if ((length > FMTP_MAX_LEN) || (length < FMTP_HEADER_LEN)) return (FALSE);
     /* TYP must currently be in range 0x01-0x04 */
     if ((tvb_get_guint8(tvb, 4) < 0x01) || (tvb_get_guint8(tvb, 4) > 0x04))
         return (FALSE);
@@ -204,7 +207,6 @@ proto_reg_handoff_fmtp(void)
 {
     /* Register as heuristic dissector for TCP */
     heur_dissector_add("tcp", dissect_fmtp, "FMTP over TCP", "fmtp_tcp", proto_fmtp, HEURISTIC_ENABLE);
-    data_handle = find_dissector("data");
 }
 
 /*

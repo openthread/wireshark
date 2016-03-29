@@ -328,10 +328,20 @@ static const value_string ssl_20_cipher_suites[] = {
             0xFF,0x00-FF Reserved for Private Use [RFC5246]
             */
 
-    /* http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305 */
+    /* old numbers used in the beginning
+     * http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305 */
     { 0x00CC13, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
     { 0x00CC14, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256" },
     { 0x00CC15, "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
+
+    /* http://tools.ietf.org/html/draft-ietf-tls-chacha20-poly1305 */
+    { 0x00CCA8, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0x00CCA9, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0x00CCAA, "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0x00CCAB, "TLS_PSK_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0x00CCAC, "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0x00CCAD, "TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0x00CCAE, "TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256" },
 
     /* http://tools.ietf.org/html/draft-josefsson-salsa20-tls */
     { 0x00E410, "TLS_RSA_WITH_ESTREAM_SALSA20_SHA1" },
@@ -417,6 +427,13 @@ const value_string ssl_extension_curves[] = {
     { 26, "brainpoolP256r1" }, /* RFC 7027 */
     { 27, "brainpoolP384r1" }, /* RFC 7027 */
     { 28, "brainpoolP512r1" }, /* RFC 7027 */
+    { 29, "ecdh_x25519" }, /* https://tools.ietf.org/html/draft-ietf-tls-rfc4492bis */
+    { 30, "ecdh_x448" }, /* https://tools.ietf.org/html/draft-ietf-tls-rfc4492bis */
+    { 256, "ffdhe2048" }, /* https://tools.ietf.org/html/draft-ietf-tls-negotiated-ff-dhe */
+    { 257, "ffdhe3072" }, /* https://tools.ietf.org/html/draft-ietf-tls-negotiated-ff-dhe */
+    { 258, "ffdhe4096" }, /* https://tools.ietf.org/html/draft-ietf-tls-negotiated-ff-dhe */
+    { 259, "ffdhe6144" }, /* https://tools.ietf.org/html/draft-ietf-tls-negotiated-ff-dhe */
+    { 260, "ffdhe8192" }, /* https://tools.ietf.org/html/draft-ietf-tls-negotiated-ff-dhe */
     { 0xFF01, "arbitrary_explicit_prime_curves" },
     { 0xFF02, "arbitrary_explicit_char2_curves" },
     { 0x00, NULL }
@@ -992,10 +1009,20 @@ static const value_string ssl_31_ciphersuite[] = {
 0xFF,0x00-FF Reserved for Private Use [RFC5246]
 */
 
-    /* http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305 */
+    /* old numbers used in the beginning
+     * http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305 */
     { 0xCC13, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
     { 0xCC14, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256" },
     { 0xCC15, "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
+
+    /* http://tools.ietf.org/html/draft-ietf-tls-chacha20-poly1305 */
+    { 0xCCA8, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0xCCA9, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0xCCAA, "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0xCCAB, "TLS_PSK_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0xCCAC, "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0xCCAD, "TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256" },
+    { 0xCCAE, "TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256" },
 
     /* http://tools.ietf.org/html/draft-josefsson-salsa20-tls */
     { 0xE410, "TLS_RSA_WITH_ESTREAM_SALSA20_SHA1" },
@@ -1116,8 +1143,10 @@ const value_string tls_hello_extension_types[] = {
     { 18, "signed_certificate_timestamp" }, /* RFC 6962 */
     { SSL_HND_HELLO_EXT_CLIENT_CERT_TYPE, "client_certificate_type" }, /* RFC 7250 */
     { SSL_HND_HELLO_EXT_SERVER_CERT_TYPE, "server_certificate_type" }, /* RFC 7250 */
-    { SSL_HND_HELLO_EXT_PADDING, "Padding" }, /* http://tools.ietf.org/html/draft-agl-tls-padding */
-    { SSL_HND_HELLO_EXT_EXTENDED_MASTER_SECRET_TYPE, "Extended Master Secret" }, /* https://tools.ietf.org/html/draft-ietf-tls-session-hash-01 */
+    { SSL_HND_HELLO_EXT_PADDING, "Padding" }, /* RFC7685 */
+    { 22, "encrypt then mac" }, /* RFC7366 */
+    { SSL_HND_HELLO_EXT_EXTENDED_MASTER_SECRET_TYPE, "Extended Master Secret" }, /* RFC7627 */
+    { 24, "token binding" }, /* https://tools.ietf.org/html/draft-ietf-tokbind-negotiation */
     { SSL_HND_HELLO_EXT_SESSION_TICKET, "SessionTicket TLS" },  /* RFC 4507 */
     { SSL_HND_HELLO_EXT_NPN, "next_protocol_negotiation"}, /* http://technotes.googlecode.com/git/nextprotoneg.html */
     { SSL_HND_HELLO_EXT_RENEG_INFO, "renegotiation_info" }, /* RFC 5746 */

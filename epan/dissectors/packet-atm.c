@@ -147,7 +147,6 @@ static dissector_handle_t sscop_handle;
 static dissector_handle_t ppp_handle;
 static dissector_handle_t eth_maybefcs_handle;
 static dissector_handle_t ip_handle;
-static dissector_handle_t data_handle;
 
 static gboolean dissect_lanesscop = FALSE;
 
@@ -709,7 +708,7 @@ dissect_lane(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     /* Dump it as raw data. */
     col_set_str(pinfo->cinfo, COL_INFO, "Unknown LANE traffic type");
     next_tvb            = tvb_new_subset_remaining(tvb, 0);
-    call_dissector(data_handle,next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
     break;
   }
   return tvb_captured_length(tvb);
@@ -788,7 +787,7 @@ static const value_string ipsilon_type_vals[] = {
 };
 
 static gboolean
-capture_atm(const guchar *pd, int offset _U_,
+capture_atm(const guchar *pd, int offset,
     int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
   if (pseudo_header->atm.aal == AAL_5) {
@@ -1063,7 +1062,7 @@ dissect_reassembled_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
   if (!decoded) {
     /* Dump it as raw data. */
-    call_dissector(data_handle, next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
   }
 }
 
@@ -1432,7 +1431,7 @@ dissect_atm_cell_payload(tvbuff_t *tvb, int offset, packet_info *pinfo,
 
   default:
     next_tvb = tvb_new_subset_remaining(tvb, offset);
-    call_dissector(data_handle, next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
     break;
   }
 }
@@ -1980,8 +1979,8 @@ proto_register_atm(void)
 
   proto_atm_lane = proto_register_protocol("ATM LAN Emulation", "ATM LANE", "lane");
 
-  atm_type_aal2_table = register_dissector_table("atm.aal2.type", "ATM AAL_2 type subdissector", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  atm_type_aal5_table = register_dissector_table("atm.aal5.type", "ATM AAL_5 type subdissector", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  atm_type_aal2_table = register_dissector_table("atm.aal2.type", "ATM AAL_2 type subdissector", proto_atm, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  atm_type_aal5_table = register_dissector_table("atm.aal5.type", "ATM AAL_5 type subdissector", proto_atm, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   register_capture_dissector_table("atm.aal5.type", "ATM AAL_5");
   register_capture_dissector_table("atm_lane", "ATM LAN Emulation");
@@ -2009,15 +2008,14 @@ proto_reg_handoff_atm(void)
    * Get handles for the Ethernet, Token Ring, Frame Relay, LLC,
    * SSCOP, LANE, and ILMI dissectors.
    */
-  eth_withoutfcs_handle = find_dissector("eth_withoutfcs");
-  tr_handle             = find_dissector("tr");
-  fr_handle             = find_dissector("fr");
-  llc_handle            = find_dissector("llc");
-  sscop_handle          = find_dissector("sscop");
-  ppp_handle            = find_dissector("ppp");
-  eth_maybefcs_handle   = find_dissector("eth_maybefcs");
-  ip_handle             = find_dissector("ip");
-  data_handle           = find_dissector("data");
+  eth_withoutfcs_handle = find_dissector_add_dependency("eth_withoutfcs", proto_atm_lane);
+  tr_handle             = find_dissector_add_dependency("tr", proto_atm_lane);
+  fr_handle             = find_dissector_add_dependency("fr", proto_atm);
+  llc_handle            = find_dissector_add_dependency("llc", proto_atm);
+  sscop_handle          = find_dissector_add_dependency("sscop", proto_atm);
+  ppp_handle            = find_dissector_add_dependency("ppp", proto_atm);
+  eth_maybefcs_handle   = find_dissector_add_dependency("eth_maybefcs", proto_atm);
+  ip_handle             = find_dissector_add_dependency("ip", proto_atm);
 
   dissector_add_uint("wtap_encap", WTAP_ENCAP_ATM_PDUS, atm_handle);
   dissector_add_uint("atm.aal5.type", TRAF_LANE, create_dissector_handle(dissect_lane, proto_atm_lane));

@@ -37,8 +37,10 @@ MAINTAINERCLEANFILES = \
 libftypes_la_SOURCES = $(NONGENERATED_C_FILES) $(NONGENERATED_HEADER_FILES)
 
 EXTRA_DIST = \
+	.editorconfig		\
 	Makefile.common		\
-	Makefile.nmake
+	Makefile.nmake		\
+	CMakeLists.txt
 
 checkapi:
 	$(PERL) $(top_srcdir)/tools/checkAPIs.pl -g termoutput -build \

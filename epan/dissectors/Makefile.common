@@ -57,8 +57,8 @@ PIDL_DISSECTOR_SRC =	\
 	packet-dcerpc-frstrans.c	\
 	packet-dcerpc-initshutdown.c	\
 	packet-dcerpc-lsa.c	\
-	packet-dcerpc-mdssvc.c	\
 	packet-dcerpc-mapi.c	\
+	packet-dcerpc-mdssvc.c	\
 	packet-dcerpc-misc.c	\
 	packet-dcerpc-nspi.c	\
 	packet-dcerpc-rfr.c	\
@@ -133,7 +133,6 @@ ASN1_DISSECTOR_SRC = \
 	packet-h501.c	\
 	packet-hnbap.c	\
 	packet-idmp.c	\
-	packet-idrp.c	\
 	packet-ilp.c	\
 	packet-inap.c	\
 	packet-isdn-sup.c	\
@@ -146,7 +145,6 @@ ASN1_DISSECTOR_SRC = \
 	packet-lppe.c	\
 	packet-lte-rrc.c	\
 	packet-m3ap.c	\
-	packet-mcpe.c	\
 	packet-mms.c	\
 	packet-mpeg-audio.c	\
 	packet-mpeg-pes.c	\
@@ -154,7 +152,6 @@ ASN1_DISSECTOR_SRC = \
 	packet-novell_pkis.c	\
 	packet-ns_cert_exts.c	\
 	packet-ocsp.c	\
-	packet-opsi.c	\
 	packet-p1.c	\
 	packet-p22.c	\
 	packet-p7.c	\
@@ -173,7 +170,6 @@ ASN1_DISSECTOR_SRC = \
 	packet-q932.c	\
 	packet-q932-ros.c	\
 	packet-qsig.c	\
-	packet-raknet.c \
 	packet-ranap.c	\
 	packet-rnsap.c	\
 	packet-ros.c	\
@@ -188,8 +184,6 @@ ASN1_DISSECTOR_SRC = \
 	packet-snmp.c	\
 	packet-spnego.c	\
 	packet-sv.c	\
-	packet-sysdig-event.c	\
-	packet-sysex.c	\
 	packet-t124.c	\
 	packet-t125.c	\
 	packet-t38.c	\
@@ -304,8 +298,8 @@ DISSECTOR_SRC = \
 	packet-arp.c		\
 	packet-artnet.c		\
 	packet-aruba-adp.c	\
-	packet-aruba-iap.c	\
 	packet-aruba-erm.c	\
+	packet-aruba-iap.c	\
 	packet-aruba-papi.c	\
 	packet-ar_drone.c	\
 	packet-asap.c		\
@@ -378,7 +372,6 @@ DISSECTOR_SRC = \
 	packet-btsap.c		\
 	packet-btsdp.c		\
 	packet-btsmp.c		\
-	packet-bt-oui.c		\
 	packet-bvlc.c		\
 	packet-bzr.c		\
 	packet-c15ch.c		\
@@ -393,9 +386,9 @@ DISSECTOR_SRC = \
 	packet-ccsds.c		\
 	packet-cdp.c		\
 	packet-cell_broadcast.c	\
-	packet-ceph.c	\
-	packet-cfm.c		\
+	packet-ceph.c		\
 	packet-cfdp.c		\
+	packet-cfm.c		\
 	packet-cgmp.c		\
 	packet-chargen.c	\
 	packet-chdlc.c		\
@@ -587,8 +580,8 @@ DISSECTOR_SRC = \
 	packet-etv.c		\
 	packet-evrc.c		\
 	packet-exec.c		\
-	packet-extreme.c	\
 	packet-exported_pdu.c	\
+	packet-extreme.c	\
 	packet-fc.c		\
 	packet-fcct.c		\
 	packet-fcdns.c		\
@@ -734,6 +727,7 @@ DISSECTOR_SRC = \
 	packet-icp.c		\
 	packet-icq.c		\
 	packet-idp.c		\
+	packet-idrp.c		\
 	packet-iec104.c		\
 	packet-ieee1722.c	\
 	packet-ieee17221.c	\
@@ -805,6 +799,7 @@ DISSECTOR_SRC = \
 	packet-isns.c		\
 	packet-iso14443.c	\
 	packet-iso7816.c	\
+	packet-iso8583.c	\
 	packet-isup.c		\
 	packet-itdm.c		\
 	packet-iua.c		\
@@ -877,6 +872,7 @@ DISSECTOR_SRC = \
 	packet-ltp.c		\
 	packet-lwapp.c		\
 	packet-lwm.c		\
+	packet-lwm2mtlv.c	\
 	packet-lwres.c		\
 	packet-m2pa.c		\
 	packet-m2tp.c		\
@@ -893,12 +889,14 @@ DISSECTOR_SRC = \
 	packet-mausb.c		\
 	packet-mbim.c		\
 	packet-mbtcp.c		\
+	packet-mcpe.c		\
 	packet-mdshdr.c		\
 	packet-media.c		\
 	packet-megaco.c		\
 	packet-memcache.c	\
 	packet-mesh.c		\
 	packet-meta.c		\
+	packet-metamako.c	\
 	packet-mgcp.c		\
 	packet-mih.c		\
 	packet-mikey.c		\
@@ -966,8 +964,8 @@ DISSECTOR_SRC = \
 	packet-nbt.c		\
 	packet-ncp-nmas.c	\
 	packet-ncp-sss.c	\
-	packet-ncp2222.c	\
 	packet-ncp.c		\
+	packet-ncp2222.c	\
 	packet-ncs.c		\
 	packet-ndmp.c		\
 	packet-ndp.c		\
@@ -1022,6 +1020,7 @@ DISSECTOR_SRC = \
 	packet-opensafety.c	\
 	packet-openvpn.c	\
 	packet-openwire.c	\
+	packet-opsi.c		\
 	packet-optommp.c	\
 	packet-osc.c		\
 	packet-osi-options.c	\
@@ -1095,6 +1094,7 @@ DISSECTOR_SRC = \
 	packet-quic.c		\
 	packet-radius.c		\
 	packet-radius_packetcable.c	\
+	packet-raknet.c		\
 	packet-raw.c		\
 	packet-rdm.c		\
 	packet-rdp.c		\
@@ -1241,6 +1241,8 @@ DISSECTOR_SRC = \
 	packet-sync.c		\
 	packet-synergy.c	\
 	packet-synphasor.c	\
+	packet-sysdig-event.c	\
+	packet-sysex.c		\
 	packet-syslog.c		\
 	packet-t30.c		\
 	packet-tacacs.c		\
@@ -1390,18 +1392,18 @@ DISSECTOR_SRC = \
 	packet-zbee-security.c	\
 	packet-zbee-zcl.c	\
 	packet-zbee-zcl-closures.c      \
-	packet-zbee-zcl-lighting.c	\
-	packet-zbee-zcl-hvac.c	\
-	packet-zbee-zcl-sas.c	\
 	packet-zbee-zcl-general.c	\
 	packet-zbee-zcl-ha.c	\
+	packet-zbee-zcl-hvac.c	\
+	packet-zbee-zcl-lighting.c	\
 	packet-zbee-zcl-meas-sensing.c	\
 	packet-zbee-zcl-misc.c	\
+	packet-zbee-zcl-sas.c	\
 	packet-zbee-zcl-se.c	\
+	packet-zbee-zdp.c	\
 	packet-zbee-zdp-binding.c	\
 	packet-zbee-zdp-discovery.c	\
 	packet-zbee-zdp-management.c	\
-	packet-zbee-zdp.c	\
 	packet-zebra.c		\
 	packet-zep.c		\
 	packet-ziop.c		\

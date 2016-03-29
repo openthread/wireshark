@@ -969,9 +969,9 @@ proto_register_fr(void)
   expert_register_field_array(expert_fr, ei, array_length(ei));
 
   fr_subdissector_table = register_dissector_table("fr.nlpid",
-                                                   "Frame Relay NLPID", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                   "Frame Relay NLPID", proto_fr, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
   fr_osinl_subdissector_table = register_dissector_table("fr.osinl",
-                                                         "Frame Relay OSI NLPID", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                         "Frame Relay OSI NLPID", proto_fr, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
   register_dissector("fr_uncompressed", dissect_fr_uncompressed, proto_fr);
   register_dissector("fr", dissect_fr, proto_fr);
@@ -1010,9 +1010,9 @@ proto_reg_handoff_fr(void)
   register_capture_dissector("wtap_encap", WTAP_ENCAP_FRELAY, capture_fr, proto_fr);
   register_capture_dissector("wtap_encap", WTAP_ENCAP_FRELAY_WITH_PHDR, capture_fr, proto_fr);
 
-  eth_withfcs_handle = find_dissector("eth_withfcs");
-  gprs_ns_handle = find_dissector("gprs_ns");
-  data_handle = find_dissector("data");
+  eth_withfcs_handle = find_dissector_add_dependency("eth_withfcs", proto_fr);
+  gprs_ns_handle = find_dissector_add_dependency("gprs_ns", proto_fr);
+  data_handle = find_dissector_add_dependency("data", proto_fr);
 
   osinl_incl_subdissector_table = find_dissector_table("osinl.incl");
 }

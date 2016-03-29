@@ -317,7 +317,6 @@ capture_vines(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_
 }
 
 static dissector_handle_t vines_ip_handle;
-static dissector_handle_t data_handle;
 
 /* Control flags */
 #define VINES_FRP_FIRST_FRAGMENT	0x01
@@ -465,7 +464,7 @@ dissect_vines_llc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 	next_tvb = tvb_new_subset_remaining(tvb, 1);
 	if (!dissector_try_uint(vines_llc_dissector_table, ptype,
 	    next_tvb, pinfo, tree))
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);
 }
@@ -491,7 +490,7 @@ proto_register_vines_llc(void)
 
 	/* subdissector code */
 	vines_llc_dissector_table = register_dissector_table("vines_llc.ptype",
-	    "Vines LLC protocol", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "Vines LLC protocol", proto_vines_llc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
@@ -613,7 +612,7 @@ dissect_vines_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 	next_tvb = tvb_new_subset_remaining(tvb, offset);
 	if (!dissector_try_uint(vines_ip_dissector_table, vip_proto,
 	    next_tvb, pinfo, tree))
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);
 }
@@ -695,7 +694,7 @@ proto_register_vines_ip(void)
 
 	/* subdissector code */
 	vines_ip_dissector_table = register_dissector_table("vines_ip.protocol",
-	    "Vines protocol", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "Vines protocol", proto_vines_ip, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	vines_ip_handle = create_dissector_handle(dissect_vines_ip,
 	    proto_vines_ip);
@@ -709,7 +708,6 @@ proto_reg_handoff_vines_ip(void)
 	dissector_add_uint("arcnet.protocol_id", ARCNET_PROTO_BANYAN,
 	    vines_ip_handle);
 	dissector_add_uint("vines_llc.ptype", VINES_LLC_IP, vines_ip_handle);
-	data_handle = find_dissector("data");
 }
 
 static int
@@ -905,7 +903,7 @@ dissect_vines_ipc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 	if (viph.vipc_pkttype != PKTTYPE_DATA ||
 	    !dissector_try_heuristic(vines_ipc_heur_subdissector_list,
 	      next_tvb, pinfo, tree, &hdtbl_entry, NULL))
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);
 }
@@ -995,7 +993,7 @@ proto_register_vines_ipc(void)
 	proto_register_field_array(proto_vines_ipc, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	vines_ipc_heur_subdissector_list = register_heur_dissector_list("vines_ipc");
+	vines_ipc_heur_subdissector_list = register_heur_dissector_list("vines_ipc", proto_vines_ipc);
 }
 
 void
@@ -1078,7 +1076,7 @@ dissect_vines_spp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 	if (viph.vspp_pkttype != PKTTYPE_DATA ||
 	    !dissector_try_heuristic(vines_spp_heur_subdissector_list,
 	      next_tvb, pinfo, tree, &hdtbl_entry, NULL))
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);
 }
@@ -1163,7 +1161,7 @@ proto_register_vines_spp(void)
 	proto_register_field_array(proto_vines_spp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	vines_spp_heur_subdissector_list = register_heur_dissector_list("vines_spp");
+	vines_spp_heur_subdissector_list = register_heur_dissector_list("vines_spp", proto_vines_spp);
 }
 
 void

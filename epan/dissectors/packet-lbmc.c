@@ -4562,7 +4562,6 @@ static gboolean lbmc_use_heuristic_subdissectors = TRUE;
 static gboolean lbmc_reassemble_fragments = FALSE;
 static gboolean lbmc_dissect_lbmpdm = FALSE;
 static heur_dissector_list_t lbmc_heuristic_subdissector_list;
-static dissector_handle_t lbmc_data_dissector_handle;
 
 /*----------------------------------------------------------------------------*/
 /* Handles of all types.                                                      */
@@ -11487,13 +11486,13 @@ int lbmc_dissect_lbmc_packet(tvbuff_t * tvb, int offset, packet_info * pinfo, pr
                         }
                         else
                         {
-                            call_dissector(lbmc_data_dissector_handle, data_tvb, pinfo, subtree);
+                            call_data_dissector(data_tvb, pinfo, subtree);
                         }
                     }
                 }
                 else
                 {
-                    call_dissector(lbmc_data_dissector_handle, data_tvb, pinfo, subtree);
+                    call_data_dissector(data_tvb, pinfo, subtree);
                 }
             }
             if (msgprop_tvb != NULL)
@@ -14195,7 +14194,7 @@ void proto_register_lbmc(void)
     expert_lbmc = expert_register_protocol(proto_lbmc);
     expert_register_field_array(expert_lbmc, ei, array_length(ei));
 
-    lbmc_heuristic_subdissector_list = register_heur_dissector_list("lbm_msg_payload");
+    lbmc_heuristic_subdissector_list = register_heur_dissector_list("lbm_msg_payload", proto_lbmc);
 
     prefs_register_protocol(tnw_protocol_handle, NULL);
     lbmc_module = prefs_register_protocol_subtree("29West", proto_lbmc, proto_reg_handoff_lbmc);
@@ -14221,7 +14220,6 @@ void proto_register_lbmc(void)
 /* The registration hand-off routine */
 void proto_reg_handoff_lbmc(void)
 {
-    lbmc_data_dissector_handle = find_dissector("data");
     lbmc_uim_tap_handle = register_tap("lbm_uim");
     lbmc_stream_tap_handle = register_tap("lbm_stream");
 }

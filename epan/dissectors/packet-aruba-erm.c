@@ -159,7 +159,6 @@ static dissector_handle_t wlan_radio_handle;
 static dissector_handle_t wlan_withfcs_handle;
 static dissector_handle_t peek_handle;
 static dissector_handle_t ppi_handle;
-static dissector_handle_t data_handle;
 
 static dissector_table_t aruba_erm_subdissector_table;
 
@@ -216,7 +215,7 @@ dissect_aruba_erm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
         dissect_aruba_erm_common(tvb, pinfo, tree, &offset);
         /* Add Expert info how decode...*/
         proto_tree_add_expert(tree, pinfo, &ei_aruba_erm_decode, tvb, offset, -1);
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
     }
 
     return tvb_captured_length(tvb);
@@ -264,7 +263,7 @@ dissect_aruba_erm_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
     /* Not (yet) supported launch data dissector */
     proto_tree_add_expert(tree, pinfo, &ei_aruba_erm_airmagnet, tvb, offset, -1);
-    call_dissector(data_handle, tvb, pinfo, tree);
+    call_data_dissector(tvb, pinfo, tree);
 
     return tvb_captured_length(tvb);
 }
@@ -460,7 +459,7 @@ proto_register_aruba_erm(void)
     expert_register_field_array(expert_aruba_erm, ei, array_length(ei));
 
     aruba_erm_subdissector_table = register_dissector_table(
-        "aruba_erm.type", "Aruba ERM Type",
+        "aruba_erm.type", "Aruba ERM Type", proto_aruba_erm,
         FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     register_decode_as(&aruba_erm_payload_da);
@@ -475,11 +474,10 @@ proto_reg_handoff_aruba_erm(void)
     static gboolean initialized = FALSE;
 
     if (!initialized) {
-        wlan_radio_handle = find_dissector("wlan_radio");
-        wlan_withfcs_handle = find_dissector("wlan_withfcs");
-        ppi_handle = find_dissector("ppi");
-        peek_handle = find_dissector("peekremote");
-        data_handle = find_dissector("data");
+        wlan_radio_handle = find_dissector_add_dependency("wlan_radio", proto_aruba_erm);
+        wlan_withfcs_handle = find_dissector_add_dependency("wlan_withfcs", proto_aruba_erm);
+        ppi_handle = find_dissector_add_dependency("ppi", proto_aruba_erm);
+        peek_handle = find_dissector_add_dependency("peekremote", proto_aruba_erm);
         aruba_erm_handle = create_dissector_handle(dissect_aruba_erm, proto_aruba_erm);
         aruba_erm_handle_type0 = create_dissector_handle(dissect_aruba_erm_type0, proto_aruba_erm_type0);
         aruba_erm_handle_type1 = create_dissector_handle(dissect_aruba_erm_type1, proto_aruba_erm_type1);

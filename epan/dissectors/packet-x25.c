@@ -523,7 +523,6 @@ static dissector_handle_t ip_handle;
 static dissector_handle_t clnp_handle;
 static dissector_handle_t ositp_handle;
 static dissector_handle_t qllc_handle;
-static dissector_handle_t data_handle;
 
 /* Preferences */
 static gboolean payload_is_qllc_sna = FALSE;
@@ -1991,7 +1990,7 @@ dissect_x25_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     }
 
     /* All else failed; dissect it as raw data */
-    call_dissector(data_handle, next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
 }
 
 /*
@@ -2370,8 +2369,8 @@ proto_register_x25(void)
     expert_register_field_array(expert_x25, ei, array_length(ei));
 
     x25_subdissector_table = register_dissector_table("x.25.spi",
-        "X.25 secondary protocol identifier", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    x25_heur_subdissector_list = register_heur_dissector_list("x.25");
+        "X.25 secondary protocol identifier", proto_x25, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    x25_heur_subdissector_list = register_heur_dissector_list("x.25", proto_x25);
 
     register_dissector("x.25_dir", dissect_x25_dir, proto_x25);
     register_dissector("x.25", dissect_x25, proto_x25);
@@ -2407,11 +2406,10 @@ proto_reg_handoff_x25(void)
     /*
      * Get handles for various dissectors.
      */
-    ip_handle = find_dissector("ip");
-    clnp_handle = find_dissector("clnp");
-    ositp_handle = find_dissector("ositp");
-    qllc_handle = find_dissector("qllc");
-    data_handle = find_dissector("data");
+    ip_handle = find_dissector_add_dependency("ip", proto_x25);
+    clnp_handle = find_dissector_add_dependency("clnp", proto_x25);
+    ositp_handle = find_dissector_add_dependency("ositp", proto_x25);
+    qllc_handle = find_dissector_add_dependency("qllc", proto_x25);
 
     x25_handle = find_dissector("x.25");
     dissector_add_uint("llc.dsap", SAP_X25, x25_handle);

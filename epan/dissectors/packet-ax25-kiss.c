@@ -179,7 +179,7 @@ static const value_string kiss_frame_types[] = {
 };
 
 static gboolean
-capture_ax25_kiss( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+capture_ax25_kiss( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
 	int    l_offset;
 	guint8 kiss_cmd;
@@ -450,7 +450,7 @@ proto_reg_handoff_ax25_kiss(void)
 	register_capture_dissector("wtap_encap", WTAP_ENCAP_AX25_KISS, capture_ax25_kiss, proto_ax25_kiss);
 
 	/* only currently implemented for AX.25 */
-	ax25_handle = find_dissector( "ax25" );
+	ax25_handle = find_dissector_add_dependency( "ax25", proto_ax25_kiss );
 }
 
 /*

@@ -42,7 +42,6 @@ static dissector_handle_t sip_handle;   /* SIP handle  */
 static dissector_handle_t sccp_handle;  /* SCCP handle */
 static dissector_handle_t sgsap_handle; /* SGSAP handle */
 static dissector_handle_t gtpv2_handle; /* GTPv2 handle */
-static dissector_handle_t data_handle;  /* DATA handle */
 
 static dissector_table_t sccp_ssn_dissector_table;
 
@@ -509,11 +508,9 @@ dissect_ppcap_sctp_assoc(tvbuff_t *tvb _U_, proto_tree * tree _U_, int offset)
 
 	proto_tree_add_item(tree, hf_ppcap_sctp_assoc, tvb, offset, length, ENC_ASCII | ENC_NA);
 
-	if (length % 4)
-		length = length + (4 - (length % 4));
-	offset += length;
+	/* The string can be 1 -15 characters long but the IE is padded to 16 bytes*/
 
-	return offset;
+	return offset + 16;
 }
 
 /* Dissecting the function Payload Data to call the protocol that based upon the type decided in the Payload Type */
@@ -578,7 +575,7 @@ dissect_ppcap_payload_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree * ppcap
 		call_dissector(gtpv2_handle, next_tvb, pinfo, tree);   /* calling the GTPv2 handle */
 		break;
 	default:
-		call_dissector(data_handle, next_tvb, pinfo, tree);   /* calling the DATA handle */
+		call_data_dissector(next_tvb, pinfo, tree);   /* calling the DATA handle */
 		break;
 	}
 
@@ -690,17 +687,16 @@ module_t *ppcap_module;
 
 void proto_reg_handoff_ppcap(void)
 {
-	ppcap_handle = find_dissector("ppcap");
-	mtp3_handle  = find_dissector("mtp3");  /* calling the protocol MTP3 */
-	tcap_handle  = find_dissector("tcap");  /* calling the protocol TCAP */
-	bssap_handle = find_dissector("bssap"); /* calling the protocol BSSAP */
-	ranap_handle = find_dissector("ranap"); /* calling the protocol RANAP */
-	h248_handle  = find_dissector("h248");  /* calling the protocol H248 */
-	sip_handle   = find_dissector("sip");   /* calling the protocol SIP */
-	sccp_handle  = find_dissector("sccp");   /* calling the protocol SCCP */
-	sgsap_handle = find_dissector("sgsap"); /* calling the protocol SGSAP */
-	gtpv2_handle = find_dissector("gtpv2"); /* calling the protocol GTPv2 */
-	data_handle  = find_dissector("data");  /* calling the protocol DATA */
+	ppcap_handle = find_dissector_add_dependency("ppcap", proto_ppcap);
+	mtp3_handle  = find_dissector_add_dependency("mtp3", proto_ppcap);  /* calling the protocol MTP3 */
+	tcap_handle  = find_dissector_add_dependency("tcap", proto_ppcap);  /* calling the protocol TCAP */
+	bssap_handle = find_dissector_add_dependency("bssap", proto_ppcap); /* calling the protocol BSSAP */
+	ranap_handle = find_dissector_add_dependency("ranap", proto_ppcap); /* calling the protocol RANAP */
+	h248_handle  = find_dissector_add_dependency("h248", proto_ppcap);  /* calling the protocol H248 */
+	sip_handle   = find_dissector_add_dependency("sip", proto_ppcap);   /* calling the protocol SIP */
+	sccp_handle  = find_dissector_add_dependency("sccp", proto_ppcap);   /* calling the protocol SCCP */
+	sgsap_handle = find_dissector_add_dependency("sgsap", proto_ppcap); /* calling the protocol SGSAP */
+	gtpv2_handle = find_dissector_add_dependency("gtpv2", proto_ppcap); /* calling the protocol GTPv2 */
 
 	sccp_ssn_dissector_table = find_dissector_table("sccp.ssn");
 

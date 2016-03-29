@@ -454,15 +454,18 @@ sub Element($$$$$$)
 		}
 		my $switch_type = "g${switch_raw_type}";
 
-		$moreparam = ", $switch_type *".$name;
-
+		if ($name ne "") {
+			$moreparam = ", $switch_type *".$name;
+		} else {
+			$moreparam = "";
+		}
 		if (($e->{PROPERTIES}->{switch_is} eq "") && ($switchvars{$name}) &&
 			#not a "native" type
 			(!($type =~ /^uint(8|16|1632|32|3264|64)/))) {
 			$param = $name;
 		} elsif ( $switch_dt->{DATA}->{TYPE} eq "ENUM") {
 			$param = $name;
-		} else {
+		} elsif ($name ne "") {
 			$param = "*".$name;
 		}
 
@@ -718,11 +721,6 @@ sub Struct($$$$)
 	$self->pidl_code("int old_offset;");
 	$self->pidl_code("");
 
-	if ($e->{ALIGN} > 1 and not property_matches($e, "flag", ".*LIBNDR_FLAG_NOALIGN.*")) {
-		$self->pidl_code("ALIGN_TO_$e->{ALIGN}_BYTES;");
-	}
-	$self->pidl_code("");
-
 	if (defined($doalign)) {
 		if ($doalign == 1) {
 			$self->pidl_code("ALIGN_TO_$e->{ALIGN}_BYTES;");
@@ -964,6 +962,7 @@ sub ProcessImport
 		next if($_ eq "security");
 		s/^\"//;
 		s/\.idl"?$//;
+		s/^.*\///;
 		$self->pidl_hdr("#include \"packet-dcerpc-$_\.h\"");
 	}
 	$self->pidl_hdr("");

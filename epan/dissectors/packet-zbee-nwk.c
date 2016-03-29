@@ -202,7 +202,6 @@ static gint ett_thread_beacon_tlv = -1;
 
 static expert_field ei_zbee_nwk_missing_payload = EI_INIT;
 
-static dissector_handle_t   data_handle;
 static dissector_handle_t   aps_handle;
 static dissector_handle_t   zbee_gp_handle;
 
@@ -717,7 +716,7 @@ dissect_zbee_nwk_full(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void 
     }
     else {
         /* Invalid type. */
-        call_dissector(data_handle, payload_tvb, pinfo, tree);
+        call_data_dissector(payload_tvb, pinfo, tree);
     }
 
     return tvb_captured_length(tvb);
@@ -853,7 +852,7 @@ static void dissect_zbee_nwk_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
         proto_item_set_len(cmd_root, offset);
 
         /* Dump the leftover to the data dissector. */
-        call_dissector(data_handle, leftover_tvb, pinfo, root);
+        call_data_dissector(leftover_tvb, pinfo, root);
     }
 } /* dissect_zbee_nwk_cmd */
 
@@ -1475,7 +1474,7 @@ static int dissect_zbee_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
         proto_item_set_len(beacon_root, offset);
 
         /* Dump the leftover to the data dissector. */
-        call_dissector(data_handle, leftover_tvb, pinfo, root);
+        call_data_dissector(leftover_tvb, pinfo, root);
     }
 
     return tvb_captured_length(tvb);
@@ -1568,7 +1567,7 @@ static int dissect_zbip_beacon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
         proto_item_set_len(beacon_root, offset);
 
         /* Dump the leftover to the data dissector. */
-        call_dissector(data_handle, leftover_tvb, pinfo, root);
+        call_data_dissector(leftover_tvb, pinfo, root);
     }
     return tvb_captured_length(tvb);
 } /* dissect_zbip_beacon */
@@ -2237,9 +2236,8 @@ void proto_register_zbee_nwk(void)
 void proto_reg_handoff_zbee_nwk(void)
 {
     /* Find the other dissectors we need. */
-    data_handle     = find_dissector("data");
-    aps_handle      = find_dissector(ZBEE_PROTOABBREV_APS);
-    zbee_gp_handle  = find_dissector(ZBEE_PROTOABBREV_NWK_GP);
+    aps_handle      = find_dissector_add_dependency(ZBEE_PROTOABBREV_APS, proto_zbee_nwk);
+    zbee_gp_handle  = find_dissector_add_dependency(ZBEE_PROTOABBREV_NWK_GP, proto_zbee_nwk);
 
     /* Register our dissector with IEEE 802.15.4 */
     dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, find_dissector(ZBEE_PROTOABBREV_NWK));
@@ -2247,9 +2245,6 @@ void proto_reg_handoff_zbee_nwk(void)
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN_BEACON, dissect_zbip_beacon_heur, "ZigBee IP Beacon", "zbip_wlan_beacon", proto_zbip_beacon, HEURISTIC_ENABLE);
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN_BEACON, dissect_thread_beacon_heur, "Thread Beacon", "thread_wlan_beacon", proto_thread_beacon, HEURISTIC_ENABLE);
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN, dissect_zbee_nwk_heur, "ZigBee Network Layer over IEEE 802.15.4", "zbee_nwk_wlan", proto_zbee_nwk, HEURISTIC_ENABLE);
-
-    /* Handoff the ZigBee security dissector code. */
-    zbee_security_handoff();
 } /* proto_reg_handoff_zbee */
 
 static void free_keyring_key(gpointer key)

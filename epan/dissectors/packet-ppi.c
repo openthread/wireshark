@@ -341,7 +341,6 @@ static expert_field ei_ppi_invalid_length = EI_INIT;
 
 static dissector_handle_t ppi_handle;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t ieee80211_radio_handle;
 static dissector_handle_t pcap_pktdata_handle;
 static dissector_handle_t ppi_gps_handle, ppi_vector_handle, ppi_sensor_handle, ppi_antenna_handle;
@@ -1102,7 +1101,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             next_tvb = tvb_new_subset_remaining(tvb, offset);
             col_set_str(pinfo->cinfo, COL_PROTOCOL, "IEEE 802.11n");
             col_set_str(pinfo->cinfo, COL_INFO, "Unreassembled A-MPDU data");
-            call_dissector(data_handle, next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
         }
         return tvb_captured_length(tvb);
     }
@@ -1498,14 +1497,13 @@ proto_register_ppi(void)
 void
 proto_reg_handoff_ppi(void)
 {
-    data_handle = find_dissector("data");
-    ieee80211_radio_handle = find_dissector("wlan_radio");
-    pcap_pktdata_handle = find_dissector("pcap_pktdata");
-    ppi_gps_handle = find_dissector("ppi_gps");
-    ppi_vector_handle = find_dissector("ppi_vector");
-    ppi_sensor_handle = find_dissector("ppi_sensor");
-    ppi_antenna_handle = find_dissector("ppi_antenna");
-    ppi_fnet_handle = find_dissector("ppi_fnet");
+    ieee80211_radio_handle = find_dissector_add_dependency("wlan_radio", proto_ppi);
+    pcap_pktdata_handle = find_dissector_add_dependency("pcap_pktdata", proto_ppi);
+    ppi_gps_handle = find_dissector_add_dependency("ppi_gps", proto_ppi);
+    ppi_vector_handle = find_dissector_add_dependency("ppi_vector", proto_ppi);
+    ppi_sensor_handle = find_dissector_add_dependency("ppi_sensor", proto_ppi);
+    ppi_antenna_handle = find_dissector_add_dependency("ppi_antenna", proto_ppi);
+    ppi_fnet_handle = find_dissector_add_dependency("ppi_fnet", proto_ppi);
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_PPI, ppi_handle);
     register_capture_dissector("wtap_encap", WTAP_ENCAP_PPI, capture_ppi, proto_ppi);

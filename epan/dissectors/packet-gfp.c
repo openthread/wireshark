@@ -99,7 +99,6 @@ static gint ett_gfp_thec = -1;
 static gint ett_gfp_ehec = -1;
 static gint ett_gfp_fcs = -1;
 
-static dissector_handle_t data_handle;
 static dissector_table_t gfp_dissector_table;
 
 /* ITU-T G.7041 6.1.1, 6.2 */
@@ -161,9 +160,12 @@ static const range_string gfp_upi_data_rvals[] = {
     {17, 17, "Frame-Mapped IPv6"},
     {18, 18, "Frame-Mapped DVB-ASI"},
     {19, 19, "Frame-Mapped 64B/66B encoded Ethernet, including frame preamble"},
-    {20, 20,"Frame-Mapped 64B/66B encoded Ethernet ordered set information"},
+    {20, 20, "Frame-Mapped 64B/66B encoded Ethernet ordered set information"},
     {21, 21, "Transparent transcoded FC-1200"},
-    {22, 239, "Reserved for future standardization"},
+    /*UPI value 22 & 23 from Amendment 3 (01/2015)*/
+    {22, 22, "Precision Time Protocol message"},
+    {23, 23, "Synchronization status message"},
+    {24, 239, "Reserved for future standardization"},
     {240, 252, "Reserved for proprietary use"},
     {253, 253, "Reserved for proprietary use, formerly Frame-Mapped 64B/66B encoded Ethernet, including frame preamble"},
     {254, 254, "Reserved for proprietary use, formerly Frame-Mapped 64B/66B encoded Ethernet ordered set information"},
@@ -245,7 +247,6 @@ dissect_gfp_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_t
     guint pti, pfi, exi, upi;
     guint fcs, fcs_calc;
     guint fcs_len = 0;
-    dissector_handle_t handle;
 
     /* G.7041 6.1.2.3 Payload area scrambling
      * Note that payload when sent on the wire is scrambled as per ATM
@@ -364,18 +365,14 @@ dissect_gfp_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_t
     switch (pti) {
         case GFP_USER_DATA:
         case GFP_MANAGEMENT_COMMUNICATIONS:
-            handle = dissector_get_uint_handle(gfp_dissector_table, upi);
-            if (handle == NULL) {
+            if (!dissector_try_uint(gfp_dissector_table, upi, payload_tvb, pinfo, tree)) {
                 expert_add_info_format(pinfo, type_ti, &ei_gfp_payload_undecoded, "Payload type 0x%02x (%s) unsupported", upi, rval_to_str_const(upi, gfp_upi_data_rvals, "UNKNOWN"));
-                handle = data_handle;
-            }
-            if (!call_dissector(handle, payload_tvb, pinfo, tree)) {
-                call_dissector(data_handle, payload_tvb, pinfo, tree);
+                call_data_dissector(payload_tvb, pinfo, tree);
             }
             break;
 
         case GFP_CLIENT_MANAGEMENT:
-            call_dissector(data_handle, payload_tvb, pinfo, tree);
+            call_data_dissector(payload_tvb, pinfo, tree);
             break;
 
         default:
@@ -621,7 +618,7 @@ proto_register_gfp(void)
 
     /* Subdissectors for payload */
     gfp_dissector_table = register_dissector_table("gfp.upi", "GFP UPI (for Client Data frames)",
-                                                   FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                   proto_gfp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Don't register a preferences module yet since there are no prefs in
      * order to avoid a warning. (See section 2.6 of README.dissector
@@ -647,8 +644,6 @@ proto_reg_handoff_gfp(void)
 
     gfp_handle = create_dissector_handle(dissect_gfp,
             proto_gfp);
-
-    data_handle = find_dissector("data");
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_GFP_T, gfp_handle);
     dissector_add_uint("wtap_encap", WTAP_ENCAP_GFP_F, gfp_handle);

@@ -756,7 +756,6 @@ static expert_field ei_gsm_a_dtap_coding_scheme = EI_INIT;
 
 static dissector_table_t u2u_dissector_table;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t gsm_map_handle;
 static dissector_handle_t rp_handle;
 
@@ -6721,7 +6720,7 @@ dissect_dtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         /*
          * too short to be DTAP
          */
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
         return len;
     }
 
@@ -7718,7 +7717,7 @@ proto_register_gsm_a_dtap(void)
             NULL, HFILL }
         },
         { &hf_gsm_a_dtap_bearer_cap_coding_standard,
-          { "Coding standard", "gsm_a.dtap.coding_standard",
+          { "Coding standard", "gsm_a.dtap.cap_coding_standard",
             FT_BOOLEAN, 8, TFS(&tfs_bearer_cap_coding_standard), 0x10,
             NULL, HFILL }
         },
@@ -8312,7 +8311,7 @@ proto_register_gsm_a_dtap(void)
     /* subdissector code */
     register_dissector("gsm_a_dtap", dissect_dtap, proto_a_dtap);
     u2u_dissector_table = register_dissector_table("gsm_a.dtap.u2u_prot_discr", "GSM User to User Signalling",
-                                                  FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                  proto_a_dtap, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
@@ -8328,9 +8327,8 @@ proto_reg_handoff_gsm_a_dtap(void)
     dissector_add_uint("lapdm.sapi",   0 , dtap_handle); /* LAPDm: CC/RR/MM */
     dissector_add_uint("lapdm.sapi",   3 , dtap_handle); /* LAPDm: SMS/SS */
 
-    data_handle    = find_dissector("data");
-    gsm_map_handle = find_dissector("gsm_map");
-    rp_handle      = find_dissector("gsm_a_rp");
+    gsm_map_handle = find_dissector_add_dependency("gsm_map", proto_a_dtap);
+    rp_handle      = find_dissector_add_dependency("gsm_a_rp", proto_a_dtap);
 }
 
 

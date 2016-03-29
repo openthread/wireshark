@@ -33,6 +33,7 @@
 #include <epan/capture_dissectors.h>
 #include <wsutil/pint.h>
 #include "packet-eth.h"
+#include "packet-gre.h"
 #include "packet-ieee8023.h"
 #include "packet-ipx.h"
 #include "packet-isl.h"
@@ -92,7 +93,6 @@ static expert_field ei_eth_len = EI_INIT;
 
 static dissector_handle_t fw1_handle;
 static dissector_handle_t ethertype_handle;
-static dissector_handle_t data_handle;
 static heur_dissector_list_t heur_subdissector_list;
 static heur_dissector_list_t eth_trailer_subdissector_list;
 
@@ -412,7 +412,7 @@ dissect_eth_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
     expert_add_info_format(pinfo, ti, &ei_eth_invalid_lentype,
         "Invalid length/type: 0x%04x (%d)", ehdr->type, ehdr->type);
     next_tvb = tvb_new_subset_remaining(tvb, 14);
-    call_dissector(data_handle, next_tvb, pinfo, parent_tree);
+    call_data_dissector(next_tvb, pinfo, parent_tree);
     return fh_tree;
   }
 
@@ -961,8 +961,8 @@ proto_register_eth(void)
   expert_register_field_array(expert_eth, ei, array_length(ei));
 
   /* subdissector code */
-  heur_subdissector_list = register_heur_dissector_list("eth");
-  eth_trailer_subdissector_list = register_heur_dissector_list("eth.trailer");
+  heur_subdissector_list = register_heur_dissector_list("eth", proto_eth);
+  eth_trailer_subdissector_list = register_heur_dissector_list("eth.trailer", proto_eth);
 
   /* Register configuration preferences */
   eth_module = prefs_register_protocol(proto_eth, NULL);
@@ -1041,13 +1041,10 @@ proto_reg_handoff_eth(void)
   dissector_handle_t eth_handle, eth_withoutfcs_handle;
 
   /* Get a handle for the Firewall-1 dissector. */
-  fw1_handle = find_dissector("fw1");
+  fw1_handle = find_dissector_add_dependency("fw1", proto_eth);
 
   /* Get a handle for the ethertype dissector. */
-  ethertype_handle = find_dissector("ethertype");
-
-  /* Get a handle for the generic data dissector. */
-  data_handle = find_dissector("data");
+  ethertype_handle = find_dissector_add_dependency("ethertype", proto_eth);
 
   eth_handle = create_dissector_handle(dissect_eth, proto_eth);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_ETHERNET, eth_handle);
@@ -1057,6 +1054,7 @@ proto_reg_handoff_eth(void)
   dissector_add_uint("erf.types.type", ERF_TYPE_ETH, eth_withoutfcs_handle);
   dissector_add_uint("chdlc.protocol", ETHERTYPE_ETHBRIDGE, eth_withoutfcs_handle);
   dissector_add_uint("gre.proto", ETHERTYPE_ETHBRIDGE, eth_withoutfcs_handle);
+  dissector_add_uint("gre.proto", GRE_MIKROTIK_EOIP, eth_withoutfcs_handle);
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_ETHER, eth_withoutfcs_handle);
   dissector_add_uint("sflow_245.header_protocol", SFLOW_245_HEADER_ETHERNET, eth_withoutfcs_handle);
   dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_ETH, eth_withoutfcs_handle);

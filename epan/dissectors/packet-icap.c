@@ -49,7 +49,6 @@ static int hf_icap_options = -1;
 
 static gint ett_icap = -1;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t http_handle;
 
 #define TCP_PORT_ICAP           1344
@@ -321,8 +320,7 @@ proto_reg_handoff_icap(void)
 {
     dissector_handle_t icap_handle;
 
-    data_handle = find_dissector("data");
-    http_handle = find_dissector("http");
+    http_handle = find_dissector_add_dependency("http", proto_icap);
 
     icap_handle = create_dissector_handle(dissect_icap, proto_icap);
     dissector_add_uint("tcp.port", TCP_PORT_ICAP, icap_handle);

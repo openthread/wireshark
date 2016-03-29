@@ -45,11 +45,13 @@ signals:
     void showWirelessPreferences(const QString wlan_module_name);
 
 protected:
-    void timerEvent(QTimerEvent *);
+    void timerEvent(QTimerEvent *event);
 
 private:
     void getInterfaceInfo();
     void setInterfaceInfo();
+    int getCenterFrequency(int control_frequency, int bandwidth);
+    int getBandwidthFromChanType(int chan_type);
 
 private slots:
     void updateWidgets();
@@ -65,6 +67,7 @@ private:
     Ui::WirelessFrame *ui;
     GArray *interfaces_;
     bool capture_in_progress_;
+    int iface_timer_id_;
 };
 
 #endif // WIRELESS_FRAME_H

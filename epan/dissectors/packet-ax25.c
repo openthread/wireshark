@@ -122,8 +122,6 @@ static gint ett_ax25_ctl = -1;
 
 static dissector_handle_t ax25_handle;
 
-static dissector_handle_t data_handle;
-
 static int
 dissect_ax25( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_ )
 {
@@ -243,7 +241,7 @@ dissect_ax25( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 
 		if (!dissector_try_uint(ax25_dissector_table, pid, next_tvb, pinfo, parent_tree))
 			{
-			call_dissector(data_handle, next_tvb, pinfo, parent_tree);
+			call_data_dissector(next_tvb, pinfo, parent_tree);
 			}
 		}
 	else
@@ -253,7 +251,7 @@ dissect_ax25( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 }
 
 gboolean
-capture_ax25( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+capture_ax25( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
 	guint8 control;
 	guint8 pid;
@@ -411,7 +409,7 @@ proto_register_ax25(void)
 	proto_register_subtree_array(ett, array_length(ett ) );
 
 	/* Register dissector table for protocol IDs */
-	ax25_dissector_table = register_dissector_table("ax25.pid", "AX.25 protocol ID", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	ax25_dissector_table = register_dissector_table("ax25.pid", "AX.25 protocol ID", proto_ax25, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 	register_capture_dissector_table("ax25.pid", "AX.25");
 }
 
@@ -422,9 +420,6 @@ proto_reg_handoff_ax25(void)
 	dissector_add_uint("ip.proto", IP_PROTO_AX25, ax25_handle);
 
 	register_capture_dissector("wtap_encap", WTAP_ENCAP_AX25, capture_ax25, proto_ax25);
-
-	data_handle  = find_dissector( "data" );
-
 }
 
 /*

@@ -49,7 +49,6 @@ NODIST_GENERATED_HEADER_FILES =	\
 	ui_expert_info_dialog.h	\
 	ui_export_object_dialog.h	\
 	ui_export_pdu_dialog.h	\
-	ui_extcap_options_dialog.h	\
 	ui_file_set_dialog.h	\
 	ui_filter_dialog.h	\
 	ui_filter_expression_frame.h	\
@@ -166,6 +165,7 @@ MOC_HDRS =	\
 	column_preferences_frame.h	\
 	column_editor_frame.h	\
 	compiled_filter_output.h	\
+	conversation_colorize_action.h	\
 	conversation_dialog.h	\
 	conversation_hash_tables_dialog.h	\
 	decode_as_dialog.h	\
@@ -180,10 +180,6 @@ MOC_HDRS =	\
 	export_dissection_dialog.h	\
 	export_object_dialog.h	\
 	export_pdu_dialog.h	\
-	extcap_argument.h	\
-	extcap_argument_file.h	\
-	extcap_argument_multiselect.h	\
-	extcap_options_dialog.h	\
 	file_set_dialog.h	\
 	filter_action.h	\
 	filter_dialog.h	\
@@ -302,7 +298,6 @@ UI_FILES =	\
 	expert_info_dialog.ui	\
 	export_object_dialog.ui	\
 	export_pdu_dialog.ui	\
-	extcap_options_dialog.ui	\
 	file_set_dialog.ui	\
 	filter_dialog.ui	\
 	filter_expression_frame.ui	\
@@ -383,6 +378,20 @@ QRC_FILES =	\
 	i18n.qrc
 
 #
+# The .cpp files generated from them.
+# We do *not* include these in the distribution; if you have the Qt SDK
+# installed, so that you can build Qt-based applications, you have rcc
+# installed.
+#
+QRC_SRC = 	\
+	qrc_about.cpp	\
+	qrc_languages.cpp	\
+	qrc_layout.cpp	\
+	qrc_toolbar.cpp	\
+	qrc_wsicon.cpp	\
+	qrc_i18n.cpp
+
+#
 # .ts files.
 # wireshark_en should be pluralonly.
 #
@@ -400,14 +409,6 @@ TS_FILES =	\
 #
 # Should they be auto-generated ?
 QM_FILES = $(TS_FILES:.ts=.qm)
-
-#
-# The .rcc.cpp files generated from them.
-# We do *not* include these in the distribution; if you have the Qt SDK
-# installed, so that you can build Qt-based applications, you have moc
-# installed.
-#
-QRC_SRC = $(QRC_FILES:.qrc=.rcc.cpp)
 
 WIRESHARK_QT_SRC =	\
 	about_dialog.cpp	\
@@ -432,6 +433,7 @@ WIRESHARK_QT_SRC =	\
 	column_preferences_frame.cpp	\
 	column_editor_frame.cpp	\
 	compiled_filter_output.cpp \
+	conversation_colorize_action.cpp	\
 	conversation_dialog.cpp	\
 	conversation_hash_tables_dialog.cpp	\
 	decode_as_dialog.cpp	\
@@ -445,10 +447,6 @@ WIRESHARK_QT_SRC =	\
 	export_dissection_dialog.cpp	\
 	export_object_dialog.cpp	\
 	export_pdu_dialog.cpp	\
-	extcap_argument.cpp	\
-	extcap_argument_file.cpp	\
-	extcap_argument_multiselect.cpp	\
-	extcap_options_dialog.cpp	\
 	file_set_dialog.cpp	\
 	filter_action.cpp	\
 	filter_dialog.cpp	\

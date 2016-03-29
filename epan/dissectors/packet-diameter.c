@@ -103,7 +103,7 @@ static gint exported_pdu_tap = -1;
 
 /* Conversation Info */
 typedef struct _diameter_conv_info_t {
-	wmem_map_t *pdus_tree;
+	wmem_map_t *pdu_trees;
 } diameter_conv_info_t;
 
 typedef struct _diam_ctx_t {
@@ -1318,18 +1318,18 @@ dissect_diameter_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	diameter_conv_info = (diameter_conv_info_t *)conversation_get_proto_data(conversation, proto_diameter);
 	if (!diameter_conv_info) {
 		diameter_conv_info = wmem_new(wmem_file_scope(), diameter_conv_info_t);
-		diameter_conv_info->pdus_tree = wmem_map_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
+		diameter_conv_info->pdu_trees = wmem_map_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
 
 		conversation_add_proto_data(conversation, proto_diameter, diameter_conv_info);
 	}
 
 	/* pdus_tree is an wmem_tree keyed by frame number (in order to handle hop-by-hop collisions */
-	pdus_tree = (wmem_tree_t *)wmem_map_lookup(diameter_conv_info->pdus_tree, GUINT_TO_POINTER(hop_by_hop_id));
+	pdus_tree = (wmem_tree_t *)wmem_map_lookup(diameter_conv_info->pdu_trees, GUINT_TO_POINTER(hop_by_hop_id));
 
 	if (pdus_tree == NULL && (flags_bits & DIAM_FLAGS_R)) {
 		/* This is the first request we've seen with this hop-by-hop id */
 		pdus_tree = wmem_tree_new(wmem_file_scope());
-		wmem_map_insert(diameter_conv_info->pdus_tree, GUINT_TO_POINTER(hop_by_hop_id), pdus_tree);
+		wmem_map_insert(diameter_conv_info->pdu_trees, GUINT_TO_POINTER(hop_by_hop_id), pdus_tree);
 	}
 
 	if (pdus_tree) {
@@ -2285,11 +2285,11 @@ real_proto_register_diameter(void)
 	register_dissector("diameter", dissect_diameter, proto_diameter);
 
 	/* Register dissector table(s) to do sub dissection of AVPs (OctetStrings) */
-	diameter_dissector_table = register_dissector_table("diameter.base", "DIAMETER_BASE_AVPS", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-	diameter_3gpp_avp_dissector_table = register_dissector_table("diameter.3gpp", "DIAMETER_3GPP_AVPS", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-	diameter_ericsson_avp_dissector_table = register_dissector_table("diameter.ericsson", "DIAMETER_ERICSSON_AVPS", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	diameter_dissector_table = register_dissector_table("diameter.base", "DIAMETER_BASE_AVPS", proto_diameter, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	diameter_3gpp_avp_dissector_table = register_dissector_table("diameter.3gpp", "DIAMETER_3GPP_AVPS", proto_diameter, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	diameter_ericsson_avp_dissector_table = register_dissector_table("diameter.ericsson", "DIAMETER_ERICSSON_AVPS", proto_diameter, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
-	diameter_expr_result_vnd_table = register_dissector_table("diameter.vnd_exp_res", "DIAMETER Experimental-Result-Code", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	diameter_expr_result_vnd_table = register_dissector_table("diameter.vnd_exp_res", "DIAMETER Experimental-Result-Code", proto_diameter, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 	/* Set default TCP ports */
 	range_convert_str(&global_diameter_tcp_port_range, DEFAULT_DIAMETER_PORT_RANGE, MAX_UDP_PORT);
@@ -2371,7 +2371,7 @@ proto_reg_handoff_diameter(void)
 							      proto_diameter);
 		diameter_udp_handle = create_dissector_handle(dissect_diameter, proto_diameter);
 		data_handle = find_dissector("data");
-		eap_handle = find_dissector("eap");
+		eap_handle = find_dissector_add_dependency("eap", proto_diameter);
 
 		dissector_add_uint("sctp.ppi", DIAMETER_PROTOCOL_ID, diameter_sctp_handle);
 

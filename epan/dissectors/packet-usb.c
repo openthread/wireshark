@@ -145,6 +145,7 @@ static int hf_usb_device_wFeatureSelector = -1;
 static int hf_usb_interface_wFeatureSelector = -1;
 static int hf_usb_endpoint_wFeatureSelector = -1;
 static int hf_usb_wInterface = -1;
+static int hf_usb_wEndpoint = -1;
 static int hf_usb_wStatus = -1;
 static int hf_usb_wFrameNumber = -1;
 
@@ -268,8 +269,6 @@ static const int *usb_usbpcap_info_fields[] = {
 
 static int usb_tap = -1;
 static gboolean try_heuristics = TRUE;
-
-static dissector_handle_t data_handle;
 
 static dissector_table_t usb_bulk_dissector_table;
 static dissector_table_t usb_control_dissector_table;
@@ -1509,34 +1508,39 @@ dissect_usb_setup_clear_feature_request(packet_info *pinfo _U_, proto_tree *tree
     if (usb_conv_info) {
         recip = USB_RECIPIENT(usb_conv_info->usb_trans_info->setup.requesttype);
 
-        /* feature selector */
+        /* feature selector, zero/interface/endpoint */
         switch (recip) {
         case RQT_SETUP_RECIPIENT_DEVICE:
             proto_tree_add_item(tree, hf_usb_device_wFeatureSelector, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
 
         case RQT_SETUP_RECIPIENT_INTERFACE:
             proto_tree_add_item(tree, hf_usb_interface_wFeatureSelector, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
 
         case RQT_SETUP_RECIPIENT_ENDPOINT:
             proto_tree_add_item(tree, hf_usb_endpoint_wFeatureSelector, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_wEndpoint, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
 
         case RQT_SETUP_RECIPIENT_OTHER:
         default:
             proto_tree_add_item(tree, hf_usb_value, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
         }
     } else {
         /* No conversation information, so recipient type is unknown */
         proto_tree_add_item(tree, hf_usb_value, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     }
-    offset += 2;
-
-    /* zero/interface/endpoint */
-    /* XXX - check based on request type */
-    proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
 
     /* length */
@@ -2482,8 +2486,29 @@ dissect_usb_setup_get_status_request(packet_info *pinfo _U_, proto_tree *tree,
     offset += 2;
 
     /* zero/interface/endpoint */
-    /* XXX - check based on request type */
-    proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    if (usb_conv_info) {
+        guint8 recip;
+
+        recip = USB_RECIPIENT(usb_conv_info->usb_trans_info->setup.requesttype);
+
+        switch (recip) {
+        case RQT_SETUP_RECIPIENT_INTERFACE:
+            proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            break;
+
+        case RQT_SETUP_RECIPIENT_ENDPOINT:
+            proto_tree_add_item(tree, hf_usb_wEndpoint, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            break;
+
+        case RQT_SETUP_RECIPIENT_DEVICE:
+        case RQT_SETUP_RECIPIENT_OTHER:
+        default:
+            proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            break;
+        }
+    } else {
+        proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    }
     offset += 2;
 
     /* length */
@@ -2596,34 +2621,39 @@ dissect_usb_setup_set_feature_request(packet_info *pinfo _U_, proto_tree *tree,
     if (usb_conv_info) {
         recip = USB_RECIPIENT(usb_conv_info->usb_trans_info->setup.requesttype);
 
-        /* feature selector */
+        /* feature selector, zero/interface/endpoint */
         switch (recip) {
         case RQT_SETUP_RECIPIENT_DEVICE:
             proto_tree_add_item(tree, hf_usb_device_wFeatureSelector, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
 
         case RQT_SETUP_RECIPIENT_INTERFACE:
             proto_tree_add_item(tree, hf_usb_interface_wFeatureSelector, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
 
         case RQT_SETUP_RECIPIENT_ENDPOINT:
             proto_tree_add_item(tree, hf_usb_endpoint_wFeatureSelector, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_wEndpoint, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
 
         case RQT_SETUP_RECIPIENT_OTHER:
         default:
             proto_tree_add_item(tree, hf_usb_value, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            offset += 2;
+            proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             break;
         }
     } else {
         /* No conversation information, so recipient type is unknown */
         proto_tree_add_item(tree, hf_usb_value, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_usb_index, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     }
-    offset += 2;
-
-    /* zero/interface/endpoint or test selector */
-    /* XXX - check based on request type */
-    proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
 
     /* zero */
@@ -2717,8 +2747,7 @@ dissect_usb_setup_synch_frame_request(packet_info *pinfo _U_, proto_tree *tree,
     offset += 2;
 
     /* endpoint */
-    /* XXX */
-    proto_tree_add_item(tree, hf_usb_wInterface, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(tree, hf_usb_wEndpoint, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
 
     /* two */
@@ -2972,7 +3001,7 @@ try_dissect_next_protocol(proto_tree *tree, tvbuff_t *next_tvb, packet_info *pin
          * XXX - is there something we can still do here?
          */
         if (tvb_reported_length(next_tvb) > 0)
-            call_dissector(data_handle, next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
 
         return tvb_captured_length(next_tvb);
     }
@@ -4763,6 +4792,11 @@ proto_register_usb(void)
             FT_UINT16, BASE_DEC, NULL, 0x0,
             NULL, HFILL }},
 
+        { &hf_usb_wEndpoint,
+          { "wEndpoint", "usb.setup.wEndpoint",
+            FT_UINT16, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
         { &hf_usb_wStatus,
           { "wStatus", "usb.setup.wStatus",
             FT_UINT16, BASE_HEX, NULL, 0x0,
@@ -5224,21 +5258,21 @@ proto_register_usb(void)
 
     device_to_product_table = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
     device_to_protocol_table = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
-    device_to_dissector = register_dissector_table("usb.device",     "USB device",   FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    protocol_to_dissector = register_dissector_table("usb.protocol", "USB protocol", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    product_to_dissector = register_dissector_table("usb.product",   "USB product",  FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    device_to_dissector = register_dissector_table("usb.device",     "USB device",   proto_usb, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    protocol_to_dissector = register_dissector_table("usb.protocol", "USB protocol", proto_usb, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    product_to_dissector = register_dissector_table("usb.product",   "USB product",  proto_usb, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     usb_bulk_dissector_table = register_dissector_table("usb.bulk",
-        "USB bulk endpoint", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    heur_bulk_subdissector_list = register_heur_dissector_list("usb.bulk");
+        "USB bulk endpoint", proto_usb, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    heur_bulk_subdissector_list = register_heur_dissector_list("usb.bulk", proto_usb);
     usb_control_dissector_table = register_dissector_table("usb.control",
-        "USB control endpoint", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    heur_control_subdissector_list = register_heur_dissector_list("usb.control");
+        "USB control endpoint", proto_usb, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    heur_control_subdissector_list = register_heur_dissector_list("usb.control", proto_usb);
     usb_interrupt_dissector_table = register_dissector_table("usb.interrupt",
-        "USB interrupt endpoint", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    heur_interrupt_subdissector_list = register_heur_dissector_list("usb.interrupt");
+        "USB interrupt endpoint", proto_usb, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    heur_interrupt_subdissector_list = register_heur_dissector_list("usb.interrupt", proto_usb);
     usb_descriptor_dissector_table = register_dissector_table("usb.descriptor",
-        "USB descriptor", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+        "USB descriptor", proto_usb, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     usb_module = prefs_register_protocol(proto_usb, NULL);
     prefs_register_bool_preference(usb_module, "try_heuristics",
@@ -5263,8 +5297,6 @@ proto_reg_handoff_usb(void)
     dissector_handle_t  linux_usb_mmapped_handle;
     dissector_handle_t  win32_usb_handle;
     dissector_handle_t  freebsd_usb_handle;
-
-    data_handle = find_dissector("data");
 
     linux_usb_handle = create_dissector_handle(dissect_linux_usb, proto_usb);
     linux_usb_mmapped_handle = create_dissector_handle(dissect_linux_usb_mmapped,

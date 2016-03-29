@@ -572,7 +572,6 @@ static dissector_handle_t dtls_handle;
 static dissector_handle_t ieee8023_handle;
 static dissector_handle_t ieee80211_handle;
 static dissector_handle_t ieee80211_bsfc_handle;
-static dissector_handle_t data_handle;
 
 static gint ett_capwap = -1;
 static gint ett_capwap_control = -1;
@@ -1545,7 +1544,7 @@ static const value_string fortinet_element_id_vals[] = {
 
 
 static int
-dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *sub_msg_element_type_tree, guint offset, packet_info *pinfo _U_, guint optlen,  proto_item *msg_element_type_item)
+dissect_capwap_message_element_vendor_fortinet_type(tvbuff_t *tvb, proto_tree *sub_msg_element_type_tree, guint offset, packet_info *pinfo, guint optlen,  proto_item *msg_element_type_item)
 {
     guint element_id, i;
 
@@ -2055,7 +2054,7 @@ static const value_string cisco_ap_mode_and_type_mode_vals[] = {
 
 
 static int
-dissect_capwap_message_element_vendor_cisco_type(tvbuff_t *tvb, proto_tree *sub_msg_element_type_tree, guint offset, packet_info *pinfo _U_, guint optlen,  proto_item *msg_element_type_item)
+dissect_capwap_message_element_vendor_cisco_type(tvbuff_t *tvb, proto_tree *sub_msg_element_type_tree, guint offset, packet_info *pinfo, guint optlen,  proto_item *msg_element_type_item)
 {
     guint element_id;
 
@@ -3266,7 +3265,7 @@ dissect_capwap_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
         if (next_tvb == NULL)
         { /* make a new subset */
             next_tvb = tvb_new_subset_remaining(tvb, offset);
-            call_dissector(data_handle, next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
             col_append_fstr(pinfo->cinfo, COL_INFO, " (Fragment ID: %u, Fragment Offset: %u)", fragment_id, fragment_offset);
         }
         else
@@ -3351,7 +3350,7 @@ dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
         if (next_tvb == NULL)
         { /* make a new subset */
             next_tvb = tvb_new_subset_remaining(tvb, offset);
-            call_dissector(data_handle, next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
             col_append_fstr(pinfo->cinfo, COL_INFO, " (Fragment ID: %u, Fragment Offset: %u)", fragment_id, fragment_offset);
             return tvb_captured_length(tvb);
         }
@@ -3379,16 +3378,16 @@ dissect_capwap_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
         switch (payload_wbid) {
         case 0: /* Reserved - Cisco seems to use this instead of 1 */
             /* It seems that just calling ieee80211_handle is not
-             * quite enough to get this right, so call data_handle
+             * quite enough to get this right, so call data dissector
              * for now:
              */
-            call_dissector(data_handle, next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
             break;
         case 1: /* IEEE 802.11 */
             call_dissector(global_capwap_swap_frame_control ? ieee80211_bsfc_handle : ieee80211_handle, next_tvb, pinfo, tree);
             break;
         default: /* Unknown Data */
-            call_dissector(data_handle, next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
             break;
         }
     }
@@ -5799,11 +5798,11 @@ proto_reg_handoff_capwap(void)
     if (!inited) {
         capwap_control_handle = create_dissector_handle(dissect_capwap_control, proto_capwap_control);
         capwap_data_handle    = create_dissector_handle(dissect_capwap_data, proto_capwap_data);
-        dtls_handle           = find_dissector("dtls");
-        ieee8023_handle       = find_dissector("eth_withoutfcs");
-        ieee80211_handle      = find_dissector("wlan_withoutfcs");
-        ieee80211_bsfc_handle = find_dissector("wlan_bsfc");
-        data_handle           = find_dissector("data");
+        dtls_handle           = find_dissector_add_dependency("dtls", proto_capwap_control);
+        find_dissector_add_dependency("dtls", proto_capwap_data);
+        ieee8023_handle       = find_dissector_add_dependency("eth_withoutfcs", proto_capwap_data);
+        ieee80211_handle      = find_dissector_add_dependency("wlan_withoutfcs", proto_capwap_data);
+        ieee80211_bsfc_handle = find_dissector_add_dependency("wlan_bsfc", proto_capwap_data);
 
         inited = TRUE;
     } else {

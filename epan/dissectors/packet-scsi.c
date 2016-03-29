@@ -96,7 +96,6 @@
 #include "packet-scsi-smc.h"
 
 void proto_register_scsi(void);
-void proto_reg_handoff_scsi(void);
 
 static int proto_scsi                           = -1;
 static int hf_scsi_inq_control_vendor_specific  = -1;
@@ -2811,8 +2810,6 @@ typedef struct _cmdset_t {
 } cmdset_t;
 
 static cmdset_t *get_cmdset_data(itlq_nexus_t *itlq, itl_nexus_t *itl);
-
-static dissector_handle_t data_handle;
 
 static void
 dissect_naa_designator(proto_tree *tree, tvbuff_t *tvb, guint offset, guint len)
@@ -6238,7 +6235,7 @@ dissect_scsi_cdb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         spc[opcode].func(tvb, pinfo, scsi_tree, offset+1,
                          TRUE, TRUE, 0, cdata);
     } else {
-        call_dissector(data_handle, tvb, pinfo, scsi_tree);
+        call_data_dissector(tvb, pinfo, scsi_tree);
     }
 
     pinfo->current_proto = old_proto;
@@ -6337,7 +6334,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
      * dissect the data.
      */
     if ( !itlq->first_exchange_frame ) {
-        call_dissector(data_handle, tvb, pinfo, scsi_tree);
+        call_data_dissector(tvb, pinfo, scsi_tree);
         goto end_of_payload;
     }
 
@@ -6346,7 +6343,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
      */
     if (!scsi_defragment) {
         if (relative_offset) {
-            call_dissector(data_handle, tvb, pinfo, scsi_tree);
+            call_data_dissector(tvb, pinfo, scsi_tree);
             goto end_of_payload;
         } else {
             goto dissect_the_payload;
@@ -6358,7 +6355,7 @@ dissect_scsi_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
      */
     if (tvb_captured_length_remaining(tvb, offset) != tvb_reported_length_remaining(tvb, offset)) {
         if (relative_offset) {
-            call_dissector(data_handle, tvb, pinfo, scsi_tree);
+            call_data_dissector(tvb, pinfo, scsi_tree);
             goto end_of_payload;
         } else {
             goto dissect_the_payload;
@@ -6441,7 +6438,7 @@ dissect_the_payload:
             spc[opcode].func(next_tvb, pinfo, scsi_tree, offset,
                              isreq, FALSE, payload_len, cdata);
         } else { /* don't know this CDB */
-            call_dissector(data_handle, next_tvb, pinfo, scsi_tree);
+            call_data_dissector(next_tvb, pinfo, scsi_tree);
         }
     }
 
@@ -7359,7 +7356,7 @@ proto_register_scsi(void)
       { &hf_scsi_inq_cmddt_support, { "Support", "scsi.inquiry.cmddt.support", FT_UINT8, BASE_DEC, VALS(scsi_cmdt_supp_val), 0x07, NULL, HFILL }},
       { &hf_scsi_inq_cmddt_version, { "Version", "scsi.inquiry.cmddt.version", FT_UINT8, BASE_HEX|BASE_EXT_STRING, &scsi_verdesc_val_ext, 0x0, NULL, HFILL }},
       { &hf_scsi_inq_cmddt_cdb_size, { "CDB Size", "scsi.inquiry.cmddt.cdb_size", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_scsi_blockdescs_no_of_blocks64, { "No. of Blocks", "scsi.blockdescs.no_of_blocks", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_scsi_blockdescs_no_of_blocks64, { "No. of Blocks", "scsi.blockdescs.no_of_blocks64", FT_UINT64, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_blockdescs_density_code, { "Density Code", "scsi.blockdescs.density_code", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_blockdescs_block_length32, { "Block Length", "scsi.blockdescs.block_length", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_blockdescs_no_of_blocks32, { "No. of Blocks", "scsi.blockdescs.no_of_blocks", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -7694,7 +7691,7 @@ proto_register_scsi(void)
       { &hf_scsi_naa_locally_assigned, { "Locally Assigned", "scsi.naa.locally_assigned", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_naa_ieee_company_id, { "IEEE Company ID", "scsi.naa.ieee_company_id", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_naa_vendor_specific, { "Vendor Specific Identifier", "scsi.naa.vendor_specific", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-      { &hf_scsi_naa_vendor_specific_extension, { "Vendor Specific Identifier Extension", "scsi.naa.vendor_specific", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }}
+      { &hf_scsi_naa_vendor_specific_extension, { "Vendor Specific Identifier Extension", "scsi.naa.vendor_specific.extension", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }}
     };
 
     /* Setup protocol subtree array */
@@ -7774,15 +7771,9 @@ proto_register_scsi(void)
     register_cleanup_routine(scsi_defragment_cleanup);
 
     register_srt_table(proto_scsi, NULL, 1, scsistat_packet, scsistat_init, scsistat_param);
-}
 
-void
-proto_reg_handoff_scsi(void)
-{
     scsi_tap    = register_tap("scsi");
-    data_handle = find_dissector("data");
 }
-
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

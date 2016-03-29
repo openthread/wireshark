@@ -1209,8 +1209,6 @@ static value_string_ext epl_sdo_asnd_commands_short_ext = VALUE_STRING_EXT_INIT(
 static const gchar* addr_str_cn  = " (Controlled Node)";
 static const gchar* addr_str_res = " (reserved)";
 
-static dissector_handle_t data_dissector = NULL;
-
 static gint dissect_epl_payload ( proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo, gint offset, gint len, guint8 msgType );
 
 static gint dissect_epl_soc(proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo, gint offset);
@@ -1928,7 +1926,7 @@ dissect_epl_payload ( proto_tree *epl_tree, tvbuff_t *tvb, packet_info *pinfo, g
 		}
 
 		if ( ! dissector_try_heuristic(heur_epl_data_subdissector_list, payload_tvb, pinfo, epl_tree, &hdtbl_entry, &msgType))
-			call_dissector(data_dissector, payload_tvb, pinfo, epl_tree);
+			call_data_dissector(payload_tvb, pinfo, epl_tree);
 
 		off += len;
 	}
@@ -4350,10 +4348,10 @@ proto_register_epl(void)
 	proto_epl = proto_register_protocol("Ethernet POWERLINK", "EPL", "epl");
 
 	/* subdissector code */
-	heur_epl_subdissector_list = register_heur_dissector_list("epl");
-	heur_epl_data_subdissector_list = register_heur_dissector_list("epl_data");
+	heur_epl_subdissector_list = register_heur_dissector_list("epl", proto_epl);
+	heur_epl_data_subdissector_list = register_heur_dissector_list("epl_data", proto_epl);
 	epl_asnd_dissector_table = register_dissector_table("epl.asnd",
-		"Manufacturer specific ASND service", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+		"Manufacturer specific ASND service", proto_epl, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	/* Registering protocol to be called by another dissector */
 	epl_handle = register_dissector("epl", dissect_epl, proto_epl);
@@ -4385,10 +4383,6 @@ void
 proto_reg_handoff_epl(void)
 {
 	dissector_handle_t epl_udp_handle = create_dissector_handle( dissect_epludp, proto_epl );
-
-	/* Store a pointer to the data_dissector */
-	if ( data_dissector == NULL )
-		data_dissector = find_dissector ( "data" );
 
 	dissector_add_uint("ethertype", ETHERTYPE_EPL_V2, epl_handle);
 	dissector_add_uint("udp.port", UDP_PORT_EPL, epl_udp_handle);

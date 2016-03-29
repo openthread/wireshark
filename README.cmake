@@ -36,7 +36,7 @@ Note 1:
   In step 5) you may need to override the defaults for features. Common
   options include:
 
-  # Disable the POSIX capbabilities check
+  # Disable the POSIX capabilities check
   -DENABLE_CAP=OFF
 
   # Enable debugging symbols
@@ -63,6 +63,11 @@ Note 1:
   # Qt Creator expects .cbp files when used with CMake.
   -G "CodeBlocks - Unix Makefiles"
   -G "CodeBlocks - NMake Makefiles"
+
+  # We call try_compile many times, particularly via ConfigureChecks.cmake.
+  # Setting a lightweight try_compile configuration can speed up cmake,
+  # particularly for MSBuild.
+  -DCMAKE_TRY_COMPILE_CONFIGURATION=Release
 
 Note 2:
   After running cmake, you can always run "make help" to see

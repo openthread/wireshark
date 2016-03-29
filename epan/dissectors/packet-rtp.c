@@ -292,8 +292,6 @@ static const enum_val_t rtp_version0_types[] = {
 };
 static gint global_rtp_version0_type = 0;
 
-static dissector_handle_t data_handle;
-
 /* Forward declaration we need below */
 void proto_register_rtp(void);
 void proto_reg_handoff_rtp(void);
@@ -1495,7 +1493,7 @@ process_rtp_payload(tvbuff_t *newtvb, packet_info *pinfo, proto_tree *tree,
         if (p_conv_data->bta2dp_info->codec_dissector)
             call_dissector_with_data(p_conv_data->bta2dp_info->codec_dissector, nexttvb, pinfo, tree, p_conv_data->bta2dp_info);
         else
-            call_dissector(data_handle, nexttvb, pinfo, tree);
+            call_data_dissector(nexttvb, pinfo, tree);
     } else if (p_conv_data && p_conv_data->btvdp_info) {
         tvbuff_t  *nexttvb;
         gint       suboffset = 0;
@@ -1512,7 +1510,7 @@ process_rtp_payload(tvbuff_t *newtvb, packet_info *pinfo, proto_tree *tree,
         if (p_conv_data->btvdp_info->codec_dissector)
             call_dissector_with_data(p_conv_data->btvdp_info->codec_dissector, nexttvb, pinfo, tree, p_conv_data->btvdp_info);
         else
-            call_dissector(data_handle, nexttvb, pinfo, tree);
+            call_data_dissector(nexttvb, pinfo, tree);
     }
 
     /* if we don't found, it is static OR could be set static from the preferences */
@@ -2288,8 +2286,7 @@ dissect_rtp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
              * item.
              */
             proto_tree_add_expert(rtp_tree, pinfo, &ei_rtp_padding_missing, tvb, 0, 0);
-            call_dissector(data_handle,
-                tvb_new_subset_remaining(tvb, offset),
+            call_data_dissector(tvb_new_subset_remaining(tvb, offset),
                 pinfo, rtp_tree);
             return tvb_captured_length(tvb);
         }
@@ -3673,15 +3670,15 @@ proto_register_rtp(void)
     rtp_tap = register_tap("rtp");
 
     rtp_pt_dissector_table = register_dissector_table("rtp.pt",
-                                    "RTP payload type", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+                                    "RTP payload type", proto_rtp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
     rtp_dyn_pt_dissector_table = register_dissector_table("rtp_dyn_payload_type",
-                                    "Dynamic RTP payload type", FT_STRING, TRUE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+                                    "Dynamic RTP payload type", proto_rtp, FT_STRING, TRUE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
 
     rtp_hdr_ext_dissector_table = register_dissector_table("rtp.hdr_ext",
-                                    "RTP header extension", FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+                                    "RTP header extension", proto_rtp, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
     rtp_hdr_ext_rfc5285_dissector_table = register_dissector_table("rtp.ext.rfc5285.id",
-                                    "RTP Generic header extension (RFC 5285)", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+                                    "RTP Generic header extension (RFC 5285)", proto_rtp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
 
     register_dissector("rtp.ext.ed137", dissect_rtp_hdr_ext_ed137, proto_rtp);
     register_dissector("rtp.ext.ed137a", dissect_rtp_hdr_ext_ed137a, proto_rtp);
@@ -3745,23 +3742,22 @@ proto_reg_handoff_rtp(void)
         dissector_add_for_decode_as("flip.payload", rtp_handle );
 
 
-        rtcp_handle = find_dissector("rtcp");
-        data_handle = find_dissector("data");
-        stun_handle = find_dissector("stun-udp");
-        classicstun_handle = find_dissector("classicstun");
-        classicstun_heur_handle = find_dissector("classicstun-heur");
-        stun_heur_handle = find_dissector("stun-heur");
-        t38_handle = find_dissector("t38_udp");
-        zrtp_handle = find_dissector("zrtp");
+        rtcp_handle = find_dissector_add_dependency("rtcp", proto_rtp);
+        stun_handle = find_dissector_add_dependency("stun-udp", proto_rtp);
+        classicstun_handle = find_dissector_add_dependency("classicstun", proto_rtp);
+        classicstun_heur_handle = find_dissector_add_dependency("classicstun-heur", proto_rtp);
+        stun_heur_handle = find_dissector_add_dependency("stun-heur", proto_rtp);
+        t38_handle = find_dissector_add_dependency("t38_udp", proto_rtp);
+        zrtp_handle = find_dissector_add_dependency("zrtp", proto_rtp);
 
-        sprt_handle = find_dissector("sprt");
+        sprt_handle = find_dissector_add_dependency("sprt", proto_rtp);
         v150fw_handle = find_dissector("v150fw");
 
-        bta2dp_content_protection_header_scms_t = find_dissector("bta2dp_content_protection_header_scms_t");
-        btvdp_content_protection_header_scms_t = find_dissector("btvdp_content_protection_header_scms_t");
-        bta2dp_handle = find_dissector("bta2dp");
-        btvdp_handle = find_dissector("btvdp");
-        sbc_handle = find_dissector("sbc");
+        bta2dp_content_protection_header_scms_t = find_dissector_add_dependency("bta2dp_content_protection_header_scms_t", proto_rtp);
+        btvdp_content_protection_header_scms_t = find_dissector_add_dependency("btvdp_content_protection_header_scms_t", proto_rtp);
+        bta2dp_handle = find_dissector_add_dependency("bta2dp", proto_rtp);
+        btvdp_handle = find_dissector_add_dependency("btvdp", proto_rtp);
+        sbc_handle = find_dissector_add_dependency("sbc", proto_rtp);
 
         dissector_add_string("rtp_dyn_payload_type", "v150fw", v150fw_handle);
 

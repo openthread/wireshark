@@ -29,6 +29,7 @@ check_include_file("dlfcn.h"             HAVE_DLFCN_H)
 check_include_file("fcntl.h"             HAVE_FCNTL_H)
 check_include_file("getopt.h"            HAVE_GETOPT_H)
 check_include_file("grp.h"               HAVE_GRP_H)
+check_include_file("ifaddrs.h"           HAVE_IFADDRS_H)
 check_include_file("inttypes.h"          HAVE_INTTYPES_H)
 check_include_file("netinet/in.h"        HAVE_NETINET_IN_H)
 check_include_file("netdb.h"             HAVE_NETDB_H)
@@ -115,6 +116,7 @@ if(HAVE_GETOPT_LONG)
 	endif()
 endif()
 check_function_exists("getprotobynumber" HAVE_GETPROTOBYNUMBER)
+check_function_exists("getifaddrs"       HAVE_GETIFADDRS)
 check_function_exists("inet_aton"        HAVE_INET_ATON)
 check_function_exists("inet_ntop"        HAVE_INET_NTOP_PROTO)
 check_function_exists("inet_pton"        HAVE_INET_PTON)
@@ -173,6 +175,13 @@ if (NL_FOUND)
 			enum nl80211_protocol_features x = NL80211_PROTOCOL_FEATURE_SPLIT_WIPHY_DUMP;
 		}"
 		HAVE_NL80211_SPLIT_WIPHY_DUMP
+	)
+	check_c_source_compiles(
+		"#include <linux/nl80211.h>
+		int main() {
+			enum nl80211_attrs x = NL80211_ATTR_VHT_CAPABILITY;
+		}"
+		HAVE_NL80211_VHT_CAPABILITY
 	)
 endif()
 

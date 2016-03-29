@@ -30,6 +30,8 @@
 #include <string.h>
 
 #include <epan/packet.h>
+#include <epan/address_types.h>
+#include <epan/to_str.h>
 #include <epan/conversation.h>
 #include <epan/xdlc.h>
 #include <wiretap/wtap.h>
@@ -137,8 +139,6 @@
 void proto_reg_handoff_irda(void);
 void proto_register_irda(void);
 
-static dissector_handle_t data_handle;
-
 /* Initialize the protocol and registered fields */
 static int proto_irlap = -1;
 static int hf_lap_a = -1;
@@ -238,6 +238,8 @@ static gint ett_ttp = -1;
 static gint ett_param[MAX_PARAMETERS];
 
 static gint ett_iap_entry[MAX_IAP_ENTRIES];
+
+static int irda_address_type = -1;
 
 static const xdlc_cf_items irlap_cf_items = {
     &hf_lap_c_nr,
@@ -529,9 +531,9 @@ static void dissect_iap_request(tvbuff_t* tvb, packet_info* pinfo, proto_tree* r
 
             /* create conversation entry */
             src = circuit_id ^ CMD_FRAME;
-            set_address(&srcaddr, AT_NONE, 1, &src);
+            set_address(&srcaddr, irda_address_type, 1, &src);
 
-            set_address(&destaddr, AT_NONE, 1, &circuit_id);
+            set_address(&destaddr, irda_address_type, 1, &circuit_id);
 
             conv = find_conversation(pinfo->num, &srcaddr, &destaddr, PT_NONE, pinfo->srcport, pinfo->destport, 0);
             if (conv)
@@ -641,7 +643,7 @@ static void dissect_iap_request(tvbuff_t* tvb, packet_info* pinfo, proto_tree* r
 
     /* If any bytes remain, send it to the generic data dissector */
     tvb = tvb_new_subset_remaining(tvb, offset);
-    call_dissector(data_handle, tvb, pinfo, root);
+    call_data_dissector(tvb, pinfo, root);
 }
 
 
@@ -678,9 +680,9 @@ static void dissect_iap_result(tvbuff_t* tvb, packet_info* pinfo, proto_tree* ro
     retcode = tvb_get_guint8(tvb, offset + 1);
 
     src = circuit_id ^ CMD_FRAME;
-    set_address(&srcaddr, AT_NONE, 1, &src);
+    set_address(&srcaddr, irda_address_type, 1, &src);
 
-    set_address(&destaddr, AT_NONE, 1, &circuit_id);
+    set_address(&destaddr, irda_address_type, 1, &circuit_id);
 
     /* Find result value dissector */
     conv = find_conversation(pinfo->num, &srcaddr, &destaddr, PT_NONE, pinfo->srcport, pinfo->destport, 0);
@@ -891,7 +893,7 @@ static void dissect_iap_result(tvbuff_t* tvb, packet_info* pinfo, proto_tree* ro
 
     /* If any bytes remain, send it to the generic data dissector */
     tvb = tvb_new_subset_remaining(tvb, offset);
-    call_dissector(data_handle, tvb, pinfo, root);
+    call_data_dissector(tvb, pinfo, root);
 }
 
 
@@ -959,9 +961,9 @@ static void dissect_appl_proto(tvbuff_t* tvb, packet_info* pinfo, proto_tree* ro
 
 
     src = circuit_id ^ CMD_FRAME;
-    set_address(&srcaddr, AT_NONE, 1, &src);
+    set_address(&srcaddr, irda_address_type, 1, &src);
 
-    set_address(&destaddr, AT_NONE, 1, &circuit_id);
+    set_address(&destaddr, irda_address_type, 1, &circuit_id);
 
     /* Find result value dissector */
     conv = find_conversation(pinfo->num, &srcaddr, &destaddr, PT_NONE, pinfo->srcport, pinfo->destport, 0);
@@ -1003,7 +1005,7 @@ static void dissect_appl_proto(tvbuff_t* tvb, packet_info* pinfo, proto_tree* ro
         call_dissector_with_data(lmp_conv->dissector, tvb, pinfo, root, GUINT_TO_POINTER(pdu_type));
     }
     else
-        call_dissector(data_handle, tvb, pinfo, root);
+        call_data_dissector(tvb, pinfo, root);
 }
 
 
@@ -1155,7 +1157,7 @@ static void dissect_irlmp(tvbuff_t* tvb, packet_info* pinfo, proto_tree* root, g
     else
     {
         if ((dlsap == LSAP_IAS) || (slsap == LSAP_IAS))
-            call_dissector(data_handle, tvb, pinfo, root);
+            call_data_dissector(tvb, pinfo, root);
         else
             switch (opcode)
             {
@@ -1169,7 +1171,7 @@ static void dissect_irlmp(tvbuff_t* tvb, packet_info* pinfo, proto_tree* root, g
                     break;
 
                 default:
-                    call_dissector(data_handle, tvb, pinfo, root);
+                    call_data_dissector(tvb, pinfo, root);
             }
     }
 }
@@ -1188,9 +1190,9 @@ void add_lmp_conversation(packet_info* pinfo, guint8 dlsap, gboolean ttp, dissec
 
 
 /*g_message("%d: add_lmp_conversation(%p, %d, %d, %p) = ", pinfo->num, pinfo, dlsap, ttp, proto_dissector); */
-    set_address(&srcaddr, AT_NONE, 1, &circuit_id);
+    set_address(&srcaddr, irda_address_type, 1, &circuit_id);
 
-    set_address(&destaddr, AT_NONE, 1, &dest);
+    set_address(&destaddr, irda_address_type, 1, &dest);
 
     conv = find_conversation(pinfo->num, &destaddr, &srcaddr, PT_NONE, dlsap, 0, NO_PORT_B);
     if (conv)
@@ -1824,7 +1826,7 @@ static void dissect_irlap(tvbuff_t* tvb, packet_info* pinfo, proto_tree* root)
     if (tvb_reported_length_remaining(tvb, offset) > 0)
     {
         tvb = tvb_new_subset_remaining(tvb, offset);
-        call_dissector(data_handle, tvb, pinfo, root);
+        call_data_dissector(tvb, pinfo, root);
     }
 }
 
@@ -1846,6 +1848,30 @@ static int dissect_irda(tvbuff_t* tvb, packet_info* pinfo, proto_tree* root, voi
     return tvb_captured_length(tvb);
 }
 
+static int irda_addr_to_str(const address* addr, gchar *buf, int buf_len _U_)
+{
+    const guint8 *addrdata = (const guint8 *)addr->data;
+    gchar *start_buf = buf;
+
+    buf = uint_to_str_back(buf, *addrdata);
+    *buf = '\0';
+    return (int)(buf-start_buf+1);
+}
+
+static int irda_addr_str_len(const address* addr _U_)
+{
+    return 11; /* Leaves required space (10 bytes) for uint_to_str_back() */
+}
+
+static const char* irda_col_filter_str(const address* addr _U_, gboolean is_src _U_)
+{
+    return "irlap.a";
+}
+
+static int irda_addr_len(void)
+{
+    return 1;
+}
 
 /*
  * Register the protocol with Wireshark
@@ -2203,6 +2229,8 @@ void proto_register_irda(void)
         ett_iap_e[i]     = &ett_iap_entry[i];
     }
     proto_register_subtree_array(ett_iap_e, MAX_IAP_ENTRIES);
+
+    irda_address_type = address_type_dissector_register("AT_IRDA", "IRDA Address", irda_addr_to_str, irda_addr_str_len, irda_col_filter_str, irda_addr_len, NULL, NULL);
 }
 
 
@@ -2218,7 +2246,6 @@ void proto_reg_handoff_irda(void)
     irda_handle = find_dissector("irda");
     dissector_add_uint("wtap_encap", WTAP_ENCAP_IRDA, irda_handle);
     dissector_add_uint("sll.ltype", LINUX_SLL_P_IRDA_LAP, irda_handle);
-    data_handle = find_dissector("data");
 }
 
 /*

@@ -32,12 +32,12 @@
 #include <QContextMenuEvent>
 #include <QDesktopServices>
 #include <QHeaderView>
+#include <QScrollBar>
 #include <QTreeWidgetItemIterator>
 #include <QUrl>
 
 // To do:
 // - Fix "apply as filter" behavior.
-// - Add colorize conversation.
 
 /* Fill a single protocol tree item with its string value and set its color. */
 static void
@@ -151,7 +151,8 @@ proto_tree_draw_node(proto_node *node, gpointer data)
 
 ProtoTree::ProtoTree(QWidget *parent) :
     QTreeWidget(parent),
-    decode_as_(NULL)
+    decode_as_(NULL),
+    column_resize_timer_(0)
 {
     setAccessibleName(tr("Packet details"));
     // Leave the uniformRowHeights property as-is (false) since items might
@@ -275,6 +276,11 @@ ProtoTree::ProtoTree(QWidget *parent) :
             this, SIGNAL(showProtocolPreferences(QString)));
     connect(&proto_prefs_menu_, SIGNAL(editProtocolPreference(preference*,pref_module*)),
             this, SIGNAL(editProtocolPreference(preference*,pref_module*)));
+
+    // resizeColumnToContents checks 1000 items by default. The user might
+    // have scrolled to an area with a different width at this point.
+    connect(verticalScrollBar(), SIGNAL(sliderReleased()),
+            this, SLOT(updateContentWidth()));
 }
 
 void ProtoTree::closeContextMenu()
@@ -285,7 +291,7 @@ void ProtoTree::closeContextMenu()
 void ProtoTree::clear() {
     updateSelectionStatus(NULL);
     QTreeWidget::clear();
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::contextMenuEvent(QContextMenuEvent *event)
@@ -324,6 +330,44 @@ void ProtoTree::contextMenuEvent(QContextMenuEvent *event)
     decode_as_->setData(QVariant());
 }
 
+void ProtoTree::timerEvent(QTimerEvent *event)
+{
+    if (event->timerId() == column_resize_timer_) {
+        killTimer(column_resize_timer_);
+        column_resize_timer_ = 0;
+        resizeColumnToContents(0);
+    } else {
+        QTreeWidget::timerEvent(event);
+    }
+}
+
+// resizeColumnToContents checks 1000 items by default. The user might
+// have scrolled to an area with a different width at this point.
+void ProtoTree::keyReleaseEvent(QKeyEvent *event)
+{
+    if (event->isAutoRepeat()) return;
+
+    switch(event->key()) {
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+        case Qt::Key_PageUp:
+        case Qt::Key_PageDown:
+        case Qt::Key_Home:
+        case Qt::Key_End:
+            updateContentWidth();
+            break;
+        default:
+            break;
+    }
+}
+
+void ProtoTree::updateContentWidth()
+{
+    if (column_resize_timer_ == 0) {
+        column_resize_timer_ = startTimer(0);
+    }
+}
+
 void ProtoTree::setMonospaceFont(const QFont &mono_font)
 {
     mono_font_ = mono_font;
@@ -336,7 +380,7 @@ void ProtoTree::fillProtocolTree(proto_tree *protocol_tree) {
     setFont(mono_font_);
 
     proto_tree_children_foreach(protocol_tree, proto_tree_draw_node, invisibleRootItem());
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::emitRelatedFrame(int related_frame, ft_framenum_type_t framenum_type)
@@ -445,7 +489,7 @@ void ProtoTree::expand(const QModelIndex & index) {
         tree_expanded_set(fi->tree_type, TRUE);
     }
 
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::collapse(const QModelIndex & index) {
@@ -463,7 +507,7 @@ void ProtoTree::collapse(const QModelIndex & index) {
                  fi->tree_type < num_tree_types);
         tree_expanded_set(fi->tree_type, FALSE);
     }
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::expandSubtrees()
@@ -493,7 +537,7 @@ void ProtoTree::expandSubtrees()
         (*iter)->setExpanded(true);
         iter++;
     }
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::expandAll()
@@ -503,7 +547,7 @@ void ProtoTree::expandAll()
         tree_expanded_set(i, TRUE);
     }
     QTreeWidget::expandAll();
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::collapseAll()
@@ -513,7 +557,7 @@ void ProtoTree::collapseAll()
         tree_expanded_set(i, FALSE);
     }
     QTreeWidget::collapseAll();
-    resizeColumnToContents(0);
+    updateContentWidth();
 }
 
 void ProtoTree::itemDoubleClick(QTreeWidgetItem *item, int) {

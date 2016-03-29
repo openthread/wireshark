@@ -52,7 +52,7 @@ TARGET_PLATFORM=macx-clang
 # Some packages need xz to unpack their current source.
 # xz is not yet provided with OS X.
 #
-XZ_VERSION=5.0.4
+XZ_VERSION=5.0.8
 
 #
 # In case we want to build with cmake.
@@ -469,7 +469,7 @@ uninstall_gettext() {
 install_pkg_config() {
     if [ ! -f pkg-config-$PKG_CONFIG_VERSION-done ] ; then
         echo "Downloading, building, and installing pkg-config:"
-        [ -f pkg-config-$PKG_CONFIG_VERSION.tar.gz ] || curl -O http://pkgconfig.freedesktop.org/releases/pkg-config-$PKG_CONFIG_VERSION.tar.gz || exit 1
+        [ -f pkg-config-$PKG_CONFIG_VERSION.tar.gz ] || curl -O https://pkgconfig.freedesktop.org/releases/pkg-config-$PKG_CONFIG_VERSION.tar.gz || exit 1
         gzcat pkg-config-$PKG_CONFIG_VERSION.tar.gz | tar xf - || exit 1
         cd pkg-config-$PKG_CONFIG_VERSION
         ./configure --with-internal-glib || exit 1

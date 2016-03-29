@@ -28,7 +28,7 @@ if(WIN32)
 	# 3.1.3 is the currently supported version
 	cmake_minimum_required(VERSION 3.1.3)
 else()
-	cmake_minimum_required(VERSION 2.8.3)
+	cmake_minimum_required(VERSION 2.8.8)
 endif()
 
 # Needs to be set after cmake_minimum_required or cmake_policy(VERSION)
@@ -209,7 +209,6 @@ include_directories(
 	${CMAKE_SOURCE_DIR}
 	${CMAKE_SOURCE_DIR}/epan
 	${CMAKE_SOURCE_DIR}/tools/lemon
-	${CMAKE_SOURCE_DIR}/extcap
 )
 
 include( CMakeOptions.txt )
@@ -344,14 +343,16 @@ else()
 		# The following are for C and C++
 		# -O<X> and -g get set by the CMAKE_BUILD_TYPE
 		-Wall
-		-W
 		-Wextra
 		-Wendif-labels
 		-Wpointer-arith
 		-Warray-bounds
 		-Wformat-security
+		-Wused-but-marked-unused
+		-Wno-error=used-but-marked-unused
 		-fwrapv
 		-fno-strict-overflow
+		# -ferror-limit=0
 		-Wvla
 		-Waddress
 		-Wattributes
@@ -742,11 +743,9 @@ if(ENABLE_PORTAUDIO AND BUILD_wireshark_gtk)
 endif()
 
 
-# Prefer c-ares over adns
-if(ENABLE_CARES) # C Asynchronouse resolver
+# C Asynchronous resolver
+if(ENABLE_CARES)
 	set(PACKAGELIST ${PACKAGELIST} CARES)
-elseif(ENABLE_ADNS) # Gnu asynchronous DNS
-	set(PACKAGELIST ${PACKAGELIST} ADNS)
 endif()
 
 # Zlib compression
@@ -882,12 +881,9 @@ endif()
 if(HAVE_LIBCARES)
 	set(HAVE_C_ARES 1)
 endif()
-if(HAVE_LIBADNS)
-	set(HAVE_GNU_ADNS 1)
-endif()
-if(NOT HAVE_LIBCARES AND NOT HAVE_LIBADNS)
+if(NOT HAVE_LIBCARES)
 	# We should make this an error at some point.
-	message(WARNING "Not using c-ares or ADNS.")
+	message(WARNING "Not using c-ares.")
 	message(WARNING "Synchronous name resolution can seriously degrade performance.")
 endif()
 if(HAVE_LIBNL AND HAVE_AIRPCAP)
@@ -989,6 +985,10 @@ elseif(QT_FOUND)
 	endif()
 endif()
 
+if(ENABLE_CHECKHF_CONFLICT)
+	set(ENABLE_CHECK_FILTER 1)
+endif()
+
 message(STATUS "C-Flags: ${CMAKE_C_FLAGS}")
 message(STATUS "CXX-Flags: ${CMAKE_CXX_FLAGS}")
 message(STATUS "Warnings as errors: ${WERROR_COMMON_FLAGS}")
@@ -1012,16 +1012,17 @@ test_big_endian(WORDS_BIGENDIAN)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-add_subdirectory( asn1 EXCLUDE_FROM_ALL )
 add_subdirectory( capchild )
 add_subdirectory( caputils )
 add_subdirectory( codecs )
+add_subdirectory( doc )
 add_subdirectory( docbook )
 add_subdirectory( epan )
 add_subdirectory( randpkt_core )
 add_subdirectory( tools/lemon )
 add_subdirectory( ui )
 add_subdirectory( wiretap )
+add_subdirectory( writecap )
 add_subdirectory( wsutil )
 
 if(NOT WIN32)
@@ -1180,7 +1181,6 @@ set( plugindir "\${libdir}/wireshark/plugins/${CPACK_PACKAGE_VERSION}" )
 
 set(ICON_PATH "${CMAKE_SOURCE_DIR}/image/")
 set( IN_FILES
-	adns_dll.rc
 	capchild/doxygen.cfg.in
 	caputils/doxygen.cfg.in
 	doxygen.cfg.in
@@ -1211,6 +1211,7 @@ set( IN_FILES
 	ui/gtk/doxygen.cfg.in
 	ui/qt/doxygen.cfg.in
 	wireshark.pc.in
+	writecap/doxygen.cfg.in
 )
 foreach( _in_file ${IN_FILES} )
 	get_filename_component( _path ${_in_file} PATH )
@@ -1221,7 +1222,7 @@ endforeach()
 include(FeatureSummary)
 #SET_FEATURE_INFO(NAME DESCRIPTION [URL [COMMENT] ])
 SET_FEATURE_INFO(SBC "SBC Codec for Bluetooth A2DP stream playing" "www: http://git.kernel.org/cgit/bluetooth/sbc.git" )
-SET_FEATURE_INFO(LIBSSH "libssh is library for ssh connections and it is needed to build sshdump" "www: https://www.libssh.org/get-it/" )
+SET_FEATURE_INFO(LIBSSH "libssh is library for ssh connections and it is needed to build sshdump/ciscodump" "www: https://www.libssh.org/get-it/" )
 
 FEATURE_SUMMARY(WHAT ALL)
 
@@ -1235,6 +1236,7 @@ link_directories(
 	${CMAKE_BINARY_DIR}/epan
 	${CMAKE_BINARY_DIR}/randpkt_core
 	${CMAKE_BINARY_DIR}/wiretap
+	${CMAKE_BINARY_DIR}/writecap
 	${CMAKE_BINARY_DIR}/wsutil
 )
 
@@ -1308,36 +1310,36 @@ set(INSTALL_DIRS
 )
 
 set(INSTALL_FILES
-	${CMAKE_BINARY_DIR}/androiddump.html
-	${CMAKE_BINARY_DIR}/sshdump.html
-	${CMAKE_BINARY_DIR}/AUTHORS-SHORT
-	${CMAKE_BINARY_DIR}/capinfos.html
-	${CMAKE_BINARY_DIR}/captype.html
 	cfilters
 	colorfilters
 	dfilters
-	${CMAKE_BINARY_DIR}/dftest.html
-	${CMAKE_BINARY_DIR}/dumpcap.html
-	${CMAKE_BINARY_DIR}/editcap.html
-	${CMAKE_BINARY_DIR}/extcap.html
-	${CMAKE_BINARY_DIR}/asn2deb.html
-	${CMAKE_BINARY_DIR}/idl2deb.html
-	${CMAKE_BINARY_DIR}/idl2wrs.html
 	ipmap.html
 	manuf
-	${CMAKE_BINARY_DIR}/mergecap.html
 	pdml2html.xsl
-	${CMAKE_BINARY_DIR}/randpkt.html
-	${CMAKE_BINARY_DIR}/randpktdump.html
-	${CMAKE_BINARY_DIR}/rawshark.html
-	${CMAKE_BINARY_DIR}/reordercap.html
 	services
 	smi_modules
-	${CMAKE_BINARY_DIR}/text2pcap.html
-	${CMAKE_BINARY_DIR}/tshark.html
-	${CMAKE_BINARY_DIR}/wireshark-filter.html
-	${CMAKE_BINARY_DIR}/wireshark.html
 	docbook/ws.css
+	${CMAKE_BINARY_DIR}/doc/AUTHORS-SHORT
+	${CMAKE_BINARY_DIR}/doc/asn2deb.html
+	${CMAKE_BINARY_DIR}/doc/androiddump.html
+	${CMAKE_BINARY_DIR}/doc/capinfos.html
+	${CMAKE_BINARY_DIR}/doc/captype.html
+	${CMAKE_BINARY_DIR}/doc/dftest.html
+	${CMAKE_BINARY_DIR}/doc/dumpcap.html
+	${CMAKE_BINARY_DIR}/doc/editcap.html
+	${CMAKE_BINARY_DIR}/doc/extcap.html
+	${CMAKE_BINARY_DIR}/doc/idl2deb.html
+	${CMAKE_BINARY_DIR}/doc/idl2wrs.html
+	${CMAKE_BINARY_DIR}/doc/mergecap.html
+	${CMAKE_BINARY_DIR}/doc/randpkt.html
+	${CMAKE_BINARY_DIR}/doc/randpktdump.html
+	${CMAKE_BINARY_DIR}/doc/rawshark.html
+	${CMAKE_BINARY_DIR}/doc/reordercap.html
+	${CMAKE_BINARY_DIR}/doc/sshdump.html
+	${CMAKE_BINARY_DIR}/doc/text2pcap.html
+	${CMAKE_BINARY_DIR}/doc/tshark.html
+	${CMAKE_BINARY_DIR}/doc/wireshark.html
+	${CMAKE_BINARY_DIR}/doc/wireshark-filter.html
 )
 
 if(WIN32)
@@ -1349,40 +1351,13 @@ else()
 	set(INSTALL_FILES COPYING ${INSTALL_FILES})
 endif()
 
-set(MAN1_FILES
-	${CMAKE_BINARY_DIR}/androiddump.1
-	${CMAKE_BINARY_DIR}/capinfos.1
-	${CMAKE_BINARY_DIR}/captype.1
-	${CMAKE_BINARY_DIR}/dftest.1
-	${CMAKE_BINARY_DIR}/dumpcap.1
-	${CMAKE_BINARY_DIR}/editcap.1
-	${CMAKE_BINARY_DIR}/extcap.4
-	${CMAKE_BINARY_DIR}/idl2wrs.1
-	${CMAKE_BINARY_DIR}/mergecap.1
-	${CMAKE_BINARY_DIR}/randpkt.1
-	${CMAKE_BINARY_DIR}/androiddump.1
-	${CMAKE_BINARY_DIR}/rawshark.1
-	${CMAKE_BINARY_DIR}/reordercap.1
-	${CMAKE_BINARY_DIR}/sshdump.1
-	${CMAKE_BINARY_DIR}/text2pcap.1
-	${CMAKE_BINARY_DIR}/tshark.1
-	${CMAKE_BINARY_DIR}/wireshark.1
-)
-
-set(MAN4_FILES
-	${CMAKE_BINARY_DIR}/wireshark-filter.4
-)
-
 set(LIBEPAN_LIBS
-#		@NSL_LIBS@	# -lnsl
-#		@SOCKET_LIBS@	# -lsocket
 #		@SSL_LIBS@	# -lcrypto
 		epan
 #		$(plugin_ldadd)	# in case of static
 		${AIRPCAP_LIBRARIES}
 		${PCAP_LIBRARIES}
 		${CARES_LIBRARIES}
-		${ADNS_LIBRARIES}
 		${KERBEROS_LIBRARIES}
 		${LUA_LIBRARIES}
 		${PYTHON_LIBRARIES}
@@ -1607,7 +1582,7 @@ foreach(_install_file ${INSTALL_FILES})
 			"${_output_file}"
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 		DEPENDS
-			html_docs
+			docs
 			"${_install_file}"
 	)
 	list(APPEND copy_data_files_depends "${_output_file}")
@@ -1773,8 +1748,8 @@ if(ENABLE_APPLICATION_BUNDLE)
 
 	# Wireshark.app/Contents/Resources
 	set(BUNDLE_RESOURCE_FILES
-		${CMAKE_SOURCE_DIR}/packaging/macosx/Resources/Wireshark.icns
-		${CMAKE_SOURCE_DIR}/packaging/macosx/Resources/Wiresharkdoc.icns
+		${CMAKE_SOURCE_DIR}/packaging/macosx/Wireshark.icns
+		${CMAKE_SOURCE_DIR}/packaging/macosx/Wiresharkdoc.icns
 	)
 	set_source_files_properties(${BUNDLE_RESOURCE_FILES} PROPERTIES
 		MACOSX_PACKAGE_LOCATION Resources
@@ -2154,10 +2129,7 @@ if(BUILD_randpkt)
 		wsutil
 		${M_LIBRARIES}
 		${PCAP_LIBRARIES}
-#		@SOCKET_LIBS@
-#		@NSL_LIBS@
 		${CARES_LIBRARIES}
-		${ADNS_LIBRARIES}
 		${ZLIB_LIBRARIES}
 	)
 	set(randpkt_FILES
@@ -2171,13 +2143,13 @@ endif()
 
 if(BUILD_text2pcap)
 	set(text2pcap_LIBS
+		writecap
 		wsutil
 		${M_LIBRARIES}
 		${ZLIB_LIBRARIES}
 	)
 	set(text2pcap_CLEAN_FILES
 		text2pcap.c
-		pcapio.c
 	)
 	set(text2pcap_FILES
 		${text2pcap_CLEAN_FILES}
@@ -2277,12 +2249,11 @@ endif()
 
 if(BUILD_dumpcap AND PCAP_FOUND)
 	set(dumpcap_LIBS
+		writecap
 		wsutil
 		caputils
 		${PCAP_LIBRARIES}
 		${CAP_LIBRARIES}
-#		@SOCKET_LIBS@
-#		@NSL_LIBS@
 		${GLIB2_LIBRARIES}
 		${GTHREAD2_LIBRARIES}
 		${ZLIB_LIBRARIES}
@@ -2296,7 +2267,6 @@ if(BUILD_dumpcap AND PCAP_FOUND)
 		conditions.c
 		dumpcap.c
 		filter_files.c
-		pcapio.c
 		ringbuffer.c
 		sync_pipe_write.c
 		${CMAKE_BINARY_DIR}/image/dumpcap.rc
@@ -2349,7 +2319,7 @@ if (WIN32)
 	endif()
 endif()
 
-if(BUILD_androiddump)
+if(ENABLE_EXTCAP AND BUILD_androiddump)
 	if(EXTCAP_ANDROIDDUMP_LIBPCAP)
 		if(HAVE_LIBPCAP)
 			set(androiddump_LIBS
@@ -2378,8 +2348,9 @@ if(BUILD_androiddump)
 	install(TARGETS androiddump RUNTIME DESTINATION ${EXTCAP_DIR})
 endif()
 
-if(BUILD_sshdump AND LIBSSH_FOUND)
+if(ENABLE_EXTCAP AND BUILD_sshdump AND LIBSSH_FOUND)
 	set(sshdump_LIBS
+		wsutil
 		${GLIB2_LIBRARIES}
 		${CMAKE_DL_LIBS}
 		${LIBSSH_LIBRARIES}
@@ -2390,6 +2361,7 @@ if(BUILD_sshdump AND LIBSSH_FOUND)
 	set(sshdump_FILES
 		extcap/sshdump.c
 		extcap/extcap-base.c
+		extcap/ssh-base.c
 	)
 
 	add_executable(sshdump WIN32 ${sshdump_FILES})
@@ -2401,7 +2373,33 @@ elseif (BUILD_sshdump)
 	#message( WARNING "Cannot find libssh, cannot build sshdump" )
 endif()
 
-if(BUILD_randpktdump)
+if(ENABLE_EXTCAP AND BUILD_ciscodump AND LIBSSH_FOUND)
+	set(ciscodump_LIBS
+		writecap
+		wsutil
+		${GLIB2_LIBRARIES}
+		${CMAKE_DL_LIBS}
+		${LIBSSH_LIBRARIES}
+	)
+	if (WIN32)
+	        set(ciscodump_LIBS wsutil ${ciscodump_LIBS})
+	endif()
+	set(ciscodump_FILES
+		extcap/ciscodump.c
+		extcap/extcap-base.c
+		extcap/ssh-base.c
+	)
+
+	add_executable(ciscodump WIN32 ${ciscodump_FILES})
+	set_extcap_executable_properties(ciscodump)
+	target_link_libraries(ciscodump ${ciscodump_LIBS})
+	target_include_directories(ciscodump PUBLIC ${LIBSSH_INCLUDE_DIR})
+	install(TARGETS ciscodump RUNTIME DESTINATION ${EXTCAP_DIR})
+elseif (BUILD_ciscodump)
+	#message( WARNING "Cannot find libssh, cannot build ciscodump" )
+endif()
+
+if(ENABLE_EXTCAP AND BUILD_randpktdump)
 	set(randpktdump_LIBS
 		randpkt_core
 		wiretap
@@ -2418,57 +2416,6 @@ if(BUILD_randpktdump)
 	set_extcap_executable_properties(randpktdump)
 	target_link_libraries(randpktdump ${randpktdump_LIBS})
 	install(TARGETS randpktdump RUNTIME DESTINATION ${EXTCAP_DIR})
-endif()
-
-ADD_CUSTOM_COMMAND(
-	OUTPUT	${CMAKE_BINARY_DIR}/AUTHORS-SHORT
-	COMMAND ${PERL_EXECUTABLE}
-		${CMAKE_SOURCE_DIR}/doc/perlnoutf.pl
-		${CMAKE_SOURCE_DIR}/doc/make-authors-short.pl
-		< ${CMAKE_SOURCE_DIR}/AUTHORS
-		> ${CMAKE_BINARY_DIR}/AUTHORS-SHORT
-	DEPENDS
-		${CMAKE_SOURCE_DIR}/doc/perlnoutf.pl
-		${CMAKE_SOURCE_DIR}/doc/make-authors-short.pl
-		${CMAKE_SOURCE_DIR}/AUTHORS
-)
-
-ADD_CUSTOM_COMMAND(
-	OUTPUT	${CMAKE_BINARY_DIR}/AUTHORS-SHORT-FORMAT
-	COMMAND ${PERL_EXECUTABLE}
-		${CMAKE_SOURCE_DIR}/doc/perlnoutf.pl
-		${CMAKE_SOURCE_DIR}/doc/make-authors-format.pl
-		< ${CMAKE_BINARY_DIR}/AUTHORS-SHORT
-		> ${CMAKE_BINARY_DIR}/AUTHORS-SHORT-FORMAT
-	DEPENDS
-		${CMAKE_SOURCE_DIR}/doc/perlnoutf.pl
-		${CMAKE_SOURCE_DIR}/doc/make-authors-format.pl
-		${CMAKE_BINARY_DIR}/AUTHORS-SHORT
-)
-
-if(WIN32)
-FILE(TO_NATIVE_PATH ${CMAKE_SOURCE_DIR}/doc/wireshark.pod.template WPT_WIN_PATH)
-FILE(TO_NATIVE_PATH ${CMAKE_BINARY_DIR}/AUTHORS-SHORT-FORMAT ASF_WIN_PATH)
-FILE(TO_NATIVE_PATH ${CMAKE_BINARY_DIR}/wireshark.pod WP_WIN_PATH)
-ADD_CUSTOM_COMMAND(
-	OUTPUT	${CMAKE_BINARY_DIR}/wireshark.pod
-	COMMAND copy /B ${WPT_WIN_PATH} + ${ASF_WIN_PATH} ${WP_WIN_PATH}
-	DEPENDS
-		${CMAKE_SOURCE_DIR}/doc/wireshark.pod.template
-		${CMAKE_BINARY_DIR}/AUTHORS-SHORT-FORMAT
-)
-else()
-
-ADD_CUSTOM_COMMAND(
-	OUTPUT	${CMAKE_BINARY_DIR}/wireshark.pod
-	COMMAND cat
-		${CMAKE_SOURCE_DIR}/doc/wireshark.pod.template
-		${CMAKE_BINARY_DIR}/AUTHORS-SHORT-FORMAT
-		> ${CMAKE_BINARY_DIR}/wireshark.pod
-	DEPENDS
-		${CMAKE_SOURCE_DIR}/doc/wireshark.pod.template
-		${CMAKE_BINARY_DIR}/AUTHORS-SHORT-FORMAT
-)
 endif()
 
 if(ENABLE_APPLICATION_BUNDLE)
@@ -2527,53 +2474,6 @@ if(ENABLE_APPLICATION_BUNDLE)
 
 endif()
 
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/androiddump 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/capinfos 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/captype 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/dftest 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/dumpcap 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/editcap 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/extcap 4 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/asn2deb 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/idl2deb 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/idl2wrs 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/mergecap 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/randpkt 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/randpktdump 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/rawshark 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/reordercap 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/sshdump 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/text2pcap 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/tshark 1 )
-pod2manhtml( ${CMAKE_BINARY_DIR}/wireshark 1 )
-pod2manhtml( ${CMAKE_SOURCE_DIR}/doc/wireshark-filter 4 )
-
-add_custom_target(
-	html_docs ALL
-	DEPENDS
-		${CMAKE_BINARY_DIR}/AUTHORS-SHORT
-		androiddump.html
-		capinfos.html
-		captype.html
-		dftest.html
-		dumpcap.html
-		editcap.html
-		asn2deb.html
-		idl2deb.html
-		idl2wrs.html
-		mergecap.html
-		randpkt.html
-		randpktdump.html
-		rawshark.html
-		reordercap.html
-		sshdump.html
-		text2pcap.html
-		tshark.html
-		wireshark.html
-		wireshark-filter.html
-)
-set_target_properties(html_docs PROPERTIES FOLDER "Docs")
-
 set(CLEAN_FILES
 	${wireshark_FILES}
 	${tshark_FILES}
@@ -2589,6 +2489,7 @@ set(CLEAN_FILES
 	${dumpcap_FILES}
 	${androiddump_FILES}
 	${sshdump_FILES}
+	${ciscodump_FILES}
 )
 
 if (WERROR_COMMON_FLAGS)
@@ -2604,20 +2505,6 @@ install(
 		${INSTALL_FILES}
 	DESTINATION
 		${CMAKE_INSTALL_DATADIR}/${CPACK_PACKAGE_NAME}
-)
-
-install(
-	FILES
-		${MAN1_FILES}
-	DESTINATION
-		${CMAKE_INSTALL_MANDIR}/man1
-)
-
-install(
-	FILES
-		${MAN4_FILES}
-	DESTINATION
-		${CMAKE_INSTALL_MANDIR}/man4
 )
 
 install(
@@ -2697,6 +2584,18 @@ add_custom_target(test-sh
 	DEPENDS ${CMAKE_SOURCE_DIR}/cmake/modules/GenerateTestSh.cmake
 )
 set_target_properties(test-sh PROPERTIES FOLDER "Tests")
+
+if (GIT_EXECUTABLE)
+	# Update AUTHORS file with entries from git shortlog
+	add_custom_target(
+		gen-authors
+		COMMAND ${PERL_EXECUTABLE} tools/generate_authors.pl AUTHORS.src > AUTHORS
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+	)
+else (GIT_EXECUTABLE)
+	add_custom_target( gen-authors COMMAND ${CMAKE_COMMAND} -E echo "Git not found." )
+endif (GIT_EXECUTABLE)
+set_target_properties(gen-authors PROPERTIES FOLDER "Docs")
 
 add_custom_target(test-programs
 	DEPENDS test-sh

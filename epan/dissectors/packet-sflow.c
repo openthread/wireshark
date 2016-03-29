@@ -633,7 +633,6 @@ static gint ett_sflow_lag_port_state_flags = -1;
 static expert_field ei_sflow_invalid_address_type = EI_INIT;
 
 static dissector_table_t   header_subdissector_table;
-static dissector_handle_t data_handle;
 
 void proto_reg_handoff_sflow_245(void);
 
@@ -719,7 +718,7 @@ dissect_sflow_245_sampled_header(tvbuff_t *tvb, packet_info *pinfo,
         if ((global_dissect_samp_headers == FALSE) ||
             !dissector_try_uint(header_subdissector_table, header_proto, next_tvb, pinfo, sflow_245_header_tree))
         {
-            call_dissector(data_handle, next_tvb, pinfo, sflow_245_header_tree);
+            call_data_dissector(next_tvb, pinfo, sflow_245_header_tree);
         }
     }
 
@@ -3636,7 +3635,7 @@ proto_register_sflow(void) {
     expert_sflow = expert_register_protocol(proto_sflow);
     expert_register_field_array(expert_sflow, ei, array_length(ei));
 
-    header_subdissector_table  = register_dissector_table("sflow_245.header_protocol", "SFLOW header protocol", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    header_subdissector_table  = register_dissector_table("sflow_245.header_protocol", "SFLOW header protocol", proto_sflow, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Register our configuration options for sFlow */
     sflow_245_module = prefs_register_protocol(proto_sflow, proto_reg_handoff_sflow_245);
@@ -3687,7 +3686,6 @@ proto_reg_handoff_sflow_245(void) {
 
     if (!sflow_245_prefs_initialized) {
         sflow_handle = create_dissector_handle(dissect_sflow_245, proto_sflow);
-        data_handle = find_dissector("data");
         sflow_245_prefs_initialized = TRUE;
     } else {
         dissector_delete_uint_range("udp.port", sflow_ports, sflow_handle);

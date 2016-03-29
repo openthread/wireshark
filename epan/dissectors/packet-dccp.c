@@ -226,7 +226,6 @@ static expert_field ei_dccp_packet_type_reserved = EI_INIT;
 
 static dissector_table_t dccp_subdissector_table;
 static heur_dissector_list_t heur_subdissector_list;
-static dissector_handle_t data_handle;
 
 /* preferences */
 static gboolean dccp_summary_in_tree = TRUE;
@@ -305,7 +304,7 @@ decode_dccp_ports(tvbuff_t *tvb, int offset, packet_info *pinfo,
     }
 
     /* Oh, well, we don't know this; dissect it as data. */
-    call_dissector(data_handle, next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
 }
 
 /*
@@ -398,7 +397,7 @@ dissect_feature_options(proto_tree *dccp_options_tree, tvbuff_t *tvb,
  * This function dissects DCCP options
  */
 static void
-dissect_options(tvbuff_t *tvb, packet_info *pinfo _U_,
+dissect_options(tvbuff_t *tvb, packet_info *pinfo,
                 proto_tree *dccp_options_tree, proto_tree *tree _U_,
                 e_dccphdr *dccph _U_,
                 int offset_start,
@@ -1296,9 +1295,9 @@ proto_register_dccp(void)
 
     /* subdissectors */
     dccp_subdissector_table =
-        register_dissector_table("dccp.port", "DCCP port", FT_UINT16,
+        register_dissector_table("dccp.port", "DCCP port", proto_dccp, FT_UINT16,
                                  BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    heur_subdissector_list = register_heur_dissector_list("dccp");
+    heur_subdissector_list = register_heur_dissector_list("dccp", proto_dccp);
 
     /* reg preferences */
     dccp_module = prefs_register_protocol(proto_dccp, NULL);
@@ -1330,7 +1329,6 @@ proto_reg_handoff_dccp(void)
 
     dccp_handle = create_dissector_handle(dissect_dccp, proto_dccp);
     dissector_add_uint("ip.proto", IP_PROTO_DCCP, dccp_handle);
-    data_handle = find_dissector("data");
     dccp_tap    = register_tap("dccp");
 }
 

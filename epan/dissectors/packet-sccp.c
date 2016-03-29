@@ -4087,9 +4087,9 @@ proto_register_sccp(void)
   expert_sccp = expert_register_protocol(proto_sccp);
   expert_register_field_array(expert_sccp, ei, array_length(ei));
 
-  sccp_ssn_dissector_table = register_dissector_table("sccp.ssn", "SCCP SSN", FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  sccp_ssn_dissector_table = register_dissector_table("sccp.ssn", "SCCP SSN", proto_sccp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
-  heur_subdissector_list = register_heur_dissector_list("sccp");
+  heur_subdissector_list = register_heur_dissector_list("sccp", proto_sccp);
 
   sccp_module = prefs_register_protocol(proto_sccp, proto_reg_handoff_sccp);
 
@@ -4156,12 +4156,12 @@ proto_reg_handoff_sccp(void)
     dissector_add_string("tali.opcode", "sccp", sccp_handle);
 
     data_handle   = find_dissector("data");
-    tcap_handle   = find_dissector("tcap");
-    ranap_handle  = find_dissector("ranap");
-    bssap_handle  = find_dissector("bssap");
-    gsmmap_handle = find_dissector("gsm_map_sccp");
-    camel_handle  = find_dissector("camel");
-    inap_handle   = find_dissector("inap");
+    tcap_handle   = find_dissector_add_dependency("tcap", proto_sccp);
+    ranap_handle  = find_dissector_add_dependency("ranap", proto_sccp);
+    bssap_handle  = find_dissector_add_dependency("bssap", proto_sccp);
+    gsmmap_handle = find_dissector_add_dependency("gsm_map_sccp", proto_sccp);
+    camel_handle  = find_dissector_add_dependency("camel", proto_sccp);
+    inap_handle   = find_dissector_add_dependency("inap", proto_sccp);
 
     initialised = TRUE;
   }

@@ -47,7 +47,6 @@ static dissector_handle_t clnp_handle;
 static dissector_handle_t arp_handle;
 static dissector_handle_t ppp_handle;
 static dissector_handle_t ppphdlc_handle;
-static dissector_handle_t data_handle;
 
 static header_field_info *hfi_redback = NULL;
 
@@ -146,7 +145,7 @@ dissect_redback(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 				if(dissector_try_uint(osinl_excl_subdissector_table, nlpid, next_tvb, pinfo, tree))
 					break;
 				next_tvb = tvb_new_subset_remaining(tvb, dataoff);
-				call_dissector(data_handle, next_tvb, pinfo, tree);
+				call_data_dissector(next_tvb, pinfo, tree);
 			}
 			break;
 		case 0x06: {
@@ -236,14 +235,13 @@ proto_reg_handoff_redback(void)
 	osinl_incl_subdissector_table = find_dissector_table("osinl.incl");
 	osinl_excl_subdissector_table = find_dissector_table("osinl.excl");
 
-	ipv4_handle = find_dissector("ip");
-	ipv6_handle = find_dissector("ipv6");
-	data_handle = find_dissector("data");
-	ethnofcs_handle = find_dissector("eth_withoutfcs");
-	clnp_handle = find_dissector("clnp");
-	arp_handle = find_dissector("arp");
-	ppp_handle = find_dissector("ppp");
-	ppphdlc_handle = find_dissector("ppp_hdlc");
+	ipv4_handle = find_dissector_add_dependency("ip", hfi_redback->id);
+	ipv6_handle = find_dissector_add_dependency("ipv6", hfi_redback->id);
+	ethnofcs_handle = find_dissector_add_dependency("eth_withoutfcs", hfi_redback->id);
+	clnp_handle = find_dissector_add_dependency("clnp", hfi_redback->id);
+	arp_handle = find_dissector_add_dependency("arp", hfi_redback->id);
+	ppp_handle = find_dissector_add_dependency("ppp", hfi_redback->id);
+	ppphdlc_handle = find_dissector_add_dependency("ppp_hdlc", hfi_redback->id);
 
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_REDBACK, redback_handle);
 }

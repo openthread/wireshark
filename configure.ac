@@ -23,7 +23,7 @@ AC_SUBST(AC_MIN_VERSION)
 
 dnl Make sure to keep ACLOCAL_AMFLAGS in Makefile.am and AC_CONFIG_MACRO_DIRS
 dnl in configure.ac in sync, otherwise there will be an error running autogen.sh.
-m4_ifdef([AC_CONFIG_MACRO_DIRS],AC_CONFIG_MACRO_DIRS([./aclocal-fallback]))
+m4_ifdef([AC_CONFIG_MACRO_DIRS],[AC_CONFIG_MACRO_DIRS([m4])])
 
 dnl Check for CPU / vendor / OS
 dnl The user is encouraged to use either `AC_CANONICAL_BUILD', or
@@ -60,14 +60,19 @@ AM_DISABLE_STATIC
 # Checks for programs used in the main build process.
 #
 AC_PROG_CC_STDC
-if test "$ac_cv_prog_cc_stdc" == "no"
+if test "$ac_cv_prog_cc_stdc" = "no"
 then
 	AC_MSG_ERROR([The C compiler does not support standard C])
 fi
-AM_PROG_CC_C_O
 AC_PROG_CXX
 AC_PROG_CPP
 AC_PROG_MKDIR_P
+
+# Set CC_FOR_BUILD (the *local* gcc to use for building e.g. lemon)
+if test "x$cross_compiling" = xno -a -z "$CC_FOR_BUILD"; then
+	CC_FOR_BUILD="$CC"
+fi
+AX_PROG_CC_FOR_BUILD
 
 dnl Work around libtool bug (fixed in the version 1.5a?)
 AC_DEFUN([AC_PROVIDE_AC_LIBTOOL_DLOPEN], )
@@ -227,13 +232,6 @@ fi
 if test "x$GCC" = "xyes" -o "x$CC" = "xclang" ; then
 	ac_supports_gcc_flags=yes
 fi
-
-if test "x$CC_FOR_BUILD" = x
-then
-       CC_FOR_BUILD=$CC
-fi
-AC_SUBST(CC_FOR_BUILD)
-AC_SUBST(CFLAGS_FOR_BUILD)
 
 # Check for doxygen
 AC_PATH_PROG(DOXYGEN, doxygen)
@@ -541,6 +539,10 @@ AC_SUBST(FLOORL_LO)
 AC_SEARCH_LIBS(lrint, m,
   [AC_DEFINE(HAVE_LRINT, 1, [Define if you have the 'lrint' function.])])
 
+#
+# Check if we need to link with -lnsl and -lsocket
+#
+AX_LIB_SOCKET_NSL
 
 #
 # GUI toolkit options
@@ -585,18 +587,15 @@ if test "x$with_gnutls" = "xyes"; then
     )
   fi
 
-  if test "x$have_license_compatible_gnutls" = "xyes"; then
-    echo "GnuTLS found, enabling SSL decryption"
+  if test "x$have_license_compatible_gnutls" != "xyes"; then
+    if test "x$want_gnutls" = "xyes"; then
+      AC_MSG_ERROR([GnuTLS crypto library was requested, but is not available])
+    else
+      AS_ECHO(["GnuTLS with compatible license not found, disabling SSL decryption"])
+    fi
+  else
     AC_DEFINE(HAVE_LIBGNUTLS, 1, [Define to use GnuTLS library])
     tls_message="yes"
-  else
-    echo "GnuTLS with compatible license not found, disabling SSL decryption"
-    tls_message="no"
-
-    # Error out if the user explicitly requested gnutls
-    if test "x$want_gnutls" = "xyes"; then
-	AC_MSG_ERROR([GnuTLS crypto library was requested, but is not available])
-    fi
   fi
 fi
 
@@ -611,7 +610,6 @@ AC_ARG_WITH([gcrypt],
 if test "x$with_gcrypt" = "xyes"; then
   AM_PATH_LIBGCRYPT(1.4.2,
 	[
-		echo "libgcrypt found, enabling decryption for ipsec, ssl, etc."
 		AC_DEFINE(HAVE_LIBGCRYPT, 1, [Define to use libgcrypt])
 		gcrypt_message="yes"
 	]
@@ -619,7 +617,7 @@ if test "x$with_gcrypt" = "xyes"; then
 		if test x$libgcrypt_config_prefix != x ; then
 			AC_MSG_ERROR([[libgcrypt not found; install libgcrypt-devel package for your system]])
 		else
-			echo "libgcrypt not found, disabling decryption for ipsec, ssl, etc."
+			AS_ECHO(["libgcrypt not found, disabling decryption for ipsec, ssl, etc."])
 			gcrypt_message="no"
 		fi
 
@@ -743,6 +741,12 @@ linux*)
 	    [enum nl80211_protocol_features x = NL80211_PROTOCOL_FEATURE_SPLIT_WIPHY_DUMP;],
 	    [AC_MSG_RESULT(yes) AC_DEFINE(HAVE_NL80211_SPLIT_WIPHY_DUMP, 1, [SPLIT_WIPHY_DUMP is supported])],
 	    [AC_MSG_RESULT(no)])
+
+	AC_MSG_CHECKING([for NL80211_VHT_CAPABILITY])
+	  AC_TRY_COMPILE([#include <linux/nl80211.h>],
+	    [enum nl80211_attrs x = NL80211_ATTR_VHT_CAPABILITY;],
+	    [AC_MSG_RESULT(yes) AC_DEFINE(HAVE_NL80211_VHT_CAPABILITY, 1, [VHT_CAPABILITY is supported])],
+	    [AC_MSG_RESULT(no)])
 	;;
 
 *)
@@ -780,11 +784,6 @@ AM_CONDITIONAL(HAVE_LYNX, test x$HAVE_LYNX = xyes)
 AC_PATH_PROG(W3M, w3m)
 AC_CHECK_PROG(HAVE_W3M, w3m, "yes", "no")
 AM_CONDITIONAL(HAVE_W3M, test x$HAVE_W3M = xyes)
-
-# Check for xmllint
-AC_PATH_PROG(XMLLINT, xmllint)
-AC_CHECK_PROG(HAVE_XMLLINT, xmllint, "yes", "no")
-AM_CONDITIONAL(HAVE_XMLLINT, test x$HAVE_XMLLINT = xyes)
 
 # Check for xsltproc
 AC_PATH_PROG(XSLTPROC, xsltproc)
@@ -866,103 +865,10 @@ AC_WIRESHARK_CHECK_UNKNOWN_WARNING_OPTION_ERROR
 AC_WIRESHARK_CHECK_NON_CXX_WARNING_OPTION_ERROR
 
 #
-# Try to add some additional checks to CFLAGS.
-# These are not enabled by default, because the warnings they produce
-# are very hard or impossible to eliminate.
-#
-AC_ARG_ENABLE(extra-compiler-warnings,
-  AC_HELP_STRING( [--enable-extra-compiler-warnings],
-		  [do additional compiler warnings @<:@default=no@:>@]),
-[
-	wireshark_extra_flags=$enableval
-	if test $enableval != no
-	then
-		#
-		# The following are for C and C++
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wpedantic)
-		#
-		# As we use variadic macros, we don't want warnings
-		# about them, even with -Wpedantic.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wno-variadic-macros)
-		#
-		# Various code blocks this one.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Woverflow)
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-fstrict-overflow -Wstrict-overflow=4)
-		#
-		# Due to various places where APIs we don't control
-		# require us to cast away constness, we can probably
-		# never enable this one with -Werror.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wcast-qual)
-		#
-		# Some generated ASN.1 dissectors block this one;
-		# multiple function declarations for the same
-		# function are being generated.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wredundant-decls)
-		#
-		# Some loops are safe, but it's hard to convince the
-		# compiler of that.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wunsafe-loop-optimizations)
-		#
-		# All the registration functions block these for now.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wmissing-prototypes)
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wmissing-declarations)
-		#
-		# A bunch of "that might not work on SPARC" code blocks
-		# this one for now.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wcast-align)
-		#
-		# Works only with Clang
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wunreachable-code)
-		#
-		# Works only with Clang but generates a lot of warnings
-		# (about glib library not using Doxygen)
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wdocumentation)
-
-		#
-		# The following are C only, not C++
-		#
-		# Due to various places where APIs we don't control
-		# require us to cast away constness, we can probably
-		# never enable this one with -Werror.
-		#
-		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wbad-function-cast, C)
-	fi
-],)
-
-# Try to add ASAN address analyze.
-# Only needed for analyse
-#
-AC_ARG_ENABLE(asan,
-  AC_HELP_STRING( [--enable-asan],
-		  [Enable AddressSanitizer (ASAN) for debugging (May be slow down)@<:@default=no@:>@]),
-[
-	#
-	# With Clang >= 3.5 Leak detection is enable by default
-	# and no yet all leak is fixed...
-	# use ASAN_OPTIONS=detect_leaks=0 to disable detect_leaks
-	#
-	# XXX shouldn't this also be added to LDFLAGS?
-	AC_WIRESHARK_COMPILER_FLAGS_CHECK(-fsanitize=address)
-
-],)
-
-
-
-#
 # The following are for C and C++
 #
-AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wall -W) # -W is now known as -Wextra
-AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wextra) # -W is now known as -Wextra
+AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wall)
+AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wextra)
 AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wendif-labels)
 AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wpointer-arith)
 AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Warray-bounds)
@@ -980,6 +886,22 @@ AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wno-overlength-strings)
 AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wno-long-long)
 AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wheader-guard)
 AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wunused-const-variable)
+#
+# Either the version of clang on the "clang code analysis" buildbot is
+# horribly broken, or the header files on that buildbot are horribly
+# broken, as the perfectly-legitimate statement
+#
+#	if( strcmp(argv[i],"--")==0 ) dashdash = 1;
+#
+# is getting stoopid "array index 3 is past the end of the array (which
+# contains 3 elements)" complaints from the compiler.
+#
+# The macro for strcmp() in glibc(?) really seems to give C compilers
+# conniptions; I think I've seen crap from GCC as well with that macro.
+#
+# So, alas, suppress the compile-time array bounds checks.
+#
+AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wnoarray-bounds)
 #
 # The following are C only, not C++
 #
@@ -1083,6 +1005,106 @@ then
 		AC_MSG_WARN(Compiler will export all symbols from shared libraries)
 	fi
 fi
+
+#
+# Try to add some additional checks to CFLAGS.
+# These are not enabled by default, because the warnings they produce
+# are very hard or impossible to eliminate.
+#
+AC_ARG_ENABLE(extra-compiler-warnings,
+  AC_HELP_STRING( [--enable-extra-compiler-warnings],
+		  [do additional compiler warnings @<:@default=no@:>@]),
+[
+	wireshark_extra_flags=$enableval
+	if test $enableval != no
+	then
+		#
+		# The following are for C and C++
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wpedantic)
+		#
+		# As we use variadic macros, we don't want warnings
+		# about them, even with -Wpedantic.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wno-variadic-macros)
+		#
+		# Various code blocks this one.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Woverflow)
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-fstrict-overflow -Wstrict-overflow=4)
+		#
+		# Due to various places where APIs we don't control
+		# require us to cast away constness, we can probably
+		# never enable this one with -Werror.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wcast-qual)
+		#
+		# Some generated ASN.1 dissectors block this one;
+		# multiple function declarations for the same
+		# function are being generated.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wredundant-decls)
+		#
+		# Some loops are safe, but it's hard to convince the
+		# compiler of that.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wunsafe-loop-optimizations)
+		#
+		# All the registration functions block these for now.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wmissing-prototypes)
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wmissing-declarations)
+		#
+		# A bunch of "that might not work on SPARC" code blocks
+		# this one for now.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wcast-align)
+		#
+		# Works only with Clang
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wunreachable-code)
+		#
+		# Works only with Clang but generates a lot of warnings
+		# (about glib library not using Doxygen)
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wdocumentation)
+
+		#
+		# The following are C only, not C++
+		#
+		# Due to various places where APIs we don't control
+		# require us to cast away constness, we can probably
+		# never enable this one with -Werror.
+		#
+		AC_WIRESHARK_COMPILER_FLAGS_CHECK(-Wbad-function-cast, C)
+	fi
+])
+
+# Try to add ASAN address analyze.
+# Only needed for analyse
+#
+AC_ARG_ENABLE(asan,
+  AC_HELP_STRING( [--enable-asan],
+		  [Enable AddressSanitizer (ASAN) for debugging (degrades performance)@<:@default=no@:>@]),
+[
+	#
+	# With Clang >= 3.5 Leak detection is enable by default
+	# and no yet all leak is fixed...
+	# use ASAN_OPTIONS=detect_leaks=0 to disable detect_leaks
+	#
+	# XXX shouldn't this also be added to LDFLAGS?
+	AC_WIRESHARK_COMPILER_FLAGS_CHECK(-fsanitize=address)
+
+])
+
+# Add check hf conflict..
+#
+AC_ARG_ENABLE(checkhf-conflict,
+  AC_HELP_STRING( [--enable-checkhf-conflict],
+		  [Enable hf conflict check for debugging (start-up may be slower)@<:@default=no@:>@]),
+[
+	AC_DEFINE(ENABLE_CHECK_FILTER, 1, [Enable hf conflict check])
+])
 
 AC_WIRESHARK_LDFLAGS_CHECK([-Wl,--as-needed])
 ###AC_WIRESHARK_LDFLAGS_CHECK([-Wl,-M])
@@ -1427,38 +1449,6 @@ solaris*)
 	AC_CHECK_FUNC(getexecname)
 	;;
 esac
-
-dnl Look in /usr/local for header files and libraries ?
-dnl XXX FIXME don't include /usr/local if it is already in the system
-dnl search path as this causes gcc 3.2 on Linux to complain about a change
-dnl of the system search order for includes
-AC_ARG_ENABLE(usr-local,
-  AC_HELP_STRING( [--enable-usr-local],
-		  [look for headers and libs in /usr/local tree @<:@default=yes@:>@]),
-    ac_cv_enable_usr_local=$enableval,ac_cv_enable_usr_local=yes)
-
-AC_MSG_CHECKING(whether to use /usr/local for headers and libraries)
-if test "x$ac_cv_enable_usr_local" = "xyes" ; then
-	if test -d "/usr/local"; then
-		AC_MSG_RESULT(yes)
-		#
-		# Arrange that we search for header files in the source directory
-		# and in its "wiretap" subdirectory, as well as in "/usr/local/include",
-		# as various packages we use ("libpcap", "zlib", "adns")
-		# may have been installed under "/usr/local/include".
-		#
-		AX_APPEND_FLAG([-I/usr/local/include], [WS_CPPFLAGS])
-
-		#
-		# Arrange that we search for libraries in "/usr/local/lib".
-		#
-		AC_WIRESHARK_ADD_DASH_L(WS_LDFLAGS, /usr/local/lib)
-	else
-		AC_MSG_RESULT(no)
-	fi
-else
-	AC_MSG_RESULT(no)
-fi
 
 #
 # If we're running Solaris, and LD_LIBRARY_PATH is defined, add it as a
@@ -2185,10 +2175,6 @@ AC_SUBST(randpkt_man)
 
 AC_SUBST(wiresharkfilter_man)
 
-dnl Checks for "connect()", used as a proxy for "socket()" - and
-dnl "-lsocket", if we need it to get "connect()".
-AC_WIRESHARK_SOCKET_LIB_CHECK
-
 dnl pcap check
 AC_MSG_CHECKING(whether to use libpcap for packet capture)
 
@@ -2276,77 +2262,6 @@ else
 fi
 AC_SUBST(rawshark_bin)
 AC_SUBST(rawshark_man)
-
-dnl androiddump check
-AC_MSG_CHECKING(whether to build androiddump)
-
-AC_ARG_ENABLE(androiddump,
-  AC_HELP_STRING( [--enable-androiddump],
-		  [build androiddump @<:@default=yes@:>@]),
-    androiddump=$enableval,enable_androiddump=yes)
-
-if test "x$enable_androiddump" = "xyes" ; then
-	AC_MSG_RESULT(yes)
-else
-	AC_MSG_RESULT(no)
-fi
-
-AC_ARG_ENABLE(androiddump_use_libpcap,
-  AC_HELP_STRING( [--enable-androiddump-use-libpcap],
-		  [build androiddump using libpcap @<:@default=no@:>@]),
-    androiddump_use_libpcap=$enableval,enable_androiddump_use_libpcap=no)
-
-if test "x$enable_androiddump_use_libpcap" = "xyes" ; then
-	AC_DEFINE(ANDROIDDUMP_USE_LIBPCAP, 1, [Androiddump will use Libpcap])
-fi
-
-if test "x$enable_androiddump" = "xyes" ; then
-	androiddump_bin="androiddump\$(EXEEXT)"
-	androiddump_man=""
-else
-	androiddump_bin=""
-	androiddump_man=""
-fi
-AC_SUBST(androiddump_bin)
-AC_SUBST(androiddump_man)
-
-dnl sshdump check
-AC_MSG_CHECKING(whether to build sshdump)
-
-AC_ARG_ENABLE(sshdump,
-  AC_HELP_STRING( [--enable-sshdump],
-		  [build sshdump @<:@default=yes@:>@]),
-    sshdump=$enableval,enable_sshdump=yes)
-
-if test "x$enable_sshdump" = "xyes" ; then
-	AC_MSG_RESULT(yes)
-else
-	AC_MSG_RESULT(no)
-fi
-
-dnl randpktdump check
-AC_MSG_CHECKING(whether to build randpktdump)
-
-AC_ARG_ENABLE(randpktdump,
-  AC_HELP_STRING( [--enable-randpktdump],
-		  [build androiddump @<:@default=yes@:>@]),
-    randpktdump=$enableval,enable_randpktdump=yes)
-
-if test "x$enable_randpktdump" = "xyes" ; then
-	AC_MSG_RESULT(yes)
-else
-	AC_MSG_RESULT(no)
-fi
-
-if test "x$enable_randpktdump" = "xyes" ; then
-	randpktdump_bin="randpktdump\$(EXEEXT)"
-	randpktdump_man=""
-else
-	randpktdump_bin=""
-	randpktdump_man=""
-fi
-AC_SUBST(randpktdump_bin)
-AC_SUBST(randpktdump_man)
 
 # Enable/disable echld
 AC_ARG_ENABLE(echld,
@@ -2641,6 +2556,7 @@ AC_CHECK_HEADERS(fcntl.h getopt.h grp.h inttypes.h netdb.h pwd.h unistd.h)
 AC_CHECK_HEADERS(sys/ioctl.h sys/param.h sys/socket.h sys/sockio.h sys/stat.h sys/time.h sys/types.h sys/utsname.h sys/wait.h)
 AC_CHECK_HEADERS(netinet/in.h)
 AC_CHECK_HEADERS(arpa/inet.h arpa/nameser.h)
+AC_CHECK_HEADERS(ifaddrs.h)
 
 #
 # On Linux, check for some additional headers, which we need as a
@@ -2724,7 +2640,7 @@ AC_MSG_CHECKING(whether to use the c-ares library if available)
 
 AC_ARG_WITH(c-ares,
   AC_HELP_STRING( [--with-c-ares@<:@=DIR@:>@],
-		  [use c-ares (located in directory DIR, if supplied) - supersedes --with-adns @<:@default=yes, if present@:>@]),
+		  [use c-ares (located in directory DIR, if supplied) @<:@default=yes, if present@:>@]),
 [
 if   test "x$withval" = "xno";  then
 	want_c_ares=no
@@ -2743,55 +2659,8 @@ else
 fi
 AC_SUBST(C_ARES_LIBS)
 
-dnl ADNS Check
-ADNS_LIBS=''
-AC_MSG_CHECKING(whether to use the GNU ADNS library if available)
-
-AC_ARG_WITH(adns,
-  AC_HELP_STRING( [--with-adns@<:@=DIR@:>@],
-		  [use GNU ADNS (located in directory DIR, if supplied) @<:@default=yes, if present@:>@]),
-[
-if   test "x$withval" = "xno";  then
-	want_adns=no
-elif test "x$withval" = "xyes"; then
-	want_adns=yes
-elif test -d "$withval"; then
-	want_adns=yes
-	AC_WIRESHARK_ADD_DASH_L(WS_LDFLAGS, ${withval}/lib)
-fi
-])
-if test "x$want_adns" = "xno" -o "x$have_good_c_ares" = "xyes" ; then
-	AC_MSG_RESULT(no)
-else
-	AC_MSG_RESULT(yes)
-	AC_WIRESHARK_ADNS_CHECK
-fi
-AC_SUBST(ADNS_LIBS)
-
-if test "x$have_good_c_ares" != "xyes" -a "x$have_good_adns" != "xyes"; then
-	# We don't have an asynchronous name resolver, look for a synchronous one
-
-	dnl Checks for "getaddrinfo()" - and "-lnsl", if we need it to get
-	dnl "getaddrinfo()".
-	AC_WIRESHARK_GETADDRINFO_LIB_CHECK
-
-	if test "x$ac_cv_func_getaddrinfo" != "xyes" ; then
-		# We don't have the modern name resolver, try older stuff
-
-		dnl Checks for "gethostbyname()" - and "-lnsl", if we need it to get
-		dnl "gethostbyname()".
-		AC_WIRESHARK_GETHOSTBY_LIB_CHECK
-
-		if test "x$ac_cv_func_gethostbyname" != "xyes" ; then
-			# Hopefully this never actually happens.
-			# The code works even without name resolvers but we
-			# alert the user to this unusual condition.
-			AC_MSG_ERROR(Couldn't find any name resolvers!)
-		fi
-
-		AC_CHECK_FUNCS(gethostbyname2)
-	fi
-fi
+# Check for synchronous name resolvers
+AC_CHECK_FUNCS([getaddrinfo gethostbyname gethostbyname2])
 
 dnl GEOIP Check
 GEOIP_LIBS=''
@@ -2992,6 +2861,7 @@ AC_SUBST(POPCOUNT_LO)
 AC_CHECK_FUNCS(getprotobynumber)
 AC_CHECK_FUNCS(issetugid)
 AC_CHECK_FUNCS(sysconf)
+AC_CHECK_FUNCS(getifaddrs)
 
 dnl blank for now, but will be used in future
 AC_SUBST(wireshark_SUBDIRS)
@@ -3072,25 +2942,135 @@ AM_CONDITIONAL(HAVE_EXTCAP, test "x$have_extcap" = "xyes")
 if test "x$have_extcap" = "xyes"
 then
   AC_DEFINE(HAVE_EXTCAP, 1, [Define if external capture sources should be enabled])
+  extcap_subdir="extcap"
+  extcap_man="extcap.4"
 fi
+AC_SUBST(extcap_subdir)
+AC_SUBST(extcap_man)
 AC_SUBST(extcapdir)
 
+dnl androiddump check
+AC_MSG_CHECKING(whether to build androiddump)
+
+AC_ARG_ENABLE(androiddump,
+  AC_HELP_STRING( [--enable-androiddump],
+		  [build androiddump @<:@default=yes@:>@]),
+    androiddump=$enableval,enable_androiddump=yes)
+
+if test "x$have_extcap" != xyes; then
+	AC_MSG_RESULT([no, extcap disabled])
+	enable_androiddump=no
+elif test "x$enable_androiddump" = "xyes" ; then
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+AC_ARG_ENABLE(androiddump_use_libpcap,
+  AC_HELP_STRING( [--enable-androiddump-use-libpcap],
+		  [build androiddump using libpcap @<:@default=no@:>@]),
+    androiddump_use_libpcap=$enableval,enable_androiddump_use_libpcap=no)
+
+if test "x$enable_androiddump" = "xyes" -a "x$enable_androiddump_use_libpcap" = "xyes" ; then
+	AC_DEFINE(ANDROIDDUMP_USE_LIBPCAP, 1, [Androiddump will use Libpcap])
+fi
+
+if test "x$enable_androiddump" = "xyes" ; then
+	androiddump_bin="androiddump\$(EXEEXT)"
+	androiddump_man="androiddump.1"
+else
+	androiddump_bin=""
+	androiddump_man=""
+fi
+AC_SUBST(androiddump_bin)
+AC_SUBST(androiddump_man)
+
+dnl sshdump check
+AC_MSG_CHECKING(whether to build sshdump)
+
+AC_ARG_ENABLE(sshdump,
+	AC_HELP_STRING( [--enable-sshdump],
+		[build sshdump @<:@default=yes@:>@]),
+	[],[enable_sshdump=yes])
+
+if test "x$have_extcap" != xyes; then
+	AC_MSG_RESULT([no, extcap disabled])
+	enable_sshdump=no
+elif test "x$have_good_libssh" != xyes; then
+	AC_MSG_RESULT([no, libssh not available])
+	enable_sshdump=no
+elif test "x$enable_sshdump" = "xyes" ; then
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
 if test "x$enable_sshdump" = "xyes" ; then
-	if  test "x$have_good_libssh" = "xyes" ; then
-		sshdump_bin="sshdump\$(EXEEXT)"
-		sshdump_man="sshdump.1"
-	else
-		echo "Can't find libssh. Disabling sshdump."
-		enable_sshdump=no
-		sshdump_bin=""
-		sshdump_man=""
-	fi
+	sshdump_bin="sshdump\$(EXEEXT)"
+	sshdump_man="sshdump.1"
 else
 	sshdump_bin=""
 	sshdump_man=""
 fi
 AC_SUBST(sshdump_bin)
 AC_SUBST(sshdump_man)
+
+dnl ciscodump check
+AC_MSG_CHECKING(whether to build ciscodump)
+
+AC_ARG_ENABLE(ciscodump,
+	AC_HELP_STRING( [--enable-ciscodump],
+		[build ciscodump @<:@default=yes@:>@]),
+	[],[enable_ciscodump=yes])
+
+if test "x$have_extcap" != xyes; then
+	AC_MSG_RESULT([no, extcap disabled])
+	enable_ciscodump=no
+elif test "x$have_good_libssh" != xyes; then
+	AC_MSG_RESULT([no, libssh not available])
+	enable_ciscodump=no
+elif test "x$enable_ciscodump" = "xyes" ; then
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+if test "x$enable_ciscodump" = "xyes" ; then
+	ciscodump_bin="ciscodump\$(EXEEXT)"
+	ciscodump_man="ciscodump.1"
+else
+	ciscodump_bin=""
+	ciscodump_man=""
+fi
+AC_SUBST(ciscodump_bin)
+AC_SUBST(ciscodump_man)
+
+dnl randpktdump check
+AC_MSG_CHECKING(whether to build randpktdump)
+
+AC_ARG_ENABLE(randpktdump,
+	AC_HELP_STRING( [--enable-randpktdump],
+		[build androiddump @<:@default=yes@:>@]),
+	randpktdump=$enableval,enable_randpktdump=yes)
+
+if test "x$have_extcap" != xyes; then
+	AC_MSG_RESULT([no, extcap disabled])
+	enable_randpktdump=no
+elif test "x$enable_randpktdump" = "xyes" ; then
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+fi
+
+if test "x$enable_randpktdump" = "xyes" ; then
+	randpktdump_bin="randpktdump\$(EXEEXT)"
+	randpktdump_man="randpktdump.1"
+else
+	randpktdump_bin=""
+	randpktdump_man=""
+fi
+AC_SUBST(randpktdump_bin)
+AC_SUBST(randpktdump_man)
 
 dnl libtool defs
 #
@@ -3142,6 +3122,8 @@ AC_SUBST(WS_CFLAGS)
 AC_SUBST(WS_CXXFLAGS)
 AC_SUBST(WS_LDFLAGS)
 
+AC_SUBST(WS_CFLAGS_FOR_BUILD)
+
 dnl Save the cacheable configure results to config.cache before recursing
 AC_CACHE_SAVE
 
@@ -3155,112 +3137,112 @@ AC_CONFIG_HEADERS(config.h)
 AC_OUTPUT(
   Makefile
   doxygen.cfg
-  asn1/Makefile
+  epan/dissectors/asn1/Makefile
   wireshark.pc
   _CUSTOM_ASN1_AC_OUTPUT_
-  asn1/acp133/Makefile
-  asn1/acse/Makefile
-  asn1/ansi_map/Makefile
-  asn1/ansi_tcap/Makefile
-  asn1/atn-cm/Makefile
-  asn1/atn-cpdlc/Makefile
-  asn1/atn-ulcs/Makefile
-  asn1/c1222/Makefile
-  asn1/camel/Makefile
-  asn1/cdt/Makefile
-  asn1/charging_ase/Makefile
-  asn1/cmip/Makefile
-  asn1/cmp/Makefile
-  asn1/crmf/Makefile
-  asn1/cms/Makefile
-  asn1/credssp/Makefile
-  asn1/dap/Makefile
-  asn1/disp/Makefile
-  asn1/dop/Makefile
-  asn1/dsp/Makefile
-  asn1/ess/Makefile
-  asn1/ftam/Makefile
-  asn1/goose/Makefile
-  asn1/gprscdr/Makefile
-  asn1/gsm_map/Makefile
-  asn1/h225/Makefile
-  asn1/h235/Makefile
-  asn1/h245/Makefile
-  asn1/h248/Makefile
-  asn1/h282/Makefile
-  asn1/h283/Makefile
-  asn1/h323/Makefile
-  asn1/h450/Makefile
-  asn1/h450-ros/Makefile
-  asn1/h460/Makefile
-  asn1/h501/Makefile
-  asn1/HI2Operations/Makefile
-  asn1/hnbap/Makefile
-  asn1/idmp/Makefile
-  asn1/ilp/Makefile
-  asn1/inap/Makefile
-  asn1/isdn-sup/Makefile
-  asn1/kerberos/Makefile
-  asn1/lcsap/Makefile
-  asn1/ldap/Makefile
-  asn1/logotypecertextn/Makefile
-  asn1/lpp/Makefile
-  asn1/lppa/Makefile
-  asn1/lppe/Makefile
-  asn1/lte-rrc/Makefile
-  asn1/m3ap/Makefile
-  asn1/mms/Makefile
-  asn1/mpeg-audio/Makefile
-  asn1/mpeg-pes/Makefile
-  asn1/nbap/Makefile
-  asn1/ns_cert_exts/Makefile
-  asn1/novell_pkis/Makefile
-  asn1/ocsp/Makefile
-  asn1/p1/Makefile
-  asn1/p22/Makefile
-  asn1/p7/Makefile
-  asn1/p772/Makefile
-  asn1/pcap/Makefile
-  asn1/pkcs1/Makefile
-  asn1/pkcs12/Makefile
-  asn1/pkinit/Makefile
-  asn1/pkixac/Makefile
-  asn1/pkix1explicit/Makefile
-  asn1/pkix1implicit/Makefile
-  asn1/pkixproxy/Makefile
-  asn1/pkixqualified/Makefile
-  asn1/pkixtsp/Makefile
-  asn1/pres/Makefile
-  asn1/q932/Makefile
-  asn1/q932-ros/Makefile
-  asn1/qsig/Makefile
-  asn1/ranap/Makefile
-  asn1/rnsap/Makefile
-  asn1/ros/Makefile
-  asn1/rrc/Makefile
-  asn1/rrlp/Makefile
-  asn1/rtse/Makefile
-  asn1/rua/Makefile
-  asn1/s1ap/Makefile
-  asn1/sabp/Makefile
-  asn1/sbc-ap/Makefile
-  asn1/smrse/Makefile
-  asn1/snmp/Makefile
-  asn1/spnego/Makefile
-  asn1/sv/Makefile
-  asn1/t124/Makefile
-  asn1/t125/Makefile
-  asn1/t38/Makefile
-  asn1/tcap/Makefile
-  asn1/tetra/Makefile
-  asn1/ulp/Makefile
-  asn1/wlancertextn/Makefile
-  asn1/x2ap/Makefile
-  asn1/x509af/Makefile
-  asn1/x509ce/Makefile
-  asn1/x509if/Makefile
-  asn1/x509sat/Makefile
-  asn1/x721/Makefile
+  epan/dissectors/asn1/acp133/Makefile
+  epan/dissectors/asn1/acse/Makefile
+  epan/dissectors/asn1/ansi_map/Makefile
+  epan/dissectors/asn1/ansi_tcap/Makefile
+  epan/dissectors/asn1/atn-cm/Makefile
+  epan/dissectors/asn1/atn-cpdlc/Makefile
+  epan/dissectors/asn1/atn-ulcs/Makefile
+  epan/dissectors/asn1/c1222/Makefile
+  epan/dissectors/asn1/camel/Makefile
+  epan/dissectors/asn1/cdt/Makefile
+  epan/dissectors/asn1/charging_ase/Makefile
+  epan/dissectors/asn1/cmip/Makefile
+  epan/dissectors/asn1/cmp/Makefile
+  epan/dissectors/asn1/crmf/Makefile
+  epan/dissectors/asn1/cms/Makefile
+  epan/dissectors/asn1/credssp/Makefile
+  epan/dissectors/asn1/dap/Makefile
+  epan/dissectors/asn1/disp/Makefile
+  epan/dissectors/asn1/dop/Makefile
+  epan/dissectors/asn1/dsp/Makefile
+  epan/dissectors/asn1/ess/Makefile
+  epan/dissectors/asn1/ftam/Makefile
+  epan/dissectors/asn1/goose/Makefile
+  epan/dissectors/asn1/gprscdr/Makefile
+  epan/dissectors/asn1/gsm_map/Makefile
+  epan/dissectors/asn1/h225/Makefile
+  epan/dissectors/asn1/h235/Makefile
+  epan/dissectors/asn1/h245/Makefile
+  epan/dissectors/asn1/h248/Makefile
+  epan/dissectors/asn1/h282/Makefile
+  epan/dissectors/asn1/h283/Makefile
+  epan/dissectors/asn1/h323/Makefile
+  epan/dissectors/asn1/h450/Makefile
+  epan/dissectors/asn1/h450-ros/Makefile
+  epan/dissectors/asn1/h460/Makefile
+  epan/dissectors/asn1/h501/Makefile
+  epan/dissectors/asn1/HI2Operations/Makefile
+  epan/dissectors/asn1/hnbap/Makefile
+  epan/dissectors/asn1/idmp/Makefile
+  epan/dissectors/asn1/ilp/Makefile
+  epan/dissectors/asn1/inap/Makefile
+  epan/dissectors/asn1/isdn-sup/Makefile
+  epan/dissectors/asn1/kerberos/Makefile
+  epan/dissectors/asn1/lcsap/Makefile
+  epan/dissectors/asn1/ldap/Makefile
+  epan/dissectors/asn1/logotypecertextn/Makefile
+  epan/dissectors/asn1/lpp/Makefile
+  epan/dissectors/asn1/lppa/Makefile
+  epan/dissectors/asn1/lppe/Makefile
+  epan/dissectors/asn1/lte-rrc/Makefile
+  epan/dissectors/asn1/m3ap/Makefile
+  epan/dissectors/asn1/mms/Makefile
+  epan/dissectors/asn1/mpeg-audio/Makefile
+  epan/dissectors/asn1/mpeg-pes/Makefile
+  epan/dissectors/asn1/nbap/Makefile
+  epan/dissectors/asn1/ns_cert_exts/Makefile
+  epan/dissectors/asn1/novell_pkis/Makefile
+  epan/dissectors/asn1/ocsp/Makefile
+  epan/dissectors/asn1/p1/Makefile
+  epan/dissectors/asn1/p22/Makefile
+  epan/dissectors/asn1/p7/Makefile
+  epan/dissectors/asn1/p772/Makefile
+  epan/dissectors/asn1/pcap/Makefile
+  epan/dissectors/asn1/pkcs1/Makefile
+  epan/dissectors/asn1/pkcs12/Makefile
+  epan/dissectors/asn1/pkinit/Makefile
+  epan/dissectors/asn1/pkixac/Makefile
+  epan/dissectors/asn1/pkix1explicit/Makefile
+  epan/dissectors/asn1/pkix1implicit/Makefile
+  epan/dissectors/asn1/pkixproxy/Makefile
+  epan/dissectors/asn1/pkixqualified/Makefile
+  epan/dissectors/asn1/pkixtsp/Makefile
+  epan/dissectors/asn1/pres/Makefile
+  epan/dissectors/asn1/q932/Makefile
+  epan/dissectors/asn1/q932-ros/Makefile
+  epan/dissectors/asn1/qsig/Makefile
+  epan/dissectors/asn1/ranap/Makefile
+  epan/dissectors/asn1/rnsap/Makefile
+  epan/dissectors/asn1/ros/Makefile
+  epan/dissectors/asn1/rrc/Makefile
+  epan/dissectors/asn1/rrlp/Makefile
+  epan/dissectors/asn1/rtse/Makefile
+  epan/dissectors/asn1/rua/Makefile
+  epan/dissectors/asn1/s1ap/Makefile
+  epan/dissectors/asn1/sabp/Makefile
+  epan/dissectors/asn1/sbc-ap/Makefile
+  epan/dissectors/asn1/smrse/Makefile
+  epan/dissectors/asn1/snmp/Makefile
+  epan/dissectors/asn1/spnego/Makefile
+  epan/dissectors/asn1/sv/Makefile
+  epan/dissectors/asn1/t124/Makefile
+  epan/dissectors/asn1/t125/Makefile
+  epan/dissectors/asn1/t38/Makefile
+  epan/dissectors/asn1/tcap/Makefile
+  epan/dissectors/asn1/tetra/Makefile
+  epan/dissectors/asn1/ulp/Makefile
+  epan/dissectors/asn1/wlancertextn/Makefile
+  epan/dissectors/asn1/x2ap/Makefile
+  epan/dissectors/asn1/x509af/Makefile
+  epan/dissectors/asn1/x509ce/Makefile
+  epan/dissectors/asn1/x509if/Makefile
+  epan/dissectors/asn1/x509sat/Makefile
+  epan/dissectors/asn1/x721/Makefile
   capchild/Makefile
   capchild/doxygen.cfg
   caputils/Makefile
@@ -3274,7 +3256,6 @@ AC_OUTPUT(
   epan/dfilter/Makefile
   epan/dissectors/Makefile
   epan/dissectors/dcerpc/Makefile
-  epan/dissectors/pidl/Makefile
   epan/ftypes/Makefile
   epan/nghttp2/Makefile
   epan/wmem/Makefile
@@ -3321,6 +3302,8 @@ AC_OUTPUT(
   tools/Makefile
   tools/lemon/Makefile
   wiretap/Makefile
+  writecap/Makefile
+  writecap/doxygen.cfg
   wsutil/Makefile
   echld/Makefile
   _CUSTOM_AC_OUTPUT_
@@ -3403,23 +3386,8 @@ fi
 if test "x$have_good_c_ares" = "xyes" ; then
 	c_ares_message="yes"
 else
-	if test "x$have_good_adns" = "xyes" ; then
-		c_ares_message="no"
-	else
-		# We should make this an error at some point.
-		c_ares_message="no. This can cause serious performance issues."
-	fi
-fi
-
-if test "x$have_good_adns" = "xyes" ; then
-	adns_message="yes"
-else
-	if test "x$have_good_c_ares" = "xyes" ; then
-		adns_message="no (using c-ares instead)"
-	else
-		# We should make this an error at some point.
-		adns_message="no. This can cause serious performance issues."
-	fi
+	# We should make this an error at some point.
+	c_ares_message="no. This can cause serious performance issues."
 fi
 
 if test "x$have_good_libcap" = "xyes" ; then
@@ -3458,7 +3426,7 @@ echo ""
 echo "  LIBS: $LIBS"
 
 echo ""
-echo "The Wireshark package has been configured with the following options."
+echo "The Wireshark package has been configured with the following options:"
 echo "                    Build wireshark : $enable_wireshark_qt$qt_lib_message"
 echo "                Build wireshark-gtk : $have_gtk""$gtk_lib_message"
 echo "                       Build tshark : $enable_tshark"
@@ -3475,6 +3443,7 @@ echo "                       Build dftest : $enable_dftest"
 echo "                     Build rawshark : $enable_rawshark"
 echo "                  Build androiddump : $enable_androiddump"
 echo "                      Build sshdump : $enable_sshdump"
+echo "                    Build ciscodump : $enable_ciscodump"
 echo "                  Build randpktdump : $enable_randpktdump"
 echo "                        Build echld : $have_echld"
 echo ""
@@ -3492,11 +3461,10 @@ echo "                   Use pcap library : $want_pcap"
 echo "                   Use zlib library : $zlib_message"
 echo "               Use kerberos library : $krb5_message"
 echo "                 Use c-ares library : $c_ares_message"
-echo "               Use GNU ADNS library : $adns_message"
 echo "                Use SMI MIB library : $libsmi_message"
-echo "             Use GNU crypto library : $gcrypt_message"
+echo "             Use GNU gcrypt library : $gcrypt_message"
 echo "             Use SSL crypto library : $ssl_message"
-echo "                 Use gnutls library : $tls_message"
+echo "                 Use GnuTLS library : $tls_message"
 echo "     Use POSIX capabilities library : $libcap_message"
 echo "                  Use GeoIP library : $geoip_message"
 echo "                 Use libssh library : $libssh_message"

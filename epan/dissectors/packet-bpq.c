@@ -103,7 +103,7 @@ dissect_bpq( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 }
 
 static gboolean
-capture_bpq( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+capture_bpq( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
 	int l_offset;
 
@@ -150,7 +150,7 @@ proto_reg_handoff_bpq(void)
 	register_capture_dissector("ethertype", ETHERTYPE_BPQ, capture_bpq, proto_bpq);
 
 	/* BPQ is only implemented for AX.25 */
-	ax25_handle     = find_dissector( "ax25" );
+	ax25_handle     = find_dissector_add_dependency( "ax25", proto_bpq );
 
 }
 

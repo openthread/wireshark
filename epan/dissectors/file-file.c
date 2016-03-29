@@ -46,7 +46,6 @@
 #include "file-file.h"
 
 void proto_register_file(void);
-void proto_reg_handoff_file(void);
 
 static int proto_file = -1;
 static int hf_file_record_number = -1;
@@ -63,8 +62,6 @@ static int hf_file_color_filter_text = -1;
 static gint ett_file = -1;
 
 static int file_tap = -1;
-
-static dissector_handle_t data_handle;
 
 dissector_table_t file_encap_dissector_table;
 
@@ -203,7 +200,7 @@ dissect_file_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 				col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 				col_add_fstr(pinfo->cinfo, COL_INFO, "FTAP_ENCAP = %d",
 					     pinfo->pkt_encap);
-				call_dissector(data_handle,tvb, pinfo, parent_tree);
+				call_data_dissector(tvb, pinfo, parent_tree);
 			}
 #ifdef _MSC_VER
 		} __except(EXCEPTION_EXECUTE_HANDLER /* handle all exceptions */) {
@@ -398,13 +395,13 @@ proto_register_file(void)
 	module_t *file_module;
 #endif
 
-	file_encap_dissector_table = register_dissector_table("ftap_encap",
-	    "Filetap encapsulation type", FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-
 	proto_file = proto_register_protocol("File", "File", "file");
 	proto_register_field_array(proto_file, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 	register_dissector("file",dissect_file_record,proto_file);
+
+	file_encap_dissector_table = register_dissector_table("ftap_encap",
+	    "Filetap encapsulation type", proto_file, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 	/* You can't disable dissection of "Frame", as that would be
 	   tantamount to not doing any dissection whatsoever. */
@@ -418,12 +415,6 @@ proto_register_file(void)
 #endif
 
 	file_tap=register_tap("file");
-}
-
-void
-proto_reg_handoff_file(void)
-{
-	data_handle = find_dissector("data");
 }
 
 /*

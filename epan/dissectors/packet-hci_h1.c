@@ -36,7 +36,6 @@ static gint ett_hci_h1 = -1;
 static dissector_table_t hci_h1_table;
 
 static dissector_handle_t hci_h1_handle;
-static dissector_handle_t data_handle;
 
 static const value_string hci_h1_type_vals[] = {
     {BTHCI_CHANNEL_COMMAND, "HCI Command"},
@@ -109,7 +108,7 @@ dissect_hci_h1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     next_tvb = tvb_new_subset_remaining(tvb, 0);
     if (!dissector_try_uint_new(hci_h1_table, type, next_tvb, pinfo, tree, TRUE, bluetooth_data)) {
-        call_dissector(data_handle, next_tvb, pinfo, tree);
+        call_data_dissector(next_tvb, pinfo, tree);
     }
 
     return tvb_reported_length(tvb);
@@ -140,14 +139,12 @@ proto_register_hci_h1(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     hci_h1_table = register_dissector_table("hci_h1.type",
-            "HCI h1 pdu type", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "HCI h1 pdu type", proto_hci_h1, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
 void
 proto_reg_handoff_hci_h1(void)
 {
-    data_handle = find_dissector("data");
-
     dissector_add_uint("bluetooth.encap", WTAP_ENCAP_BLUETOOTH_HCI, hci_h1_handle);
 }
 

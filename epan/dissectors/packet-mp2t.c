@@ -55,7 +55,6 @@ static dissector_handle_t mp2t_handle;
 static dissector_handle_t docsis_handle;
 static dissector_handle_t mpeg_pes_handle;
 static dissector_handle_t mpeg_sect_handle;
-static dissector_handle_t data_handle;
 
 static heur_dissector_list_t heur_subdissector_list;
 
@@ -453,7 +452,7 @@ mp2t_dissect_packet(tvbuff_t *tvb, enum pid_payload_type pload_type,
     if (handle)
         call_dissector(handle, tvb, pinfo, tree);
     else
-        call_dissector(data_handle, tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
 }
 
 static guint
@@ -1541,7 +1540,7 @@ proto_register_mp2t(void)
 
     mp2t_no_address_type = address_type_dissector_register("AT_MP2T_NONE", "No MP2T Address", none_addr_to_str, none_addr_str_len, NULL, none_addr_len, NULL, NULL);
 
-    heur_subdissector_list = register_heur_dissector_list("mp2t.pid");
+    heur_subdissector_list = register_heur_dissector_list("mp2t.pid", proto_mp2t);
     /* Register init of processing of fragmented DEPI packets */
     register_init_routine(mp2t_init);
     register_cleanup_routine(mp2t_cleanup);
@@ -1563,7 +1562,6 @@ proto_reg_handoff_mp2t(void)
     docsis_handle = find_dissector("docsis");
     mpeg_pes_handle = find_dissector("mpeg-pes");
     mpeg_sect_handle = find_dissector("mpeg_sect");
-    data_handle = find_dissector("data");
 }
 
 /*

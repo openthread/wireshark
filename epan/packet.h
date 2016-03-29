@@ -186,14 +186,14 @@ WS_DLL_PUBLIC void dissector_all_tables_foreach_table (DATFunc_table func,
  * case-sensitive)
  */
 WS_DLL_PUBLIC dissector_table_t register_dissector_table(const char *name,
-    const char *ui_name, const ftenum_t type, const int param, dissector_table_allow_e allow_dup);
+    const char *ui_name, const int proto, const ftenum_t type, const int param, dissector_table_allow_e allow_dup);
 
 /*
  * Similar to register_dissector_table, but with a "custom" hash function
  * to store subdissectors.
  */
 WS_DLL_PUBLIC dissector_table_t register_custom_dissector_table(const char *name,
-    const char *ui_name, GHashFunc hash_func, GEqualFunc key_equal_func, dissector_table_allow_e allow_dup);
+    const char *ui_name, const int proto, GHashFunc hash_func, GEqualFunc key_equal_func, dissector_table_allow_e allow_dup);
 
 /** Deregister the dissector table by table name. */
 void deregister_dissector_table(const char *name);
@@ -410,7 +410,7 @@ typedef struct heur_dtbl_entry {
  *
  * @param name the name of this protocol
  */
-WS_DLL_PUBLIC heur_dissector_list_t register_heur_dissector_list(const char *name);
+WS_DLL_PUBLIC heur_dissector_list_t register_heur_dissector_list(const char *name, const int proto);
 
 typedef void (*DATFunc_heur) (const gchar *table_name,
     struct heur_dtbl_entry *entry, gpointer user_data);
@@ -515,6 +515,9 @@ WS_DLL_PUBLIC GList* get_dissector_names(void);
 /** Find a dissector by name. */
 WS_DLL_PUBLIC dissector_handle_t find_dissector(const char *name);
 
+/** Find a dissector by name and add parent protocol as a depedency*/
+WS_DLL_PUBLIC dissector_handle_t find_dissector_add_dependency(const char *name, const int parent_proto);
+
 /** Get a dissector name from handle. */
 WS_DLL_PUBLIC const char *dissector_handle_get_dissector_name(const dissector_handle_t handle);
 
@@ -542,6 +545,8 @@ WS_DLL_PUBLIC int call_dissector_with_data(dissector_handle_t handle, tvbuff_t *
 WS_DLL_PUBLIC int call_dissector(dissector_handle_t handle, tvbuff_t *tvb,
     packet_info *pinfo, proto_tree *tree);
 
+WS_DLL_PUBLIC int call_data_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
+
 /** Call a dissector through a handle but if no dissector was found
  * just return 0 and do not call the "data" dissector instead.
  *
@@ -568,6 +573,41 @@ WS_DLL_PUBLIC int call_dissector_only(dissector_handle_t handle, tvbuff_t *tvb,
 
 WS_DLL_PUBLIC void call_heur_dissector_direct(heur_dtbl_entry_t *heur_dtbl_entry, tvbuff_t *tvb,
     packet_info *pinfo, proto_tree *tree, void *data);
+
+/* This is opaque outside of "packet.c". */
+struct depend_dissector_list;
+typedef struct depend_dissector_list *depend_dissector_list_t;
+
+/** Register a protocol dependency
+ * This is done automatically when registering with a dissector or
+ * heuristic table.  This is for "manual" registration when a dissector
+ * ends up calling another through call_dissector (or similar) so
+ * dependencies can be determined
+ *
+ *   @param parent "Parent" protocol short name
+ *   @param dependent "Dependent" protocol short name
+ *   @return  return TRUE if dependency was successfully registered
+ */
+WS_DLL_PUBLIC gboolean register_depend_dissector(const char* parent, const char* dependent);
+
+/** Unregister a protocol dependency
+ * This is done automatically when removing from a dissector or
+ * heuristic table.  This is for "manual" deregistration for things
+ * like Lua
+ *
+ *   @param parent "Parent" protocol short name
+ *   @param dependent "Dependent" protocol short name
+ *   @return  return TRUE if dependency was successfully unregistered
+ */
+WS_DLL_PUBLIC gboolean deregister_depend_dissector(const char* parent, const char* dependent);
+
+/** Find the list of protocol dependencies
+ *
+ *   @param name Protocol short name to search for
+ *   @return  return list of dependent was successfully registered
+ */
+WS_DLL_PUBLIC depend_dissector_list_t find_depend_dissector_list(const char* name);
+
 
 /* Do all one-time initialization. */
 extern void dissect_init(void);

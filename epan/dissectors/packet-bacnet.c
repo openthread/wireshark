@@ -34,7 +34,6 @@ void proto_register_bacnet(void);
 void proto_reg_handoff_bacnet(void);
 
 static dissector_handle_t bacapp_handle;
-static dissector_handle_t data_handle;
 /* Defined to allow vendor identifier registration of private transfer dissectors */
 static dissector_table_t bacnet_dissector_table;
 
@@ -435,7 +434,7 @@ dissect_bacnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 	next_tvb = tvb_new_subset_remaining(tvb,offset);
 	if (bacnet_control & BAC_CONTROL_NET) {
 		/* Unknown function - dissect the payload as data */
-		call_dissector(data_handle, next_tvb, pinfo, tree);
+		call_data_dissector(next_tvb, pinfo, tree);
 	} else {
 		/* APDU - call the APDU dissector */
 		call_dissector(bacapp_handle, next_tvb, pinfo, tree);
@@ -621,7 +620,7 @@ proto_register_bacnet(void)
 	register_dissector("bacnet", dissect_bacnet, proto_bacnet);
 
 	bacnet_dissector_table = register_dissector_table("bacnet.vendor",
-							  "BACnet Vendor Identifier",
+							  "BACnet Vendor Identifier", proto_bacnet,
 							  FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 }
 
@@ -636,8 +635,7 @@ proto_reg_handoff_bacnet(void)
 	dissector_add_uint("bvlc.function", 0x0a, bacnet_handle);
 	dissector_add_uint("bvlc.function", 0x0b, bacnet_handle);
 	dissector_add_uint("llc.dsap", SAP_BACNET, bacnet_handle);
-	bacapp_handle = find_dissector("bacapp");
-	data_handle = find_dissector("data");
+	bacapp_handle = find_dissector_add_dependency("bacapp", proto_bacnet);
 }
 
 /*

@@ -137,8 +137,6 @@ static gint ett_zbee_zcl = -1;
 static gint ett_zbee_zcl_fcf = -1;
 static gint ett_zbee_zcl_attr[ZBEE_ZCL_NUM_ATTR_ETT];
 static gint ett_zbee_zcl_array_elements[ZBEE_ZCL_NUM_ARRAY_ELEM_ETT];
-/* Dissector Handles. */
-static dissector_handle_t   data_handle;
 
 /* Dissector List. */
 static dissector_table_t    zbee_zcl_dissector_table;
@@ -1962,7 +1960,7 @@ static void zcl_dump_data(tvbuff_t *tvb, guint offset, packet_info *pinfo, proto
 
     if (length > 0) {
         remainder = tvb_new_subset_remaining(tvb, offset);
-        call_dissector(data_handle, remainder, pinfo, root);
+        call_data_dissector(remainder, pinfo, root);
     }
 
     return;
@@ -2268,7 +2266,7 @@ void proto_register_zbee_zcl(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Register the ZCL dissector and subdissector list. */
-    zbee_zcl_dissector_table = register_dissector_table("zbee.zcl.cluster", "ZigBee ZCL Cluster ID", FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    zbee_zcl_dissector_table = register_dissector_table("zbee.zcl.cluster", "ZigBee ZCL Cluster ID", proto_zbee_zcl, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
     register_dissector(ZBEE_PROTOABBREV_ZCL, dissect_zbee_zcl, proto_zbee_zcl);
 } /* proto_register_zbee_zcl */
 
@@ -2279,9 +2277,6 @@ void proto_register_zbee_zcl(void)
 void proto_reg_handoff_zbee_zcl(void)
 {
     dissector_handle_t   zbee_zcl_handle;
-
-    /* Find the dissectors we need. */
-    data_handle = find_dissector("data");
 
     /* Register our dissector for the appropriate profiles. */
     zbee_zcl_handle = find_dissector(ZBEE_PROTOABBREV_ZCL);

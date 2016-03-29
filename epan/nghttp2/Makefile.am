@@ -42,9 +42,11 @@ libnghttp2_la_SOURCES =	\
 	$(LIBNGHTTP2_INCLUDES)
 
 EXTRA_DIST = \
+	.editorconfig	\
 	Makefile.common	\
 	Makefile.nmake	\
-	README.nghttp2
+	README.nghttp2	\
+	CMakeLists.txt
 
 #
 # Editor modelines  -  https://www.wireshark.org/tools/modelines.html

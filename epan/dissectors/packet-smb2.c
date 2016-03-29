@@ -495,7 +495,6 @@ static int smb2_eo_tap = -1;
 static dissector_handle_t gssapi_handle  = NULL;
 static dissector_handle_t ntlmssp_handle = NULL;
 static dissector_handle_t rsvd_handle = NULL;
-static dissector_handle_t data_handle = NULL;
 
 static heur_dissector_list_t smb2_pipe_subdissector_list;
 
@@ -1713,7 +1712,6 @@ dissect_smb2_fid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset
 			} else {
 				sfi->name = wmem_strdup_printf(wmem_file_scope(), "[unknown]");
 			}
-			sfi->open_frame = pinfo->num;
 
 			if (si->saved && si->saved->extra_info_type == SMB2_EI_FILENAME) {
 				fid_name = wmem_strdup_printf(wmem_file_scope(), "File: %s", (char *)si->saved->extra_info);
@@ -4812,7 +4810,7 @@ clean_up_and_exit:
 	pinfo->desegment_len = 0;
 
 	if (!result) {
-		call_dissector(data_handle, tvb, pinfo, top_tree);
+		call_data_dissector(tvb, pinfo, top_tree);
 	}
 
 	pinfo->fragmented = save_fragmented;
@@ -9672,7 +9670,7 @@ proto_register_smb2(void)
 		"Reassemble Named Pipes over SMB2",
 		"Whether the dissector should reassemble Named Pipes over SMB2 commands",
 		&smb2_pipe_reassembly);
-	smb2_pipe_subdissector_list = register_heur_dissector_list("smb2_pipe_subdissectors");
+	smb2_pipe_subdissector_list = register_heur_dissector_list("smb2_pipe_subdissectors", proto_smb2);
 	register_init_routine(smb2_pipe_reassembly_init);
 
 	smb2_tap = register_tap("smb2");
@@ -9684,10 +9682,9 @@ proto_register_smb2(void)
 void
 proto_reg_handoff_smb2(void)
 {
-	gssapi_handle  = find_dissector("gssapi");
-	ntlmssp_handle = find_dissector("ntlmssp");
-	rsvd_handle    = find_dissector("rsvd");
-	data_handle    = find_dissector("data");
+	gssapi_handle  = find_dissector_add_dependency("gssapi", proto_smb2);
+	ntlmssp_handle = find_dissector_add_dependency("ntlmssp", proto_smb2);
+	rsvd_handle    = find_dissector_add_dependency("rsvd", proto_smb2);
 	heur_dissector_add("netbios", dissect_smb2_heur, "SMB2 over Netbios", "smb2_netbios", proto_smb2, HEURISTIC_ENABLE);
 	heur_dissector_add("smb_direct", dissect_smb2_heur, "SMB2 over SMB Direct", "smb2_smb_direct", proto_smb2, HEURISTIC_ENABLE);
 }

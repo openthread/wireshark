@@ -51,6 +51,7 @@ LIBWSUTIL_COMMON_SRC = \
 	frequency-utils.c \
 	g711.c		\
 	inet_addr.c	\
+	interface.c	\
 	jsmn.c		\
 	md4.c		\
 	md5.c		\
@@ -69,9 +70,8 @@ LIBWSUTIL_COMMON_SRC = \
 	tempfile.c	\
 	time_util.c	\
 	type_util.c	\
-	ws_mempbrk.c	\
-	u3.c		\
 	unicode-utils.c	\
+	ws_mempbrk.c	\
 	ws_version_info.c
 
 # Header files that don't declare replacement functions for functions
@@ -102,6 +102,7 @@ libwsutil_nonrepl_INCLUDES = \
 	frequency-utils.h \
 	g711.h		\
 	inet_addr.h	\
+	interface.h	\
 	jsmn.h		\
 	md4.h		\
 	md5.h		\
@@ -123,7 +124,6 @@ libwsutil_nonrepl_INCLUDES = \
 	tempfile.h	\
 	time_util.h	\
 	type_util.h	\
-	u3.h		\
 	unicode-utils.h \
 	utf8_entities.h	\
 	ws_cpuid.h	\

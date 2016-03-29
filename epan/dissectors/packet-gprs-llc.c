@@ -66,7 +66,6 @@ static int hf_llcgprs_PF          = -1;
 static int hf_llcgprs_S_fmt       = -1;
 static int hf_llcgprs_NR          = -1;
 static int hf_llcgprs_sjsd        = -1;
-/* MLT CHANGES - Additional display masks */
 static int hf_llcgprs_k 	  = -1;
 static int hf_llcgprs_isack_ns 	  = -1;
 static int hf_llcgprs_isack_nr 	  = -1;
@@ -74,7 +73,7 @@ static int hf_llcgprs_isack_sfb   = -1;
 static int hf_llcgprs_rbyte 	  = -1;
 static int hf_llcgprs_kmask 	  = -1;
 static int hf_llcgprs_ifmt 	  = -1;
-static int hf_llcgprs_ia 	  = -1;
+static int hf_llcgprs_Ai 	  = -1;
 static int hf_llcgprs_izerobit 	  = -1;
 static int hf_llcgprs_sspare 	  = -1;
 static int hf_llcgprs_xid_xl 	  = -1;
@@ -116,18 +115,15 @@ static int hf_llcgprs_tom_data 	  = -1;
 #define SAPI_LL9	0x09
 #define SAPI_LL11	0x0B
 
-/* END MLT CHANGES */
-
 /* Initialize the subtree pointers */
 static gint ett_llcgprs = -1;
 static gint ett_llcgprs_adf = -1;
 static gint ett_llcgprs_ctrlf = -1;
-static gint ett_ui = -1;
+static gint ett_llcgprs_ui = -1;
 static gint ett_llcgprs_sframe = -1;
 
 static expert_field ei_llcgprs_no_info_field = EI_INIT;
 
-static dissector_handle_t data_handle;
 static dissector_handle_t sndcp_xid_handle;
 
 static gboolean ignore_cipher_bit = FALSE;
@@ -203,64 +199,62 @@ static const value_string pme[] = {
 	{ 1, "protected, non-ciphered information" },
 	{ 2, "unprotected,ciphered information"},
 	{ 3, "protected, ciphered information" },
-	{ 0, NULL},
+	{ 0, NULL }
 };
 
-/* MLT CHANGES - adding XID parameter types & TOM protocols */
 static const value_string xid_param_type_str[] = {
-	{0x0, "Version (LLC version number)"},
-	{0x1, "IOV-UI (ciphering Input offset value for UI frames)"},
-	{0x2, "IOV-I (ciphering Input offset value for I frames)"},
-	{0x3, "T200 (retransmission timeout)"},
-	{0x4, "N200 (max number of retransmissions)"},
-	{0x5, "N201-U (max info field length for U and UI frames)"},
-	{0x6, "N201-I (max info field length for I frames)"},
-	{0x7, "mD (I frame buffer size in the DL direction)"},
-	{0x8, "mU (I frame buffer size in the UL direction)"},
-	{0x9, "kD (window size in the DL direction)"},
-	{0xA, "kU (window size in the UL direction)"},
-	{0xB, "Layer-3 Parameters"},
-	{0xC, "Reset"},
-	{0, NULL}
+	{ 0x0, "Version (LLC version number)" },
+	{ 0x1, "IOV-UI (ciphering Input offset value for UI frames)" },
+	{ 0x2, "IOV-I (ciphering Input offset value for I frames)" },
+	{ 0x3, "T200 (retransmission timeout)" },
+	{ 0x4, "N200 (max number of retransmissions)" },
+	{ 0x5, "N201-U (max info field length for U and UI frames)" },
+	{ 0x6, "N201-I (max info field length for I frames)" },
+	{ 0x7, "mD (I frame buffer size in the DL direction)" },
+	{ 0x8, "mU (I frame buffer size in the UL direction)" },
+	{ 0x9, "kD (window size in the DL direction)" },
+	{ 0xA, "kU (window size in the UL direction)" },
+	{ 0xB, "Layer-3 Parameters" },
+	{ 0xC, "Reset" },
+	{ 0, NULL }
 };
 static value_string_ext xid_param_type_str_ext = VALUE_STRING_EXT_INIT(xid_param_type_str);
 
 static const value_string tompd_formats[] = {
-	{0x0, "Not specified"},
-	{0x1, "TIA/EIA-136"},
-	{0x2, "RRLP"},
-	{0x3, "Reserved value 3"},
-	{0x4, "Reserved value 4"},
-	{0x5, "Reserved value 5"},
-	{0x6, "Reserved value 6"},
-	{0x7, "Reserved value 7"},
-	{0x8, "Reserved value 8"},
-	{0x9, "Reserved value 9"},
-	{0xA, "Reserved value 10"},
-	{0xB, "Reserved value 11"},
-	{0xC, "Reserved value 12"},
-	{0xD, "Reserved value 13"},
-	{0xE, "Reserved value 14"},
-	{0xF, "Reserved for extension"},
-	{0, NULL}
+	{ 0x0, "Not specified" },
+	{ 0x1, "TIA/EIA-136" },
+	{ 0x2, "RRLP" },
+	{ 0x3, "Reserved value 3" },
+	{ 0x4, "Reserved value 4" },
+	{ 0x5, "Reserved value 5" },
+	{ 0x6, "Reserved value 6" },
+	{ 0x7, "Reserved value 7" },
+	{ 0x8, "Reserved value 8" },
+	{ 0x9, "Reserved value 9" },
+	{ 0xA, "Reserved value 10" },
+	{ 0xB, "Reserved value 11" },
+	{ 0xC, "Reserved value 12" },
+	{ 0xD, "Reserved value 13" },
+	{ 0xE, "Reserved value 14" },
+	{ 0xF, "Reserved for extension" },
+	{ 0, NULL }
 };
-/* END MLT CHANGES */
 
 static const value_string cr_formats_unnumb[]= {
-	{  0x1, "DM-response" },
-	{  0x4, "DISC-command" },
-	{  0x6, "UA-response" },
-	{  0x7, "SABM" },
-	{  0x8, "FRMR" },
+	{ 0x1, "DM-response" },
+	{ 0x4, "DISC-command" },
+	{ 0x6, "UA-response" },
+	{ 0x7, "SABM" },
+	{ 0x8, "FRMR" },
 	{ 0xb, "XID" },
-	{ 0, NULL },
+	{ 0, NULL }
 };
 static const value_string cr_formats_ipluss[] = {
 	{ 0x0, "RR" },
 	{ 0x1, "ACK" },
 	{ 0x2, "RNR" },
 	{ 0x3, "SACK" },
-	{ 0, NULL },
+	{ 0, NULL }
 };
 
 /* CRC24 table - FCS */
@@ -320,22 +314,21 @@ typedef enum {
 
 
 /* sub-dissector for XID data */
-static void llc_gprs_dissect_xid(tvbuff_t *tvb,
-								 packet_info *pinfo,
-								 proto_item *llcgprs_tree)
-
+static void
+llc_gprs_dissect_xid(tvbuff_t *tvb, packet_info *pinfo, proto_item *llcgprs_tree)
 {
-	guint8 xid_param_len = 0, byte1 = 0, byte2 = 0, item_len = 0, tmp = 0;
-	guint16 location = 0;
-	guint16 loop_counter = 0;
+	guint8 xid_param_len = 0, byte1 = 0, byte2 = 0, tmp = 0;
+	guint item_len = 0;
+	guint location = 0;
+	guint loop_counter = 0;
 	proto_tree *uinfo_tree = NULL;
 	proto_tree *xid_tree = NULL;
-	guint16 info_len;
+	guint info_len;
 
 	info_len = tvb_reported_length(tvb);
 
 	xid_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, 0, info_len,
-				ett_ui, NULL, "Information Field: Length = %u", info_len);
+				ett_llcgprs_ui, NULL, "Information Field: Length = %u", info_len);
 
 	while (location < info_len)
 	{
@@ -379,7 +372,7 @@ static void llc_gprs_dissect_xid(tvbuff_t *tvb,
 			guint8 sndcp_xid_offset;
 
 			uinfo_tree = proto_tree_add_subtree(xid_tree, tvb, location, item_len,
-				ett_ui, NULL, "XID parameter Type: L3 parameters");
+				ett_llcgprs_ui, NULL, "XID parameter Type: L3 parameters");
 			proto_tree_add_uint(uinfo_tree, hf_llcgprs_xid_xl, tvb, location, 1, byte1);
 			proto_tree_add_uint(uinfo_tree, hf_llcgprs_xid_type, tvb, location, 1, byte1);
 			proto_tree_add_uint(uinfo_tree, hf_llcgprs_xid_len1, tvb, location, 1, byte1);
@@ -417,13 +410,13 @@ static void llc_gprs_dissect_xid(tvbuff_t *tvb,
 					value |= (guint32)tvb_get_guint8(tvb, location+i );
 				}
 				uinfo_tree = proto_tree_add_subtree_format(xid_tree, tvb, location, item_len,
-					ett_ui, NULL, "XID Parameter Type: %s - Value: %u",
+					ett_llcgprs_ui, NULL, "XID Parameter Type: %s - Value: %u",
 					val_to_str_ext_const(tmp, &xid_param_type_str_ext, "Reserved Type:%X"), value);
 			}
 			else
 			{
 				uinfo_tree = proto_tree_add_subtree_format(xid_tree, tvb, location, item_len,
-					ett_ui, NULL, "XID Parameter Type: %s",
+					ett_llcgprs_ui, NULL, "XID Parameter Type: %s",
 					val_to_str_ext_const(tmp, &xid_param_type_str_ext, "Reserved Type:%X"));
 			}
 			proto_tree_add_uint(uinfo_tree, hf_llcgprs_xid_xl, tvb, location,
@@ -461,29 +454,48 @@ static void llc_gprs_dissect_xid(tvbuff_t *tvb,
 static int
 dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
+	guint offset = 0;
 	guint8 addr_fld=0, sapi=0, ctrl_fld_fb=0, frame_format, tmp=0;
-	guint16 offset=0 , epm = 0, nu=0, ctrl_fld_ui_s=0;
-	guint16 crc_length=0, llc_data_reported_length=0, llc_data_length = 0;
+	guint16 epm = 0, nu=0, ctrl_fld_ui_s=0;
 	proto_item *ti, *addres_field_item;
 	proto_tree *llcgprs_tree=NULL , *ad_f_tree =NULL, *ctrl_f_tree=NULL, *ui_tree=NULL;
 	tvbuff_t *next_tvb;
 	guint length, captured_length;
+	guint crc_length = 0, llc_data_length;
 	guint32 fcs=0;
 	guint32 fcs_calc=0;
 	fcs_status_t fcs_status;
-
-	/* MLT CHANGES - additional variables */
 	guint16 ns = 0;
 	guint16 nr = 0;
 	guint8 k = 0;
 	guint8 m_bits = 0;
-	guint8 info_len = 0;
+	guint info_len;
 	proto_tree *uinfo_tree = NULL;
-	/* END MLT CHANGES */
 	gboolean ciphered_ui_frame = FALSE;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "GPRS-LLC");
 
+	/* llc_data_length includes the header and the payload */
+	llc_data_length = length = tvb_reported_length(tvb);
+	if (length >= CRC_LENGTH) {
+		/*
+		 * The packet is big enough to have a CRC.
+		 */
+		llc_data_length -= CRC_LENGTH;
+	}
+	else
+	{
+		/*
+		 * The packet isn't big enough to have a CRC; claim
+		 * the data length is 0.
+		 */
+		llc_data_length = 0;
+	}
+	captured_length = tvb_captured_length(tvb);
+
+	/*
+	 * Address field.
+	 */
 	addr_fld = tvb_get_guint8(tvb, offset);
 	offset++;
 
@@ -497,94 +509,10 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 
 	col_add_fstr(pinfo->cinfo, COL_INFO, "SAPI: %s", val_to_str_ext_const(sapi, &sapi_abrv_ext, "Unknown (%d)"));
 
-	ctrl_fld_fb = tvb_get_guint8(tvb, offset);
-	if (ctrl_fld_fb < 0xC0)
-	{
-		frame_format = (ctrl_fld_fb < 0x80)? I_FORMAT : S_FORMAT;
-	}
-	else
-	{
-		frame_format = (ctrl_fld_fb < 0xe0 )? UI_FORMAT : U_FORMAT;
-	}
-	length = tvb_reported_length(tvb);
-	captured_length = llc_data_length = tvb_captured_length(tvb);
-	if(llc_data_length==length){
-		llc_data_length = length - CRC_LENGTH;
-	}
-	llc_data_reported_length = length - CRC_LENGTH; /* llc_data_reported_length includes the header and the payload */
-	if (captured_length >= length && length >= CRC_LENGTH)
-	{
-		/*
-		 * We have all the packet data, including the full FCS,
-		 * so we can compute the FCS.
-		 */
-		fcs_status = FCS_VALID;
-	}
-	else
-	{
-		/* We don't have enough data to compute the FCS. */
-		fcs_status = FCS_NOT_COMPUTED;
-	}
-	/*
-	 *
-	 * We need to check the PM bit for UI frames. Read the control field here.
-	 */
-	if (frame_format == UI_FORMAT)
-	{
-		nu = ctrl_fld_ui_s = tvb_get_ntohs(tvb, offset);
-		offset +=2;
-		epm = ctrl_fld_ui_s & 0x3;
-		nu = (nu >>2)&0x01FF;
-
-		/* If the frame is ciphered, the calculated FCS will not be valid (unless it has been unciphered) */
-		if (epm & UI_MASK_E)
-		{
-			ciphered_ui_frame = TRUE;
-		}
-		if ((epm & UI_MASK_PM)== 0)
-		{
-			/* FCS covers at maximum the LLC header and N202 bytes */
-			crc_length = MIN(UI_HDR_LENGTH + N202, llc_data_reported_length);
-		}
-		else
-		{
-			crc_length = llc_data_reported_length;
-		}
-	}
-	else
-	{
-		crc_length = llc_data_reported_length;
-	}
-	if(fcs_status == FCS_VALID)
-	{
-		fcs_calc = crc_calc ( INIT_CRC24 , tvb, crc_length );
-		fcs_calc = ~fcs_calc;
-		fcs_calc &= 0xffffff;
-
-		fcs = tvb_get_letoh24(tvb, llc_data_reported_length);
-		if ( fcs_calc == fcs )
-		{
-			fcs_status = FCS_VALID;
-		}
-		else
-		{
-			if (ciphered_ui_frame)
-			{
-				fcs_status = FCS_NOT_VALID_DUE_TO_CIPHERING;
-			}
-			else
-			{
-				fcs_status = FCS_NOT_VALID;
-			}
-		}
-	}
-
 	/* In the interest of speed, if "tree" is NULL, don't do any work not
 		necessary to generate protocol tree items. */
-
 	if (tree)
 	{
-
 		ti = proto_tree_add_protocol_format(tree, proto_llcgprs, tvb, 0, -1,
 						    "MS-SGSN LLC (Mobile Station - Serving GPRS Support Node Logical Link Control)  SAPI: %s",
 						    val_to_str_ext_const(sapi, &sapi_t_ext, "Unknown (%u)"));
@@ -592,29 +520,6 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 		llcgprs_tree = proto_item_add_subtree(ti, ett_llcgprs);
 
 		/* add an item to the subtree, see section 1.6 for more information */
-		switch (fcs_status) {
-
-		case FCS_VALID:
-			proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, llc_data_reported_length, CRC_LENGTH,
-				fcs_calc&0xffffff, "0x%06x (correct)", fcs_calc&0xffffff);
-			break;
-
-		case FCS_NOT_VALID:
-			proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, llc_data_reported_length, CRC_LENGTH,
-				fcs, "0x%06x  (incorrect, should be 0x%06x)", fcs, fcs_calc );
-			break;
-
-		case FCS_NOT_VALID_DUE_TO_CIPHERING:
-			proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, llc_data_reported_length, CRC_LENGTH,
-				fcs, "0x%06x  (incorrect, maybe due to ciphering, calculated 0x%06x)", fcs, fcs_calc );
-			break;
-
-		case FCS_NOT_COMPUTED:
-			proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, 0, 0, 0,
-				"FCS: Not enough data to compute the FCS");
-			break;	/* FCS not present */
-		}
-
 		addres_field_item = proto_tree_add_uint_format(llcgprs_tree, hf_llcgprs_sapi,
 		     tvb, 0, 1, sapi, "Address field  SAPI: %s", val_to_str_ext_const(sapi, &sapi_abrv_ext, "Unknown (%d)"));
 
@@ -624,21 +529,30 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 		proto_tree_add_uint(ad_f_tree, hf_llcgprs_sapib, tvb, 0, 1, addr_fld );
 	}
 
+	/*
+	 * Control field.
+	 */
+	ctrl_fld_fb = tvb_get_guint8(tvb, offset);
+	if (ctrl_fld_fb < 0xC0)
+	{
+		frame_format = (ctrl_fld_fb < 0x80)? I_FORMAT : S_FORMAT;
+	}
+	else
+	{
+		frame_format = (ctrl_fld_fb < 0xe0 )? UI_FORMAT : U_FORMAT;
+	}
+
 	switch (frame_format)
 	{
 	case I_FORMAT:
 		col_append_str(pinfo->cinfo, COL_INFO, ", I, ");
 
-		/* MLT CHANGES - additional parsing code */
 		ns = tvb_get_ntohs(tvb, offset);
 		ns = (ns >> 4)& 0x01FF;
 		nr = ctrl_fld_ui_s = tvb_get_ntohs(tvb, offset + 1);
 		nr = (nr >> 2) & 0x01FF;
 
 		epm = ctrl_fld_ui_s & 0x3;
-
-		/* advance to either R Bitmap or Payload */
-		offset += 3;
 
 		col_append_str(pinfo->cinfo, COL_INFO, val_to_str(epm, cr_formats_ipluss, "Unknown (%d)"));
 		col_append_fstr(pinfo->cinfo, COL_INFO, ", N(S) = %u", ns);
@@ -648,23 +562,26 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 		{
 			guint32 tmpx;
 
-			ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, (offset-3),
+			ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset,
 							      3, ett_llcgprs_sframe, NULL, "Information format: %s: N(S) = %u,  N(R) = %u",
 							      val_to_str(epm, cr_formats_ipluss, "Unknown (%d)"), ns, nr);
 
 			/* retrieve the second octet */
-			tmpx = tvb_get_ntohs(tvb, (offset-3))  << 16;
-			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_ifmt, tvb, offset-3, 3, tmpx);
-			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_ia, tvb, offset-3, 3, tmpx);
-			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_izerobit, tvb, offset-3, 3, tmpx);
+			tmpx = tvb_get_ntohs(tvb, offset)  << 16;
+			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_ifmt, tvb, offset, 3, tmpx);
+			proto_tree_add_boolean(ctrl_f_tree, hf_llcgprs_Ai, tvb, offset, 3, tmpx);
+			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_izerobit, tvb, offset, 3, tmpx);
 
 			tmpx = ns << 12;
-			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_isack_ns, tvb, offset-3, 3, tmpx);
+			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_isack_ns, tvb, offset, 3, tmpx);
 
 			tmpx = nr << 2;
-			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_isack_nr, tvb, offset-3, 3, tmpx);
-			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_isack_sfb, tvb, offset-3, 3, ctrl_fld_ui_s);
+			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_isack_nr, tvb, offset, 3, tmpx);
+			proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_isack_sfb, tvb, offset, 3, ctrl_fld_ui_s);
 		}
+
+		/* advance to either R Bitmap or Payload */
+		offset += 3;
 
 		/* check to see if epm is SACK - meaning this is an ISACK frame */
 		if (epm == 0x03)
@@ -687,7 +604,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 			{
 				guint8 loop_count = 0;
 				guint8 r_byte = 0;
-				guint16 location = offset;
+				guint location = offset;
 
 				ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, (offset-1),
 								      (k+1), ett_llcgprs_sframe, NULL, "SACK FRAME: k = %u", k);
@@ -708,6 +625,177 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 			offset += k;
 		}
 
+		crc_length = llc_data_length;
+		break;
+
+	case S_FORMAT:
+		col_append_str(pinfo->cinfo, COL_INFO, ", S, ");
+
+		nu = ctrl_fld_ui_s = tvb_get_ntohs(tvb, offset);
+		epm = ctrl_fld_ui_s & 0x3;
+		nu = (nu >>2)&0x01FF;
+
+		col_append_str(pinfo->cinfo, COL_INFO, val_to_str(epm, cr_formats_ipluss, "Unknown (%d)"));
+		col_append_fstr(pinfo->cinfo, COL_INFO, ", N(R) = %u", nu);
+
+		if (tree)
+		{
+			static const int * s_formats[] = {
+				&hf_llcgprs_S_fmt,
+				&hf_llcgprs_As,
+				&hf_llcgprs_sspare,
+				&hf_llcgprs_NR,
+				&hf_llcgprs_sjsd,
+				NULL
+			};
+
+			proto_tree_add_bitmask_text(llcgprs_tree, tvb, offset, 2,
+							      "Supervisory format: ", NULL, ett_llcgprs_sframe, s_formats, ENC_BIG_ENDIAN, 0);
+		}
+		offset += 2;
+
+		if ((ctrl_fld_ui_s & 0x03) == 0x03)
+			/* It is a SACK frame */
+		{
+			/* TODO: length is fudged - it is not correct */
+			guint32 sack_length = llc_data_length - offset;
+
+			if (tree)
+			{
+				guint loop_count;
+				guint8 r_byte;
+				guint16 location = offset;
+				ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset, sack_length,
+								      ett_llcgprs_sframe, NULL, "SACK FRAME: length = %u", sack_length);
+				/* display the R Bitmap */
+				for (loop_count = 0; loop_count < sack_length; loop_count++)
+				{
+					r_byte = tvb_get_guint8(tvb, location);
+					proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_rbyte, tvb,
+							    location, 1, r_byte);
+					location++;
+				}
+
+				/* step past the r bitmap */
+				offset += sack_length;
+			}
+		}
+
+		crc_length = llc_data_length;
+		break;
+
+	case UI_FORMAT:
+		col_append_str(pinfo->cinfo, COL_INFO, ", UI, ");
+
+		nu = ctrl_fld_ui_s = tvb_get_ntohs(tvb, offset);
+		epm = ctrl_fld_ui_s & 0x3;
+		nu = (nu >>2)&0x01FF;
+
+		/* If the frame is ciphered, the calculated FCS will not be valid (unless it has been unciphered) */
+		if (epm & UI_MASK_E)
+		{
+			ciphered_ui_frame = TRUE;
+		}
+		if ((epm & UI_MASK_PM)== 0)
+		{
+			/* FCS covers at maximum the LLC header and N202 bytes */
+			crc_length = MIN(UI_HDR_LENGTH + N202, llc_data_length);
+		}
+		else
+		{
+			crc_length = llc_data_length;
+		}
+
+		col_append_str(pinfo->cinfo, COL_INFO, val_to_str(epm, pme, "Unknown (%d)"));
+		col_append_fstr(pinfo->cinfo, COL_INFO, ", N(U) = %u", nu);
+
+		if (tree)
+		{
+			static const int * i_formats[] = {
+				&hf_llcgprs_U_fmt,
+				&hf_llcgprs_sp_bits,
+				&hf_llcgprs_NU,
+				&hf_llcgprs_E_bit,
+				&hf_llcgprs_PM_bit,
+				NULL
+			};
+
+			proto_tree_add_bitmask_text(llcgprs_tree, tvb, offset, 2,
+							      "Unconfirmed Information format - UI: ", NULL, ett_llcgprs_ctrlf, i_formats, ENC_BIG_ENDIAN, 0);
+		}
+		offset += 2;
+		break;
+
+	case U_FORMAT:
+		col_append_str(pinfo->cinfo, COL_INFO, ", U, ");
+
+		tmp =  ctrl_fld_fb & 0xf;
+
+		col_append_str(pinfo->cinfo, COL_INFO,
+			       val_to_str(tmp, cr_formats_unnumb, "Unknown/invalid code:%X"));
+
+		ui_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset, (llc_data_length-1),
+						    ett_llcgprs_ui, NULL, "Unnumbered frame: %s",
+						    val_to_str(tmp, cr_formats_unnumb, "Unknown/invalid code:%X"));
+
+		proto_tree_add_uint(ui_tree, hf_llcgprs_Un, tvb, offset, 1, ctrl_fld_fb);
+		proto_tree_add_boolean(ui_tree, hf_llcgprs_PF, tvb, offset, 1, ctrl_fld_fb);
+		proto_tree_add_uint(ui_tree, hf_llcgprs_ucom, tvb, offset, 1, ctrl_fld_fb);
+		offset += 1;
+		crc_length = llc_data_length;
+		break;
+	}
+
+	/*
+	 * FCS.
+	 */
+	if (captured_length >= length && length >= CRC_LENGTH)
+	{
+		/*
+		 * We have all the packet data, including the full FCS,
+		 * so we can compute the FCS.
+		 */
+		fcs_calc = crc_calc ( INIT_CRC24 , tvb, crc_length );
+		fcs_calc = ~fcs_calc;
+		fcs_calc &= 0xffffff;
+
+		fcs = tvb_get_letoh24(tvb, llc_data_length);
+		if ( fcs_calc == fcs )
+		{
+			fcs_status = FCS_VALID;
+			proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, llc_data_length, CRC_LENGTH,
+				fcs_calc&0xffffff, "0x%06x (correct)", fcs_calc&0xffffff);
+		}
+		else
+		{
+			if (ciphered_ui_frame)
+			{
+				fcs_status = FCS_NOT_VALID_DUE_TO_CIPHERING;
+				proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, llc_data_length, CRC_LENGTH,
+					fcs, "0x%06x  (incorrect, maybe due to ciphering, calculated 0x%06x)", fcs, fcs_calc );
+			}
+			else
+			{
+				fcs_status = FCS_NOT_VALID;
+				proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, llc_data_length, CRC_LENGTH,
+					fcs, "0x%06x  (incorrect, should be 0x%06x)", fcs, fcs_calc );
+			}
+		}
+	}
+	else
+	{
+		/* We don't have enough data to compute the FCS. */
+		fcs_status = FCS_NOT_COMPUTED;
+		proto_tree_add_uint_format_value(llcgprs_tree, hf_llcgprs_fcs, tvb, 0, 0, 0,
+			"FCS: Not enough data to compute the FCS");
+	}
+
+	/*
+	 * Information field.
+	 */
+	switch (frame_format)
+	{
+	case I_FORMAT:
 		if ((sapi == SAPI_TOM2) || (sapi == SAPI_TOM8))
 		{
 			/* if SAPI is TOM do other parsing */
@@ -723,7 +811,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 				tom_pd = tom_byte & 0x0F;
 
 				ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset,
-								      (llc_data_reported_length-offset), ett_llcgprs_sframe, NULL,
+								      (llc_data_length-offset), ett_llcgprs_sframe, NULL,
 								      "TOM Envelope - Protocol: %s",
 								      val_to_str(tom_pd, tompd_formats, "Unknown (%d)"));
 
@@ -748,7 +836,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 						offset++;
 					}
 
-					remaining_length = llc_data_reported_length - offset;
+					remaining_length = llc_data_length - offset;
 
 					/* parse the TOM message capsule */
 					for (loop_counter = 0; loop_counter < remaining_length; loop_counter++)
@@ -767,70 +855,16 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 		else
 		{
 			/* otherwise - call a subdissector */
-			next_tvb = tvb_new_subset(tvb, offset, (llc_data_length-offset), (llc_data_reported_length-offset));
+			next_tvb = tvb_new_subset_length(tvb, offset, (llc_data_length-offset));
 			if (!dissector_try_uint(llcgprs_subdissector_table, sapi, next_tvb, pinfo, tree))
 				/* if no subdissector is found, call the data dissector */
 			{
-				call_dissector(data_handle, next_tvb, pinfo, tree);
+				call_data_dissector(next_tvb, pinfo, tree);
 			}
 		}
-		/* END MLT CHANGES */
-
 		break;
+
 	case S_FORMAT:
-		nu = ctrl_fld_ui_s = tvb_get_ntohs(tvb, offset);
-		epm = ctrl_fld_ui_s & 0x3;
-		nu = (nu >>2)&0x01FF;
-
-		col_append_str(pinfo->cinfo, COL_INFO, ", S, ");
-		col_append_str(pinfo->cinfo, COL_INFO, val_to_str(epm, cr_formats_ipluss, "Unknown (%d)"));
-		col_append_fstr(pinfo->cinfo, COL_INFO, ", N(R) = %u", nu);
-
-		if (tree)
-		{
-			static const int * s_formats[] = {
-				&hf_llcgprs_S_fmt,
-				&hf_llcgprs_As,
-			/* MLT CHANGES - added spare bits */
-				&hf_llcgprs_sspare,
-			/* END MLT CHANGES */
-				&hf_llcgprs_NR,
-				&hf_llcgprs_sjsd,
-				NULL
-			};
-
-			proto_tree_add_bitmask_text(llcgprs_tree, tvb, offset, 2,
-							      "Supervisory format: ", NULL, ett_llcgprs_sframe, s_formats, ENC_BIG_ENDIAN, 0);
-		}
-		offset +=2;
-		/* MLT CHANGES - additional parsing code to handle SACK */
-		if ((ctrl_fld_ui_s & 0x03) == 0x03)
-			/* It is a SACK frame */
-		{
-			/* TODO: length is fudged - it is not correct */
-			guint32 sack_length = llc_data_reported_length - offset;
-
-			if (tree)
-			{
-				guint loop_count;
-				guint8 r_byte;
-				guint16 location = offset;
-				ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset, sack_length,
-								      ett_llcgprs_sframe, NULL, "SACK FRAME: length = %u", sack_length);
-				/* display the R Bitmap */
-				for (loop_count = 0; loop_count < sack_length; loop_count++)
-				{
-					r_byte = tvb_get_guint8(tvb, location);
-					proto_tree_add_uint(ctrl_f_tree, hf_llcgprs_rbyte, tvb,
-							    location, 1, r_byte);
-					location++;
-				}
-
-				/* step past the r bitmap */
-				offset += sack_length;
-			}
-		}
-
 		/* should parse the rest of the supervisory message based on type */
 		/* if SAPI is TOM do other parsing */
 		if ((sapi == SAPI_TOM2) || (sapi == SAPI_TOM8))
@@ -847,7 +881,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 				tom_pd = tom_byte & 0x0F;
 
 				ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset,
-								      (llc_data_reported_length-offset), ett_llcgprs_sframe, NULL,
+								      (llc_data_length-offset), ett_llcgprs_sframe, NULL,
 								      "TOM Envelope - Protocol: %s",
 								      val_to_str(tom_pd, tompd_formats, "Unknown (%d)"));
 
@@ -872,7 +906,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 					}
 
 					/* Amount of frame left from offset to crc */
-					remaining_length = llc_data_reported_length - offset;
+					remaining_length = llc_data_length - offset;
 
 					/* parse the TOM message capsule */
 					for (loop_counter = 0; loop_counter < remaining_length; loop_counter++)
@@ -887,41 +921,19 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 				}
 			}
 		}
-		else if (llc_data_reported_length>offset)
+		else if (llc_data_length>offset)
 		{
 			/* otherwise - call a subdissector */
-			next_tvb = tvb_new_subset(tvb, offset, (llc_data_length-offset), (llc_data_reported_length-offset));
+			next_tvb = tvb_new_subset_length(tvb, offset, (llc_data_length-offset));
 			if (!dissector_try_uint(llcgprs_subdissector_table, sapi, next_tvb, pinfo, tree))
 			{
-				call_dissector(data_handle, next_tvb, pinfo, tree);
+				call_data_dissector(next_tvb, pinfo, tree);
 			}
 		}
-		/* END MLT CHANGES */
+		break;
 
 	case UI_FORMAT:
-		/* nu and epm calculated before FCS check for UI frame */
-
-		col_append_str(pinfo->cinfo, COL_INFO, ", UI, ");
-		col_append_str(pinfo->cinfo, COL_INFO, val_to_str(epm, pme, "Unknown (%d)"));
-		col_append_fstr(pinfo->cinfo, COL_INFO, ", N(U) = %u", nu);
-
-		if (tree)
-		{
-			static const int * i_formats[] = {
-				&hf_llcgprs_U_fmt,
-				&hf_llcgprs_sp_bits,
-				&hf_llcgprs_NU,
-				&hf_llcgprs_E_bit,
-				&hf_llcgprs_PM_bit,
-				NULL
-			};
-
-			proto_tree_add_bitmask_text(llcgprs_tree, tvb, offset-2, 2,
-							      "Unconfirmed Information format - UI: ", NULL, ett_llcgprs_ctrlf, i_formats, ENC_BIG_ENDIAN, 0);
-		}
-
-		/* MLT CHANGES - TOM parsing added */
-		next_tvb = tvb_new_subset(tvb, offset, (llc_data_length-offset), (llc_data_reported_length-offset));
+		next_tvb = tvb_new_subset_length(tvb, offset, (llc_data_length-offset));
 
 		if ((ignore_cipher_bit && (fcs_status == FCS_VALID)) || !(epm & 0x2))
 		{
@@ -948,7 +960,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 					tom_pd = tom_byte & 0x0F;
 
 					ctrl_f_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset,
-									      (llc_data_reported_length-offset), ett_llcgprs_sframe, NULL,
+									      (llc_data_length-offset), ett_llcgprs_sframe, NULL,
 									      "TOM Envelope - Protocol: %s",
 									      val_to_str(tom_pd, tompd_formats, "Unknown (%d)"));
 
@@ -974,7 +986,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 						}
 
 						/* Amount of frame left from offset to crc */
-						remaining_length = llc_data_reported_length - offset;
+						remaining_length = llc_data_length - offset;
 
 						/* parse the TOM message capsule */
 						for (loop_counter = 0; loop_counter < remaining_length; loop_counter++)
@@ -990,43 +1002,26 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 					}
 				}
 			}
-			else if (llc_data_reported_length>offset)
+			else if (llc_data_length>offset)
 			{
 				/* otherwise - call a subdissector */
 				if (!dissector_try_uint(llcgprs_subdissector_table, sapi, next_tvb, pinfo, tree))
 				{
-					call_dissector(data_handle, next_tvb, pinfo, tree);
+					call_data_dissector(next_tvb, pinfo, tree);
 				}
 			}
 		}
 		else
 		{
 			/* ciphered information - just parse it as data */
-			call_dissector(data_handle, next_tvb, pinfo, tree);
+			call_data_dissector(next_tvb, pinfo, tree);
 		}
-		/* END MLT CHANGES */
 		break;
 
 	case U_FORMAT:
-		offset +=1;
-		tmp =  ctrl_fld_fb & 0xf;
-
-		col_append_str(pinfo->cinfo, COL_INFO, ", U, ");
-		col_append_str(pinfo->cinfo, COL_INFO,
-			       val_to_str(tmp, cr_formats_unnumb, "Unknown/invalid code:%X"));
-
-		ui_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, (offset-1), (llc_data_reported_length-1),
-						    ett_ui, NULL, "Unnumbered frame: %s",
-						    val_to_str(tmp, cr_formats_unnumb, "Unknown/invalid code:%X"));
-
-		proto_tree_add_uint(ui_tree, hf_llcgprs_Un, tvb, (offset-1), 1, ctrl_fld_fb);
-		proto_tree_add_boolean(ui_tree, hf_llcgprs_PF, tvb, (offset-1), 1, ctrl_fld_fb);
-		proto_tree_add_uint(ui_tree, hf_llcgprs_ucom, tvb, (offset-1), 1, ctrl_fld_fb);
-
-		/* MLT CHANGES - parse rest of the message based on type (M Bits) */
 		m_bits = ctrl_fld_fb & 0x0F;
 
-		info_len = llc_data_reported_length - offset;
+		info_len = llc_data_length - offset;
 
 		switch (m_bits)
 		{
@@ -1034,7 +1029,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 		case U_DISC:
 		case U_NULL:
 			/* These frames SHOULD NOT have an info field */
-			proto_tree_add_expert(llcgprs_tree, pinfo, &ei_llcgprs_no_info_field, tvb, offset, (llc_data_reported_length-2));
+			proto_tree_add_expert(llcgprs_tree, pinfo, &ei_llcgprs_no_info_field, tvb, offset, (llc_data_length-2));
 			break;
 		case U_UA:
 			/* This frame MAY or MAY NOT have an info field */
@@ -1068,11 +1063,11 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 				int loop_counter = 0;
 				int location = 0;
 
-				ui_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset, (llc_data_reported_length-2),
-							    ett_ui, NULL, "Information Field: Length = %u", info_len);
+				ui_tree = proto_tree_add_subtree_format(llcgprs_tree, tvb, offset, (llc_data_length-2),
+							    ett_llcgprs_ui, NULL, "Information Field: Length = %u", info_len);
 
 				uinfo_tree = proto_tree_add_subtree(ui_tree, tvb, offset, 6,
-								  ett_ui, NULL, "Rejected Frame Control Field");
+								  ett_llcgprs_ui, NULL, "Rejected Frame Control Field");
 
 				location = offset;
 				for (loop_counter = 0; loop_counter < 3; loop_counter++)
@@ -1086,7 +1081,7 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 				}
 
 				uinfo_tree = proto_tree_add_subtree(ui_tree, tvb, location, 4,
-								  ett_ui, NULL, "Information Field Data");
+								  ett_llcgprs_ui, NULL, "Information Field Data");
 
 				fld_vars = tvb_get_ntohl(tvb, location);
 				proto_tree_add_uint(uinfo_tree, hf_llcgprs_frmr_spare, tvb, location,
@@ -1110,9 +1105,9 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 		default:
 			break;
 		}
-		/* END MLT CHANGES */
 		break;
 	}
+
 	return tvb_captured_length(tvb);
 }
 
@@ -1136,13 +1131,13 @@ proto_register_llcgprs(void)
 		  { "FCS", "llcgprs.fcs", FT_UINT24, BASE_HEX,
 		    NULL, 0, NULL, HFILL }},
 
-		{&hf_llcgprs_sjsd,
-		 { "Supervisory function bits", "llcgprs.s1s2", FT_UINT16, BASE_HEX,
-		   VALS(cr_formats_ipluss), 0x3, NULL, HFILL }},
+		{ &hf_llcgprs_sjsd,
+		  { "Supervisory function bits", "llcgprs.s1s2", FT_UINT16, BASE_HEX,
+		    VALS(cr_formats_ipluss), 0x3, NULL, HFILL }},
 
 		{ &hf_llcgprs_cr,
 		  { "Command/Response bit", "llcgprs.cr", FT_BOOLEAN, 8,
-		    TFS(&cr_bit), 0x40, NULL, HFILL}},
+		    TFS(&cr_bit), 0x40, NULL, HFILL }},
 
 		{ &hf_llcgprs_sapib,
 		  { "SAPI", "llcgprs.sapib", FT_UINT8, BASE_DEC|BASE_EXT_STRING ,
@@ -1150,19 +1145,19 @@ proto_register_llcgprs(void)
 
 		{ &hf_llcgprs_U_fmt,
 		  { "UI format", "llcgprs.ui", FT_UINT16, BASE_HEX,
-		    NULL, UI_MASK_FMT, "UI frame format", HFILL}},
+		    NULL, UI_MASK_FMT, "UI frame format", HFILL }},
 
 		{ &hf_llcgprs_Un,
-		  { "U format", "llcgprs.u", FT_UINT8, BASE_DEC,
-		    NULL, 0xe0, "U frame format", HFILL}},
+		  { "U format", "llcgprs.u", FT_UINT8, BASE_HEX,
+		    NULL, 0xe0, "U frame format", HFILL }},
 
 		{ &hf_llcgprs_sp_bits,
 		  { "Spare bits", "llcgprs.ui_sp_bit", FT_UINT16, BASE_HEX,
-		    NULL, UI_MASK_SPB, NULL, HFILL}},
+		    NULL, UI_MASK_SPB, NULL, HFILL }},
 
 		{ &hf_llcgprs_NU,
 		  { "N(U)", "llcgprs.nu", FT_UINT16, BASE_DEC,
-		    NULL, UI_MASK_NU, "Transmitted unconfirmed sequence number", HFILL}},
+		    NULL, UI_MASK_NU, "Transmitted unconfirmed sequence number", HFILL }},
 
 		{ &hf_llcgprs_E_bit,
 		  { "E bit", "llcgprs.e", FT_BOOLEAN, 16,
@@ -1170,15 +1165,15 @@ proto_register_llcgprs(void)
 
 		{ &hf_llcgprs_PM_bit,
 		  { "PM bit", "llcgprs.pm", FT_BOOLEAN, 16,
-		    TFS(&pm_bit), UI_MASK_PM, "Protected mode bit", HFILL}},
+		    TFS(&pm_bit), UI_MASK_PM, "Protected mode bit", HFILL }},
 
 		{ &hf_llcgprs_As,
 		  { "Ackn request bit", "llcgprs.as", FT_BOOLEAN, 16,
-		    TFS(&a_bit), 0x2000 , "Acknowledgement request bit A", HFILL}},
+		    TFS(&a_bit), 0x2000 , "Acknowledgement request bit A", HFILL }},
 
 		{ &hf_llcgprs_PF,
 		  { "P/F bit", "llcgprs.pf", FT_BOOLEAN, 8,
-		    NULL, 0x10, "Poll/Final bit", HFILL}},
+		    NULL, 0x10, "Poll/Final bit", HFILL }},
 
 		{ &hf_llcgprs_ucom,
 		  { "Command/Response", "llcgprs.ucom", FT_UINT8, BASE_HEX,
@@ -1188,129 +1183,127 @@ proto_register_llcgprs(void)
 		  { "Receive sequence number", "llcgprs.nr", FT_UINT16, BASE_DEC,
 		    NULL, UI_MASK_NU, "Receive sequence number N(R)", HFILL }},
 
-		{&hf_llcgprs_S_fmt,
-		 { "S format", "llcgprs.s", FT_UINT16, BASE_DEC,
-		   NULL, 0xc000, "Supervisory format S", HFILL}},
+		{ &hf_llcgprs_S_fmt,
+		  { "S format", "llcgprs.s", FT_UINT16, BASE_HEX,
+		    NULL, 0xc000, "Supervisory format S", HFILL }},
 
-		/* MLT CHANGES - additional masks */
-		{&hf_llcgprs_kmask,
-		 { "ignored", "llcgprs.kmask", FT_UINT8,
-		   BASE_DEC, NULL, 0xE0, NULL, HFILL}},
+		{ &hf_llcgprs_kmask,
+		  { "ignored", "llcgprs.kmask", FT_UINT8, BASE_DEC,
+		    NULL, 0xE0, NULL, HFILL }},
 
-		{&hf_llcgprs_k,
-		 { "k", "llcgprs.k", FT_UINT8, BASE_DEC,
-		   NULL, 0x1F, "k counter", HFILL}},
+		{ &hf_llcgprs_k,
+		  { "k", "llcgprs.k", FT_UINT8, BASE_DEC,
+		    NULL, 0x1F, "k counter", HFILL }},
 
-		{&hf_llcgprs_isack_ns,
-		 { "N(S)", "llcgprs.sackns", FT_UINT24, BASE_DEC,
-		   NULL, 0x1FF000, NULL, HFILL}},
+		{ &hf_llcgprs_isack_ns,
+		  { "N(S)", "llcgprs.sackns", FT_UINT24, BASE_DEC,
+		    NULL, 0x1FF000, NULL, HFILL }},
 
-		{&hf_llcgprs_isack_nr,
-		 { "N(R)", "llcgprs.sacknr", FT_UINT24, BASE_DEC,
-		   NULL, 0x0007FC, NULL, HFILL}},
+		{ &hf_llcgprs_isack_nr,
+		  { "N(R)", "llcgprs.sacknr", FT_UINT24, BASE_DEC,
+		    NULL, 0x0007FC, NULL, HFILL }},
 
-		{&hf_llcgprs_isack_sfb,
-		 { "Supervisory function bits", "llcgprs.sacksfb", FT_UINT24, BASE_HEX,
-		   VALS(cr_formats_ipluss), 0x000003, NULL, HFILL }},
+		{ &hf_llcgprs_isack_sfb,
+		  { "Supervisory function bits", "llcgprs.sacksfb", FT_UINT24, BASE_HEX,
+		    VALS(cr_formats_ipluss), 0x000003, NULL, HFILL }},
 
-		{&hf_llcgprs_ifmt,
-		 { "I Format", "llcgprs.ifmt", FT_UINT24, BASE_DEC,
-		   NULL, 0x800000, "I Fmt Bit", HFILL}},
+		{ &hf_llcgprs_ifmt,
+		  { "I Format", "llcgprs.ifmt", FT_UINT24, BASE_HEX,
+		    NULL, 0x800000, "I Fmt Bit", HFILL }},
 
-		{&hf_llcgprs_ia,
-		 { "Ack Bit", "llcgprs.ia", FT_UINT24, BASE_DEC,
-		   NULL, 0x400000, "I A Bit", HFILL}},
+		{ &hf_llcgprs_Ai,
+		  { "Ackn request bit", "llcgprs.ai", FT_BOOLEAN, 24,
+		    TFS(&a_bit), 0x400000, "Acknowledgement request bit A", HFILL }},
 
-		{&hf_llcgprs_izerobit,
-		 { "Spare", "llcgprs.iignore", FT_UINT24, BASE_DEC,
-		   NULL, 0x200000, "Ignore Bit", HFILL}},
+		{ &hf_llcgprs_izerobit,
+		  { "Spare", "llcgprs.iignore", FT_UINT24, BASE_DEC,
+		    NULL, 0x200000, "Ignore Bit", HFILL }},
 
-		{&hf_llcgprs_sspare,
-		 { "Spare", "llcgprs.sspare", FT_UINT16, BASE_DEC,
-		   NULL, 0x1800, "Ignore Bit", HFILL}},
+		{ &hf_llcgprs_sspare,
+		  { "Spare", "llcgprs.sspare", FT_UINT16, BASE_DEC,
+		    NULL, 0x1800, "Ignore Bit", HFILL }},
 
-		{&hf_llcgprs_rbyte,
-		 { "R Bitmap Bits", "llcgprs.sackrbits", FT_UINT8, BASE_HEX,
-		   NULL, 0xFF, "R Bitmap", HFILL}},
+		{ &hf_llcgprs_rbyte,
+		  { "R Bitmap Bits", "llcgprs.sackrbits", FT_UINT8, BASE_HEX,
+		    NULL, 0xFF, "R Bitmap", HFILL }},
 
 		/* XID Parameter Parsing Info */
-		{&hf_llcgprs_xid_xl,
-		 { "XL Bit", "llcgprs.xidxl", FT_UINT8,
-		   BASE_HEX, NULL, 0x80, "XL", HFILL}},
+		{ &hf_llcgprs_xid_xl,
+		  { "XL Bit", "llcgprs.xidxl", FT_UINT8, BASE_HEX,
+		    NULL, 0x80, "XL", HFILL }},
 
-		{&hf_llcgprs_xid_type,
-		 { "Type", "llcgprs.xidtype", FT_UINT8, BASE_DEC,
-		   NULL, 0x7C, NULL, HFILL}},
+		{ &hf_llcgprs_xid_type,
+		  { "Type", "llcgprs.xidtype", FT_UINT8, BASE_DEC,
+		    NULL, 0x7C, NULL, HFILL }},
 
-		{&hf_llcgprs_xid_len1,
-		 { "Length", "llcgprs.xidlen1", FT_UINT8, BASE_DEC,
-		   NULL, 0x03, NULL, HFILL}},
+		{ &hf_llcgprs_xid_len1,
+		  { "Length", "llcgprs.xidlen1", FT_UINT8, BASE_DEC,
+		    NULL, 0x03, NULL, HFILL }},
 
-		{&hf_llcgprs_xid_len2,
-		 { "Length continued", "llcgprs.xidlen2", FT_UINT8, BASE_DEC,
-		   NULL, 0xFC, NULL, HFILL}},
+		{ &hf_llcgprs_xid_len2,
+		  { "Length continued", "llcgprs.xidlen2", FT_UINT8, BASE_DEC,
+		    NULL, 0xFC, NULL, HFILL }},
 
-		{&hf_llcgprs_xid_spare,
-		 { "Spare", "llcgprs.xidspare", FT_UINT8, BASE_HEX,
-		   NULL, 0x03, "Ignore", HFILL}},
+		{ &hf_llcgprs_xid_spare,
+		  { "Spare", "llcgprs.xidspare", FT_UINT8, BASE_HEX,
+		    NULL, 0x03, "Ignore", HFILL }},
 
-		{&hf_llcgprs_xid_byte,
-		 { "Parameter Byte", "llcgprs.xidbyte", FT_UINT8, BASE_HEX,
-		   NULL, 0xFF, "Data", HFILL}},
+		{ &hf_llcgprs_xid_byte,
+		  { "Parameter Byte", "llcgprs.xidbyte", FT_UINT8, BASE_HEX,
+		    NULL, 0xFF, "Data", HFILL }},
 
 		/* FRMR Parsing Information */
-		{&hf_llcgprs_frmr_cf,
-		 { "Control Field Octet", "llcgprs.frmrrfcf", FT_UINT16,
-		   BASE_DEC, NULL, 0xFFFF, "Rejected Frame CF", HFILL}},
+		{ &hf_llcgprs_frmr_cf,
+		  { "Control Field Octet", "llcgprs.frmrrfcf", FT_UINT16, BASE_DEC,
+		    NULL, 0xFFFF, "Rejected Frame CF", HFILL }},
 
-		{&hf_llcgprs_frmr_spare,
-		 { "X", "llcgprs.frmrspare", FT_UINT32, BASE_HEX,
-		   NULL, 0xF00400F0, "Filler", HFILL}},
+		{ &hf_llcgprs_frmr_spare,
+		  { "X", "llcgprs.frmrspare", FT_UINT32, BASE_HEX,
+		    NULL, 0xF00400F0, "Filler", HFILL }},
 
-		{&hf_llcgprs_frmr_vs,
-		 { "V(S)", "llcgprs.frmrvs", FT_UINT32, BASE_DEC,
-		   NULL, 0x0FF80000, "Current send state variable", HFILL}},
+		{ &hf_llcgprs_frmr_vs,
+		  { "V(S)", "llcgprs.frmrvs", FT_UINT32, BASE_DEC,
+		    NULL, 0x0FF80000, "Current send state variable", HFILL }},
 
-		{&hf_llcgprs_frmr_vr,
-		 { "V(R)", "llcgprs.frmrvr", FT_UINT32, BASE_DEC,
-		   NULL, 0x0003FE00, "Current receive state variable", HFILL}},
+		{ &hf_llcgprs_frmr_vr,
+		  { "V(R)", "llcgprs.frmrvr", FT_UINT32, BASE_DEC,
+		    NULL, 0x0003FE00, "Current receive state variable", HFILL }},
 
-		{&hf_llcgprs_frmr_cr,
-		 { "C/R", "llcgprs.frmrcr", FT_UINT32, BASE_DEC,
-		   NULL, 0x00000100, "Rejected command response", HFILL}},
+		{ &hf_llcgprs_frmr_cr,
+		  { "C/R", "llcgprs.frmrcr", FT_UINT32, BASE_DEC,
+		    NULL, 0x00000100, "Rejected command response", HFILL }},
 
-		{&hf_llcgprs_frmr_w4,
-		 { "W4", "llcgprs.frmrw4", FT_UINT32, BASE_DEC,
-		   NULL, 0x00000008, "LLE was in ABM when rejecting", HFILL}},
+		{ &hf_llcgprs_frmr_w4,
+		  { "W4", "llcgprs.frmrw4", FT_UINT32, BASE_DEC,
+		    NULL, 0x00000008, "LLE was in ABM when rejecting", HFILL }},
 
-		{&hf_llcgprs_frmr_w3,
-		 { "W3", "llcgprs.frmrw3", FT_UINT32, BASE_DEC,
-		   NULL, 0x00000004, "Undefined control field", HFILL}},
+		{ &hf_llcgprs_frmr_w3,
+		  { "W3", "llcgprs.frmrw3", FT_UINT32, BASE_DEC,
+		    NULL, 0x00000004, "Undefined control field", HFILL }},
 
-		{&hf_llcgprs_frmr_w2,
-		 { "W2", "llcgprs.frmrw2", FT_UINT32, BASE_DEC,
-		   NULL, 0x00000002, "Info exceeded N201", HFILL}},
+		{ &hf_llcgprs_frmr_w2,
+		  { "W2", "llcgprs.frmrw2", FT_UINT32, BASE_DEC,
+		    NULL, 0x00000002, "Info exceeded N201", HFILL }},
 
-		{&hf_llcgprs_frmr_w1,
-		 { "W1", "llcgprs.frmrw1", FT_UINT32, BASE_DEC,
-		   NULL, 0x00000001, "Invalid - info not permitted", HFILL}},
+		{ &hf_llcgprs_frmr_w1,
+		  { "W1", "llcgprs.frmrw1", FT_UINT32, BASE_DEC,
+		    NULL, 0x00000001, "Invalid - info not permitted", HFILL }},
 
-		{&hf_llcgprs_tom_rl,
-		 { "Remaining Length of TOM Protocol Header", "llcgprs.romrl", FT_UINT8, BASE_DEC,
-		   NULL, 0xF0, "RL", HFILL}},
+		{ &hf_llcgprs_tom_rl,
+		  { "Remaining Length of TOM Protocol Header", "llcgprs.romrl", FT_UINT8, BASE_DEC,
+		    NULL, 0xF0, "RL", HFILL }},
 
-		{&hf_llcgprs_tom_pd,
-		 { "TOM Protocol Discriminator", "llcgprs.tompd", FT_UINT8, BASE_HEX,
-		   NULL, 0x0F, "TPD", HFILL}},
+		{ &hf_llcgprs_tom_pd,
+		  { "TOM Protocol Discriminator", "llcgprs.tompd", FT_UINT8, BASE_HEX,
+		    NULL, 0x0F, "TPD", HFILL }},
 
-		{&hf_llcgprs_tom_header,
-		 { "TOM Header Byte", "llcgprs.tomhead", FT_UINT8, BASE_HEX,
-		   NULL, 0xFF, "thb", HFILL}},
+		{ &hf_llcgprs_tom_header,
+		  { "TOM Header Byte", "llcgprs.tomhead", FT_UINT8, BASE_HEX,
+		    NULL, 0xFF, "thb", HFILL }},
 
-		{&hf_llcgprs_tom_data,
-		 { "TOM Message Capsule Byte", "llcgprs.tomdata", FT_UINT8, BASE_HEX,
-		   NULL, 0xFF, "tdb", HFILL}},
-		/* END MLT CHANGES */
+		{ &hf_llcgprs_tom_data,
+		  { "TOM Message Capsule Byte", "llcgprs.tomdata", FT_UINT8, BASE_HEX,
+		    NULL, 0xFF, "tdb", HFILL }},
 	};
 
 /* Setup protocol subtree array */
@@ -1318,7 +1311,7 @@ proto_register_llcgprs(void)
 		&ett_llcgprs,
 		&ett_llcgprs_adf,
 		&ett_llcgprs_ctrlf,
-		&ett_ui,
+		&ett_llcgprs_ui,
 		&ett_llcgprs_sframe,
 	};
 
@@ -1332,7 +1325,7 @@ proto_register_llcgprs(void)
 /* Register the protocol name and description */
 	proto_llcgprs = proto_register_protocol("Logical Link Control GPRS",
 	    "GPRS-LLC", "llcgprs");
-	llcgprs_subdissector_table = register_dissector_table("llcgprs.sapi", "GPRS LLC SAPI", FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	llcgprs_subdissector_table = register_dissector_table("llcgprs.sapi", "GPRS LLC SAPI", proto_llcgprs, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
 /* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_llcgprs, hf, array_length(hf));
@@ -1358,8 +1351,7 @@ proto_reg_handoff_llcgprs(void)
 	gprs_llc_handle = find_dissector("llcgprs");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_GPRS_LLC, gprs_llc_handle);
 
-	data_handle = find_dissector("data");
-	sndcp_xid_handle  = find_dissector("sndcpxid");
+	sndcp_xid_handle  = find_dissector_add_dependency("sndcpxid", proto_llcgprs);
 }
 
 /*

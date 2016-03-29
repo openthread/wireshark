@@ -101,7 +101,6 @@ static dissector_handle_t clnp_handle;
 static dissector_handle_t ositp_handle;
 static dissector_handle_t ositp_inactive_handle;
 static dissector_handle_t idrp_handle;
-static dissector_handle_t data_handle;
 
 /*
  * ISO 8473 OSI CLNP definition (see RFC994)
@@ -245,15 +244,14 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         proto_tree_add_uint_format(clnp_tree, hf_clnp_id, tvb, P_CLNP_PROTO_ID, 1,
                 cnf_proto_id, "Inactive subset");
         next_tvb = tvb_new_subset_remaining(tvb, 1);
-        if (call_dissector(ositp_inactive_handle, next_tvb, pinfo, tree) == 0)
-            call_dissector(data_handle,tvb, pinfo, tree);
+        call_dissector(ositp_inactive_handle, next_tvb, pinfo, tree);
         return tvb_captured_length(tvb);
     }
 
     /* return if version not known */
     cnf_vers = tvb_get_guint8(tvb, P_CLNP_VERS);
     if (cnf_vers != ISO8473_V1) {
-        call_dissector(data_handle,tvb, pinfo, tree);
+        call_data_dissector(tvb, pinfo, tree);
         return tvb_captured_length(tvb);
     }
 
@@ -427,12 +425,10 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     }
     set_address_tvb(&pinfo->net_src, get_osi_address_type(), src_len, tvb, offset);
     copy_address_shallow(&pinfo->src, &pinfo->net_src);
-    proto_tree_add_bytes_format_value(clnp_tree, hf_clnp_src, tvb,
-            offset, src_len,
+    proto_tree_add_bytes_format_value(clnp_tree, hf_clnp_src, tvb, offset, src_len,
             NULL,
             "%s",
             print_nsap_net(tvb, offset, src_len));
-
     offset += src_len;
     opt_len -= src_len;
 
@@ -526,8 +522,7 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 
         /* As we haven't reassembled anything, we haven't changed "pi", so
            we don't have to restore it. */
-        call_dissector(data_handle, tvb_new_subset_remaining(tvb, offset), pinfo,
-                tree);
+        call_data_dissector(tvb_new_subset_remaining(tvb, offset), pinfo, tree);
         pinfo->fragmented = save_fragmented;
         return tvb_captured_length(tvb);
     }
@@ -595,7 +590,7 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         }
     }
     col_add_fstr(pinfo->cinfo, COL_INFO, "%s NPDU %s", pdu_type_string, flag_string);
-    call_dissector(data_handle,next_tvb, pinfo, tree);
+    call_data_dissector(next_tvb, pinfo, tree);
     pinfo->fragmented = save_fragmented;
     return tvb_captured_length(tvb);
 } /* dissect_clnp */
@@ -739,7 +734,7 @@ proto_register_clnp(void)
     expert_clnp = expert_register_protocol(proto_clnp);
     expert_register_field_array(expert_clnp, ei, array_length(ei));
     clnp_handle = register_dissector("clnp", dissect_clnp, proto_clnp);
-    clnp_heur_subdissector_list = register_heur_dissector_list("clnp");
+    clnp_heur_subdissector_list = register_heur_dissector_list("clnp", proto_clnp);
     register_init_routine(clnp_reassemble_init);
     register_cleanup_routine(clnp_reassemble_cleanup);
 
@@ -767,10 +762,9 @@ proto_register_clnp(void)
 void
 proto_reg_handoff_clnp(void)
 {
-    ositp_handle = find_dissector("ositp");
-    ositp_inactive_handle = find_dissector("ositp_inactive");
-    idrp_handle = find_dissector("idrp");
-    data_handle = find_dissector("data");
+    ositp_handle = find_dissector_add_dependency("ositp", proto_clnp);
+    ositp_inactive_handle = find_dissector_add_dependency("ositp_inactive", proto_clnp);
+    idrp_handle = find_dissector_add_dependency("idrp", proto_clnp);
 
     dissector_add_uint("osinl.incl", NLPID_ISO8473_CLNP, clnp_handle);
     dissector_add_uint("osinl.incl", NLPID_NULL, clnp_handle); /* Inactive subset */

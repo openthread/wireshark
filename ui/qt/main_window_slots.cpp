@@ -44,9 +44,9 @@
 #include "wsutil/filesystem.h"
 
 #include "epan/addr_resolv.h"
-#include "epan/dissector_filters.h"
 #include "epan/column.h"
 #include "epan/dfilter/dfilter-macro.h"
+#include "epan/dissector_filters.h"
 #include "epan/epan_dissect.h"
 #include "epan/filter_expressions.h"
 #include "epan/prefs.h"
@@ -70,6 +70,7 @@
 #include "ui/recent_utils.h"
 #include "ui/ssl_key_export.h"
 #include "ui/ui_util.h"
+#include "ui/all_files_wildcard.h"
 #include "ui/qt/simple_dialog.h"
 
 #ifdef HAVE_SOFTWARE_UPDATE
@@ -85,6 +86,7 @@
 #include "color_utils.h"
 #include "coloring_rules_dialog.h"
 #include "conversation_dialog.h"
+#include "conversation_colorize_action.h"
 #include "conversation_hash_tables_dialog.h"
 #include "enabled_protocols_dialog.h"
 #include "decode_as_dialog.h"
@@ -95,7 +97,7 @@
 #include "expert_info_dialog.h"
 #include "export_object_dialog.h"
 #include "export_pdu_dialog.h"
-#if HAVE_EXTCAP
+#ifdef HAVE_EXTCAP
 #include "extcap_options_dialog.h"
 #endif
 #include "filter_action.h"
@@ -156,9 +158,6 @@
 
 static const char *dfe_property_ = "display filter expression"; //TODO : Fix Translate
 
-// We're too lazy to sublcass QAction.
-static const char *color_number_property_ = "color number";
-
 bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned int type)
 {
     QString file_name = "";
@@ -174,26 +173,6 @@ bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned 
 
         if (cf_path.isEmpty()) {
             CaptureFileDialog open_dlg(this, capture_file_.capFile(), read_filter);
-
-            switch (prefs.gui_fileopen_style) {
-
-            case FO_STYLE_LAST_OPENED:
-                /* The user has specified that we should start out in the last directory
-                   we looked in.  If we've already opened a file, use its containing
-                   directory, if we could determine it, as the directory, otherwise
-                   use the "last opened" directory saved in the preferences file if
-                   there was one. */
-                /* This is now the default behaviour in file_selection_new() */
-                break;
-
-            case FO_STYLE_SPECIFIED:
-                /* The user has specified that we should always start out in a
-                   specified directory; if they've specified that directory,
-                   start out by showing the files in that dir. */
-                if (prefs.gui_fileopen_dir[0] != '\0')
-                    open_dlg.setDirectory(prefs.gui_fileopen_dir);
-                break;
-            }
 
             if (open_dlg.open(file_name, type)) {
                 cf_path = file_name;
@@ -1178,44 +1157,7 @@ void MainWindow::setMenusForSelectedPacket()
     main_ui_->actionViewShowPacketInNewWindow->setEnabled(frame_selected);
     main_ui_->actionViewEditResolvedName->setEnabled(frame_selected && is_ip);
 
-    main_ui_->menuConversationFilter->clear();
-
-    packet_list_->conversationMenu()->clear();
-    packet_list_->colorizeMenu()->clear();
-
-    for (GList *conv_filter_list_entry = conv_filter_list; conv_filter_list_entry; conv_filter_list_entry = g_list_next(conv_filter_list_entry)) {
-        // Main menu items
-        conversation_filter_t* conv_filter = (conversation_filter_t *)conv_filter_list_entry->data;
-        QAction *conv_action = main_ui_->menuConversationFilter->addAction(conv_filter->display_name);
-
-        bool enable = false;
-        QString filter;
-        if (capture_file_.capFile() && capture_file_.capFile()->edt) {
-            enable = conv_filter->is_filter_valid(&capture_file_.capFile()->edt->pi);
-            filter = gchar_free_to_qstring(conv_filter->build_filter_string(&capture_file_.capFile()->edt->pi));
-        }
-        conv_action->setEnabled(enable);
-        conv_action->setData(filter);
-        connect(conv_action, SIGNAL(triggered()), this, SLOT(applyConversationFilter()));
-
-        // Packet list context menu items
-        packet_list_->conversationMenu()->addAction(conv_action);
-
-        QMenu *submenu = packet_list_->colorizeMenu()->addMenu(conv_action->text());
-        int i = 1;
-        foreach (QAction *cc_action, cc_actions) {
-            QAction *colorize_action = submenu->addAction(cc_action->icon(), cc_action->text());
-            colorize_action->setProperty(color_number_property_, i++);
-            colorize_action->setData(filter);
-            colorize_action->setEnabled(enable);
-            connect(colorize_action, SIGNAL(triggered()), this, SLOT(colorizeWithFilter()));
-        }
-
-        QAction *conv_rule_action = submenu->addAction(main_ui_->actionViewColorizeNewColoringRule->text());
-        conv_rule_action->setData(conv_action->data());
-        conv_rule_action->setEnabled(enable);
-        connect(conv_rule_action, SIGNAL(triggered()), this, SLOT(colorizeWithFilter()));
-    }
+    emit packetInfoChanged(capture_file_.packetInfo());
 
 //    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/ViewMenu/NameResolution/ResolveName",
 //                         frame_selected && (gbl_resolv_flags.mac_name || gbl_resolv_flags.network_name ||
@@ -1237,15 +1179,8 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
     bool have_field_info = false;
     bool have_subtree = false;
     bool can_open_url = false;
-    QString field_filter;
+    QByteArray field_filter;
     int field_id = -1;
-
-    QList<QAction *> cc_actions = QList<QAction *>()
-            << main_ui_->actionViewColorizeConversation1 << main_ui_->actionViewColorizeConversation2
-            << main_ui_->actionViewColorizeConversation3 << main_ui_->actionViewColorizeConversation4
-            << main_ui_->actionViewColorizeConversation5 << main_ui_->actionViewColorizeConversation6
-            << main_ui_->actionViewColorizeConversation7 << main_ui_->actionViewColorizeConversation8
-            << main_ui_->actionViewColorizeConversation9 << main_ui_->actionViewColorizeConversation10;
 
     if (capture_file_.capFile()) {
         capture_file_.capFile()->finfo_selected = fi;
@@ -1267,7 +1202,7 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
         }
 
         char *tmp_field = proto_construct_match_selected_string(fi, capture_file_.capFile()->edt);
-        field_filter = QString(tmp_field);
+        field_filter = tmp_field;
         wmem_free(NULL, tmp_field);
 
         field_id = fi->hfinfo->id;
@@ -1318,41 +1253,12 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
     // don't clobber anything we may have set in setMenusForSelectedPacket.
     if (!proto_tree_ || !proto_tree_->hasFocus()) return;
 
-    main_ui_->menuConversationFilter->clear();
-    for (GList *conv_filter_list_entry = conv_filter_list; conv_filter_list_entry; conv_filter_list_entry = g_list_next(conv_filter_list_entry)) {
-        conversation_filter_t* conv_filter = (conversation_filter_t *)conv_filter_list_entry->data;
-        QAction *conv_action = main_ui_->menuConversationFilter->addAction(conv_filter->display_name);
-
-        bool enable = false;
-        QString filter;
-        if (fi && capture_file_.capFile() && capture_file_.capFile()->edt) {
-            enable = conv_filter->is_filter_valid(&capture_file_.capFile()->edt->pi);
-            filter = conv_filter->build_filter_string(&capture_file_.capFile()->edt->pi);
-        }
-        conv_action->setEnabled(enable);
-        conv_action->setData(filter);
-        connect(conv_action, SIGNAL(triggered()), this, SLOT(applyConversationFilter()));
-    }
-
-    proto_tree_->colorizeMenu()->clear();
-    int i = 1;
-    foreach (QAction *cc_action, cc_actions) {
-        QAction *colorize_action = proto_tree_->colorizeMenu()->addAction(cc_action->icon(), cc_action->text());
-        colorize_action->setProperty(color_number_property_, i++);
-        colorize_action->setData(field_filter);
-        colorize_action->setEnabled(!field_filter.isEmpty());
-        connect(colorize_action, SIGNAL(triggered()), this, SLOT(colorizeWithFilter()));
-    }
-
-    QAction *conv_rule_action = proto_tree_->colorizeMenu()->addAction(main_ui_->actionViewColorizeNewColoringRule->text());
-    conv_rule_action->setData(field_filter);
-    conv_rule_action->setEnabled(!field_filter.isEmpty());
-    connect(conv_rule_action, SIGNAL(triggered()), this, SLOT(colorizeWithFilter()));
+    emit packetInfoChanged(capture_file_.packetInfo());
+    emit fieldFilterChanged(field_filter);
 
 //    set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/ResolveName",
 //                         frame_selected && (gbl_resolv_flags.mac_name || gbl_resolv_flags.network_name ||
 //                                            gbl_resolv_flags.transport_name || gbl_resolv_flags.concurrent_dns));
-
 
     main_ui_->actionAnalyzeAAFSelected->setEnabled(can_match_selected);
     main_ui_->actionAnalyzeAAFNotSelected->setEnabled(can_match_selected);
@@ -1454,6 +1360,7 @@ void MainWindow::reloadLuaPlugins()
     char *gdp_path, *dp_path;
     wsApp->readConfigurationFiles(&gdp_path, &dp_path, true);
 
+    prefs_apply_all();
     fieldsChanged();
     redissectPackets();
 
@@ -1731,7 +1638,7 @@ void MainWindow::on_actionFileExportPacketBytes_triggered()
     file_name = QFileDialog::getSaveFileName(this,
                                              wsApp->windowTitleString(tr("Export Selected Packet Bytes")),
                                              wsApp->lastOpenDir().canonicalPath(),
-                                             tr("Raw data (*.bin *.dat *.raw);;Any File (*.*)")
+                                             tr("Raw data (*.bin *.dat *.raw);;All Files (" ALL_FILES_WILDCARD ")")
                                              );
 
     if (file_name.length() > 0) {
@@ -1806,7 +1713,7 @@ void MainWindow::on_actionFileExportSSLSessionKeys_triggered()
     file_name = QFileDialog::getSaveFileName(this,
                                              save_title,
                                              wsApp->lastOpenDir().canonicalPath(),
-                                             tr("SSL Session Keys (*.keys *.txt);;Any File (*.*)")
+                                             tr("SSL Session Keys (*.keys *.txt);;All Files (" ALL_FILES_WILDCARD ")")
                                              );
     if (file_name.length() > 0) {
         gchar *keylist;
@@ -2321,12 +2228,12 @@ void MainWindow::on_actionViewColoringRules_triggered()
 // actionViewColorizeConversation1 - 10
 void MainWindow::colorizeConversation(bool create_rule)
 {
-    QAction *cc_action = qobject_cast<QAction *>(sender());
-    if (!cc_action) return;
+    QAction *colorize_action = qobject_cast<QAction *>(sender());
+    if (!colorize_action) return;
 
     if (capture_file_.capFile() && capture_file_.capFile()->current_frame) {
-        packet_info *pi = &capture_file_.capFile()->edt->pi;
-        guint8 cc_num = cc_action->data().toUInt();
+        packet_info *pi = capture_file_.packetInfo();
+        guint8 cc_num = colorize_action->data().toUInt();
         gchar *filter = NULL;
 
         const conversation_filter_t *color_filter = find_conversation_filter("tcp");
@@ -2376,19 +2283,27 @@ void MainWindow::colorizeConversation(bool create_rule)
 
 void MainWindow::colorizeWithFilter()
 {
-    QAction *colorize_action = qobject_cast<QAction *>(sender());
-    if (!colorize_action) return;
+    QByteArray filter;
+    int color_number = -1;
 
-    QString filter = colorize_action->data().toString();
+    ConversationAction *conv_action = qobject_cast<ConversationAction *>(sender());
+    if (conv_action) {
+        filter = conv_action->filter();
+        color_number = conv_action->colorNumber();
+    } else {
+        ColorizeAction *colorize_action = qobject_cast<ColorizeAction *>(sender());
+        if (colorize_action) {
+            filter = colorize_action->filter();
+            color_number = colorize_action->colorNumber();
+        }
+    }
+
     if (filter.isEmpty()) return;
 
-    bool ok = false;
-    int color_number = colorize_action->property(color_number_property_).toInt(&ok);
-
-    if (ok) {
+    if (color_number > 0) {
         // Assume "Color X"
         gchar *err_msg = NULL;
-        if (!color_filters_set_tmp(color_number, filter.toUtf8().constData(), FALSE, &err_msg)) {
+        if (!color_filters_set_tmp(color_number, filter.constData(), FALSE, &err_msg)) {
             simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
             g_free(err_msg);
         }
@@ -2588,14 +2503,20 @@ void MainWindow::on_actionAnalyzeCreateAColumn_triggered()
 
 void MainWindow::applyConversationFilter()
 {
-    QAction *cfa = qobject_cast<QAction*>(sender());
-    if (!cfa) return;
+    ConversationAction *conv_action = qobject_cast<ConversationAction*>(sender());
+    if (!conv_action) return;
 
-    QString new_filter = cfa->data().toString();
-    if (new_filter.isEmpty()) return;
+    packet_info *pinfo = capture_file_.packetInfo();
+    if (!pinfo) return;
 
-    df_combo_box_->lineEdit()->setText(new_filter);
-    df_combo_box_->applyDisplayFilter();
+    QByteArray conv_filter = conv_action->filter();
+    if (conv_filter.isEmpty()) return;
+
+    if (conv_action->isFilterValid(pinfo)) {
+
+        df_combo_box_->lineEdit()->setText(conv_filter);
+        df_combo_box_->applyDisplayFilter();
+    }
 }
 
 // XXX We could probably create the analyze and prepare actions

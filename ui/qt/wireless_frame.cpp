@@ -80,7 +80,7 @@ WirelessFrame::WirelessFrame(QWidget *parent) :
     ui->fcsFilterFrame->setVisible(ws80211_has_fcs_filter());
 
     getInterfaceInfo();
-    startTimer(update_interval_);
+    iface_timer_id_ = startTimer(update_interval_);
 }
 
 WirelessFrame::~WirelessFrame()
@@ -97,8 +97,13 @@ void WirelessFrame::setCaptureInProgress(bool capture_in_progress)
 // Check to see if the ws80211 interface list matches the one in our
 // combobox. Rebuild ours if necessary and select the first interface if
 // the current selection goes away.
-void WirelessFrame::timerEvent(QTimerEvent *)
+void WirelessFrame::timerEvent(QTimerEvent *event)
 {
+    if (event->timerId() != iface_timer_id_) {
+        QFrame::timerEvent(event);
+        return;
+    }
+
     // Don't interfere with user activity.
     if (ui->interfaceComboBox->view()->isVisible()
         || ui->channelComboBox->view()->isVisible()
@@ -237,6 +242,18 @@ void WirelessFrame::getInterfaceInfo()
                     ui->channelTypeComboBox->setCurrentIndex(ui->channelTypeComboBox->count() - 1);
                 }
             }
+            if (iface->channel_types & (1 << WS80211_CHAN_VHT80)) {
+                ui->channelTypeComboBox->addItem("VHT 80", WS80211_CHAN_VHT80);
+                if (iface_info.current_chan_type == WS80211_CHAN_VHT80) {
+                    ui->channelTypeComboBox->setCurrentIndex(ui->channelTypeComboBox->count() - 1);
+                }
+            }
+            if (iface->channel_types & (1 << WS80211_CHAN_VHT160)) {
+                ui->channelTypeComboBox->addItem("VHT 160", WS80211_CHAN_VHT160);
+                if (iface_info.current_chan_type == WS80211_CHAN_VHT160) {
+                    ui->channelTypeComboBox->setCurrentIndex(ui->channelTypeComboBox->count() - 1);
+                }
+            }
 
             if (ws80211_has_fcs_filter()) {
                 ui->fcsComboBox->setCurrentIndex(iface_info.current_fcs_validation);
@@ -257,15 +274,19 @@ void WirelessFrame::setInterfaceInfo()
     if (cur_iface.isEmpty() || cur_chan_idx < 0 || cur_type_idx < 0) return;
 
 #if defined(HAVE_LIBNL) && defined(HAVE_NL80211)
-    const QString frequency = ui->channelComboBox->itemData(cur_chan_idx).toString();
+    int frequency = ui->channelComboBox->itemData(cur_chan_idx).toInt();
     int chan_type = ui->channelTypeComboBox->itemData(cur_type_idx).toInt();
+    int bandwidth = getBandwidthFromChanType(chan_type);
+    int center_freq = getCenterFrequency(frequency, bandwidth);
     const gchar *chan_type_s = ws80211_chan_type_to_str(chan_type);
     gchar *data, *primary_msg, *secondary_msg;
     int ret;
 
-    if (frequency.isEmpty() || chan_type < 0) return;
+    if (frequency < 0 || chan_type < 0) return;
 
-    ret = sync_interface_set_80211_chan(cur_iface.toUtf8().constData(), frequency.toUtf8().constData(), chan_type_s,
+    ret = sync_interface_set_80211_chan(cur_iface.toUtf8().constData(),
+                                        QString::number(frequency).toUtf8().constData(), chan_type_s,
+                                        QString::number(center_freq).toUtf8().constData(), "-1",
                                         &data, &primary_msg, &secondary_msg, main_window_update);
 
     g_free(data);
@@ -282,7 +303,7 @@ void WirelessFrame::setInterfaceInfo()
     int chan_type = ui->channelTypeComboBox->itemData(cur_type_idx).toInt();
     if (frequency < 0 || chan_type < 0) return;
 
-    if (ws80211_set_freq(cur_iface.toUtf8().constData(), frequency, chan_type) != 0) {
+    if (ws80211_set_freq(cur_iface.toUtf8().constData(), frequency, chan_type, -1, -1) != 0) {
         QString err_str = tr("Unable to set channel or offset.");
         emit pushAdapterStatus(err_str);
     }
@@ -296,6 +317,26 @@ void WirelessFrame::setInterfaceInfo()
     }
 
     getInterfaceInfo();
+}
+
+int WirelessFrame::getCenterFrequency(int control_frequency, int bandwidth)
+{
+    if (bandwidth < 80 || control_frequency < 5180)
+        return -1;
+
+    return ((control_frequency - 5180) / bandwidth) * bandwidth + 5180 + (bandwidth / 2) - 10;
+}
+
+int WirelessFrame::getBandwidthFromChanType(int chan_type)
+{
+    switch (chan_type) {
+    case WS80211_CHAN_VHT80:
+        return 80;
+    case WS80211_CHAN_VHT160:
+        return 160;
+    default:
+        return -1;
+    }
 }
 
 void WirelessFrame::on_interfaceComboBox_activated(int)

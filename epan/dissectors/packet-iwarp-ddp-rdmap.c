@@ -33,7 +33,6 @@
 #include "packet-iwarp-ddp-rdmap.h"
 
 void proto_register_iwarp_ddp_rdmap(void);
-void proto_reg_handoff_iwarp_ddp_rdmap(void);
 
 /* DEFINES */
 
@@ -97,8 +96,6 @@ void proto_reg_handoff_iwarp_ddp_rdmap(void);
 /* GLOBALS */
 static gint proto_iwarp_ddp_rdmap = -1;
 static gint ett_iwarp_ddp_rdmap = -1;
-
-static dissector_handle_t data_handle;
 
 /*
  * DDP: initialize the protocol and registered fields
@@ -266,7 +263,7 @@ dissect_rdmap_payload(tvbuff_t *tvb, packet_info *pinfo,
 
 	if (!dissector_try_heuristic(rdmap_heur_subdissector_list,
 					tvb, pinfo, tree, &hdtbl_entry, info)) {
-		call_dissector(data_handle, tvb, pinfo, tree);
+		call_data_dissector(tvb, pinfo, tree);
 	}
 }
 
@@ -891,16 +888,10 @@ proto_register_iwarp_ddp_rdmap(void)
 	proto_register_field_array(proto_iwarp_ddp_rdmap, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	rdmap_heur_subdissector_list = register_heur_dissector_list("iwarp_ddp_rdmap");
+	rdmap_heur_subdissector_list = register_heur_dissector_list("iwarp_ddp_rdmap", proto_iwarp_ddp_rdmap);
 
 	register_dissector("iwarp_ddp_rdmap", dissect_iwarp_ddp_rdmap,
 			proto_iwarp_ddp_rdmap);
-}
-
-void
-proto_reg_handoff_iwarp_ddp_rdmap(void)
-{
-	data_handle = find_dissector("data");
 }
 
 /*

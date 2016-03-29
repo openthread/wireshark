@@ -48,7 +48,6 @@
 #include <wsutil/plugins.h>
 #endif
 #include <wsutil/report_err.h>
-#include <wsutil/u3.h>
 #include <wsutil/unicode-utils.h>
 #include <wsutil/ws_diag_control.h>
 #include <wsutil/ws_version_info.h>
@@ -370,11 +369,6 @@ get_wireshark_runtime_info(GString *str)
     g_string_append(str, ", ");
     get_runtime_airpcap_version(str);
 #endif
-
-    if(u3_active()) {
-        g_string_append(str, ", ");
-        u3_runtime_info(str);
-    }
 }
 
 #ifdef HAVE_LIBPCAP
@@ -799,7 +793,7 @@ int main(int argc, char *argv[])
     capture_opts_init(&global_capture_opts);
 #endif
 
-    init_report_err(failure_alert_box, open_failure_alert_box,
+    init_report_err(vfailure_alert_box, open_failure_alert_box,
                     read_failure_alert_box, write_failure_alert_box);
 
     init_open_routines();

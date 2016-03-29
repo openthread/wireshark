@@ -23,8 +23,6 @@
 
 #include <glib.h>
 
-#include "version.h"
-
 #include <epan/prefs.h>
 
 #include "ui/capture_globals.h"
@@ -55,7 +53,7 @@
 #define VERSION_FLAVOR ""
 #endif
 
-#if HAVE_EXTCAP
+#ifdef HAVE_EXTCAP
 #include <extcap.h>
 #endif
 
@@ -167,7 +165,7 @@ MainWelcome::MainWelcome(QWidget *parent) :
     connect(wsApp, SIGNAL(appInitialized()), this, SLOT(appInitialized()));
     connect(welcome_ui_->interfaceTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)),
             this, SLOT(interfaceDoubleClicked(QTreeWidgetItem*,int)));
-#if HAVE_EXTCAP
+#ifdef HAVE_EXTCAP
     connect(welcome_ui_->interfaceTree, SIGNAL(itemClicked(QTreeWidgetItem*,int)),
             this, SLOT(interfaceClicked(QTreeWidgetItem*,int)));
 #endif
@@ -308,7 +306,7 @@ void MainWelcome::interfaceSelected()
 void MainWelcome::interfaceDoubleClicked(QTreeWidgetItem *item, int)
 {
     if (item) {
-#if HAVE_EXTCAP
+#ifdef HAVE_EXTCAP
         QString extcap_string = QVariant(item->data(IFTREE_COL_EXTCAP, Qt::UserRole)).toString();
         /* We trust the string here. If this interface is really extcap, the string is
          * being checked immediatly before the dialog is being generated */
@@ -325,9 +323,9 @@ void MainWelcome::interfaceDoubleClicked(QTreeWidgetItem *item, int)
     }
 }
 
+#ifdef HAVE_EXTCAP
 void MainWelcome::interfaceClicked(QTreeWidgetItem *item, int column)
 {
-#if HAVE_EXTCAP
     if (column == IFTREE_COL_EXTCAP) {
         QString extcap_string = QVariant(item->data(IFTREE_COL_EXTCAP, Qt::UserRole)).toString();
         /* We trust the string here. If this interface is really extcap, the string is
@@ -337,8 +335,8 @@ void MainWelcome::interfaceClicked(QTreeWidgetItem *item, int column)
             emit showExtcapOptions(device_name);
         }
     }
-#endif
 }
+#endif
 
 void MainWelcome::updateRecentFiles() {
     QString itemLabel;
