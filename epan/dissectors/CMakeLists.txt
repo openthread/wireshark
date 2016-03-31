@@ -923,6 +923,7 @@ set(DISSECTOR_SRC
 	packet-mip.c
 	packet-mip6.c
 	packet-mka.c
+	packet-mle.c
 	packet-mmse.c
 	packet-mndp.c
 	packet-mojito.c
@@ -1278,6 +1279,11 @@ set(DISSECTOR_SRC
 	packet-text-media.c
 	packet-tfp.c
 	packet-tftp.c
+	packet-thread-address.c
+	packet-thread-coap.c
+	packet-thread-diagnostic.c
+	packet-thread-meshcop.c
+	packet-thread-nwd.c
 	packet-thrift.c
 	packet-time.c
 	packet-tipc.c

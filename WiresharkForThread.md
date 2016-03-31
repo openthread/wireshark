@@ -6,7 +6,7 @@ This document is a short summary for what is needed to build Wireshark from the 
 
 ## Setting preferences for Thread Wireshark ##
 
-**It is important to set the correct preferences for IEEE 802.15.4 or else it will stop with an assertion**
+**It is important to set the correct preferences for IEEE 802.15.4 or else it may stop with an assertion**
 
 The preferences should be set as follows:
 
@@ -20,7 +20,9 @@ The first thing to point out is that Git and Github are not the same thing and t
 
 ### Development tools ###
 
-The first thing to do is to follow [these instructions](https://www.wireshark.org/docs/wsdg_html_chunked/ChSetupWin32.html) to set up the development environment. A couple of notes:
+There is currently an attempt to move towards using `CMake` and away from `nmake` in Windows. This is harder to set up on Windows due to issues with PATH and environment variables so the recommendation is to still use `nmake`. The instructions for `nmake` building have however been replaced with those for `CMake` building, so [the instructions for `nmake` building from web.archive.org](http://web.archive.org/web/20150801215144/https://www.wireshark.org/docs/wsdg_html_chunked/ChSetupWin32.html) should be followed to set up the development environment.
+
+A few notes:
 
 * Chocolatey is optional
 * We are not typically using Qt at the moment so it is not essential to install Qt
@@ -32,7 +34,9 @@ The main difference is that in Section 2.2.8, **do not use the specified reposit
 
 This will clone the repository from the Thread Group Bitbucket site into a directory called `wireshark`. This includes all the patches required for Thread already incorporated into the source files.
 
-Also, the environment variable setup has been put into a file called `vs2013cfg.bat`. You will need to alter this to change where your `WIRESHARK_BASE_DIR` is and possibly the PATH for Cygwin.
+Also, the environment variable setup has been put into a file called `vs2013cfg.bat`. You will need to alter this to change where your `WIRESHARK_BASE_DIR` is and possibly the `WIRESHARK_CYGWIN_INSTALL_PATH` for Cygwin.
+
+If you do want to attempt to build using `CMake` on Windows, follow [these instructions](https://www.wireshark.org/docs/wsdg_html_chunked/ChSetupWin32.html) to set up the development environment. The environment variable setup file in this case is called `vs2013cmcfg.bat`.
 
 ### Command prompt for building ###
 
@@ -76,7 +80,7 @@ Note especially where `link` and `perl` are pointing to as this can cause some i
 
 ### Building Wireshark ###
 
-This is a repeat of [what is in here](https://www.wireshark.org/docs/wsdg_html_chunked/ChSetupWin32.html) to some extend but highlights the general process.
+This is a repeat of [what is in here](http://web.archive.org/web/20150801215144/https://www.wireshark.org/docs/wsdg_html_chunked/ChSetupWin32.html) to some extent but highlights the general process.
 
 Using the Developer Command Prompt, run the following:
 
