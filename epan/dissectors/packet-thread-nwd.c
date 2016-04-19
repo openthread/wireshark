@@ -93,6 +93,7 @@ static expert_field ei_thread_nwd_tlv_length_failed = EI_INIT;
 static expert_field ei_thread_nwd_len_size_mismatch = EI_INIT;
 
 static dissector_handle_t thread_nwd_handle;
+static dissector_handle_t thread_mc_handle;
 
 #define THREAD_NWD_TLV_HAS_ROUTE                    0
 #define THREAD_NWD_TLV_PREFIX                       1
@@ -327,6 +328,17 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                 break;
 
             case THREAD_NWD_TLV_COMMISSIONING_DATA:
+                {
+                    tvbuff_t *sub_tvb;
+                    proto_item_append_text(ti, ")");
+                    if (tlv_len > 0) {
+                        sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
+                        call_dissector(thread_mc_handle, sub_tvb, pinfo, tlv_tree);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+            
             case THREAD_NWD_TLV_SERVICE: /* TODO */
             case THREAD_NWD_TLV_SERVER: /* TODO */
                 {
@@ -620,6 +632,7 @@ proto_reg_handoff_thread_nwd(void)
 
   if (!thread_nwd_initialized) {
     thread_nwd_handle = find_dissector("thread_nwd");
+    thread_mc_handle = find_dissector("thread_meshcop");
     thread_nwd_initialized = TRUE;
   }
 }
