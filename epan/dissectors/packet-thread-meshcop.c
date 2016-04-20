@@ -232,7 +232,7 @@ static const value_string thread_mc_tlv_vals[] = {
 { THREAD_MC_TLV_PSKC,                      "PSKc" },
 { THREAD_MC_TLV_NETWORK_MASTER_KEY,        "Network Master Key" },
 { THREAD_MC_TLV_NETWORK_KEY_SEQUENCE,      "Network Master Sequence" },
-{ THREAD_MC_TLV_NETWORK_ML_ULA,            "Mesh Link ULA" },
+{ THREAD_MC_TLV_NETWORK_ML_ULA,            "Mesh Local ULA Prefix" },
 { THREAD_MC_TLV_STEERING_DATA,             "Steering Data" },
 { THREAD_MC_TLV_BORDER_AGENT_LOCATOR,      "Border Agent Locator" },
 { THREAD_MC_TLV_COMMISSIONER_ID,           "Commissioner ID" },
@@ -583,8 +583,6 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     
             case THREAD_MC_TLV_NETWORK_ML_ULA:
                 {
-                    struct e_in6_addr prefix;
-
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
@@ -592,8 +590,13 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
+                        struct e_in6_addr prefix;
+                        proto_item *pi;
+
+                        memset(&prefix, 0, sizeof(prefix));
                         tvb_memcpy(tvb, (guint8 *)&prefix.bytes, offset, tlv_len);
-                        proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_ula, tvb, offset, tlv_len, &prefix);
+                        pi = proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_ula, tvb, offset, tlv_len, &prefix);
+                        proto_item_append_text(pi, "/%d", tlv_len * 8);
                     }
                     offset += tlv_len;           
                 }
