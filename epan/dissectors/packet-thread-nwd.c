@@ -82,6 +82,10 @@ static int hf_thread_nwd_tlv_6lowpan_id_6co_flag_reserved = -1;
 /* Commissioning Data fields */
 static int hf_thread_nwd_tlv_comm_data = -1;
 
+/* Server fields */
+static int hf_thread_nwd_tlv_server_16 = -1;
+static int hf_thread_nwd_tlv_server_data = -1;
+
 static gint ett_thread_nwd = -1;
 static gint ett_thread_nwd_tlv = -1;
 static gint ett_thread_nwd_has_route = -1;
@@ -339,13 +343,25 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                 }
                 break;
             
-            case THREAD_NWD_TLV_SERVICE: /* TODO */
-            case THREAD_NWD_TLV_SERVER: /* TODO */
+            case THREAD_NWD_TLV_SERVICE:
                 {
-                    /* Just show it as bytes */
+                    tvbuff_t *sub_tvb;
                     proto_item_append_text(ti, ")");
-                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_comm_data, tvb, offset, tlv_len, FALSE);
+                    if (tlv_len > 0) {
+                        sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
+                        /* Recursively call this dissector - should only have Server TLV in*/
+                        call_dissector(thread_nwd_handle, sub_tvb, pinfo, tlv_tree);
+                    }
                     offset += tlv_len;
+                }
+            
+            case THREAD_NWD_TLV_SERVER:
+                {
+                    proto_item_append_text(ti, ")");
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_16, tvb, offset, 2, FALSE);
+                    offset += 2;
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_data, tvb, offset, tlv_len - 2, FALSE);
+                    offset += tlv_len - 2;
                 }
                 break;
                 
@@ -594,7 +610,25 @@ proto_register_thread_nwd(void)
       { "Commissioning Data",
         "thread_nwd.tlv.comm_data",
         FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Commissioning data in raw bytes",
+        "Commissioning data",
+        HFILL
+      }
+    },
+    
+    { &hf_thread_nwd_tlv_server_16,
+      { "Server 16",
+        "thread_nwd.tlv.server.16",
+        FT_UINT16, BASE_HEX, NULL, 0x0,
+        "Server 16-bit address",
+        HFILL
+      }
+    },    
+    
+    { &hf_thread_nwd_tlv_server_data,
+      { "Server Data",
+        "thread_nwd.tlv.server.data",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Server data in raw bytes",
         HFILL
       }
     }

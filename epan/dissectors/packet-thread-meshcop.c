@@ -53,6 +53,7 @@ void proto_reg_handoff_thread_mc(void);
 #define THREAD_MC_STACK_VER_REV_MASK 0x0F
 #define THREAD_MC_STACK_VER_MIN_MASK 0xF0
 #define THREAD_MC_STACK_VER_MAJ_MASK 0x0F
+#define THREAD_MC_INVALID_CHAN_COUNT 0xFFFF
 
 static int proto_thread_mc = -1;
 
@@ -91,8 +92,8 @@ static int hf_thread_mc_tlv_ml_ula = -1;
 /* Steering Data TLV fields */
 static int hf_thread_mc_tlv_steering_data = -1;
 
-/* Border Router Locator TLV fields */
-static int hf_thread_mc_tlv_br_locator = -1;
+/* Border Agent Locator TLV fields */
+static int hf_thread_mc_tlv_ba_locator = -1;
 
 /* Commissioner ID TLV fields */
 static int hf_thread_mc_tlv_commissioner_id = -1;
@@ -162,14 +163,16 @@ static int hf_thread_mc_tlv_period = -1;
 /* Period TLV fields */
 static int hf_thread_mc_tlv_scan_duration = -1;
 
-/* Period TLV fields */
+/* Energy List TLV fields */
 static int hf_thread_mc_tlv_energy_list = -1;
+static int hf_thread_mc_tlv_el_count = -1;
 
 static gint ett_thread_mc = -1;
 static gint ett_thread_mc_tlv = -1;
 static gint ett_thread_mc_sec_policy = -1;
 static gint ett_thread_mc_stack_ver = -1;
 static gint ett_thread_mc_chan_mask = -1;
+static gint ett_thread_mc_el_count = -1;
 
 static expert_field ei_thread_mc_tlv_length_failed = EI_INIT;
 static expert_field ei_thread_mc_len_size_mismatch = EI_INIT;
@@ -188,7 +191,7 @@ static dissector_handle_t thread_udp_handle;
 #define THREAD_MC_TLV_NETWORK_KEY_SEQUENCE         6
 #define THREAD_MC_TLV_NETWORK_ML_ULA               7
 #define THREAD_MC_TLV_STEERING_DATA                8
-#define THREAD_MC_TLV_BORDER_ROUTER_LOCATOR        9
+#define THREAD_MC_TLV_BORDER_AGENT_LOCATOR         9
 #define THREAD_MC_TLV_COMMISSIONER_ID              10
 #define THREAD_MC_TLV_COMMISSIONER_SESSION_ID      11
 #define THREAD_MC_TLV_SECURITY_POLICY              12
@@ -231,7 +234,7 @@ static const value_string thread_mc_tlv_vals[] = {
 { THREAD_MC_TLV_NETWORK_KEY_SEQUENCE,      "Network Master Sequence" },
 { THREAD_MC_TLV_NETWORK_ML_ULA,            "Mesh Link ULA" },
 { THREAD_MC_TLV_STEERING_DATA,             "Steering Data" },
-{ THREAD_MC_TLV_BORDER_ROUTER_LOCATOR,     "Border Router Locator" },
+{ THREAD_MC_TLV_BORDER_AGENT_LOCATOR,      "Border Agent Locator" },
 { THREAD_MC_TLV_COMMISSIONER_ID,           "Commissioner ID" },
 { THREAD_MC_TLV_COMMISSIONER_SESSION_ID,   "Commissioner Session ID" },
 { THREAD_MC_TLV_SECURITY_POLICY,           "Security Policy" },
@@ -278,6 +281,123 @@ static const true_false_string thread_mc_tlv_allowed = {
     "Not Allowed"
 };
 
+static guint
+count_bits_in_byte(guint8 byte)
+{
+    static const guint8 lut[16] = {0, /* 0b0000 */
+                                   1, /* 0b0001 */
+                                   1, /* 0b0010 */
+                                   2, /* 0b0011 */
+                                   1, /* 0b0100 */
+                                   2, /* 0b0101 */
+                                   2, /* 0b0110 */
+                                   3, /* 0b0111 */
+                                   1, /* 0b1000 */
+                                   2, /* 0b1001 */
+                                   2, /* 0b1010 */ 
+                                   3, /* 0b1011 */ 
+                                   2, /* 0b1100 */ 
+                                   3, /* 0b1101 */ 
+                                   3, /* 0b1110 */ 
+                                   4  /* 0b1111 */};
+    return lut[byte >> 4] + lut[byte & 0xf];
+}
+
+static guint
+get_chancount(tvbuff_t *tvb)
+{
+    guint       offset;
+    guint8      tlv_type;
+    guint16     tlv_len;
+    mc_length_e tlv_mc_len;
+    guint       chancount;
+   
+    offset = 0;
+    
+    /* Thread Network Data TLVs */
+    while (tvb_offset_exists(tvb, offset)) {
+
+        /* Get the type and length ahead of time to pass to next function so we can highlight
+           proper amount of bytes */
+        tlv_type = tvb_get_guint8(tvb, offset);
+        tlv_len = (guint16)tvb_get_guint8(tvb, offset + 1);
+        
+        /* TODO: need to make sure this applies to all MeshCoP TLVs */
+        if (THREAD_MC_TLV_LENGTH_ESC == tlv_len) {
+            /* 16-bit length field */
+            tlv_len = tvb_get_ntohs(tvb, offset + 2);
+            tlv_mc_len = MC_LENGTH16;
+        } else {
+            tlv_mc_len = MC_LENGTH8;
+        }
+ 
+        /* Skip over Type */
+        offset++;
+
+        /* Skip over Length */
+        switch (tlv_mc_len) {
+            case MC_LENGTH8:
+                offset++;
+                break;
+            case MC_LENGTH16:
+                offset += 3; /* Including escape byte */
+                break;
+            default:
+                break;
+        }
+                
+        switch(tlv_type) {
+                
+            case THREAD_MC_TLV_CHANNEL_MASK:
+                {
+                    int i, j;
+                    guint8 entries = 0;
+                    guint16 check_len = tlv_len;
+                    guint8 check_offset = offset + 1; /* Channel page first */
+                    guint8 masklen;
+
+                    /* Check consistency of entries */
+                    while (check_len > 0) {
+
+                        masklen = tvb_get_guint8(tvb, check_offset);
+                        if (masklen == 0) {
+                            break; /* Get out or we might spin forever */
+                        }
+                        masklen += 2; /* Add in page and length */
+                        check_offset += masklen;
+                        check_len -= masklen;
+                        entries++;
+                    }
+
+                    if (check_len != 0) {
+                        /* Not an integer number of entries */
+                        offset += tlv_len;
+                        return THREAD_MC_INVALID_CHAN_COUNT;
+                    } else {
+                        chancount = 0;
+                        for (i = 0; i < entries; i++) {
+                            /* Skip over channel page */
+                            offset++;
+                            masklen = tvb_get_guint8(tvb, offset);
+                            offset++;
+                            /* Count the number of channels in the channel mask */
+                            for (j = 0; j < masklen; j++) {
+                                chancount += count_bits_in_byte(tvb_get_guint8(tvb, offset));
+                                offset++;
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            default:
+                /* Skip over any other TLVs */
+                offset += tlv_len;           
+        }        
+    }
+    return chancount;
+}
+
 static int
 dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
@@ -291,6 +411,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     guint16     tlv_len;
     mc_length_e tlv_mc_len;
     nstime_t    timestamp;
+    guint       chancount;
 
    
     /* Create the protocol tree. */
@@ -300,6 +421,9 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     }
 
     offset = 0;
+    
+    /* Get channel count a priori so we can process energy list better */
+    chancount = get_chancount(tvb);
     
     /* Thread Network Data TLVs */
     while (tvb_offset_exists(tvb, offset)) {
@@ -491,7 +615,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 }
                 break;
 
-            case THREAD_MC_TLV_BORDER_ROUTER_LOCATOR:
+            case THREAD_MC_TLV_BORDER_AGENT_LOCATOR:
                 {
                     proto_item_append_text(ti, ")");
 
@@ -500,7 +624,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
-                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_br_locator, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ba_locator, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;           
                 }
@@ -551,7 +675,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         proto_tree *sp_tree;
 
                         pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy, tvb, offset, 1, FALSE);
-                        sp_tree = proto_item_add_subtree(ti, ett_thread_mc_sec_policy);
+                        sp_tree = proto_item_add_subtree(pi, ett_thread_mc_sec_policy);
                         proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_o, tvb, offset, 1, FALSE);
                         proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_n, tvb, offset, 1, FALSE);
                         proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_rot, tvb, offset+1, 2, FALSE);
@@ -785,7 +909,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         guint16 build;
 
                         pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver, tvb, offset, 1, FALSE);
-                        sv_tree = proto_item_add_subtree(ti, ett_thread_mc_stack_ver);
+                        sv_tree = proto_item_add_subtree(pi, ett_thread_mc_stack_ver);
                         proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_oui, tvb, offset, 3, FALSE);
                         offset += 3;
                         build_u8 = tvb_get_guint8(tvb, offset);
@@ -880,7 +1004,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                     } else {
                         for (i = 0; i < entries; i++) {
                             pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_chan_mask, tvb, offset, 1, FALSE);
-                            cm_tree = proto_item_add_subtree(ti, ett_thread_mc_chan_mask);
+                            cm_tree = proto_item_add_subtree(pi, ett_thread_mc_chan_mask);
                             proto_tree_add_item(cm_tree, hf_thread_mc_tlv_chan_mask_page, tvb, offset, 1, FALSE);
                             offset++;
                             masklen = tvb_get_guint8(tvb, offset);
@@ -937,12 +1061,22 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
             case THREAD_MC_TLV_ENERGY_LIST:
                 {
+                    proto_tree *it_tree;
+                    int i;
+                    
                     proto_item_append_text(ti, ")");
-
-                    if (tlv_len != 2) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    if ((chancount != THREAD_MC_INVALID_CHAN_COUNT) && ((tlv_len % chancount) == 0)) {
+                        /* Go through the number of el_counts of scan */
+                        for (i = 0; i < (int)(tlv_len / (guint16)chancount); i++) {
+                            pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_el_count, tvb, offset, 1, FALSE);
+                            proto_item_append_text(pi, " %d", i + 1);
+                            it_tree = proto_item_add_subtree(pi, ett_thread_mc_el_count);
+                            proto_tree_add_item(it_tree, hf_thread_mc_tlv_energy_list, tvb, offset, chancount, FALSE);
+                            offset += chancount;
+                        }
                     } else {
+                        /* This might not work but try and display as string */
+                        /* Something wrong with channel count so just show it as a simple string */
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_energy_list, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
@@ -957,6 +1091,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     }
     return tvb_captured_length(tvb);
 }
+
 
 void
 proto_register_thread_mc(void)
@@ -1109,9 +1244,9 @@ proto_register_thread_mc(void)
       }
     },
 
-    { &hf_thread_mc_tlv_br_locator,
-      { "Border Router Locator",
-        "thread_meshcop.tlv.br_locator",
+    { &hf_thread_mc_tlv_ba_locator,
+      { "Border Agent Locator",
+        "thread_meshcop.tlv.ba_locator",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1397,6 +1532,15 @@ proto_register_thread_mc(void)
       }
     },
 
+    { &hf_thread_mc_tlv_el_count,
+      { "Count",
+        "thread_meshcop.tlv.el_count",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
     { &hf_thread_mc_tlv_count,
       { "Count",
         "thread_meshcop.tlv.count",
@@ -1439,7 +1583,8 @@ proto_register_thread_mc(void)
     &ett_thread_mc_tlv,
     &ett_thread_mc_sec_policy,
     &ett_thread_mc_stack_ver,
-    &ett_thread_mc_chan_mask
+    &ett_thread_mc_chan_mask,
+    &ett_thread_mc_el_count
   };
 
   static ei_register_info ei[] = {
