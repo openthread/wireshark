@@ -281,6 +281,8 @@ static const true_false_string thread_mc_tlv_allowed = {
     "Not Allowed"
 };
 
+#if 1
+
 static guint
 count_bits_in_byte(guint8 byte)
 {
@@ -310,7 +312,7 @@ get_chancount(tvbuff_t *tvb)
     guint8      tlv_type;
     guint16     tlv_len;
     mc_length_e tlv_mc_len;
-    guint       chancount;
+    guint       chancount = THREAD_MC_INVALID_CHAN_COUNT;
    
     offset = 0;
     
@@ -372,7 +374,7 @@ get_chancount(tvbuff_t *tvb)
                     if (check_len != 0) {
                         /* Not an integer number of entries */
                         offset += tlv_len;
-                        return THREAD_MC_INVALID_CHAN_COUNT;
+                        return chancount;
                     } else {
                         chancount = 0;
                         for (i = 0; i < entries; i++) {
@@ -398,6 +400,8 @@ get_chancount(tvbuff_t *tvb)
     return chancount;
 }
 
+#endif
+
 static int
 dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
@@ -421,7 +425,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     }
 
     offset = 0;
-    
+
     /* Get channel count a priori so we can process energy list better */
     chancount = get_chancount(tvb);
     
@@ -591,7 +595,6 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         struct e_in6_addr prefix;
-                        proto_item *pi;
 
                         memset(&prefix, 0, sizeof(prefix));
                         tvb_memcpy(tvb, (guint8 *)&prefix.bytes, offset, tlv_len);

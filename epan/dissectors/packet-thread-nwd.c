@@ -333,7 +333,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 
             case THREAD_NWD_TLV_COMMISSIONING_DATA:
                 {
-                    tvbuff_t *sub_tvb;
                     proto_item_append_text(ti, ")");
                     if (tlv_len > 0) {
                         sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
@@ -345,7 +344,6 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
             
             case THREAD_NWD_TLV_SERVICE:
                 {
-                    tvbuff_t *sub_tvb;
                     proto_item_append_text(ti, ")");
                     if (tlv_len > 0) {
                         sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
