@@ -41,6 +41,7 @@
 
 #include <glib.h>
 #include <stdlib.h>
+#include <math.h>
 #include <epan/packet.h>
 #include <epan/conversation.h>
 #include <epan/proto_data.h>
@@ -66,6 +67,7 @@
 //#define INDEPENDENT_MLE_KEYS
 #define THREAD_HASHED_KEY
 //#define DISPLAY_HASHED_KEY
+#define MLE_32768_TO_NSEC_FACTOR ((double)30517.578125)
 
 /* Forward declarations */
 void proto_register_mle(void);
@@ -150,6 +152,14 @@ static int hf_mle_tlv_addr_reg_cid = -1;
 static int hf_mle_tlv_addr_reg_iid = -1;
 static int hf_mle_tlv_addr_reg_ipv6 = -1;
 static int hf_mle_tlv_hold_time = -1;
+static int hf_mle_tlv_channel_page = -1; /* v1.1-draft-2 */
+static int hf_mle_tlv_channel = -1; /* v1.1-draft-2 */
+static int hf_mle_tlv_pan_id = -1; /* v1.1-draft-2 */
+static int hf_mle_tlv_active_tstamp = -1; /* SPEC-472 */
+static int hf_mle_tlv_pending_tstamp = -1; /* SPEC-472 */
+static int hf_mle_tlv_tstamp_u = -1; /* SPEC-472 */
+static int hf_mle_tlv_active_op_dataset = -1; /* SPEC-472 */
+static int hf_mle_tlv_pending_op_dataset = -1; /* SPEC-472 */
 #endif // THREAD_EXTENSIONS
 
 static gint ett_mle = -1;
@@ -175,6 +185,7 @@ static expert_field ei_mle_len_size_mismatch = EI_INIT;
 static dissector_handle_t mle_handle;
 static dissector_handle_t data_handle;
 static dissector_handle_t thread_nwd_handle;
+static dissector_handle_t thread_mc_handle;
 
 #define UDP_PORT_MLE_RANGE    "19788"
 
@@ -283,6 +294,12 @@ static const value_string mle_command_vals[] = {
 #define MLE_TLV_STATUS                      17 /* Defined in Ch04_Mesh Link Establishment */
 #define MLE_TLV_VERSION                     18 /* Defined in Ch04_Mesh Link Establishment */
 #define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in Ch04_Mesh Link Establishment */
+#define MLE_TLV_CHANNEL                     20 /* Defined in Ch04_Mesh Link Establishment v1.1-draft-2*/
+#define MLE_TLV_PAN_ID                      21 /* Defined in Ch04_Mesh Link Establishment v1.1-draft-2*/
+#define MLE_TLV_ACTIVE_TSTAMP               22 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
+#define MLE_TLV_PENDING_TSTAMP              23 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
+#define MLE_TLV_ACTIVE_OP_DATASET           24 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
+#define MLE_TLV_PENDING_OP_DATASET          25 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
 #endif // THREAD_EXTENSIONS
 
 static const value_string mle_tlv_vals[] = {
@@ -306,7 +323,13 @@ static const value_string mle_tlv_vals[] = {
 { MLE_TLV_LINK_MARGIN,              "Link Margin"},
 { MLE_TLV_STATUS,                   "Status"},
 { MLE_TLV_VERSION,                  "Version"},
-{ MLE_TLV_ADDRESS_REGISTRATION,     "Address Registration"}
+{ MLE_TLV_ADDRESS_REGISTRATION,     "Address Registration"},
+{ MLE_TLV_CHANNEL,                  "Channel"},
+{ MLE_TLV_PAN_ID,                   "PAN ID"},
+{ MLE_TLV_ACTIVE_TSTAMP,            "Active Timestamp"},
+{ MLE_TLV_PENDING_TSTAMP,           "Pending Timestamp"},
+{ MLE_TLV_ACTIVE_OP_DATASET,        "Active Operational Dataset"},
+{ MLE_TLV_PENDING_OP_DATASET,       "Pending Operational Dataset"}
 #else // !THREAD_EXTENSIONS
 { MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"}
 #endif // !THREAD_EXTENSIONS
@@ -1444,6 +1467,19 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     offset += tlv_len;
                 }
                 break;
+                
+            case MLE_TLV_ACTIVE_OP_DATASET:
+            case MLE_TLV_PENDING_OP_DATASET:
+                {
+                    tvbuff_t *sub_tvb;
+                    proto_item_append_text(ti, ")");
+                    if (tlv_len > 0) {
+                        sub_tvb = tvb_new_subset_length(payload_tvb, offset, tlv_len);
+                        call_dissector(thread_mc_handle, sub_tvb, pinfo, tlv_tree);
+                    }
+                    offset += tlv_len;
+                }
+                break;
 
             case MLE_TLV_TLV_REQUEST:
                 proto_item_append_text(ti, ")");
@@ -1593,6 +1629,64 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                             }
                         }
                     }
+                }
+                break;
+                
+            case MLE_TLV_CHANNEL:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 3) {
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* Channel page */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel_page, payload_tvb, offset, tlv_len, FALSE);
+                        /* Channel */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel, payload_tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+                
+            case MLE_TLV_PAN_ID:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* PAN ID */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_pan_id, payload_tvb, offset, tlv_len, FALSE);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+                
+            case MLE_TLV_ACTIVE_TSTAMP:
+            case MLE_TLV_PENDING_TSTAMP:
+                {
+                    nstime_t timestamp;
+
+                    proto_item_append_text(ti, ")");
+                    
+                    if (tlv_len != 8) {
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    } else {
+                        /* Fill in the nstime_t structure */
+                        timestamp.secs = (time_t)tvb_get_ntoh48(payload_tvb, offset);
+                        timestamp.nsecs = (int)lround((double)(tvb_get_ntohs(payload_tvb, offset + 6) >> 1) * MLE_32768_TO_NSEC_FACTOR);
+                        if (tlv_type == MLE_TLV_ACTIVE_TSTAMP) {
+                            proto_tree_add_time(tlv_tree, hf_mle_tlv_active_tstamp, payload_tvb, offset, 8, &timestamp);
+                        } else {
+                            proto_tree_add_time(tlv_tree, hf_mle_tlv_pending_tstamp, payload_tvb, offset, 8, &timestamp);
+                        }
+                    }
+                    offset += tlv_len;
                 }
                 break;
 #endif // THREAD_EXTENSIONS
@@ -2280,6 +2374,69 @@ proto_register_mle(void)
         HFILL
       }
     },
+    
+    { &hf_mle_tlv_channel_page,
+      { "Channel Page",
+        "mle.tlv.channel_page",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_channel,
+      { "Channel",
+        "mle.tlv.channel",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_pan_id,
+      { "PAN ID",
+        "mle.tlv.pan_id",
+        FT_UINT16, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_active_tstamp,
+      { "Active Timestamp",
+        "mle.tlv.active_tstamp",
+        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_pending_tstamp,
+      { "Pending Timestamp",
+        "mle.tlv.pending_tstamp",
+        FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_active_op_dataset,
+      { "Active Operational Dataset",
+        "mle.tlv.active_op_dataset",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Active Operational Dataset",
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_pending_op_dataset,
+      { "Pending Operational Dataset",
+        "mle.tlv.active_op_dataset",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Pending Operational Dataset",
+        HFILL
+      }
+    },
 
 #else // !THREAD_EXTENSIONS
     { &hf_mle_tlv_network_unknown,
@@ -2419,6 +2576,7 @@ proto_reg_handoff_mle(void)
     mle_handle = find_dissector("mle");
     data_handle = find_dissector("data");
     thread_nwd_handle = find_dissector("thread_nwd");
+    thread_mc_handle = find_dissector("thread_meshcop");
 
     //heur_dissector_add("stun", dissect_embeddedmle_heur, proto_mle);
     mle_initialized = TRUE;

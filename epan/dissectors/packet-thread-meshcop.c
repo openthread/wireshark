@@ -113,7 +113,6 @@ static int hf_thread_mc_tlv_state = -1;
 /* Timestamp TLV fields */
 static int hf_thread_mc_tlv_active_tstamp = -1;
 static int hf_thread_mc_tlv_pending_tstamp = -1;
-static int hf_thread_mc_tlv_tstamp_u = -1;
 
 /* Delay Timer TLV fields */
 static int hf_thread_mc_tlv_delay_timer = -1;
@@ -414,7 +413,6 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     guint8      tlv_type;
     guint16     tlv_len;
     mc_length_e tlv_mc_len;
-    nstime_t    timestamp;
     guint       chancount;
 
    
@@ -706,6 +704,8 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             case THREAD_MC_TLV_ACTIVE_TSTAMP:
             case THREAD_MC_TLV_PENDING_TSTAMP:
                 {
+                    nstime_t timestamp;
+                    
                     proto_item_append_text(ti, ")");
                     
                     if (tlv_len != 8) {
@@ -1335,15 +1335,6 @@ proto_register_thread_mc(void)
       { "Pending Timestamp",
         "thread_meshcop.tlv.pending_tstamp",
         FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-
-    { &hf_thread_mc_tlv_tstamp_u,
-      { "Authoritative Source",
-        "thread_meshcop.tlv.tstamp_u",
-        FT_BOOLEAN, 8, NULL, THREAD_MC_TSTAMP_MASK_U_MASK,
         NULL,
         HFILL
       }
