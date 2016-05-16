@@ -157,7 +157,6 @@ static int hf_mle_tlv_channel = -1; /* v1.1-draft-2 */
 static int hf_mle_tlv_pan_id = -1; /* v1.1-draft-2 */
 static int hf_mle_tlv_active_tstamp = -1; /* SPEC-472 */
 static int hf_mle_tlv_pending_tstamp = -1; /* SPEC-472 */
-static int hf_mle_tlv_tstamp_u = -1; /* SPEC-472 */
 static int hf_mle_tlv_active_op_dataset = -1; /* SPEC-472 */
 static int hf_mle_tlv_pending_op_dataset = -1; /* SPEC-472 */
 #endif // THREAD_EXTENSIONS
