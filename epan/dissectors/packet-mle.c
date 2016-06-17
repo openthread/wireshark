@@ -120,13 +120,13 @@ static int hf_mle_tlv_network_unknown = -1;
 static int hf_mle_tlv_mle_frm_cntr = -1;
 static int hf_mle_tlv_unknown = -1;
 #ifdef THREAD_EXTENSIONS
-static int hf_mle_tlv_route_tbl_id_seq = -1;
-static int hf_mle_tlv_route_tbl_id_mask = -1;
-static int hf_mle_tlv_route_tbl_entry = -1;
-static int hf_mle_tlv_route_tbl_nbr_out = -1;
-static int hf_mle_tlv_route_tbl_nbr_in = -1;
-static int hf_mle_tlv_route_tbl_cost = -1;
-static int hf_mle_tlv_route_tbl_unknown = -1;
+static int hf_mle_tlv_route_64_id_seq = -1;
+static int hf_mle_tlv_route_64_id_mask = -1;
+static int hf_mle_tlv_route_64_entry = -1;
+static int hf_mle_tlv_route_64_nbr_out = -1;
+static int hf_mle_tlv_route_64_nbr_in = -1;
+static int hf_mle_tlv_route_64_cost = -1;
+static int hf_mle_tlv_route_64_unknown = -1;
 static int hf_mle_tlv_addr_16 = -1;
 static int hf_mle_tlv_leader_data_partition_id = -1;
 static int hf_mle_tlv_leader_data_weighting = -1;
@@ -138,11 +138,16 @@ static int hf_mle_tlv_scan_mask_r = -1;
 static int hf_mle_tlv_scan_mask_e = -1;
 static int hf_mle_tlv_conn_max_child_cnt = -1;
 static int hf_mle_tlv_conn_child_cnt = -1;
+static int hf_mle_tlv_conn_flags = -1;
+static int hf_mle_tlv_conn_flags_pp = -1;
 static int hf_mle_tlv_conn_lq3 = -1;
 static int hf_mle_tlv_conn_lq2 = -1;
 static int hf_mle_tlv_conn_lq1 = -1;
 static int hf_mle_tlv_conn_leader_cost = -1;
 static int hf_mle_tlv_conn_id_seq = -1;
+static int hf_mle_tlv_conn_active_rtrs = -1;
+static int hf_mle_tlv_conn_sed_buf_size = -1;
+static int hf_mle_tlv_conn_sed_dgram_cnt = -1;
 static int hf_mle_tlv_link_margin = -1;
 static int hf_mle_tlv_status = -1;
 static int hf_mle_tlv_version = -1;
@@ -167,6 +172,7 @@ static gint ett_mle_neighbor = -1;
 #ifdef THREAD_EXTENSIONS
 static gint ett_mle_router = -1;
 static gint ett_mle_addr_reg = -1;
+static gint ett_mle_conn_flg = -1;
 static gint ett_mle_thread_nwd = -1;
 #endif // THREAD_EXTENSIONS
 static gint ett_mle_auxiliary_security = -1;
@@ -231,6 +237,13 @@ static const value_string mle_status_tlv_enums[] = {
     { 0, NULL }
 };
 
+static const value_string mle_conn_tlv_flags_pp_enums[] = {
+    { 1, "High" },
+    { 0, "Medium" },
+    { -1, "Low" },
+    { 0, NULL }
+};
+
 #define MLE_CMD_REQUEST               0
 #define MLE_CMD_ACCEPT                1
 #define MLE_CMD_ACCEPTREQ             2
@@ -282,7 +295,7 @@ static const value_string mle_command_vals[] = {
 #define MLE_TLV_NETWORK_PARAMETER           7
 #define MLE_TLV_MLE_FRAME_COUNTER           8
 #ifdef THREAD_EXTENSIONS
-#define MLE_TLV_ROUTING_TABLE               9  /* Defined in Ch05_Network Layer */
+#define MLE_TLV_ROUTE_64                    9  /* Defined in Ch05_Network Layer */
 #define MLE_TLV_ADDRESS_16                  10 /* Defined in Ch04_Mesh Link Establishment */
 #define MLE_TLV_LEADER_DATA                 11 /* Defined in Ch04_Mesh Link Establishment */
 #define MLE_TLV_NETWORK_DATA                12 /* Defined in Ch05_Network Layer */
@@ -312,7 +325,7 @@ static const value_string mle_tlv_vals[] = {
 { MLE_TLV_NETWORK_PARAMETER,        "Network Parameter"},
 { MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"},
 #ifdef THREAD_EXTENSIONS
-{ MLE_TLV_ROUTING_TABLE,            "Routing Table"},
+{ MLE_TLV_ROUTE_64,                 "Route64"},
 { MLE_TLV_ADDRESS_16,               "Address16"},
 { MLE_TLV_LEADER_DATA,              "Leader Data"},
 { MLE_TLV_NETWORK_DATA,             "Network Data"},
@@ -373,6 +386,8 @@ static const true_false_string mle_tlv_addr_reg_iid_type = {
 
 #define SCAN_MASK_R_MASK            0x80
 #define SCAN_MASK_D_MASK            0x40
+
+#define CONN_MASK_FLAGS_PP_MASK     0xC0
 
 #define ADDR_REG_MASK_IID_TYPE_MASK 0x80
 #define ADDR_REG_MASK_CID_MASK      0x0F
@@ -1336,7 +1351,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 break;
 
 #ifdef THREAD_EXTENSIONS
-            case MLE_TLV_ROUTING_TABLE:
+            case MLE_TLV_ROUTE_64:
                 {
                     proto_tree *rtr_tree;
                     guint i, j;
@@ -1344,7 +1359,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     guint64 id_mask, test_mask;
 
                     proto_item_append_text(ti, ")");
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_id_seq, payload_tvb, offset, 1, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_64_id_seq, payload_tvb, offset, 1, FALSE);
                     offset++;
 
                     /* Count number of table entries */
@@ -1371,7 +1386,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     id_mask = tvb_get_ntoh64(payload_tvb, offset);
 
                     /* Just show the string of octets - best representation for a bit mask */
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_id_mask, payload_tvb, offset, 8, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_64_id_mask, payload_tvb, offset, 8, FALSE);
                     offset += 8;
 
                     if (count != (tlv_len - 9))
@@ -1389,13 +1404,13 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                                     break;
                                 }
                             }
-                            ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_route_tbl_entry, payload_tvb, offset, 1, FALSE);
+                            ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_route_64_entry, payload_tvb, offset, 1, FALSE);
                             proto_item_append_text(ti, " (%d)", j);
                             rtr_tree = proto_item_add_subtree(ti, ett_mle_router);
 
-                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_tbl_nbr_out, payload_tvb, offset, 1, FALSE);
-                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_tbl_nbr_in, payload_tvb, offset, 1, FALSE);
-                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_tbl_cost, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_64_nbr_out, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_64_nbr_in, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_64_cost, payload_tvb, offset, 1, FALSE);
                             offset++;
                         }
                     }
@@ -1507,12 +1522,8 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 break;
 
             case MLE_TLV_CONNECTIVITY:
-                if (tlv_len != 7) {
-                    /* TLV Length must be 7 */
-                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
-                    offset += tlv_len;
-                } else {
+                if (tlv_len == 7) {
+                    /* 1.0 style - keep in for now */
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_max_child_cnt, payload_tvb, offset, 1, FALSE);
                     offset++;
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_child_cnt, payload_tvb, offset, 1, FALSE);
@@ -1527,6 +1538,35 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     offset++;
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_id_seq, payload_tvb, offset, 1, FALSE);
                     offset++;
+                } else if (tlv_len == 10) {
+                    /* 1.1 style */
+                    proto_tree *fl_tree;
+
+                    ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_flags, payload_tvb, offset, 1, FALSE);
+                    fl_tree = proto_item_add_subtree(ti, ett_mle_conn_flg);
+                    proto_tree_add_item(fl_tree, hf_mle_tlv_conn_flags_pp, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_lq3, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_lq2, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_lq1, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_leader_cost, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_id_seq, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_active_rtrs, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_sed_buf_size, payload_tvb, offset, 2, FALSE);
+                    offset += 2;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_conn_sed_dgram_cnt, payload_tvb, offset, 1, FALSE);
+                    offset++;
+                } else {
+                    /* TLV Length must be 7 (old style) or 10 */
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
+                    offset += tlv_len;
                 }
                 proto_item_append_text(ti, ")");
                 break;
@@ -2077,63 +2117,63 @@ proto_register_mle(void)
     },
 
 #ifdef THREAD_EXTENSIONS
-    { &hf_mle_tlv_route_tbl_id_seq,
+    { &hf_mle_tlv_route_64_id_seq,
       { "ID Sequence",
-        "mle.tlv.route_tbl.id_seq",
+        "mle.tlv.route_64.id_seq",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_tbl_id_mask,
+    { &hf_mle_tlv_route_64_id_mask,
       { "Assigned Router ID Mask",
-        "mle.tlv.route_tbl.id_mask",
+        "mle.tlv.route_64.id_mask",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_tbl_entry,
+    { &hf_mle_tlv_route_64_entry,
       { "Routing Table Entry",
-        "mle.tlv.route_tbl",
+        "mle.tlv.route_64",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_tbl_nbr_out,
+    { &hf_mle_tlv_route_64_nbr_out,
       { "Neighbor Out Link Quality",
-        "mle.tlv.route_tbl.nbr_out",
+        "mle.tlv.route_64.nbr_out",
         FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_OUT_MASK,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_tbl_nbr_in,
+    { &hf_mle_tlv_route_64_nbr_in,
       { "Neighbor In Link Quality",
-        "mle.tlv.route_tbl.nbr_in",
+        "mle.tlv.route_64.nbr_in",
         FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_IN_MASK,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_tbl_cost,
+    { &hf_mle_tlv_route_64_cost,
       { "Router Cost",
-        "mle.tlv.route_tbl.cost",
+        "mle.tlv.route_64.cost",
         FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_COST_MASK,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_tbl_unknown,
+    { &hf_mle_tlv_route_64_unknown,
       { "(unknown)",
-        "mle.tlv.route_tbl.unknown",
+        "mle.tlv.route_64.unknown",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -2239,6 +2279,24 @@ proto_register_mle(void)
       }
     },
 
+    { &hf_mle_tlv_conn_flags,
+      { "Flags",
+        "mle.tlv.conn.flags",
+        FT_NONE, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_conn_flags_pp,
+      { "Parent Priority",
+        "mle.tlv.conn.flags.pp",
+        FT_INT8, BASE_DEC, VALS(mle_conn_tlv_flags_pp_enums), CONN_MASK_FLAGS_PP_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
     { &hf_mle_tlv_conn_lq3,
       { "Link Quality 3",
         "mle.tlv.conn.lq3",
@@ -2278,6 +2336,33 @@ proto_register_mle(void)
     { &hf_mle_tlv_conn_id_seq,
       { "ID Sequence",
         "mle.tlv.conn.id_seq",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_active_rtrs,
+      { "Active Routers",
+        "mle.tlv.conn.active_rtrs",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_mle_tlv_conn_sed_buf_size,
+      { "SED Buffer Size",
+        "mle.tlv.conn.sed_buf_size",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_conn_sed_dgram_cnt,
+      { "SED Datagram Count",
+        "mle.tlv.conn.sed_dgram_cnt",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
@@ -2459,6 +2544,7 @@ proto_register_mle(void)
     &ett_mle_neighbor,
     &ett_mle_router,
     &ett_mle_addr_reg,
+    &ett_mle_conn_flg,
     &ett_mle_thread_nwd
 #else // !THREAD_EXTENSIONS
     &ett_mle_neighbor
