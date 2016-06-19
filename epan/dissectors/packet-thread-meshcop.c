@@ -50,9 +50,16 @@ void proto_reg_handoff_thread_mc(void);
 #define THREAD_MC_TSTAMP_MASK_U_MASK 0x80
 #define THREAD_MC_SEC_POLICY_MASK_O_MASK 0x80
 #define THREAD_MC_SEC_POLICY_MASK_N_MASK 0x40
+#define THREAD_MC_SEC_POLICY_MASK_R_MASK 0x20
+#define THREAD_MC_SEC_POLICY_MASK_C_MASK 0x10
+#define THREAD_MC_SEC_POLICY_MASK_B_MASK 0x08
 #define THREAD_MC_STACK_VER_REV_MASK 0x0F
 #define THREAD_MC_STACK_VER_MIN_MASK 0xF0
 #define THREAD_MC_STACK_VER_MAJ_MASK 0x0F
+#define THREAD_MC_DISCOVERY_REQ_MASK_VER_MASK 0xF0
+#define THREAD_MC_DISCOVERY_REQ_MASK_J_MASK 0x08
+#define THREAD_MC_DISCOVERY_RSP_MASK_VER_MASK 0xF0
+#define THREAD_MC_DISCOVERY_RSP_MASK_N_MASK 0x08
 #define THREAD_MC_INVALID_CHAN_COUNT 0xFFFF
 
 static int proto_thread_mc = -1;
@@ -84,10 +91,10 @@ static int hf_thread_mc_tlv_pskc = -1;
 static int hf_thread_mc_tlv_master_key = -1;
 
 /* Network Key Sequence TLV fields */
-static int hf_thread_mc_tlv_net_key_seq = -1;
+static int hf_thread_mc_tlv_net_key_seq_ctr = -1;
 
 /* Mesh Local ULA TLV fields */
-static int hf_thread_mc_tlv_ml_ula = -1;
+static int hf_thread_mc_tlv_ml_prefix = -1;
 
 /* Steering Data TLV fields */
 static int hf_thread_mc_tlv_steering_data = -1;
@@ -102,10 +109,12 @@ static int hf_thread_mc_tlv_commissioner_id = -1;
 static int hf_thread_mc_tlv_commissioner_sess_id = -1;
 
 /* Security Policy TLV fields */
-static int hf_thread_mc_tlv_sec_policy = -1;
+static int hf_thread_mc_tlv_sec_policy_rot = -1;
 static int hf_thread_mc_tlv_sec_policy_o = -1;
 static int hf_thread_mc_tlv_sec_policy_n = -1;
-static int hf_thread_mc_tlv_sec_policy_rot = -1;
+static int hf_thread_mc_tlv_sec_policy_r = -1;
+static int hf_thread_mc_tlv_sec_policy_c = -1;
+static int hf_thread_mc_tlv_sec_policy_b = -1;
 
 /* State TLV fields */
 static int hf_thread_mc_tlv_state = -1;
@@ -117,6 +126,10 @@ static int hf_thread_mc_tlv_pending_tstamp = -1;
 /* Delay Timer TLV fields */
 static int hf_thread_mc_tlv_delay_timer = -1;
 
+/* UDP Encapsulation TLV fields */
+static int hf_thread_mc_tlv_udp_encap_src_port = -1;
+static int hf_thread_mc_tlv_udp_encap_dst_port = -1;
+
 /* IPv6 Address fields */
 static int hf_thread_mc_tlv_ipv6_addr = -1;
 
@@ -126,7 +139,7 @@ static int hf_thread_mc_tlv_udp_port = -1;
 /* IID TLV fields */
 static int hf_thread_mc_tlv_iid = -1;
 
-/* Joinrer Router locator TLV fields */
+/* Joiner Router locator TLV fields */
 static int hf_thread_mc_tlv_jr_locator = -1;
 
 /* KEK TLV fields */
@@ -140,7 +153,6 @@ static int hf_thread_mc_tlv_vendor_name = -1;
 static int hf_thread_mc_tlv_vendor_model = -1;
 static int hf_thread_mc_tlv_vendor_sw_ver = -1;
 static int hf_thread_mc_tlv_vendor_data = -1;
-static int hf_thread_mc_tlv_vendor_stack_ver = -1;
 static int hf_thread_mc_tlv_vendor_stack_ver_oui = -1;
 static int hf_thread_mc_tlv_vendor_stack_ver_build = -1;
 static int hf_thread_mc_tlv_vendor_stack_ver_rev = -1;
@@ -166,9 +178,19 @@ static int hf_thread_mc_tlv_scan_duration = -1;
 static int hf_thread_mc_tlv_energy_list = -1;
 static int hf_thread_mc_tlv_el_count = -1;
 
+/* Discovery Request TLV fields */
+static int hf_thread_mc_tlv_discovery_req_ver = -1;
+static int hf_thread_mc_tlv_discovery_req_j = -1;
+
+/* Discovery Response TLV fields */
+static int hf_thread_mc_tlv_discovery_rsp_ver = -1;
+static int hf_thread_mc_tlv_discovery_rsp_n = -1;
+
 static gint ett_thread_mc = -1;
 static gint ett_thread_mc_tlv = -1;
 static gint ett_thread_mc_sec_policy = -1;
+static gint ett_thread_mc_discovery_req = -1;
+static gint ett_thread_mc_discovery_rsp = -1;
 static gint ett_thread_mc_stack_ver = -1;
 static gint ett_thread_mc_chan_mask = -1;
 static gint ett_thread_mc_el_count = -1;
@@ -187,8 +209,8 @@ static dissector_handle_t thread_udp_handle;
 #define THREAD_MC_TLV_NETWORK_NAME                 3
 #define THREAD_MC_TLV_PSKC                         4
 #define THREAD_MC_TLV_NETWORK_MASTER_KEY           5
-#define THREAD_MC_TLV_NETWORK_KEY_SEQUENCE         6
-#define THREAD_MC_TLV_NETWORK_ML_ULA               7
+#define THREAD_MC_TLV_NETWORK_KEY_SEQ_CTR          6
+#define THREAD_MC_TLV_NETWORK_ML_PREFIX            7
 #define THREAD_MC_TLV_STEERING_DATA                8
 #define THREAD_MC_TLV_BORDER_AGENT_LOCATOR         9
 #define THREAD_MC_TLV_COMMISSIONER_ID              10
@@ -196,7 +218,7 @@ static dissector_handle_t thread_udp_handle;
 #define THREAD_MC_TLV_SECURITY_POLICY              12
 #define THREAD_MC_TLV_GET                          13
 #define THREAD_MC_TLV_ACTIVE_TSTAMP                14 /* Was "Commissioning Dataset Timestamp TLV" */
-/* Gap */
+#define THREAD_MC_TLV_COMMISSIONER_UDP_PORT        15
 #define THREAD_MC_TLV_STATE                        16
 #define THREAD_MC_TLV_JOINER_DTLS_ENCAP            17
 #define THREAD_MC_TLV_JOINER_UDP_PORT              18
@@ -222,6 +244,10 @@ static dissector_handle_t thread_udp_handle;
 #define THREAD_MC_TLV_PERIOD                       55
 #define THREAD_MC_TLV_SCAN_DURATION                56
 #define THREAD_MC_TLV_ENERGY_LIST                  57
+/* Gap */
+/* New discovery mechanism */
+#define THREAD_MC_TLV_DISCOVERY_REQUEST            128
+#define THREAD_MC_TLV_DISCOVERY_RESPONSE           129
 
 static const value_string thread_mc_tlv_vals[] = {
 { THREAD_MC_TLV_CHANNEL,                   "Channel" },
@@ -230,8 +256,8 @@ static const value_string thread_mc_tlv_vals[] = {
 { THREAD_MC_TLV_NETWORK_NAME,              "Network Name" },
 { THREAD_MC_TLV_PSKC,                      "PSKc" },
 { THREAD_MC_TLV_NETWORK_MASTER_KEY,        "Network Master Key" },
-{ THREAD_MC_TLV_NETWORK_KEY_SEQUENCE,      "Network Master Sequence" },
-{ THREAD_MC_TLV_NETWORK_ML_ULA,            "Mesh Local ULA Prefix" },
+{ THREAD_MC_TLV_NETWORK_KEY_SEQ_CTR,       "Network Key Sequence Counter" },
+{ THREAD_MC_TLV_NETWORK_ML_PREFIX,         "Mesh Local ULA Prefix" },
 { THREAD_MC_TLV_STEERING_DATA,             "Steering Data" },
 { THREAD_MC_TLV_BORDER_AGENT_LOCATOR,      "Border Agent Locator" },
 { THREAD_MC_TLV_COMMISSIONER_ID,           "Commissioner ID" },
@@ -239,6 +265,7 @@ static const value_string thread_mc_tlv_vals[] = {
 { THREAD_MC_TLV_SECURITY_POLICY,           "Security Policy" },
 { THREAD_MC_TLV_GET,                       "Get" },
 { THREAD_MC_TLV_ACTIVE_TSTAMP,             "Active Timestamp" },
+{ THREAD_MC_TLV_COMMISSIONER_UDP_PORT,     "Commissioner UDP Port" },
 { THREAD_MC_TLV_STATE,                     "State" },
 { THREAD_MC_TLV_JOINER_DTLS_ENCAP,         "Joiner DTLS Encapsulation" },
 { THREAD_MC_TLV_JOINER_UDP_PORT,           "Joiner UDP Port" },
@@ -260,7 +287,10 @@ static const value_string thread_mc_tlv_vals[] = {
 { THREAD_MC_TLV_COUNT,                     "Count" },
 { THREAD_MC_TLV_PERIOD,                    "Period" },
 { THREAD_MC_TLV_SCAN_DURATION,             "Scan Duration" },
-{ THREAD_MC_TLV_ENERGY_LIST,               "Energy List" }
+{ THREAD_MC_TLV_ENERGY_LIST,               "Energy List" },
+/* New discovery mechanism */
+{ THREAD_MC_TLV_DISCOVERY_REQUEST,         "Discovery Request" },
+{ THREAD_MC_TLV_DISCOVERY_RESPONSE,        "Discovery Response" }
 };
 
 /* TODO: These are not "states" */
@@ -280,7 +310,22 @@ static const true_false_string thread_mc_tlv_allowed = {
     "Not Allowed"
 };
 
-#if 1
+static const true_false_string thread_mc_tlv_enabled = {
+    "Enabled",
+    "Disabled"
+};
+
+static const true_false_string thread_mc_tlv_join_intent = {
+    "Intending",
+    "Not Intending"
+};
+
+typedef struct {
+    guint16 src_port;
+    guint16 dst_port;
+    guint16 length;
+    guint16 checksum;
+} udp_hdr_t;
 
 static guint
 count_bits_in_byte(guint8 byte)
@@ -399,8 +444,6 @@ get_chancount(tvbuff_t *tvb)
     return chancount;
 }
 
-#endif
-
 static int
 dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
@@ -482,7 +525,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         /* Channel page */
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel_page, tvb, offset, tlv_len, FALSE);
                         /* Channel */
-                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel, tvb, offset+1, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
@@ -568,7 +611,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 }
                 break;
                 
-            case THREAD_MC_TLV_NETWORK_KEY_SEQUENCE:
+            case THREAD_MC_TLV_NETWORK_KEY_SEQ_CTR:
                 {
                     proto_item_append_text(ti, ")");
 
@@ -577,13 +620,13 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
-                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_net_key_seq, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_net_key_seq_ctr, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;           
                 }
                 break;
     
-            case THREAD_MC_TLV_NETWORK_ML_ULA:
+            case THREAD_MC_TLV_NETWORK_ML_PREFIX:
                 {
                     proto_item_append_text(ti, ")");
 
@@ -596,7 +639,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
                         memset(&prefix, 0, sizeof(prefix));
                         tvb_memcpy(tvb, (guint8 *)&prefix.bytes, offset, tlv_len);
-                        pi = proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_ula, tvb, offset, tlv_len, &prefix);
+                        pi = proto_tree_add_ipv6(tlv_tree, hf_thread_mc_tlv_ml_prefix, tvb, offset, tlv_len, &prefix);
                         proto_item_append_text(pi, "/%d", tlv_len * 8);
                     }
                     offset += tlv_len;           
@@ -675,16 +718,17 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                     if (tlv_len != 3) {
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                        offset += tlv_len;
                     } else {
-                        proto_tree *sp_tree;
-
-                        pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy, tvb, offset, 1, FALSE);
-                        sp_tree = proto_item_add_subtree(pi, ett_thread_mc_sec_policy);
-                        proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_o, tvb, offset, 1, FALSE);
-                        proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_n, tvb, offset, 1, FALSE);
-                        proto_tree_add_item(sp_tree, hf_thread_mc_tlv_sec_policy_rot, tvb, offset+1, 2, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_rot, tvb, offset, 2, FALSE);
+                        offset += 2;
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_o, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_n, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_r, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_c, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_b, tvb, offset, 1, FALSE);
+                        offset++;
                     }
-                    offset += tlv_len;           
                 }
                 break;
 
@@ -753,6 +797,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 }
                 break;
                 
+            case THREAD_MC_TLV_COMMISSIONER_UDP_PORT:
             case THREAD_MC_TLV_JOINER_UDP_PORT:
                 {
                     proto_item_append_text(ti, ")");
@@ -772,8 +817,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 {
                     proto_item_append_text(ti, ")");
                     
-//                    if (tlv_len != 8) {
-                    if (0) {
+                    if (tlv_len != 8) {
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
@@ -905,30 +949,27 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
-                    if (tlv_len != 3) {
+                    if (tlv_len != 6) {
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                         offset += tlv_len;           
                     } else {
-                        proto_tree *sv_tree;
                         guint8 build_u8;
                         guint16 build;
 
-                        pi = proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver, tvb, offset, 1, FALSE);
-                        sv_tree = proto_item_add_subtree(pi, ett_thread_mc_stack_ver);
-                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_oui, tvb, offset, 3, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver_oui, tvb, offset, 3, FALSE);
                         offset += 3;
                         build_u8 = tvb_get_guint8(tvb, offset);
                         offset++;
                         build = (guint16)build_u8 << 4;
                         build_u8 = tvb_get_guint8(tvb, offset);
                         build |= (guint16)build_u8 >> 4;
-                        pi = proto_tree_add_uint(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_build, tvb, 0, 0, build);
+                        pi = proto_tree_add_uint(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver_build, tvb, 0, 0, build);
                         PROTO_ITEM_SET_GENERATED(pi);
-                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_rev, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver_rev, tvb, offset, 1, FALSE);
                         offset++;
-                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_min, tvb, offset, 1, FALSE);
-                        proto_tree_add_item(sv_tree, hf_thread_mc_tlv_vendor_stack_ver_maj, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver_min, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_vendor_stack_ver_maj, tvb, offset, 1, FALSE);
                         offset++;
                     }
                 }
@@ -937,13 +978,36 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             case THREAD_MC_TLV_UDP_ENCAPSULATION:
                 {
                     tvbuff_t *sub_tvb;
+                    guint16 src_port;
+                    guint16 dst_port;
+                    udp_hdr_t *udp_hdr;
+                    guint8 *buffer;
                     
-                    /* TODO: Not sure if this is an actual UDP message as length/cksum missing */
                     proto_item_append_text(ti, ")");
-                    if (tlv_len > 0) {
-                        sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
-                        call_dissector(thread_udp_handle, sub_tvb, pinfo, tlv_tree);
-                    }
+                    src_port = tvb_get_ntohs(tvb, offset);
+                    proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_udp_encap_src_port, tvb, offset, 2, FALSE);
+                    offset += 2;
+                    dst_port = tvb_get_ntohs(tvb, offset);
+                    proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_udp_encap_dst_port, tvb, offset, 2, FALSE);
+                    offset += 2;
+                    
+                    /* Allocate a buffer for the fake UDP datagram and create the fake header. */
+                    /* Use wmem_alloc() in preference */
+                    // buffer = (guint8 *)g_malloc(tlv_len + 4); /* Include 4 extra bytes for length and checksum */
+                    buffer = (guint8 *)wmem_alloc(wmem_packet_scope(), tlv_len + 4);
+                    
+                    /* Create pseudo UDP header */
+                    udp_hdr = (udp_hdr_t *)buffer;
+                    udp_hdr->src_port = g_htons(src_port);
+                    udp_hdr->dst_port = g_htons(dst_port);
+                    udp_hdr->length = g_htons(tlv_len + 4); /* Includes UDP header length */
+                    udp_hdr->checksum = 0;
+                    /* Copy UDP payload in */
+                    tvb_memcpy(tvb, udp_hdr + 1, offset, tlv_len - 4);
+                    /* Create child tvb */
+                    sub_tvb = tvb_new_child_real_data(tvb, buffer, tlv_len + 4, tvb_reported_length(tvb) + 4);
+                    //tvb_set_free_cb(sub_tvb, g_free);
+                    call_dissector(thread_udp_handle, sub_tvb, pinfo, tlv_tree);
                     offset += tlv_len;
                 }
                 break;
@@ -1088,7 +1152,39 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                     offset += tlv_len;
                 }
                 break;
+                
+            case THREAD_MC_TLV_DISCOVERY_REQUEST:
+                {
+                    proto_item_append_text(ti, ")");
 
+                    /* Check length is consistent */
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_req_ver, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_req_j, tvb, offset, 1, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+
+            case THREAD_MC_TLV_DISCOVERY_RESPONSE:
+                {
+                    proto_item_append_text(ti, ")");
+
+                    /* Check length is consistent */
+                    if (tlv_len != 2) {
+                        expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
+                    } else {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_rsp_ver, tvb, offset, 1, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_rsp_n, tvb, offset, 1, FALSE);
+                    }
+                    offset += tlv_len;           
+                }
+                break;
+                
             default:                
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
@@ -1223,17 +1319,17 @@ proto_register_thread_mc(void)
       }
     },
 
-    { &hf_thread_mc_tlv_net_key_seq,
-      { "Network Key Sequence",
-        "thread_meshcop.tlv.net_key_seq",
+    { &hf_thread_mc_tlv_net_key_seq_ctr,
+      { "Network Key Sequence Counter",
+        "thread_meshcop.tlv.net_key_seq_ctr",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_thread_mc_tlv_ml_ula,
-      { "Mesh Local ULA Prefix",
+    { &hf_thread_mc_tlv_ml_prefix,
+      { "Mesh Local Prefix",
         "thread_meshcop.tlv.ml_ula",
         FT_IPv6, BASE_NONE, NULL, 0x0,
         NULL,
@@ -1277,15 +1373,15 @@ proto_register_thread_mc(void)
       }
     },
 
-    { &hf_thread_mc_tlv_sec_policy,
-      { "Security Policy",
-        "thread_meshcop.tlv.sec_policy",
-        FT_NONE, BASE_NONE, NULL, 0x0,
+    { &hf_thread_mc_tlv_sec_policy_rot,
+      { "Rotation Time",
+        "thread_meshcop.tlv.sec_policy_rot",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
     },
-
+    
     { &hf_thread_mc_tlv_sec_policy_o,
       { "Out-of-band Commissioning",
         "thread_meshcop.tlv.sec_policy_o",
@@ -1304,10 +1400,28 @@ proto_register_thread_mc(void)
       }
     },
 
-    { &hf_thread_mc_tlv_sec_policy_rot,
-      { "Rotation Time",
-        "thread_meshcop.tlv.sec_policy_rot",
-        FT_UINT16, BASE_DEC, NULL, 0x0,
+    { &hf_thread_mc_tlv_sec_policy_r,
+      { "Thread 1.x Routers",
+        "thread_meshcop.tlv.sec_policy_r",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_enabled), THREAD_MC_SEC_POLICY_MASK_R_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_sec_policy_c,
+      { "PSKc-based Commissioning",
+        "thread_meshcop.tlv.sec_policy_c",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_allowed), THREAD_MC_SEC_POLICY_MASK_C_MASK,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_mc_tlv_sec_policy_b,
+      { "Thread 1.x Beacons",
+        "thread_meshcop.tlv.sec_policy_b",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_enabled), THREAD_MC_SEC_POLICY_MASK_B_MASK,
         NULL,
         HFILL
       }
@@ -1421,15 +1535,6 @@ proto_register_thread_mc(void)
       }
     },
 
-    { &hf_thread_mc_tlv_vendor_stack_ver,
-      { "Stack Version",
-        "thread_meshcop.tlv.vendor_stack_ver",
-        FT_NONE, BASE_NONE, NULL, 0x0,
-        NULL,
-        HFILL
-      }
-    },
-
     { &hf_thread_mc_tlv_vendor_stack_ver_oui,
       { "OUI",
         "thread_meshcop.tlv.vendor_stack_ver_oui",
@@ -1470,6 +1575,24 @@ proto_register_thread_mc(void)
       { "Major",
         "thread_meshcop.tlv.vendor_stack_ver_maj",
         FT_UINT8, BASE_DEC, NULL, THREAD_MC_STACK_VER_MAJ_MASK,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_udp_encap_src_port,
+      { "Source UDP Port",
+        "thread_meshcop.tlv.udp_encap_src_port",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_mc_tlv_udp_encap_dst_port,
+      { "Destination UDP Port",
+        "thread_meshcop.tlv.udp_encap_dst_port",
+        FT_UINT16, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
@@ -1569,6 +1692,42 @@ proto_register_thread_mc(void)
       { "Energy List",
         "thread_meshcop.tlv.energy_list",
         FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_mc_tlv_discovery_req_ver,
+      { "Version",
+        "thread_meshcop.tlv.discovery_req_ver",
+        FT_UINT8, BASE_DEC, NULL, THREAD_MC_DISCOVERY_REQ_MASK_VER_MASK,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_mc_tlv_discovery_req_j,
+      { "Joiner Flag",
+        "thread_meshcop.tlv.discovery_req_j",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_join_intent), THREAD_MC_DISCOVERY_REQ_MASK_J_MASK,
+        NULL,
+        HFILL
+      }
+    },
+   
+    { &hf_thread_mc_tlv_discovery_rsp_ver,
+      { "Version",
+        "thread_meshcop.tlv.discovery_rsp_ver",
+        FT_UINT8, BASE_DEC, NULL, THREAD_MC_DISCOVERY_RSP_MASK_VER_MASK,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_mc_tlv_discovery_rsp_n,
+      { "Native Commissioning",
+        "thread_meshcop.tlv.discovery_rsp_n",
+        FT_BOOLEAN, 8, TFS(&thread_mc_tlv_allowed), THREAD_MC_DISCOVERY_RSP_MASK_N_MASK,
         NULL,
         HFILL
       }

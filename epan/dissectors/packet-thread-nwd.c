@@ -66,11 +66,12 @@ static int hf_thread_nwd_tlv_prefix_length = -1;
 static int hf_thread_nwd_tlv_border_router = -1;
 static int hf_thread_nwd_tlv_border_router_16 = -1;
 static int hf_thread_nwd_tlv_border_router_pref = -1;
-static int hf_thread_nwd_tlv_border_router_p = -1;
-static int hf_thread_nwd_tlv_border_router_v = -1;
+static int hf_thread_nwd_tlv_border_router_s = -1;
 static int hf_thread_nwd_tlv_border_router_d = -1;
 static int hf_thread_nwd_tlv_border_router_c = -1;
 static int hf_thread_nwd_tlv_border_router_r = -1;
+static int hf_thread_nwd_tlv_border_router_o = -1;
+static int hf_thread_nwd_tlv_border_router_n = -1;
 
 /* 6LoWPAN ID TLV fields */
 static int hf_thread_nwd_tlv_6lowpan_id_6co_context_length = -1;
@@ -81,6 +82,13 @@ static int hf_thread_nwd_tlv_6lowpan_id_6co_flag_reserved = -1;
 
 /* Commissioning Data fields */
 static int hf_thread_nwd_tlv_comm_data = -1;
+
+/* Service fields */
+static int hf_thread_nwd_tlv_service_t = -1;
+static int hf_thread_nwd_tlv_service_s_id = -1;
+static int hf_thread_nwd_tlv_service_s_ent_num = -1;
+static int hf_thread_nwd_tlv_service_s_data_len = -1;
+static int hf_thread_nwd_tlv_service_s_data = -1;
 
 /* Server fields */
 static int hf_thread_nwd_tlv_server_16 = -1;
@@ -120,19 +128,14 @@ static const value_string thread_nwd_tlv_vals[] = {
 #define THREAD_NWD_TLV_TYPE_M       0xFE
 #define THREAD_NWD_TLV_STABLE_M     0x01
 
-static const true_false_string tfs_thread_nwd_tlv_border_router_p = {
-    "SLAAC preferred",
-    "SLAAC not preferred"
-};
-
-static const true_false_string tfs_thread_nwd_tlv_border_router_v = {
-    "SLAAC valid",
-    "SLAAC not valid"
+static const true_false_string tfs_thread_nwd_tlv_border_router_s = {
+    "SLAAC allowed",
+    "SLAAC not allowed"
 };
 
 static const true_false_string tfs_thread_nwd_tlv_border_router_d = {
-    "DHCPv6 server",
-    "No DHCPv6 server"
+    "DHCPv6 allowed",
+    "DHCPv6 not allowed"
 };
 
 static const true_false_string tfs_thread_nwd_tlv_border_router_c = {
@@ -145,18 +148,33 @@ static const true_false_string tfs_thread_nwd_tlv_border_router_r = {
     "No default route"
 };
 
+static const true_false_string tfs_thread_nwd_tlv_border_router_o = {
+    "On mesh",
+    "Not on mesh"
+};
+
+static const true_false_string tfs_thread_nwd_tlv_border_router_n = {
+    "DNS available",
+    "DNS not available"
+};
+
+#define THREAD_NWD_TLV_HAS_ROUTE_ENTRY_SIZE 3
 #define THREAD_NWD_TLV_HAS_ROUTE_PREF       0xC0
 
 #define THREAD_NWD_TLV_BORDER_ROUTER_PREF   0xC0
-#define THREAD_NWD_TLV_BORDER_ROUTER_P      0x20
-#define THREAD_NWD_TLV_BORDER_ROUTER_V      0x10
-#define THREAD_NWD_TLV_BORDER_ROUTER_D      0x08
-#define THREAD_NWD_TLV_BORDER_ROUTER_C      0x04
-#define THREAD_NWD_TLV_BORDER_ROUTER_R      0x02
+#define THREAD_NWD_TLV_BORDER_ROUTER_S      0x20
+#define THREAD_NWD_TLV_BORDER_ROUTER_D      0x10
+#define THREAD_NWD_TLV_BORDER_ROUTER_C      0x08
+#define THREAD_NWD_TLV_BORDER_ROUTER_R      0x04
+#define THREAD_NWD_TLV_BORDER_ROUTER_O      0x02
+#define THREAD_NWD_TLV_BORDER_ROUTER_N      0x01
 
 #define ND_OPT_6CO_FLAG_C        0x10
 #define ND_OPT_6CO_FLAG_CID      0x0F
 #define ND_OPT_6CO_FLAG_RESERVED 0xE0
+
+#define THREAD_NWD_TLV_SERVICE_T    0x80
+#define THREAD_NWD_TLV_SERVICE_S_ID 0x0F
 
 static int
 dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -210,7 +228,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     proto_item_append_text(ti, ")");
 
                     /* Check length is consistent */
-                    if ((tlv_len % 3) != 0)
+                    if ((tlv_len % THREAD_NWD_TLV_HAS_ROUTE_ENTRY_SIZE) != 0)
                     {
                         expert_add_info(pinfo, proto_root, &ei_thread_nwd_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_unknown, tvb, offset, tlv_len, FALSE);
@@ -218,7 +236,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     } else {
                         proto_tree *has_route_tree;
                         guint i;
-                        guint count = tlv_len / 3;
+                        guint count = tlv_len / THREAD_NWD_TLV_HAS_ROUTE_ENTRY_SIZE;
 
                         /* Add subtrees */
                         for (i = 0; i < count; i++) {
@@ -227,7 +245,13 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                             proto_tree_add_item(has_route_tree, hf_thread_nwd_tlv_has_route_br_16, tvb, offset, 2, FALSE);
                             offset += 2;
                             proto_tree_add_item(has_route_tree, hf_thread_nwd_tlv_has_route_pref, tvb, offset, 1, FALSE);
-                            offset++;
+#if THREAD_NWD_TLV_HAS_ROUTE_ENTRY_SIZE == 3
+                            offset++; /* Skip over remaining reserved bits */
+#elif THREAD_NWD_TLV_HAS_ROUTE_ENTRY_SIZE == 4
+                            offset += 2; /* Skip over remaining reserved bits */
+#else
+#error "THREAD_NWD_TLV_HAS_ROUTE_ENTRY_SIZE must be 3 or 4"
+#endif
                         }
                     }
                 }
@@ -240,13 +264,12 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     struct e_in6_addr prefix;
                     address prefix_addr;
 
-                    /* Reset TLV offset */
-                    tlv_offset = 0;
-        
+                    proto_item_append_text(ti, ")");
+
                     /* Domain ID */
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_prefix_domain_id, tvb, offset, 1, ENC_BIG_ENDIAN);
                     offset++;
-                    tlv_offset++;
+                    tlv_offset = 1;
 
                     /* Prefix Length */
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_prefix_length, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -302,11 +325,12 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_16, tvb, offset, 2, FALSE);
                             offset += 2;
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_pref, tvb, offset, 1, FALSE);
-                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_p, tvb, offset, 1, FALSE);
-                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_v, tvb, offset, 1, FALSE);
+                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_s, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_d, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_c, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_r, tvb, offset, 1, FALSE);
+                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_o, tvb, offset, 1, FALSE);
+                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_n, tvb, offset, 1, FALSE);
                             offset += 2; /* Extra reserved byte */
                         }
                     }
@@ -344,13 +368,46 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
             
             case THREAD_NWD_TLV_SERVICE:
                 {
+                    guint8 flags;
+                    guint8 s_data_len;
+                    
                     proto_item_append_text(ti, ")");
-                    if (tlv_len > 0) {
-                        sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
-                        /* Recursively call this dissector - should only have Server TLV in*/
-                        call_dissector(thread_nwd_handle, sub_tvb, pinfo, tlv_tree);
+
+                    /* Flags and S_id */
+                    flags = tvb_get_guint8(tvb, offset);
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_t, tvb, offset, 1, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_id, tvb, offset, 1, FALSE);
+                    offset++;
+                    tlv_offset = 1;
+
+                    /* Enterprise number */
+                    if (flags & THREAD_NWD_TLV_SERVICE_T) {
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_ent_num, tvb, offset, 4, FALSE);
+                        offset += 4;
+                        tlv_offset += 4;
                     }
-                    offset += tlv_len;
+
+                    /* S_data */
+                    s_data_len = tvb_get_guint8(tvb, offset);
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_len, tvb, offset, 1, FALSE);
+                    offset++;
+                    tlv_offset++;
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data, tvb, offset, s_data_len, FALSE);
+                    offset += s_data_len;
+                    tlv_offset += s_data_len;
+
+                    /* Server sub-TLVs */
+                    if (tlv_offset < tlv_len) {
+                        proto_tree *sub_tlv_tree;
+                        guint remainder = tlv_len - tlv_offset;
+
+                        ti = proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_sub_tlvs, tvb, offset, 1, FALSE);
+                        sub_tlv_tree = proto_item_add_subtree(ti, ett_thread_nwd_prefix_sub_tlvs);
+                        /* Call this dissector for sub-TLVs. Should only be server TLVs */
+                        sub_tvb = tvb_new_subset_length(tvb, offset, remainder); /* remove prefix length (1) and prefix (prefix_byte_len) */
+                        dissect_thread_nwd(sub_tvb, pinfo, sub_tlv_tree, data);
+                        offset += remainder;
+                    }
                 }
             
             case THREAD_NWD_TLV_SERVER:
@@ -362,11 +419,11 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     offset += tlv_len - 2;
                 }
                 break;
-                
+
             default:                
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_unknown, tvb, offset, tlv_len, FALSE);
-                offset += tlv_len;           
+                offset += tlv_len;
         }        
     }
     return tvb_captured_length(tvb);
@@ -514,20 +571,11 @@ proto_register_thread_nwd(void)
       }
     },
     
-    { &hf_thread_nwd_tlv_border_router_p,
-      { "P Flag",
-        "thread_nwd.tlv.border_router.flag.p",
-        FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_p), THREAD_NWD_TLV_BORDER_ROUTER_P,
-        "This flag indicates whether SLAAC is preferred or not",
-        HFILL
-      }
-    },
-    
-    { &hf_thread_nwd_tlv_border_router_v,
-      { "V Flag",
-        "thread_nwd.tlv.border_router.flag.v",
-        FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_v), THREAD_NWD_TLV_BORDER_ROUTER_V,
-        "This flag indicates whether SLAAC is valid or not",
+    { &hf_thread_nwd_tlv_border_router_s,
+      { "S Flag",
+        "thread_nwd.tlv.border_router.flag.s",
+        FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_s), THREAD_NWD_TLV_BORDER_ROUTER_S,
+        "Value of P_slaac",
         HFILL
       }
     },
@@ -536,16 +584,16 @@ proto_register_thread_nwd(void)
       { "D Flag",
         "thread_nwd.tlv.border_router.flag.d",
         FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_d), THREAD_NWD_TLV_BORDER_ROUTER_D,
-        "This flag indicates whether Border Router has DHCPv6 server or not",
+        "Value of P_dhcp",
         HFILL
       }
     },
-
+    
     { &hf_thread_nwd_tlv_border_router_c,
       { "C Flag",
         "thread_nwd.tlv.border_router.flag.c",
         FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_c), THREAD_NWD_TLV_BORDER_ROUTER_C,
-        "This flag indicates whether Border Router supplies additional config. data or not",
+        "Value of P_configure",
         HFILL
       }
     },
@@ -554,7 +602,25 @@ proto_register_thread_nwd(void)
       { "R Flag",
         "thread_nwd.tlv.border_router.flag.r",
         FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_r), THREAD_NWD_TLV_BORDER_ROUTER_R,
-        "This flag indicates whether Border Router provides a default route or not",
+        "Value of P_default",
+        HFILL
+      }
+    },
+    
+    { &hf_thread_nwd_tlv_border_router_o,
+      { "O Flag",
+        "thread_nwd.tlv.border_router.flag.o",
+        FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_o), THREAD_NWD_TLV_BORDER_ROUTER_O,
+        "Value of P_on_mesh",
+        HFILL
+      }
+    },
+
+    { &hf_thread_nwd_tlv_border_router_n,
+      { "N Flag",
+        "thread_nwd.tlv.border_router.flag.n",
+        FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_n), THREAD_NWD_TLV_BORDER_ROUTER_N,
+        "Value of P_nd_dns",
         HFILL
       }
     },
@@ -613,6 +679,51 @@ proto_register_thread_nwd(void)
       }
     },
     
+    { &hf_thread_nwd_tlv_service_t,
+      { "T flag",
+        "thread_nwd.tlv.service.t",
+        FT_UINT8, BASE_HEX, NULL, THREAD_NWD_TLV_SERVICE_T,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_thread_nwd_tlv_service_s_id,
+      { "Service Type ID",
+        "thread_nwd.tlv.service.s_id",
+        FT_UINT8, BASE_HEX, NULL, THREAD_NWD_TLV_SERVICE_S_ID,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_nwd_tlv_service_s_ent_num,
+      { "Enterprise Number",
+        "thread_nwd.tlv.service.s_ent_num",
+        FT_UINT32, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_nwd_tlv_service_s_data_len,
+      { "Service Data Length",
+        "thread_nwd.tlv.service.s_data_len",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_nwd_tlv_service_s_data,
+      { "Service Data",
+        "thread_nwd.tlv.service.s_data",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "Service data in raw bytes",
+        HFILL
+      }
+    },
+
     { &hf_thread_nwd_tlv_server_16,
       { "Server 16",
         "thread_nwd.tlv.server.16",

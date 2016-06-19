@@ -120,14 +120,14 @@ static int hf_mle_tlv_network_unknown = -1;
 static int hf_mle_tlv_mle_frm_cntr = -1;
 static int hf_mle_tlv_unknown = -1;
 #ifdef THREAD_EXTENSIONS
-static int hf_mle_tlv_route_64_id_seq = -1;
-static int hf_mle_tlv_route_64_id_mask = -1;
-static int hf_mle_tlv_route_64_entry = -1;
-static int hf_mle_tlv_route_64_nbr_out = -1;
-static int hf_mle_tlv_route_64_nbr_in = -1;
-static int hf_mle_tlv_route_64_cost = -1;
-static int hf_mle_tlv_route_64_unknown = -1;
-static int hf_mle_tlv_addr_16 = -1;
+static int hf_mle_tlv_route64_id_seq = -1;
+static int hf_mle_tlv_route64_id_mask = -1;
+static int hf_mle_tlv_route64_entry = -1;
+static int hf_mle_tlv_route64_nbr_out = -1;
+static int hf_mle_tlv_route64_nbr_in = -1;
+static int hf_mle_tlv_route64_cost = -1;
+static int hf_mle_tlv_route64_unknown = -1;
+static int hf_mle_tlv_addr16 = -1;
 static int hf_mle_tlv_leader_data_partition_id = -1;
 static int hf_mle_tlv_leader_data_weighting = -1;
 static int hf_mle_tlv_leader_data_version = -1;
@@ -261,6 +261,8 @@ static const value_string mle_conn_tlv_flags_pp_enums[] = {
 #define MLE_CMD_CHILD_UPDATE_REQUEST  13
 #define MLE_CMD_CHILD_UPDATE_RESPONSE 14
 #define MLE_CMD_ANNOUNCE              15
+#define MLE_CMD_DISCOVERY_REQUEST     16
+#define MLE_CMD_DISCOVERY_RESPONSE    17
 #endif // THREAD_EXTENSIONS
 
 static const value_string mle_command_vals[] = {
@@ -280,7 +282,9 @@ static const value_string mle_command_vals[] = {
 { MLE_CMD_CHILD_ID_RESPONSE,        "Child ID Response" },
 { MLE_CMD_CHILD_UPDATE_REQUEST,     "Child Update Request" },
 { MLE_CMD_CHILD_UPDATE_RESPONSE,    "Child Update Response" },
-{ MLE_CMD_ANNOUNCE,                 "Announce" } };
+{ MLE_CMD_ANNOUNCE,                 "Announce" },
+{ MLE_CMD_DISCOVERY_REQUEST,        "Discovery Request" },
+{ MLE_CMD_DISCOVERY_RESPONSE,       "Discovery Response" } };
 #else // !THREAD_EXTENSIONS
 { MLE_CMD_UPDATE_REQUEST,           "Update Request" } };
 #endif // !THREAD_EXTENSIONS
@@ -295,23 +299,24 @@ static const value_string mle_command_vals[] = {
 #define MLE_TLV_NETWORK_PARAMETER           7
 #define MLE_TLV_MLE_FRAME_COUNTER           8
 #ifdef THREAD_EXTENSIONS
-#define MLE_TLV_ROUTE_64                    9  /* Defined in Ch05_Network Layer */
-#define MLE_TLV_ADDRESS_16                  10 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_LEADER_DATA                 11 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_NETWORK_DATA                12 /* Defined in Ch05_Network Layer */
-#define MLE_TLV_TLV_REQUEST                 13 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_SCAN_MASK                   14 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_CONNECTIVITY                15 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_LINK_MARGIN                 16 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_STATUS                      17 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_VERSION                     18 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in Ch04_Mesh Link Establishment */
-#define MLE_TLV_CHANNEL                     20 /* Defined in Ch04_Mesh Link Establishment v1.1-draft-2*/
-#define MLE_TLV_PAN_ID                      21 /* Defined in Ch04_Mesh Link Establishment v1.1-draft-2*/
-#define MLE_TLV_ACTIVE_TSTAMP               22 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
-#define MLE_TLV_PENDING_TSTAMP              23 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
-#define MLE_TLV_ACTIVE_OP_DATASET           24 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
-#define MLE_TLV_PENDING_OP_DATASET          25 /* Defined in Ch04_Mesh Link Establishment SPEC-472 */
+#define MLE_TLV_ROUTE64                     9  /* Defined in Ch05_Network Layer v1.1-rc1 */
+#define MLE_TLV_ADDRESS16                   10 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_LEADER_DATA                 11 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_NETWORK_DATA                12 /* Defined in Ch05_Network Layer v1.1-rc1 */
+#define MLE_TLV_TLV_REQUEST                 13 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_SCAN_MASK                   14 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_CONNECTIVITY                15 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_LINK_MARGIN                 16 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_STATUS                      17 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_VERSION                     18 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_ADDRESS_REGISTRATION        19 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_CHANNEL                     20 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_PAN_ID                      21 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_ACTIVE_TSTAMP               22 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_PENDING_TSTAMP              23 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_ACTIVE_OP_DATASET           24 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_PENDING_OP_DATASET          25 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
+#define MLE_TLV_THREAD_DISCOVERY            26 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
 #endif // THREAD_EXTENSIONS
 
 static const value_string mle_tlv_vals[] = {
@@ -325,8 +330,8 @@ static const value_string mle_tlv_vals[] = {
 { MLE_TLV_NETWORK_PARAMETER,        "Network Parameter"},
 { MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"},
 #ifdef THREAD_EXTENSIONS
-{ MLE_TLV_ROUTE_64,                 "Route64"},
-{ MLE_TLV_ADDRESS_16,               "Address16"},
+{ MLE_TLV_ROUTE64,                  "Route64"},
+{ MLE_TLV_ADDRESS16,                "Address16"},
 { MLE_TLV_LEADER_DATA,              "Leader Data"},
 { MLE_TLV_NETWORK_DATA,             "Network Data"},
 { MLE_TLV_TLV_REQUEST,              "TLV Request"},
@@ -341,7 +346,8 @@ static const value_string mle_tlv_vals[] = {
 { MLE_TLV_ACTIVE_TSTAMP,            "Active Timestamp"},
 { MLE_TLV_PENDING_TSTAMP,           "Pending Timestamp"},
 { MLE_TLV_ACTIVE_OP_DATASET,        "Active Operational Dataset"},
-{ MLE_TLV_PENDING_OP_DATASET,       "Pending Operational Dataset"}
+{ MLE_TLV_PENDING_OP_DATASET,       "Pending Operational Dataset"},
+{ MLE_TLV_THREAD_DISCOVERY,         "Thread Discovery"}
 #else // !THREAD_EXTENSIONS
 { MLE_TLV_MLE_FRAME_COUNTER,        "MLE Frame Counter"}
 #endif // !THREAD_EXTENSIONS
@@ -1351,7 +1357,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 break;
 
 #ifdef THREAD_EXTENSIONS
-            case MLE_TLV_ROUTE_64:
+            case MLE_TLV_ROUTE64:
                 {
                     proto_tree *rtr_tree;
                     guint i, j;
@@ -1359,7 +1365,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     guint64 id_mask, test_mask;
 
                     proto_item_append_text(ti, ")");
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_64_id_seq, payload_tvb, offset, 1, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route64_id_seq, payload_tvb, offset, 1, FALSE);
                     offset++;
 
                     /* Count number of table entries */
@@ -1386,7 +1392,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     id_mask = tvb_get_ntoh64(payload_tvb, offset);
 
                     /* Just show the string of octets - best representation for a bit mask */
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route_64_id_mask, payload_tvb, offset, 8, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_route64_id_mask, payload_tvb, offset, 8, FALSE);
                     offset += 8;
 
                     if (count != (tlv_len - 9))
@@ -1404,26 +1410,26 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                                     break;
                                 }
                             }
-                            ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_route_64_entry, payload_tvb, offset, 1, FALSE);
+                            ti = proto_tree_add_item(tlv_tree, hf_mle_tlv_route64_entry, payload_tvb, offset, 1, FALSE);
                             proto_item_append_text(ti, " (%d)", j);
                             rtr_tree = proto_item_add_subtree(ti, ett_mle_router);
 
-                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_64_nbr_out, payload_tvb, offset, 1, FALSE);
-                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_64_nbr_in, payload_tvb, offset, 1, FALSE);
-                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route_64_cost, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route64_nbr_out, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route64_nbr_in, payload_tvb, offset, 1, FALSE);
+                            proto_tree_add_item(rtr_tree, hf_mle_tlv_route64_cost, payload_tvb, offset, 1, FALSE);
                             offset++;
                         }
                     }
                 }
                 break;
 
-            case MLE_TLV_ADDRESS_16:
+            case MLE_TLV_ADDRESS16:
                 if (tlv_len != 2) {
                     /* TLV Length must be 2 */
                     expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                 } else {
-                    guint16 shortAddr = tvb_get_ntohs(payload_tvb, offset);
+                    guint16 addr16 = tvb_get_ntohs(payload_tvb, offset);
                     proto_item_append_text(ti, " = ");
                     {
                         guint8 a16_len = 2; /* Fix it at 2 */
@@ -1439,10 +1445,10 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                             stroffset++;
                         }
                     }
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr_16, payload_tvb, offset, 2, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_addr16, payload_tvb, offset, 2, FALSE);
                     if (original_packet->dst_addr_mode == IEEE802154_FCF_ADDR_EXT) {
                         /* Allocated Address16 TLV: use this to update dst/long mapping */
-                        ieee802154_addr_update(&ieee802154_map, shortAddr, original_packet->dst_pan, original_packet->dst64, pinfo->current_proto, pinfo->fd->num);
+                        ieee802154_addr_update(&ieee802154_map, addr16, original_packet->dst_pan, original_packet->dst64, pinfo->current_proto, pinfo->fd->num);
                     }
                 }
                 proto_item_append_text(ti, ")");
@@ -1484,6 +1490,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 
             case MLE_TLV_ACTIVE_OP_DATASET:
             case MLE_TLV_PENDING_OP_DATASET:
+            case MLE_TLV_THREAD_DISCOVERY:
                 {
                     tvbuff_t *sub_tvb;
                     proto_item_append_text(ti, ")");
@@ -1683,7 +1690,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                         /* Channel page */
                         proto_tree_add_item(tlv_tree, hf_mle_tlv_channel_page, payload_tvb, offset, tlv_len, FALSE);
                         /* Channel */
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel, payload_tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel, payload_tvb, offset+1, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
@@ -1737,7 +1744,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         }
     }
 
-    encryption_failed:
+encryption_failed:
     return tvb_captured_length(tvb);
 }
 
@@ -2117,74 +2124,74 @@ proto_register_mle(void)
     },
 
 #ifdef THREAD_EXTENSIONS
-    { &hf_mle_tlv_route_64_id_seq,
+    { &hf_mle_tlv_route64_id_seq,
       { "ID Sequence",
-        "mle.tlv.route_64.id_seq",
+        "mle.tlv.route64.id_seq",
         FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_64_id_mask,
+    { &hf_mle_tlv_route64_id_mask,
       { "Assigned Router ID Mask",
-        "mle.tlv.route_64.id_mask",
+        "mle.tlv.route64.id_mask",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_64_entry,
+    { &hf_mle_tlv_route64_entry,
       { "Routing Table Entry",
-        "mle.tlv.route_64",
+        "mle.tlv.route64",
         FT_NONE, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_64_nbr_out,
+    { &hf_mle_tlv_route64_nbr_out,
       { "Neighbor Out Link Quality",
-        "mle.tlv.route_64.nbr_out",
+        "mle.tlv.route64.nbr_out",
         FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_OUT_MASK,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_64_nbr_in,
+    { &hf_mle_tlv_route64_nbr_in,
       { "Neighbor In Link Quality",
-        "mle.tlv.route_64.nbr_in",
+        "mle.tlv.route64.nbr_in",
         FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_IN_MASK,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_64_cost,
+    { &hf_mle_tlv_route64_cost,
       { "Router Cost",
-        "mle.tlv.route_64.cost",
+        "mle.tlv.route64.cost",
         FT_UINT8, BASE_DEC, NULL, ROUTE_TBL_COST_MASK,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_route_64_unknown,
+    { &hf_mle_tlv_route64_unknown,
       { "(unknown)",
-        "mle.tlv.route_64.unknown",
+        "mle.tlv.route64.unknown",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
       }
     },
 
-    { &hf_mle_tlv_addr_16,
-      { "Short Address",
-        "mle.tlv.short_addr",
+    { &hf_mle_tlv_addr16,
+      { "Address16",
+        "mle.tlv.addr16",
         FT_BYTES, BASE_NONE, NULL, 0x0,
-        "Short address",
+        NULL,
         HFILL
       }
     },

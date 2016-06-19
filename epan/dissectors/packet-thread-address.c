@@ -57,11 +57,11 @@ static int hf_thread_address_tlv_target_eid = -1;
 /* Ext. MAC address TLV fields */
 static int hf_thread_address_tlv_ext_mac_addr = -1;
 
-/* Mesh Locator TLV fields */
-static int hf_thread_address_tlv_mesh_locator = -1;
+/* RLOC16 TLV fields */
+static int hf_thread_address_tlv_rloc16 = -1;
 
 /* Mesh Local IID TLV fields */
-static int hf_thread_address_tlv_ml_iid = -1;
+static int hf_thread_address_tlv_ml_eid = -1;
 
 /* Status TLV fields */
 static int hf_thread_address_tlv_status = -1;
@@ -76,32 +76,43 @@ static int hf_thread_address_tlv_last_transaction_time = -1;
 static int hf_thread_address_tlv_router_mask_id_seq = -1;
 static int hf_thread_address_tlv_router_mask_assigned = -1;
 
+/* ND option fields */
+static int hf_thread_address_tlv_nd_option = -1;
+
+/* ND data fields */
+static int hf_thread_address_tlv_nd_data = -1;
+
 static gint ett_thread_address = -1;
 static gint ett_thread_address_tlv = -1;
 
 static expert_field ei_thread_address_tlv_length_failed = EI_INIT;
 static expert_field ei_thread_address_len_size_mismatch = EI_INIT;
 
-static dissector_handle_t thread_address_handle;
+static dissector_handle_t thread_nwd_handle;
 
 #define THREAD_ADDRESS_TLV_TARGET_EID               0
 #define THREAD_ADDRESS_TLV_EXT_MAC_ADDR             1
-#define THREAD_ADDRESS_TLV_MESH_LOCATOR             2
-#define THREAD_ADDRESS_TLV_ML_IID                   3
+#define THREAD_ADDRESS_TLV_RLOC16                   2
+#define THREAD_ADDRESS_TLV_ML_EID                   3
 #define THREAD_ADDRESS_TLV_STATUS                   4
-#define THREAD_ADDRESS_TLV_ATTACHED_TIME            5
+/* Gap */
 #define THREAD_ADDRESS_TLV_LAST_TRANSACTION_TIME    6
 #define THREAD_ADDRESS_TLV_ROUTER_MASK              7
+#define THREAD_ADDRESS_TLV_ND_OPTION                8
+#define THREAD_ADDRESS_TLV_ND_DATA                  9
+#define THREAD_ADDRESS_TLV_THREAD_NETWORK_DATA      10
 
 static const value_string thread_address_tlv_vals[] = {
 { THREAD_ADDRESS_TLV_TARGET_EID,            "Target EID" },
 { THREAD_ADDRESS_TLV_EXT_MAC_ADDR,          "Extended MAC Address" },
-{ THREAD_ADDRESS_TLV_MESH_LOCATOR,          "Mesh Locator" },
-{ THREAD_ADDRESS_TLV_ML_IID,                "Mesh Local IID" },
+{ THREAD_ADDRESS_TLV_RLOC16,                "RLOC16" },
+{ THREAD_ADDRESS_TLV_ML_EID,                "ML-EID" },
 { THREAD_ADDRESS_TLV_STATUS,                "Status" },
-{ THREAD_ADDRESS_TLV_ATTACHED_TIME,         "Attached Time" },
+/* Gap */
 { THREAD_ADDRESS_TLV_LAST_TRANSACTION_TIME, "Last Transaction Time" },
-{ THREAD_ADDRESS_TLV_ROUTER_MASK,           "Router Mask" }
+{ THREAD_ADDRESS_TLV_ND_OPTION,             "ND Option" },
+{ THREAD_ADDRESS_TLV_ND_DATA,               "ND Data" },
+{ THREAD_ADDRESS_TLV_THREAD_NETWORK_DATA,   "Thread Network Data" }
 };
 
 static const value_string thread_address_tlv_status_vals[] = {
@@ -115,6 +126,7 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     proto_item  *volatile proto_root = NULL;
     proto_tree  *volatile thread_address_tree = NULL;
     proto_tree  *tlv_tree;
+    tvbuff_t    *sub_tvb;
     guint       offset;
     proto_item  *ti;
     guint8      tlv_type, tlv_len;
@@ -182,7 +194,7 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                 }
                 break;
                 
-            case THREAD_ADDRESS_TLV_MESH_LOCATOR:
+            case THREAD_ADDRESS_TLV_RLOC16:
                 {
                     proto_item_append_text(ti, ")");
 
@@ -192,13 +204,13 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                         proto_tree_add_item(tlv_tree, hf_thread_address_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* Mesh Locator */
-                        proto_tree_add_item(tlv_tree, hf_thread_address_tlv_mesh_locator, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_address_tlv_rloc16, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
                 break;
                 
-            case THREAD_ADDRESS_TLV_ML_IID:
+            case THREAD_ADDRESS_TLV_ML_EID:
                 {
                     proto_item_append_text(ti, ")");
 
@@ -208,7 +220,7 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                         proto_tree_add_item(tlv_tree, hf_thread_address_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* ML IID */
-                        proto_tree_add_item(tlv_tree, hf_thread_address_tlv_ml_iid, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_address_tlv_ml_eid, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
@@ -225,22 +237,6 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                     } else {
                         /* Status */
                         proto_tree_add_item(tlv_tree, hf_thread_address_tlv_status, tvb, offset, tlv_len, FALSE);
-                    }
-                    offset += tlv_len;
-                }
-                break;
-                
-            case THREAD_ADDRESS_TLV_ATTACHED_TIME:
-                {
-                    proto_item_append_text(ti, ")");
-
-                    /* Check length is consistent */
-                    if (tlv_len != 4) {
-                        expert_add_info(pinfo, proto_root, &ei_thread_address_len_size_mismatch);
-                        proto_tree_add_item(tlv_tree, hf_thread_address_tlv_unknown, tvb, offset, tlv_len, FALSE);
-                    } else {
-                        /* Attached time */
-                        proto_tree_add_item(tlv_tree, hf_thread_address_tlv_attached_time, tvb, offset, tlv_len, FALSE);
                     }
                     offset += tlv_len;
                 }
@@ -293,6 +289,27 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                 }
                 break;
 
+            case THREAD_ADDRESS_TLV_ND_OPTION:
+                /* Just show the data */
+                proto_tree_add_item(tlv_tree, hf_thread_address_tlv_nd_option, tvb, offset, tlv_len, FALSE);
+                offset += tlv_len;
+                break;
+
+            case THREAD_ADDRESS_TLV_ND_DATA:
+                /* Just show the data. Note there is no icmpv6 options dissector so would have to copy it */
+                proto_tree_add_item(tlv_tree, hf_thread_address_tlv_nd_data, tvb, offset, tlv_len, FALSE);
+                offset += tlv_len;
+                break;
+                
+            case THREAD_ADDRESS_TLV_THREAD_NETWORK_DATA:
+                proto_item_append_text(ti, ")");
+                if (tlv_len > 0) {
+                    sub_tvb = tvb_new_subset_length(tvb, offset, tlv_len);
+                    call_dissector(thread_nwd_handle, sub_tvb, pinfo, tlv_tree);
+                }
+                offset += tlv_len;
+                break;
+                
             default:                
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_thread_address_tlv_unknown, tvb, offset, tlv_len, FALSE);
@@ -372,18 +389,18 @@ proto_register_thread_address(void)
       }
     },
     
-    { &hf_thread_address_tlv_mesh_locator,
-      { "Mesh Locator",
-        "thread_address.tlv.mesh_locator",
+    { &hf_thread_address_tlv_rloc16,
+      { "RLOC16",
+        "thread_address.tlv.rloc16",
         FT_UINT16, BASE_HEX, NULL, 0x0,
         NULL,
         HFILL
       }
     },
     
-    { &hf_thread_address_tlv_ml_iid,
-      { "Mesh Local IID",
-        "thread_address.tlv.ml_iid",
+    { &hf_thread_address_tlv_ml_eid,
+      { "ML-EID",
+        "thread_address.tlv.ml_eid",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -433,6 +450,24 @@ proto_register_thread_address(void)
         NULL,
         HFILL
       }
+    },
+    
+    { &hf_thread_address_tlv_nd_option,
+      { "ND Option",
+        "thread_address.tlv.nd_option",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    
+    { &hf_thread_address_tlv_nd_data,
+      { "ND Data",
+        "thread_address.tlv.nd_data",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL,
+        HFILL
+      }
     }
   };
   
@@ -463,7 +498,7 @@ proto_reg_handoff_thread_address(void)
   static gboolean thread_address_initialized = FALSE;
 
   if (!thread_address_initialized) {
-    thread_address_handle = find_dissector("thread_address");
+    thread_nwd_handle = find_dissector("thread_nwd");
     thread_address_initialized = TRUE;
   }
 }
