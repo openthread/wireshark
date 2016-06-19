@@ -191,6 +191,11 @@
 #define IEEE802154_AUX_KEY_ID_MODE_SHIFT    3
 #define IEEE802154_AUX_KEY_RESERVED_MASK    0xE0  /* Reserved */
 
+/* Thread-specific well-known key support */
+#define IEEE802154_THR_WELL_KNOWN_KEY_INDEX 0xff
+#define IEEE802154_THR_WELL_KNOWN_KEY_SRC   0xffffffff
+#define IEEE802154_THR_WELL_KNOWN_EXT_ADDR  0x3506feb823d48712ULL
+
 typedef enum {
     SECURITY_LEVEL_NONE = 0x00,
     SECURITY_LEVEL_MIC_32 = 0x01,

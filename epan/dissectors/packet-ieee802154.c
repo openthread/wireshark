@@ -117,6 +117,9 @@ static gboolean ieee802154_pref_auto_acq_thr_seq_ctr = TRUE;
 static const gchar *ieee802154_pref_thr_seq_ctr_str = NULL;
 static gboolean ieee802154_thr_seq_ctr_acqd = FALSE;
 static guint8 ieee802154_thr_seq_ctr_bytes[4];
+/* Endianness? */
+static const guint8 ieee802154_thr_well_known_key[IEEE802154_CIPHER_SIZE] =
+{ 0x78, 0x58, 0x16, 0x86, 0xfd, 0xb4, 0x58, 0x0f, 0xb0, 0x92, 0x54, 0x6a, 0xec, 0xbd, 0x15, 0x66 };
 #endif
 static gboolean     ieee802154_key_valid[NUM_KEYS];
 static guint8       ieee802154_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
@@ -2542,18 +2545,25 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
      * appreciated that the text is studied before making pithy comments
      * like the one above.
      */
-    if (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) {
-        /* The source EUI-64 is included in the headers. */
-        srcAddr = packet->src64;
-    }
-    else if (ieee_hints && ieee_hints->map_rec && ieee_hints->map_rec->addr64) {
-        /* Use the hint */
-        srcAddr = ieee_hints->map_rec->addr64;
-    }
-    else {
-        /* Lookup failed.  */
-        *status = DECRYPT_PACKET_NO_EXT_SRC_ADDR;
-        return NULL;
+    if ((packet->key_index == IEEE802154_THR_WELL_KNOWN_KEY_INDEX) &&
+        (packet->key_source.addr32 == IEEE802154_THR_WELL_KNOWN_KEY_SRC))
+    {
+        /* Use the well-known extended address */
+        srcAddr = IEEE802154_THR_WELL_KNOWN_EXT_ADDR;
+    } else {
+        if (packet->src_addr_mode == IEEE802154_FCF_ADDR_EXT) {
+            /* The source EUI-64 is included in the headers. */
+            srcAddr = packet->src64;
+        }
+        else if (ieee_hints && ieee_hints->map_rec && ieee_hints->map_rec->addr64) {
+            /* Use the hint */
+            srcAddr = ieee_hints->map_rec->addr64;
+        }
+        else {
+            /* Lookup failed.  */
+            *status = DECRYPT_PACKET_NO_EXT_SRC_ADDR;
+            return NULL;
+        }
     }
 
     /*=====================================================
@@ -2977,6 +2987,13 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
     if (i == NUM_KEYS) {
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
             seq_ctr_bytes = ieee802154_set_seq_ctr_key_index(packet->key_index);
+        } else if ((packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) &&
+                   (packet->key_index == IEEE802154_THR_WELL_KNOWN_KEY_INDEX) &&
+                   (packet->key_source.addr32 == IEEE802154_THR_WELL_KNOWN_KEY_SRC))
+        {
+            /* This is the well-known key */
+            memcpy(key, ieee802154_thr_well_known_key, IEEE802154_CIPHER_SIZE);
+            return TRUE;
         }
         if (seq_ctr_bytes != NULL) {
             ieee802154_create_thread_temp_keys(seq_ctr_bytes);
