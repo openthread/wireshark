@@ -188,10 +188,6 @@ static int hf_thread_mc_tlv_discovery_rsp_n = -1;
 
 static gint ett_thread_mc = -1;
 static gint ett_thread_mc_tlv = -1;
-static gint ett_thread_mc_sec_policy = -1;
-static gint ett_thread_mc_discovery_req = -1;
-static gint ett_thread_mc_discovery_rsp = -1;
-static gint ett_thread_mc_stack_ver = -1;
 static gint ett_thread_mc_chan_mask = -1;
 static gint ett_thread_mc_el_count = -1;
 
@@ -1330,7 +1326,7 @@ proto_register_thread_mc(void)
 
     { &hf_thread_mc_tlv_ml_prefix,
       { "Mesh Local Prefix",
-        "thread_meshcop.tlv.ml_ula",
+        "thread_meshcop.tlv.ml_prefix",
         FT_IPv6, BASE_NONE, NULL, 0x0,
         NULL,
         HFILL
@@ -1737,8 +1733,6 @@ proto_register_thread_mc(void)
   static gint *ett[] = {
     &ett_thread_mc,
     &ett_thread_mc_tlv,
-    &ett_thread_mc_sec_policy,
-    &ett_thread_mc_stack_ver,
     &ett_thread_mc_chan_mask,
     &ett_thread_mc_el_count
   };
