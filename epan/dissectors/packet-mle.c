@@ -1688,9 +1688,9 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                         proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, FALSE);
                     } else {
                         /* Channel page */
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel_page, payload_tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel_page, payload_tvb, offset, 1, FALSE);
                         /* Channel */
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel, payload_tvb, offset+1, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel, payload_tvb, offset+1, 2, FALSE);
                     }
                     offset += tlv_len;
                 }

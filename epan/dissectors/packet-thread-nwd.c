@@ -66,6 +66,7 @@ static int hf_thread_nwd_tlv_prefix_length = -1;
 static int hf_thread_nwd_tlv_border_router = -1;
 static int hf_thread_nwd_tlv_border_router_16 = -1;
 static int hf_thread_nwd_tlv_border_router_pref = -1;
+static int hf_thread_nwd_tlv_border_router_p = -1;
 static int hf_thread_nwd_tlv_border_router_s = -1;
 static int hf_thread_nwd_tlv_border_router_d = -1;
 static int hf_thread_nwd_tlv_border_router_c = -1;
@@ -128,6 +129,11 @@ static const value_string thread_nwd_tlv_vals[] = {
 #define THREAD_NWD_TLV_TYPE_M       0xFE
 #define THREAD_NWD_TLV_STABLE_M     0x01
 
+static const true_false_string tfs_thread_nwd_tlv_border_router_p = {
+    "Autoconfigured preferred",
+    "Autoconfigured deprecated"
+};
+
 static const true_false_string tfs_thread_nwd_tlv_border_router_s = {
     "SLAAC allowed",
     "SLAAC not allowed"
@@ -162,12 +168,13 @@ static const true_false_string tfs_thread_nwd_tlv_border_router_n = {
 #define THREAD_NWD_TLV_HAS_ROUTE_PREF       0xC0
 
 #define THREAD_NWD_TLV_BORDER_ROUTER_PREF   0xC0
-#define THREAD_NWD_TLV_BORDER_ROUTER_S      0x20
-#define THREAD_NWD_TLV_BORDER_ROUTER_D      0x10
-#define THREAD_NWD_TLV_BORDER_ROUTER_C      0x08
-#define THREAD_NWD_TLV_BORDER_ROUTER_R      0x04
-#define THREAD_NWD_TLV_BORDER_ROUTER_O      0x02
-#define THREAD_NWD_TLV_BORDER_ROUTER_N      0x01
+#define THREAD_NWD_TLV_BORDER_ROUTER_P      0x20
+#define THREAD_NWD_TLV_BORDER_ROUTER_S      0x10
+#define THREAD_NWD_TLV_BORDER_ROUTER_D      0x08
+#define THREAD_NWD_TLV_BORDER_ROUTER_C      0x04
+#define THREAD_NWD_TLV_BORDER_ROUTER_R      0x02
+#define THREAD_NWD_TLV_BORDER_ROUTER_O      0x01
+#define THREAD_NWD_TLV_BORDER_ROUTER_N      0x80
 
 #define ND_OPT_6CO_FLAG_C        0x10
 #define ND_OPT_6CO_FLAG_CID      0x0F
@@ -325,13 +332,14 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_16, tvb, offset, 2, FALSE);
                             offset += 2;
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_pref, tvb, offset, 1, FALSE);
+                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_p, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_s, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_d, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_c, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_r, tvb, offset, 1, FALSE);
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_o, tvb, offset, 1, FALSE);
+                            offset += 1; /* Extra reserved byte */
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_n, tvb, offset, 1, FALSE);
-                            offset += 2; /* Extra reserved byte */
                         }
                     }
                 }
@@ -565,8 +573,17 @@ proto_register_thread_nwd(void)
     { &hf_thread_nwd_tlv_border_router_pref,
       { "Preference",
         "thread_nwd.tlv.border_router.pref",
-        FT_UINT8, BASE_DEC, NULL, THREAD_NWD_TLV_HAS_ROUTE_PREF,
-        "Border Router preference",
+        FT_UINT8, BASE_DEC, NULL, THREAD_NWD_TLV_BORDER_ROUTER_PREF,
+        "Value of P_preference",
+        HFILL
+      }
+    },
+    
+    { &hf_thread_nwd_tlv_border_router_p,
+      { "P Flag",
+        "thread_nwd.tlv.border_router.flag.p",
+        FT_BOOLEAN, 8, TFS(&tfs_thread_nwd_tlv_border_router_p), THREAD_NWD_TLV_BORDER_ROUTER_P,
+        "Value of P_preferred",
         HFILL
       }
     },
