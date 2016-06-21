@@ -861,6 +861,7 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 
 	proto_tree_add_item(coap_tree, hf_coap_code, tvb, offset, 1, ENC_BIG_ENDIAN);
 	code = tvb_get_guint8(tvb, offset);
+    code_class = code >> 5;
 	offset += 1;
 
 	proto_tree_add_item(coap_tree, hf_coap_mid, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -918,7 +919,6 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
         if (code != 0) { /* Ignore empty messages */
             /* Try and look up a matching token. If it's the first
              * sight of a request, there shouldn't be one */
-            code_class = code >> 5;
             coap_trans = (coap_transaction *)wmem_map_lookup(ccinfo->messages, coap_token_str);
             if (!coap_trans) {
                 if ((!PINFO_FD_VISITED(pinfo)) && (code_class == 0)) {
@@ -970,17 +970,29 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 		const char *coap_ctype_str_dis;
 		char	    str_payload[80];
 
-		/*
-		 * 5.5.2.  Diagnostic Payload
-		 *
-		 * If no Content-Format option is given, the payload of responses
-		 * indicating a client or server error is a brief human-readable
-		 * diagnostic message, explaining the error situation. This diagnostic
-		 * message MUST be encoded using UTF-8 [RFC3629], more specifically
-		 * using Net-Unicode form [RFC5198].
-		 */
-		if (coinfo->ctype_value == DEFAULT_COAP_CTYPE_VALUE)
-			coinfo->ctype_str = "text/plain; charset=utf-8";
+        /* coinfo->ctype_value == DEFAULT_COAP_CTYPE_VALUE: No Content-Format option present */
+        /* coinfo->ctype_value == 0: Content-Format option present with length 0 */
+		if (coinfo->ctype_value == DEFAULT_COAP_CTYPE_VALUE || coinfo->ctype_value == 0) {
+            /*
+             * 5.5.2.  Diagnostic Payload
+             *
+             * If no Content-Format option is given, the payload of responses
+             * indicating a client or server error is a brief human-readable
+             * diagnostic message, explaining the error situation. This diagnostic
+             * message MUST be encoded using UTF-8 [RFC3629], more specifically
+             * using Net-Unicode form [RFC5198].
+             */
+            if ((code_class >= 4) && (code_class <= 5)) {
+                coinfo->ctype_str = "text/plain; charset=utf-8";
+                coap_ctype_str_dis = "text/plain";
+            } else {
+                /* Assume no Content-Format is opaque octet string */
+                coinfo->ctype_str = "application/octet-string";
+                coap_ctype_str_dis = coinfo->ctype_str;
+            }
+		} else {
+			coap_ctype_str_dis = coinfo->ctype_str;
+		}
 
 		g_snprintf(str_payload, sizeof(str_payload),
 		    "Payload Content-Format: %s%s, Length: %u",
@@ -994,12 +1006,6 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 
 		proto_tree_add_string(payload_tree, hf_coap_payload_desc, tvb, offset, -1, coinfo->ctype_str);
 		payload_tvb = tvb_new_subset_length(tvb, offset, payload_length);
-
-		if (coinfo->ctype_value == DEFAULT_COAP_CTYPE_VALUE || coinfo->ctype_value == 0) {
-			coap_ctype_str_dis = "text/plain";
-		} else {
-			coap_ctype_str_dis = coinfo->ctype_str;
-		}
 
 		dissector_try_string(media_type_dissector_table, coap_ctype_str_dis,
 				     payload_tvb, pinfo, payload_tree, NULL);
