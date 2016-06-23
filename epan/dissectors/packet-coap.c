@@ -986,8 +986,8 @@ dissect_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
                 coinfo->ctype_str = "text/plain; charset=utf-8";
                 coap_ctype_str_dis = "text/plain";
             } else {
-                /* Assume no Content-Format is opaque octet string */
-                coinfo->ctype_str = "application/octet-string";
+                /* Assume no Content-Format is opaque octet stream */
+                coinfo->ctype_str = "application/octet-stream";
                 coap_ctype_str_dis = coinfo->ctype_str;
             }
 		} else {
