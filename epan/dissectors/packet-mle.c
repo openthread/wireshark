@@ -1207,7 +1207,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                         }
                         proto_item_append_text(ti, "%d", to_data);
                     }
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_timeout, payload_tvb, offset, 2, FALSE);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_timeout, payload_tvb, offset, 4, FALSE);
                 }
                 proto_item_append_text(ti, ")");
                 offset += tlv_len;
@@ -1946,7 +1946,7 @@ proto_register_mle(void)
     { &hf_mle_tlv_timeout,
       { "Timeout",
         "mle.tlv.timeout",
-        FT_UINT16, BASE_DEC, NULL, 0x0,
+        FT_UINT32, BASE_DEC, NULL, 0x0,
         "Expected interval between transmissions in seconds",
         HFILL
       }
