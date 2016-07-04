@@ -114,6 +114,7 @@ static gint ieee802154_key_hash_val = KEY_HASH_NONE;
 #endif
 #ifdef THREAD_HASHED_KEY
 static gboolean ieee802154_pref_auto_acq_thr_seq_ctr = TRUE;
+static gboolean ieee802154_pref_use_pan_id_in_key = FALSE;
 static const gchar *ieee802154_pref_thr_seq_ctr_str = NULL;
 static gboolean ieee802154_thr_seq_ctr_acqd = FALSE;
 static guint8 ieee802154_thr_seq_ctr_bytes[4];
@@ -2894,7 +2895,7 @@ gboolean ieee802154_long_addr_equal(gconstpointer a, gconstpointer b)
 }
 
 static void
-ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes)
+ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes, guint16 src_pan)
 {
     GByteArray *bytes;
     char       buffer[10];
@@ -2906,6 +2907,11 @@ ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes)
     res = hex_str_to_bytes(ieee802154_pref_key_str[0], bytes, FALSE); /* Just use index 0 for convenience now */
     key_valid = (res && bytes->len >= IEEE802154_CIPHER_SIZE);
     if (key_valid) {
+        if (ieee802154_pref_use_pan_id_in_key) {
+            /* Substitute the bottom two keys bytes with PAN ID */
+            bytes->data[0] = (guint8)(src_pan & 0xFF);
+            bytes->data[1] = (guint8)(src_pan >> 8);
+        }
         if (ieee802154_key_hash_val != KEY_HASH_NONE) {
             gcry_md_hd_t md_hd;
             gcry_error_t err = 0;
@@ -2996,11 +3002,11 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
             return TRUE;
         }
         if (seq_ctr_bytes != NULL) {
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
             memcpy(key, ieee802154_temp_key, IEEE802154_CIPHER_SIZE);
             /* Create an alternate key based on the wraparound case */
             seq_ctr_bytes->data[3] ^= 0x80;
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
             memcpy(alt_key, ieee802154_temp_key, IEEE802154_CIPHER_SIZE);
             g_byte_array_free(seq_ctr_bytes, TRUE);
             return TRUE;
@@ -3049,11 +3055,11 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, u
             }
         }
         if (seq_ctr_bytes != NULL) {
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
             memcpy(key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
             /* Create an alternate key based on the wraparound case */
             seq_ctr_bytes->data[3] ^= 0x80;
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
             memcpy(alt_key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
             g_byte_array_free(seq_ctr_bytes, TRUE);
             return TRUE;
@@ -3807,6 +3813,11 @@ void proto_register_ieee802154(void)
                                    "Automatically acquire Thread sequence counter",
                                    "Set if the Thread sequence counter should be automatically acquired from Key ID mode 2 MLE messages.",
                                    &ieee802154_pref_auto_acq_thr_seq_ctr);
+                                   
+    prefs_register_bool_preference(ieee802154_module, "802154_use_pan_id_in_key",
+                                   "Use PAN ID as first two octets of master key",
+                                   "Set if the PAN ID should be used as the first two octets of the master key (PAN ID LSB), (PAN ID MSB), Key[2]...",
+                                   &ieee802154_pref_use_pan_id_in_key);
                                    
     prefs_register_string_preference(ieee802154_module, "802154_thr_seq_ctr", "Thread sequence counter",
             "32-bit sequence counter for hash", (const char **)&ieee802154_pref_thr_seq_ctr_str);
