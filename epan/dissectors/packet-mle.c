@@ -927,6 +927,9 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         packet->src16 = original_packet->src16;
     }
 
+    /* Copy IEEE 802.15.4 Source PAN ID */
+    packet->src_pan = original_packet->src_pan;
+
     /* Create the protocol tree. */
     proto_root = proto_tree_add_protocol_format(tree, proto_mle, tvb, 0, tvb_reported_length(tvb), "Mesh Link Exchange");
     mle_tree = proto_item_add_subtree(proto_root, ett_mle);
