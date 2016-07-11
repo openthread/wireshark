@@ -50,14 +50,12 @@ static gboolean thread_coap_is_octet_stream = FALSE;
 static int proto_thread_coap = -1;
 
 static dissector_handle_t thread_coap_handle;
-static dissector_handle_t thread_nwd_handle;
 static dissector_handle_t thread_meshcop_handle;
 static dissector_handle_t thread_address_handle;
 static dissector_handle_t thread_diagnostic_handle;
 
 typedef enum {
     THREAD_COAP_URI_THREAD,     /* "..." */
-    THREAD_COAP_URI_NWD,        /* "/n/..." */
     THREAD_COAP_URI_MESHCOP,    /* "/c/..." */
     THREAD_COAP_URI_ADDRESS,    /* "/a/..."  */
     THREAD_COAP_URI_DIAGNOSTIC  /* "/d/..."  */
@@ -77,10 +75,7 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     uri_type = THREAD_COAP_URI_THREAD;
     for (tok = strtok(uri, "/"); tok; tok = strtok(NULL, "/")) {
         if (THREAD_COAP_URI_THREAD == uri_type) {
-            if (strcmp ("n", tok) == 0) {
-                uri_type = THREAD_COAP_URI_NWD;
-            }
-            else if (strcmp ("c", tok) == 0) {
+            if (strcmp ("c", tok) == 0) {
                 uri_type = THREAD_COAP_URI_MESHCOP;
             }
             else if (strcmp ("a", tok) == 0) {
@@ -99,10 +94,7 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     }
 
     switch (uri_type) {
-    case THREAD_COAP_URI_NWD:
         /* No need to create a subset as we are dissecting the tvb as it is */
-        call_dissector(thread_nwd_handle, tvb, pinfo, tree);
-        break;
     case THREAD_COAP_URI_MESHCOP:
         call_dissector(thread_meshcop_handle, tvb, pinfo, tree);
         break;
@@ -126,9 +118,6 @@ proto_register_thread_coap(void)
   proto_thread_coap = proto_register_protocol("Thread CoAP", "Thread CoAP", "thread_coap");
   register_dissector("thread_coap", dissect_thread_coap, proto_thread_coap);
   
-  /* TODO - need to somehow splice it into CoAP - media type? */
-  //range_convert_str(&global_mle_port_range, UDP_PORT_MLE_RANGE, MAX_UDP_PORT);
-
   thread_coap_module = prefs_register_protocol(proto_thread_coap, proto_reg_handoff_thread_coap);
   prefs_register_bool_preference(thread_coap_module, "thread_coap",
                                  "Decode CoAP for Thread",
@@ -143,13 +132,13 @@ proto_reg_handoff_thread_coap(void)
 
   if (!thread_coap_initialized) {
     thread_coap_handle = find_dissector("thread_coap");
-    thread_nwd_handle = find_dissector("thread_nwd");
     thread_meshcop_handle = find_dissector("thread_meshcop");
     thread_address_handle = find_dissector("thread_address");
     thread_diagnostic_handle = find_dissector("thread_diagnostic");
     thread_coap_initialized = TRUE;
   }
-  
+
+  /* Thread Content-Format is opaque byte string, i.e. application/octet-stream */
   if (thread_coap_is_octet_stream) {
     dissector_add_string("media_type", "application/octet-stream", thread_coap_handle);
   } else {

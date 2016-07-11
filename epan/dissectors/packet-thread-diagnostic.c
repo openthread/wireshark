@@ -51,6 +51,7 @@ static int hf_thread_dg_tlv = -1;
 static int hf_thread_dg_tlv_type = -1;
 static int hf_thread_dg_tlv_length8 = -1;
 static int hf_thread_dg_tlv_length16 = -1;
+static int hf_thread_dg_tlv_general = -1;
 static int hf_thread_dg_tlv_unknown = -1;
 
 #if 0
@@ -119,48 +120,47 @@ static expert_field ei_thread_dg_len_size_mismatch = EI_INIT;
 
 static dissector_handle_t thread_dg_handle;
 
+/* Network Layer (Address) mirrors */
+#define THREAD_DG_TLV_EXT_MAC_ADDR          0 /* As THREAD_ADDRESS_TLV_EXT_MAC_ADDR */
 /* MLE mirrors */
-#define THREAD_DG_TLV_SOURCE_ADDRESS        0 /* As MLE_TLV_SOURCE_ADDRESS */
-#define THREAD_DG_TLV_ADDRESS_16            1 /* As MLE_TLV_ADDRESS_16 */
+#define THREAD_DG_TLV_ADDRESS16             1 /* As MLE_TLV_ADDRESS16 */
 #define THREAD_DG_TLV_MODE                  2 /* As MLE_TLV_MODE */
-#define THREAD_DG_TLV_TIMEOUT               3 /* As MLE_TLV_TIMEOUT? */
+#define THREAD_DG_TLV_TIMEOUT               3 /* As MLE_TLV_TIMEOUT */
 #define THREAD_DG_TLV_CONNECTIVITY          4 /* As MLE_TLV_CONNECTIVITY */
-#define THREAD_DG_TLV_ROUTING_TABLE         5 /* As MLE_TLV_ROUTING_TABLE */
+#define THREAD_DG_TLV_ROUTE64               5 /* As MLE_TLV_ROUTE64 */
 #define THREAD_DG_TLV_LEADER_DATA           6 /* As MLE_TLV_LEADER_DATA */
 #define THREAD_DG_TLV_NETWORK_DATA          7 /* As MLE_TLV_NETWORK_DATA */
 /* Statistics */
 #define THREAD_DG_TLV_IPV6_ADDR_LIST        8
-#define THREAD_DG_TLV_PACKETS_TX            9
-#define THREAD_DG_TLV_PACKETS_RX            10
-#define THREAD_DG_TLV_PACKETS_TX_DROPPED    11
-#define THREAD_DG_TLV_PACKETS_RX_DROPPED    12
-#define THREAD_DG_TLV_SEC_ERRORS            13
-#define THREAD_DG_TLV_RETRIES               14
+#define THREAD_DG_TLV_MAC_COUNTERS          9
 /* Others */
+#define THREAD_DG_TLV_BATTERY_LEVEL         14
 #define THREAD_DG_TLV_VOLTAGE               15
 #define THREAD_DG_TLV_CHILD_TABLE           16
 #define THREAD_DG_TLV_CHANNEL_PAGES         17
+#define THREAD_DG_TLV_TYPE_LIST             18
 #define THREAD_DG_TLV_UNKNOWN               255
 
 static const value_string thread_dg_tlv_vals[] = {
-{ THREAD_DG_TLV_SOURCE_ADDRESS,        "Source Address" },
-{ THREAD_DG_TLV_ADDRESS_16,            "Address16"},
+/* Network Layer (Address) mirrors */
+{ THREAD_DG_TLV_EXT_MAC_ADDR,          "Extended MAC Address" },
+/* MLE mirrors */
+{ THREAD_DG_TLV_ADDRESS16,             "Address16" },
 { THREAD_DG_TLV_MODE,                  "Mode" },
 { THREAD_DG_TLV_TIMEOUT,               "Timeout" },
-{ THREAD_DG_TLV_CONNECTIVITY,          "Connectivity"},
-{ THREAD_DG_TLV_ROUTING_TABLE,         "Routing Table"},
-{ THREAD_DG_TLV_LEADER_DATA,           "Leader Data"},
-{ THREAD_DG_TLV_NETWORK_DATA,          "Network Data"},
-{ THREAD_DG_TLV_IPV6_ADDR_LIST,        "IPv6 Address List"},
-{ THREAD_DG_TLV_PACKETS_TX,            "Packets Sent"},
-{ THREAD_DG_TLV_PACKETS_RX,            "Packets Received"},
-{ THREAD_DG_TLV_PACKETS_TX_DROPPED,    "Packets Sent Dropped"},
-{ THREAD_DG_TLV_PACKETS_RX_DROPPED,    "Packets Received Dropped"},
-{ THREAD_DG_TLV_SEC_ERRORS,            "Security Errors"},
-{ THREAD_DG_TLV_RETRIES,               "Retries"},
-{ THREAD_DG_TLV_VOLTAGE,               "Voltage (mV)"},
-{ THREAD_DG_TLV_CHILD_TABLE,           "Child Table"},
-{ THREAD_DG_TLV_CHANNEL_PAGES,         "Channel Pages"},
+{ THREAD_DG_TLV_CONNECTIVITY,          "Connectivity" },
+{ THREAD_DG_TLV_ROUTE64,               "Route64" },
+{ THREAD_DG_TLV_LEADER_DATA,           "Leader Data" },
+{ THREAD_DG_TLV_NETWORK_DATA,          "Network Data" },
+/* Statistics */
+{ THREAD_DG_TLV_IPV6_ADDR_LIST,        "IPv6 Address List" },
+{ THREAD_DG_TLV_MAC_COUNTERS,          "MAC Counters" },
+/* Others */
+{ THREAD_DG_TLV_BATTERY_LEVEL,         "Battery level (%)" },
+{ THREAD_DG_TLV_VOLTAGE,               "Voltage (mV)" },
+{ THREAD_DG_TLV_CHILD_TABLE,           "Child Table" },
+{ THREAD_DG_TLV_CHANNEL_PAGES,         "Channel Pages" },
+{ THREAD_DG_TLV_TYPE_LIST,             "Type List" },
 { THREAD_DG_TLV_UNKNOWN,               "Unknown" }
 };
 
@@ -234,7 +234,40 @@ dissect_thread_dg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         }
         
         switch(tlv_type) {
-            default:                
+            case THREAD_DG_TLV_TYPE_LIST:
+                {
+                    int i;
+                    
+                    proto_item_append_text(ti, ")");
+
+                    for (i = 0; i < tlv_len; i++) {
+                        proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_type, tvb, offset, 1, FALSE);
+                        offset++;
+                    }
+                }
+                break;
+                
+            case THREAD_DG_TLV_EXT_MAC_ADDR:
+            case THREAD_DG_TLV_ADDRESS16:
+            case THREAD_DG_TLV_MODE:
+            case THREAD_DG_TLV_TIMEOUT:
+            case THREAD_DG_TLV_CONNECTIVITY:
+            case THREAD_DG_TLV_ROUTE64:
+            case THREAD_DG_TLV_LEADER_DATA:
+            case THREAD_DG_TLV_NETWORK_DATA:
+            case THREAD_DG_TLV_IPV6_ADDR_LIST:
+            /* Counters */
+            case THREAD_DG_TLV_MAC_COUNTERS:
+            case THREAD_DG_TLV_BATTERY_LEVEL:
+            case THREAD_DG_TLV_VOLTAGE:
+            case THREAD_DG_TLV_CHILD_TABLE:
+            case THREAD_DG_TLV_CHANNEL_PAGES:
+                proto_item_append_text(ti, ")");
+                proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_general, tvb, offset, tlv_len, FALSE);
+                offset += tlv_len;           
+                break;
+                
+            default:
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_thread_dg_tlv_unknown, tvb, offset, tlv_len, FALSE);
                 offset += tlv_len;           
@@ -281,6 +314,15 @@ proto_register_thread_dg(void)
         "thread_diagnostic.tlv.len16",
         FT_UINT16, BASE_DEC, NULL, 0x0,
         "Length of value (16-bit)",
+        HFILL
+      }
+    },
+    
+    { &hf_thread_dg_tlv_general,
+      { "General",
+        "thread_diagnostic.tlv.general",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        "General TLV, raw value",
         HFILL
       }
     },
