@@ -78,7 +78,7 @@ dissect_thread_coap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
             if (strcmp ("c", tok) == 0) {
                 uri_type = THREAD_COAP_URI_MESHCOP;
             }
-            else if (strcmp ("a", tok) == 0) {
+            else if ((strcmp ("a", tok) == 0) || (strcmp ("n", tok) == 0)) {
                 uri_type = THREAD_COAP_URI_ADDRESS;
             }
             else if (strcmp ("d", tok) == 0) {
