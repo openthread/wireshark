@@ -2986,7 +2986,7 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
         if ((ieee802154_key_valid[i]) &&
             (packet->key_index == ieee802154_key_index[i]))
         {
-            memcpy(key, ieee802154_mle_key[i], IEEE802154_CIPHER_SIZE);
+            memcpy(key, ieee802154_key[i], IEEE802154_CIPHER_SIZE);
             return TRUE;
         }
     }
