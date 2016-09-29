@@ -54,19 +54,13 @@
 #include "packet-ieee802154.h"
 
 #define THREAD_EXTENSIONS
+#define NUM_KEYS 2 /* MUST be the same as that define in packet-ieee802154.c */
 
 /* Use libgcrypt for cipher libraries. */
 #ifdef HAVE_LIBGCRYPT
 #include <gcrypt.h>
 #endif /* HAVE_LIBGCRYPT */
 
-/*
- * Set this define if MLE independently can set its own keys.
- * If left undefined, it will use whatever 802.15.4 has set
- */
-//#define INDEPENDENT_MLE_KEYS
-#define THREAD_HASHED_KEY
-//#define DISPLAY_HASHED_KEY
 #define MLE_32768_TO_NSEC_FACTOR ((double)30517.578125)
 
 /* Forward declarations */
@@ -86,8 +80,8 @@ static int hf_mle_aux_sec_reserved = -1;
 static int hf_mle_aux_sec_frame_counter = -1;
 static int hf_mle_aux_sec_key_source = -1;
 static int hf_mle_aux_sec_key_index = -1;
-
 static int hf_mle_mic = -1;
+static int hf_mle_key_number = -1;
 
 static int hf_mle_command = -1;
 static int hf_mle_tlv = -1;
@@ -431,54 +425,6 @@ static void ccm_init_block          (gchar *, gboolean, gint, guint64, guint32, 
 static gboolean ccm_ctr_encrypt     (const gchar *, const gchar *, gchar *, gchar *, gint);
 static gboolean ccm_cbc_mac         (const gchar *, const gchar *, const gchar *, gint, const gchar *, gint, gchar *);
 
-#ifdef INDEPENDENT_MLE_KEYS
-
-#define NUM_KEYS 2
-/* User string with the decryption key. */
-static const gchar *mle_key_str[NUM_KEYS] = {NULL, NULL};
-#ifdef THREAD_HASHED_KEY
-static const gchar *mle_thr_seq_ctr_str = NULL;
-#endif
-#ifdef DISPLAY_HASHED_KEY
-static const gchar *mle_hash_key_str[NUM_KEYS] = NULL;
-#endif
-#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
-static gboolean mle_hashed_key_str = FALSE;
-#endif
-static gboolean     mle_key_valid[NUM_KEYS];
-static guint8       mle_key[NUM_KEYS][IEEE802154_CIPHER_SIZE];
-static unsigned int mle_key_index[NUM_KEYS] = {1, 2};
-#endif /* INDEPENDENT_MLE_KEYS */
-
-static gboolean mle_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
-{
-#ifdef INDEPENDENT_MLE_KEYS
-    int i;
-
-    /* Lookup the key. */
-    /*
-     * TODO: What this dissector really needs is a UAT to store multiple keys
-     * and a variety of key configuration data. However, two shared keys
-     * should be sufficient to get packet encryption off to a start.
-     */
-    for (i = 0; i < NUM_KEYS; i++)
-    {
-        if ((mle_key_valid[i]) &&
-            (packet->key_index == mle_key_index[i]))
-        {
-            memcpy(key, mle_key[i], IEEE802154_CIPHER_SIZE);
-            break;
-        }
-    }
-    if (i == NUM_KEYS) {
-        return FALSE;
-    }
-    return TRUE;
-#else
-    return ieee802154_set_mle_key(packet, key, alt_key);
-#endif
-}
-
 /*FUNCTION:------------------------------------------------------
  *  NAME
  *      dissect_mle_decrypt
@@ -514,9 +460,6 @@ dissect_mle_decrypt(proto_item *volatile proto_root,
     guint               M;
     gint                captured_len;
     gint                reported_len;
-#ifdef INDEPENDENT_MLE_KEYS
-    int                 i;
-#endif
 
     *rx_mic_len = 0;
 
@@ -912,6 +855,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     guint8                  cmd;
     guint8                  tlv_type, tlv_len;
     proto_tree              *tlv_tree;
+    int                     key_number = 0;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "MLE");
     col_clear(pinfo->cinfo,   COL_INFO);
@@ -1009,20 +953,34 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             proto_tree_add_uint(field_tree, hf_mle_aux_sec_key_index, tvb, offset, 1, packet->key_index);
             offset++;
         }
+
         /* Pass to decryption process */
 
         /* Lookup the key */
-        if (!mle_set_mle_key(packet, key, alt_key)) {
-            goto encryption_failed;
+        for (key_number = 0; key_number < NUM_KEYS; key_number++) {
+            if (ieee802154_set_mle_key(packet, key, alt_key, key_number)) {
+                /* Try with the initial key */
+                memset(rx_mic, 0, 16);
+                payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, key);
+                if (!((status == DECRYPT_PACKET_MIC_CHECK_FAILED) || (status == DECRYPT_PACKET_DECRYPT_FAILED))) {
+                    break;
+                }
+                /* Try with the alternate key */
+                memset(rx_mic, 0, 16);
+                payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, alt_key);
+                if (!((status == DECRYPT_PACKET_MIC_CHECK_FAILED) || (status == DECRYPT_PACKET_DECRYPT_FAILED))) {
+                    break;
+                }
+            }
         }
-
-        memset(rx_mic, 0, 16);
-        payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, key);
-        if (status != DECRYPT_PACKET_SUCCEEDED) {
-            /* Try with the alternate key */
-            memset(rx_mic, 0, 16);
-            payload_tvb = dissect_mle_decrypt(proto_root, tvb, aux_header_offset, aux_length, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, alt_key);
+        if (key_number == NUM_KEYS) {
+            /* None of the stored keys seemed to work */
+            status = DECRYPT_PACKET_NO_KEY;
         }
+        
+        /* Store the key number used for retrieval */
+        ti = proto_tree_add_uint(header_tree, hf_mle_key_number, tvb, 0, 0, key_number);
+        PROTO_ITEM_SET_HIDDEN(ti);
 
         /* MIC */
         mic_item = NULL;
@@ -1049,7 +1007,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     case DECRYPT_NOT_ENCRYPTED:
         /* No problem. */
         if (mic_item) {
-            proto_item_append_text(mic_item, " [correct]");
+            proto_item_append_text(mic_item, " [correct (key no. %d)]", key_number);
         }
         break;
 
@@ -1856,6 +1814,15 @@ proto_register_mle(void)
         HFILL
       }
     },
+    
+    { &hf_mle_key_number,
+      { "Key number",
+        "mle.key_number",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
+        "Key number",
+        HFILL
+      }
+    },
 
     /*MLE Command*/
     { &hf_mle_command,
@@ -2596,44 +2563,6 @@ proto_register_mle(void)
   /* Register preferences for a decryption key */
   /* TODO: Implement a UAT for multiple keys, and with more advanced key management. */
 
-#ifdef INDEPENDENT_MLE_KEYS
-
-#if (NUM_KEYS == 2)
-  prefs_register_string_preference(mle_module, "meshlink_key_1", "Decryption key 1",
-      "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str[0]);
-  prefs_register_uint_preference(mle_module, "meshlink_key_index_1", "Decryption key index 1",
-      "Key index in decimal format", 10, &mle_key_index[0]);
-  prefs_register_string_preference(mle_module, "meshlink_key_2", "Decryption key 2",
-      "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str[1]);
-  prefs_register_uint_preference(mle_module, "meshlink_key_index_2", "Decryption key index 2",
-      "Key index in decimal format", 10, &mle_key_index[1]);
-#else
-  prefs_register_string_preference(mle_module, "meshlink_key", "Decryption key",
-      "128-bit decryption key in hexadecimal format", (const char **)&mle_key_str);
-#endif
-#ifdef THREAD_HASHED_KEY
-  prefs_register_string_preference(mle_module, "meshlink_thr_seq_ctr", "Thread sequence counter",
-      "32-bit sequence counter for hash", (const char **)&mle_thr_seq_ctr_str);
-#endif
-#ifdef DISPLAY_HASHED_KEY
-#if (NUM_KEYS == 2)
-  prefs_register_string_preference(mle_module, "mle_hash_key_1", "Hashed Decryption key 1",
-      "128-bit decryption hashed key in hexadecimal format", (const char **)&mle_hash_key_str[0]);
-  prefs_register_string_preference(mle_module, "mle_hash_key_2", "Hashed Decryption key 2",
-      "128-bit decryption hashed key in hexadecimal format", (const char **)&mle_hash_key_str[1]);
-#else
-  prefs_register_string_preference(mle_module, "mle_hash_key", "Hashed Decryption key",
-      "128-bit decryption hashed key in hexadecimal format", (const char **)&mle_hash_key_str[0]);
-#endif
-#endif
-#if defined(ZIP_HASHED_KEY) || defined (THREAD_HASHED_KEY)
-  prefs_register_bool_preference(mle_module, "meshlink_hashed_key",
-                                 "Hashed key",
-                                 "Set if the hashed key is to be used for MLE encryption."
-                                 " Option ignored for unsecured frames.",
-                                 &mle_hashed_key);
-#endif
-#endif /* INDEPENDENT_MLE_KEYS */
 #ifdef INCLUDE_MIC_OK
   prefs_register_bool_preference(mle_module, "meshlink_mic_ok",
                   "Dissect only good MIC",
@@ -2657,15 +2586,6 @@ proto_reg_handoff_mle(void)
 {
   static range_t *mle_port_range;
   static gboolean mle_initialized = FALSE;
-#ifdef INDEPENDENT_MLE_KEYS
-  GByteArray *bytes;
-#ifdef THREAD_HASHED_KEY
-  GByteArray *seq_ctr_bytes;
-  char       buffer[10];
-#endif
-  gboolean   res;
-  int        i;
-#endif /* INDEPENDENT_MLE_KEYS */
 
   if (!mle_initialized) {
     mle_handle = find_dissector("mle");
@@ -2682,63 +2602,6 @@ proto_reg_handoff_mle(void)
 
   mle_port_range = range_copy(global_mle_port_range);
   range_foreach(mle_port_range, range_add_callback);
-
-#ifdef INDEPENDENT_MLE_KEYS
-  for (i = 0; i < NUM_KEYS; i++)
-  {
-
-    /* Get the IEEE 802.15.4 decryption key. */
-    bytes = g_byte_array_new();
-    res = hex_str_to_bytes(mle_key_str[i], bytes, FALSE);
-    mle_key_valid[i] = (res && bytes->len >= IEEE802154_CIPHER_SIZE);
-    if (mle_key_valid[i]) {
-#if (defined(ZIP_HASHED_KEY) || defined(THREAD_HASHED_KEY)) && defined(HAVE_LIBGCRYPT)
-      if (mle_hashed_key) {
-        gcry_md_hd_t md_hd;
-        gcry_error_t err = 0;
-        unsigned char *data_computed_md = 0;
-#ifdef DISPLAY_HASHED_KEY
-        char *mle_hash_key_str_ptr;
-#endif
-        err = gcry_md_open(&md_hd, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
-        if (err == 0) {
-          gcry_md_setkey (md_hd, bytes->data, IEEE802154_CIPHER_SIZE);
-#ifdef ZIP_HASHED_KEY
-          gcry_md_write (md_hd, "ZigBeeIP", 8);
-#endif
-#ifdef THREAD_HASHED_KEY
-          seq_ctr_bytes = g_byte_array_new();
-          res = hex_str_to_bytes(mle_thr_seq_ctr_str, seq_ctr_bytes, FALSE);
-          memcpy(buffer, seq_ctr_bytes->data, 4); /* sizeof(uint32) */
-          g_byte_array_free(seq_ctr_bytes, TRUE);
-          memcpy(&buffer[4], "Thread", 6); /* len("Thread") */
-          gcry_md_write(md_hd, buffer, 10);
-#endif
-          data_computed_md = gcry_md_read(md_hd, GCRY_MD_SHA256);
-          if (data_computed_md != 0) {
-            /* Copy lower hashed bytes to the key */
-            memcpy(mle_key[i], data_computed_md, IEEE802154_CIPHER_SIZE);
-#ifdef DISPLAY_HASHED_KEY
-            mle_hash_key_str_ptr = bytes_to_hexstr((char *)mle_hash_key_str[i], (const guint8 *)mle_key[i], 16); // 16 bytes
-            *mle_hash_key_str_ptr = '\0'; /* Null terminate for display */
-#endif
-        }
-      }
-      if (data_computed_md == 0) {
-        /* Copy bytes to the key */
-        memcpy(mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
-      }
-      gcry_md_close (md_hd);
-    } else {
-      memcpy(mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
-    }
-#else /* !(defined(ZIP_HASHED_KEY) && defined(HAVE_LIBGCRYPT)) */
-    /* Will have to be manually entered as HMAC_SHA256(key, "ZigBeeIP")[0..15] */
-    memcpy(mle_key[i], bytes->data, IEEE802154_CIPHER_SIZE);
-#endif /* !(defined(ZIP_HASHED_KEY) && defined(HAVE_LIBGCRYPT)) */
-  }
-  g_byte_array_free(bytes, TRUE);
-#endif /* INDEPENDENT_MLE_KEYS */
 }
 
 /*

@@ -101,7 +101,7 @@ static gboolean ieee802154_cc24xx = FALSE;
 /* boolean value set if the FCS must be ok before payload is dissected */
 static gboolean ieee802154_fcs_ok = TRUE;
 
-#define NUM_KEYS 1
+#define NUM_KEYS 2
 
 /* User string with the decryption key. */
 static const gchar *ieee802154_pref_key_str[NUM_KEYS] = {NULL};
@@ -229,12 +229,12 @@ typedef enum {
 } ws_decrypt_status;
 
 static tvbuff_t *dissect_ieee802154_decrypt(tvbuff_t *, guint, packet_info *, ieee802154_packet *,
-        ws_decrypt_status *, unsigned char *);
+        unsigned char *, guint *, ws_decrypt_status *, unsigned char *);
 static void ccm_init_block          (gchar *, gboolean, gint, guint64, ieee802154_packet *, gint);
 static gboolean ccm_ctr_encrypt     (const gchar *, const gchar *, gchar *, gchar *, gint);
 static gboolean ccm_cbc_mac         (const gchar *, const gchar *, const gchar *, gint, const gchar *, gint, gchar *);
 
-static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key);
+static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key, int key_number);
 
 /*  Initialize Protocol and Registered fields */
 static int proto_ieee802154_nonask_phy = -1;
@@ -345,6 +345,8 @@ static int hf_ieee802154_aux_sec_reserved = -1;
 static int hf_ieee802154_aux_sec_frame_counter = -1;
 static int hf_ieee802154_aux_sec_key_source = -1;
 static int hf_ieee802154_aux_sec_key_index = -1;
+static int hf_ieee802154_mic = -1;
+static int hf_ieee802154_key_number = -1;
 
 /* 802.15.4-2003 security */
 static int hf_ieee802154_sec_frame_counter = -1;
@@ -879,13 +881,16 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
     proto_item              *volatile proto_root = NULL;
     proto_item              *hidden_item;
     proto_item              *ti;
+    proto_item              *mic_item = NULL;
+    proto_tree              *header_tree = NULL;
     guint                   offset = 0;
     volatile gboolean       fcs_ok = TRUE;
     const char              *saved_proto;
     ws_decrypt_status       status;
     gboolean                dstPanPresent = FALSE;
     gboolean                srcPanPresent = FALSE;
-
+    unsigned char           rx_mic[16];
+    guint                   rx_mic_len;
     ieee802154_packet      *packet = wmem_new0(wmem_packet_scope(), ieee802154_packet);
     ieee802154_short_addr   addr16;
     ieee802154_hints_t     *ieee_hints;
@@ -1326,9 +1331,9 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
 
     /* Existance of the Auxiliary Security Header is controlled by the Security Enabled Field */
     if (packet->security_enable) {
-      proto_tree *header_tree, *field_tree;
-      guint8                    security_control;
-      guint                     aux_length = 5; /* Minimum length of the auxiliary header. */
+      proto_tree *field_tree;
+      guint8     security_control;
+      guint      aux_length = 5; /* Minimum length of the auxiliary header. */
       static const int * security_fields[] = {
                     &hf_ieee802154_security_level,
                     &hf_ieee802154_key_id_mode,
@@ -1437,6 +1442,7 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
     if (packet->security_enable) {
         unsigned char key[16];
         unsigned char alt_key[16];
+        int key_number;
 
         /* Lookup the key. */
         /*
@@ -1444,14 +1450,28 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
          * and a variety of key configuration data. However, two shared keys
          * should be sufficient to get packet encryption off to a start.
          */
-        if (!ieee802154_set_mac_key(packet, key, alt_key)) {
-            goto dissect_ieee802154_fcs;
+        for (key_number = 0; key_number < NUM_KEYS; key_number++) {
+            if (ieee802154_set_mac_key(packet, key, alt_key, key_number)) {
+                /* Try with the initial key */
+                payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, key);
+                if (!((status == DECRYPT_PACKET_MIC_CHECK_FAILED) || (status == DECRYPT_PACKET_DECRYPT_FAILED))) {
+                    break;
+                }
+                /* Try with the alternate key */
+                payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, rx_mic, &rx_mic_len, &status, alt_key);
+                if (!((status == DECRYPT_PACKET_MIC_CHECK_FAILED) || (status == DECRYPT_PACKET_DECRYPT_FAILED))) {
+                    break;
+                }
+            }
         }
-
-        payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, &status, key);
-        if (status != DECRYPT_PACKET_SUCCEEDED) {
-            payload_tvb = dissect_ieee802154_decrypt(tvb, offset, pinfo, packet, &status, alt_key);
+        if (key_number == NUM_KEYS) {
+            /* None of the stored keys seemed to work */
+            status = DECRYPT_PACKET_NO_KEY;
         }
+        
+        /* Store the key number used for retrieval */
+        ti = proto_tree_add_uint(header_tree, hf_ieee802154_key_number, tvb, 0, 0, key_number);
+        PROTO_ITEM_SET_HIDDEN(ti);
         
         /* Get the unencrypted data if decryption failed.  */
         if (!payload_tvb) {
@@ -1462,11 +1482,21 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
             payload_tvb = tvb_new_subset(tvb, offset, captured_len, reported_len);
         }
 
+        /* Display the MIC. */
+        mic_item = NULL;
+        if (rx_mic_len && header_tree) {
+            mic_item = proto_tree_add_bytes(header_tree, hf_ieee802154_mic, tvb, 0, rx_mic_len, rx_mic);
+            PROTO_ITEM_SET_GENERATED(mic_item);
+        }
+
         /* Display the reason for failure, and abort if the error was fatal. */
         switch (status) {
         case DECRYPT_PACKET_SUCCEEDED:
         case DECRYPT_NOT_ENCRYPTED:
-            /* No problem. */
+            /* No problem */
+            if (mic_item) {
+                proto_item_append_text(mic_item, " [correct (key no. %d)]", key_number);
+            }
             break;
 
         case DECRYPT_VERSION_UNSUPPORTED:
@@ -1497,6 +1527,9 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
 
         case DECRYPT_PACKET_MIC_CHECK_FAILED:
             expert_add_info_format(pinfo, proto_root, &ei_ieee802154_decrypt_error, "MIC check failed");
+            if (mic_item) {
+                proto_item_append_text(mic_item, " [incorrect]");
+            }
             /*
              * Abort only if the payload was encrypted, in which case we
              * probably didn't decrypt the packet right (eg: wrong key).
@@ -2471,13 +2504,19 @@ dissect_ieee802154_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
  *@return decrypted payload.
 */
 static tvbuff_t *
-dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee802154_packet *packet, ws_decrypt_status *status, unsigned char *key)
+dissect_ieee802154_decrypt(tvbuff_t *tvb,
+                           guint offset,
+                           packet_info *pinfo,
+                           ieee802154_packet *packet,
+                           unsigned char *rx_mic,
+                           guint *rx_mic_len,
+                           ws_decrypt_status *status,
+                           unsigned char *key)
 {
     tvbuff_t           *ptext_tvb;
     gboolean            have_mic = FALSE;
     guint64             srcAddr;
     unsigned char       tmp[16];
-    unsigned char       rx_mic[16];
     guint               M;
     gint                captured_len;
     gint                reported_len;
@@ -2499,6 +2538,8 @@ dissect_ieee802154_decrypt(tvbuff_t *tvb, guint offset, packet_info *pinfo, ieee
 
     /* Get the captured and on-the-wire length of the payload. */
     M = IEEE802154_MIC_LENGTH(packet->security_level);
+    *rx_mic_len = M;
+    
     reported_len = tvb_reported_length_remaining(tvb, offset) - IEEE802154_FCS_LEN - M;
     if (reported_len < 0) {
         *status = DECRYPT_PACKET_TOO_SMALL;
@@ -2895,7 +2936,7 @@ gboolean ieee802154_long_addr_equal(gconstpointer a, gconstpointer b)
 }
 
 static void
-ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes, guint16 src_pan)
+ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes, guint16 src_pan, int key_number)
 {
     GByteArray *bytes;
     char       buffer[10];
@@ -2904,7 +2945,7 @@ ieee802154_create_thread_temp_keys(GByteArray *seq_ctr_bytes, guint16 src_pan)
     
     /* Get the IEEE 802.15.4 decryption key. */
     bytes = g_byte_array_new();
-    res = hex_str_to_bytes(ieee802154_pref_key_str[0], bytes, FALSE); /* Just use index 0 for convenience now */
+    res = hex_str_to_bytes(ieee802154_pref_key_str[key_number], bytes, FALSE);
     key_valid = (res && bytes->len >= IEEE802154_CIPHER_SIZE);
     if (key_valid) {
         if (ieee802154_pref_use_pan_id_in_key) {
@@ -2970,9 +3011,8 @@ static GByteArray *ieee802154_set_seq_ctr_key_index(guint8 key_index)
 }
 
 /* Set MAC key function. */
-static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
+static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key, int key_number)
 {
-    int i;
     GByteArray *seq_ctr_bytes = NULL;;
 
     /* Lookup the key. */
@@ -2981,16 +3021,16 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
      * and a variety of key configuration data. However, two shared keys
      * should be sufficient to get packet encryption off to a start.
      */
-    for (i = 0; i < NUM_KEYS; i++)
-    {
-        if ((ieee802154_key_valid[i]) &&
-            (packet->key_index == ieee802154_key_index[i]))
+    if (ieee802154_key_hash_val == KEY_HASH_ZIP) {
+        if ((ieee802154_key_valid[key_number]) &&
+            (packet->key_index == ieee802154_key_index[key_number]))
         {
-            memcpy(key, ieee802154_key[i], IEEE802154_CIPHER_SIZE);
+            memcpy(key, ieee802154_key[key_number], IEEE802154_CIPHER_SIZE);
             return TRUE;
         }
+        return FALSE;
     }
-    if (i == NUM_KEYS) {
+    else if (ieee802154_key_hash_val == KEY_HASH_THREAD) {
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
             seq_ctr_bytes = ieee802154_set_seq_ctr_key_index(packet->key_index);
         } else if ((packet->key_id_mode == KEY_ID_MODE_KEY_EXPLICIT_4) &&
@@ -3002,11 +3042,11 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
             return TRUE;
         }
         if (seq_ctr_bytes != NULL) {
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan, key_number);
             memcpy(key, ieee802154_temp_key, IEEE802154_CIPHER_SIZE);
             /* Create an alternate key based on the wraparound case */
             seq_ctr_bytes->data[3] ^= 0x80;
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan, key_number);
             memcpy(alt_key, ieee802154_temp_key, IEEE802154_CIPHER_SIZE);
             g_byte_array_free(seq_ctr_bytes, TRUE);
             return TRUE;
@@ -3016,26 +3056,23 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
 }
 
 /* Set MLE key function. */
-gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key)
+gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key, int key_number)
 {
-    int i;
-    
     /* Lookup the key. */
     /*
      * TODO: What this dissector really needs is a UAT to store multiple keys
      * and a variety of key configuration data. However, two shared keys
      * should be sufficient to get packet encryption off to a start.
      */
-    for (i = 0; i < NUM_KEYS; i++)
-    {
-        if ((ieee802154_key_valid[i]) &&
-            (packet->key_index == ieee802154_key_index[i]))
+    if (ieee802154_key_hash_val == KEY_HASH_ZIP) {
+        if ((ieee802154_key_valid[key_number]) &&
+            (packet->key_index == ieee802154_key_index[key_number]))
         {
-            memcpy(key, ieee802154_mle_key[i], IEEE802154_CIPHER_SIZE);
+            memcpy(key, ieee802154_mle_key[key_number], IEEE802154_CIPHER_SIZE);
             return TRUE;
         }
     }
-    if (i == NUM_KEYS) {
+    else if (ieee802154_key_hash_val == KEY_HASH_THREAD) {
         GByteArray *seq_ctr_bytes = NULL;;
         if (packet->key_id_mode == KEY_ID_MODE_KEY_INDEX) {
             seq_ctr_bytes = ieee802154_set_seq_ctr_key_index(packet->key_index);
@@ -3055,11 +3092,11 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, u
             }
         }
         if (seq_ctr_bytes != NULL) {
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan, key_number);
             memcpy(key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
             /* Create an alternate key based on the wraparound case */
             seq_ctr_bytes->data[3] ^= 0x80;
-            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan);
+            ieee802154_create_thread_temp_keys(seq_ctr_bytes, packet->src_pan, key_number);
             memcpy(alt_key, ieee802154_temp_mle_key, IEEE802154_CIPHER_SIZE);
             g_byte_array_free(seq_ctr_bytes, TRUE);
             return TRUE;
@@ -3650,6 +3687,14 @@ void proto_register_ieee802154(void)
         { "Key Index", "wpan.aux_sec.key_index", FT_UINT8, BASE_HEX, NULL, 0x0,
             "Key Index for processing of the protected frame", HFILL }},
 
+        { &hf_ieee802154_mic,
+        { "Decrypted MIC", "wpan.mic", FT_BYTES, BASE_NONE, NULL, 0x0,
+            "Decrypted MIC", HFILL }},
+            
+        { &hf_ieee802154_key_number,
+        { "Key Number", "wpan.key_number", FT_UINT8, BASE_DEC, NULL, 0x0,
+            "Key number", HFILL }},
+            
             /* IEEE 802.15.4-2003 Security Header Fields */
         { &hf_ieee802154_sec_frame_counter,
         { "Frame Counter", "wpan.sec_frame_counter", FT_UINT32, BASE_HEX, NULL, 0x0,
