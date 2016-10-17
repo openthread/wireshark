@@ -519,9 +519,9 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, FALSE);
                     } else {
                         /* Channel page */
-                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel_page, tvb, offset, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel_page, tvb, offset, 1, FALSE);
                         /* Channel */
-                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel, tvb, offset+1, tlv_len, FALSE);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_channel, tvb, offset+1, 2, FALSE);
                     }
                     offset += tlv_len;
                 }
