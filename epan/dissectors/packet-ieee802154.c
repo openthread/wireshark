@@ -876,7 +876,7 @@ dissect_ieee802154_cc24xx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 static void
 dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint options)
 {
-    tvbuff_t                *volatile payload_tvb;
+    tvbuff_t                *volatile payload_tvb = NULL;
     proto_tree              *volatile ieee802154_tree = NULL;
     proto_item              *volatile proto_root = NULL;
     proto_item              *hidden_item;
@@ -890,7 +890,7 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
     gboolean                dstPanPresent = FALSE;
     gboolean                srcPanPresent = FALSE;
     unsigned char           rx_mic[16];
-    guint                   rx_mic_len;
+    guint                   rx_mic_len = 0;
     ieee802154_packet      *packet = wmem_new0(wmem_packet_scope(), ieee802154_packet);
     ieee802154_short_addr   addr16;
     ieee802154_hints_t     *ieee_hints;
