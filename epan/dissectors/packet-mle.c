@@ -2115,7 +2115,7 @@ proto_register_mle(void)
     { &hf_mle_tlv_route64_entry,
       { "Routing Table Entry",
         "mle.tlv.route64",
-        FT_NONE, BASE_NONE, NULL, 0x0,
+        FT_UINT8, BASE_HEX, NULL, 0x0,
         NULL,
         HFILL
       }
