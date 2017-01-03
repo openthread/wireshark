@@ -388,7 +388,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     tlv_offset = 1;
 
                     /* Enterprise number */
-                    if (flags & THREAD_NWD_TLV_SERVICE_T) {
+                    if ((flags & THREAD_NWD_TLV_SERVICE_T) == 0) {
                         proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_ent_num, tvb, offset, 4, FALSE);
                         offset += 4;
                         tlv_offset += 4;
@@ -416,6 +416,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                         offset += remainder;
                     }
                 }
+                break;
             
             case THREAD_NWD_TLV_SERVER:
                 {
