@@ -3021,7 +3021,7 @@ static gboolean ieee802154_set_mac_key(ieee802154_packet *packet, unsigned char 
      * and a variety of key configuration data. However, two shared keys
      * should be sufficient to get packet encryption off to a start.
      */
-    if (ieee802154_key_hash_val == KEY_HASH_ZIP) {
+    if ((ieee802154_key_hash_val == KEY_HASH_NONE) || (ieee802154_key_hash_val == KEY_HASH_ZIP)) {
         if ((ieee802154_key_valid[key_number]) &&
             (packet->key_index == ieee802154_key_index[key_number]))
         {
@@ -3064,7 +3064,7 @@ gboolean ieee802154_set_mle_key(ieee802154_packet *packet, unsigned char *key, u
      * and a variety of key configuration data. However, two shared keys
      * should be sufficient to get packet encryption off to a start.
      */
-    if (ieee802154_key_hash_val == KEY_HASH_ZIP) {
+    if ((ieee802154_key_hash_val == KEY_HASH_NONE) || (ieee802154_key_hash_val == KEY_HASH_ZIP)) {
         if ((ieee802154_key_valid[key_number]) &&
             (packet->key_index == ieee802154_key_index[key_number]))
         {
