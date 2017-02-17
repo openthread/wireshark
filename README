@@ -1,12 +1,7 @@
-Here are some instructions for building the software for popular platforms:
-
-    Mac OSX
-    Linux
-    Rasberry Pi
+Please see the Wiki for instructions for building the software for popular platforms
 
 
-To report issues with the Thread Wireshark dissector, please log a JIRA issue in the **TSTBED** project
-
+To report issues with the Thread Wireshark dissector, please log a JIRA issue in the TSTBED project
 
 
 
