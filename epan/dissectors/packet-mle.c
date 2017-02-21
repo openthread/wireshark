@@ -1631,7 +1631,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                             } else {
                                 proto_tree_add_item(ar_tree, hf_mle_tlv_addr_reg_iid_type, payload_tvb, offset, 1, FALSE);
                                 offset++;
-                                proto_tree_add_ipv6(ar_tree, hf_mle_tlv_addr_reg_ipv6, payload_tvb, offset, 16, FALSE);
+                                proto_tree_add_item(ar_tree, hf_mle_tlv_addr_reg_ipv6, payload_tvb, offset, 16, FALSE);
                                 offset += 16;
                             }
                         }
