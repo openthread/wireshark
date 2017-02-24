@@ -373,7 +373,7 @@ macdeployqt "$bundle" -verbose=2 || exit 1
 # pointing to the directory containing the Qt frameworks; remove
 # that entry from the Wireshark binary in the package.
 #
-/usr/bin/install_name_tool -delete_rpath "$qt_frameworks_dir" $pkgbin/Wireshark
+/usr/bin/install_name_tool -delete_rpath "$qt_frameworks_dir" $pkgbin/Wireshark || true
 
 # NOTE: we must rpathify *all* files, *including* Qt libraries etc.,
 #
@@ -391,6 +391,11 @@ rpathify_file () {
 		echo "Unable to rpathify $1 in $( pwd ): file type failed."
 		exit 1
 	fi
+
+  # Fix getting filetype on macOS 10.12
+  if [ -z "$filetype" ] ; then
+	  filetype=$( otool -hv "$1" | sed -n '3p' | awk '{print $5}' ; exit ${PIPESTATUS[0]} )
+  fi
 
 	case "$filetype" in
 
